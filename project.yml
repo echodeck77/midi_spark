@@ -1,0 +1,36 @@
+name: MidiSpark
+options:
+  bundleIdPrefix: com.example        # CHANGE: your reverse-DNS prefix (must match your signing team)
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "2"      # iPad
+    DEVELOPMENT_TEAM: ""             # CHANGE: your Team ID (Xcode > Settings > Accounts), or set per-target in Xcode
+    CODE_SIGN_STYLE: Automatic
+targets:
+  MidiSpark:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        UILaunchScreen: {}
+        CFBundleDisplayName: MidiSpark
+    dependencies:
+      - target: MidiSparkAU
+        embed: true
+  MidiSparkAU:
+    type: app-extension
+    platform: iOS
+    sources: [AUExtension]
+    info:
+      path: AUExtension/Info.plist
+      properties: {}                  # real plist lives in AUExtension/Info.plist (audio component declaration)
+    settings:
+      base:
+        INFOPLIST_FILE: AUExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO

@@ -1,0 +1,431 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
+		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
+		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
+		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
+		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
+		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		93660C577FB05290B8870036 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 547172202D8231C244548AE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1D0B3E83C3495583749AF302;
+			remoteInfo = MidiSparkAU;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E8A5FFA993C2ABD193CB7C3D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
+		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
+		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
+		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
+		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		E58A80AE0D953E071AE042EB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		21631744EFF0267BC0F27291 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				DC80E358AFF64399AA7C7A69 /* ContentView.swift */,
+				D4B004FB0FED39A5E1961BD8 /* Info.plist */,
+				344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5A12A22D394BAEFBD77AD6BB = {
+			isa = PBXGroup;
+			children = (
+				21631744EFF0267BC0F27291 /* App */,
+				75B0A874D0FF06633E4409EE /* AUExtension */,
+				B15E07ABC43302C9284D7563 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		75B0A874D0FF06633E4409EE /* AUExtension */ = {
+			isa = PBXGroup;
+			children = (
+				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
+				E58A80AE0D953E071AE042EB /* Info.plist */,
+				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
+				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
+				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
+			);
+			path = AUExtension;
+			sourceTree = "<group>";
+		};
+		B15E07ABC43302C9284D7563 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */,
+				D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1D0B3E83C3495583749AF302 /* MidiSparkAU */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2869B8EE6B8E0EBC3E98594B /* Build configuration list for PBXNativeTarget "MidiSparkAU" */;
+			buildPhases = (
+				2870475AFB7D2D320E3B1972 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MidiSparkAU;
+			packageProductDependencies = (
+			);
+			productName = MidiSparkAU;
+			productReference = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		D6902684FD04DF004696DCC4 /* MidiSpark */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4645653E49AACC9666E394A6 /* Build configuration list for PBXNativeTarget "MidiSpark" */;
+			buildPhases = (
+				BB935E09C83B76B8115C78BE /* Sources */,
+				E8A5FFA993C2ABD193CB7C3D /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7DF127141ABB279E81F58D92 /* PBXTargetDependency */,
+			);
+			name = MidiSpark;
+			packageProductDependencies = (
+			);
+			productName = MidiSpark;
+			productReference = 1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		547172202D8231C244548AE4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					1D0B3E83C3495583749AF302 = {
+						ProvisioningStyle = Automatic;
+					};
+					D6902684FD04DF004696DCC4 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = E95DAE8317D476AFD4386305 /* Build configuration list for PBXProject "MidiSpark" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5A12A22D394BAEFBD77AD6BB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B15E07ABC43302C9284D7563 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D6902684FD04DF004696DCC4 /* MidiSpark */,
+				1D0B3E83C3495583749AF302 /* MidiSparkAU */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2870475AFB7D2D320E3B1972 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */,
+				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
+				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
+				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB935E09C83B76B8115C78BE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */,
+				0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7DF127141ABB279E81F58D92 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1D0B3E83C3495583749AF302 /* MidiSparkAU */;
+			targetProxy = 93660C577FB05290B8870036 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0A2685FDE9357F6A1B920884 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		160566B1C6A5B4C17F987232 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEVELOPMENT_TEAM = U9LCUSTWSQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AUExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark.au;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		83DF7671554E4BB1891AF271 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = U9LCUSTWSQ;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9A63EC8E37782ED7AAF6A804 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		EDCC73B2C20377E6838EDFEB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = U9LCUSTWSQ;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F1A230AE278BB09170A7CB41 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEVELOPMENT_TEAM = U9LCUSTWSQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AUExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark.au;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2869B8EE6B8E0EBC3E98594B /* Build configuration list for PBXNativeTarget "MidiSparkAU" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1A230AE278BB09170A7CB41 /* Debug */,
+				160566B1C6A5B4C17F987232 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4645653E49AACC9666E394A6 /* Build configuration list for PBXNativeTarget "MidiSpark" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EDCC73B2C20377E6838EDFEB /* Debug */,
+				83DF7671554E4BB1891AF271 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E95DAE8317D476AFD4386305 /* Build configuration list for PBXProject "MidiSpark" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A63EC8E37782ED7AAF6A804 /* Debug */,
+				0A2685FDE9357F6A1B920884 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 547172202D8231C244548AE4 /* Project object */;
+}
