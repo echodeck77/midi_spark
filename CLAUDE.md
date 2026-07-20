@@ -84,17 +84,28 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - DONE step 3 (the ROUTER) — tag `v0.3-router`. `Router.swift` (+ `NotePool`) owns grid
   columns, sender-decides chain derivation (§2), the mirror model for identity cells
   (identity re-articulates its feeder's ticks; unfed/+SRC holds the source chord), bus
-  fan-out, per-cell ARP with all three PHASE modes (§3.5), OUT CH / INHERIT stamping
-  (§2.6), and the (bus, channel, note) collision refcount (§7). Kernel keeps input +
-  dispatch. `TestSessions.swift` T1–T8 load from the diag panel; all pass on device.
-  Note: only ARP is implemented — every other processor type behaves as identity for now.
-- NEXT step 4: full processors (ARP patterns beyond UP, RATCHET, PASSGATE, STRUM, CHANCE,
-  HARMONIZE) against acceptance items 4–6. The fed-ARP input-pool sampling (arp fed by arp)
-  is implemented but UNTESTED — no fixture hits it; add coverage when a real processor lands.
+  fan-out, OUT CH / INHERIT stamping (§2.6), and the (bus, channel, note) collision
+  refcount (§7). Kernel keeps input + dispatch. Fed-ARP ("arpeggiate the arpeggio") is
+  real and window-independent (feederSoundingNote derives the feeder's current note).
+- IN PROGRESS step 4 (processors) — 5 of 6 done, each with a fixture + (where pure) unit
+  tests. DONE: ARP (all 5 patterns incl. AS-PLAYED, all 3 PHASE modes), RATCHET, PASSGATE,
+  STRUM, CHANCE. REMAINING: HARMONIZE. `cellMode()` (Derivations.swift) dispatches
+  arp/ratchet/strum/chance/identity/silent; bypass + not-yet-built types fall back to
+  identity, so adding HARMONIZE = one case there + a loop branch + params + a fixture.
+  `TestSessions.swift` now holds T1–T16 (load from the diag panel).
+- Engine feel-decisions NOT pinned by the spec (deliberate, confirmed by ear; flagged in
+  code): ratchet ramp = crescendo, stab gate 0.6 of a subdivision; strum spread = musical
+  beats, curve = frac^(2^curve), tilt linear, ALTERNATE flips per pass; CHANCE is a
+  deterministic position hash (loop-consistent), not a live RNG.
+- Pure core is unit-tested off-device: `Derivations.swift` + the effective-param functions
+  (`Snapshot.swift`, now Foundation-only — atomics live in `SnapshotStore.swift`) +
+  `SnapshotBuilder.swift`, all compiled into the macOS `MidiSparkTests` target (42 tests,
+  ~30 ms). The render loop itself (emission, voice table, refcount, chains) stays
+  device-verified via T1–T16.
 - THEN step 5: SwiftUI grid UI (port of preview v26) — but the COLOUR-panel layout pass in
   the spec's pending list comes first.
 - Acceptance checklist: spec §11, 28 items. Tags: `v0.1-scaffold`, `v0.2-bridge`,
-  `v0.3-router` (this milestone: T1–T8 + B1–B4 device-verified).
+  `v0.3-router` (T1–T8 + B1–B4 device-verified).
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).

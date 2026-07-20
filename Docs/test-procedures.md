@@ -63,6 +63,43 @@ the run, no repeated/skipped indices; gap restarts at 0); FREE with pattern
 length coprime to the step (successive passes catch different slices; loop the
 host — slices stay consistent with the derivation, no drift).
 
+## Step-4 sessions (T9–T16) — full text lives in `AUExtension/TestSessions.swift`
+
+Each session's `expect` string in code is the authoritative description; summary here.
+Identity roles use BYPASSED cells (bypass = identity, robust to any processor).
+
+**T9 — fed ARP (arp of arp, §1.1.3).** Gold ARP 1/8 feeds azure ARP 1/16 ×2oct →
+each upstream note rippled over 2 octaves. Proves the window-independent feeder derivation.
+
+**T10 — transpose accumulation (§2.6).** Gold +5 feeds bypass +7 → bus A sounds +12.
+
+**T11 — mid-chain tap (§2.3).** Gold taps bus A AND feeds a mirror onto bus B.
+
+**T12 — RATCHET.** count 4: whole chord re-struck 4×/column, staccato, velocity crescendo.
+
+**T13 — PASSGATE.** Arp gated per pass mod 4 (open,closed,open,closed): a full cycle of
+arp then a full cycle of silence, alternating. Panel EMIT rises only on even passes.
+
+**T14 — ARP patterns.** cols 0–4: UP · DOWN · UP-DN · RANDOM (loop-consistent) · AS-PLAYED
+(press-order — play notes non-ascending to hear it differ from UP).
+
+**T15 — STRUM.** Chord rolls in low→high over ~0.25 beat, held to boundary, velocity tilt.
+
+**T16 — CHANCE.** Gold ARP → CHANCE 0.5 → a thinned arp; DETERMINISTIC (loop the host, the
+same notes drop every pass). off follows on (no stuck offs).
+
+## Off-device unit tests (`MidiSparkTests`, macOS, ~30 ms)
+
+The pure engine core is covered without a device: swing warp + inverse, phase modes, arp
+patterns (incl. AS-PLAYED + RANDOM loop-consistency), cellMode/passgate dispatch, ratchet/
+strum/chance math, effective-param morph (§3.2 stepped-quantize + §13.5 MASTER), and the
+snapshot builder (sparse B, enum→index, LEGATO run-start, clamps). Run:
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project
+MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS,arch=arm64'
+-derivedDataPath build/DerivedData` (the pinned derived-data path avoids stale test bundles).
+The stateful render path (emission/voice table/refcount/chains) is NOT unit-tested — that
+stays device-verified.
+
 ## Milestone gates
 
 - Router commits 1–6 map to T-cases per docs/router-design.md; run the bridge

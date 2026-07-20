@@ -52,21 +52,32 @@ confirm the extension's Info.plist made it into the build, and that `sandboxSafe
 
 ## What's here
 
+> Well past the original scaffold now — the router (spec §2/§7) is complete (tag
+> `v0.3-router`) and five of six processors are built. See CLAUDE.md for live status.
+
 ```
-project.yml                          XcodeGen definition (targets, embed, signing knobs)
+project.yml                          XcodeGen definition (targets, embed, signing, test target)
 App/                                 Container app (registers the extension; instructions screen)
 AUExtension/
   Info.plist                         aumi declaration: type/subtype/manufacturer, MIDI tag
-  MidiSparkAudioUnit.swift            AUAudioUnit: midiOutputNames ["A","B","C","D"],
-                                     35-parameter tree (STABLE addresses: 0 stepRate, 1 swing,
-                                     100+i transpose, 200+i morph, 300 morphMaster — never renumber),
-                                     fullState = the host-level Preset (spec §1), render plumbing
-  Kernel.swift                       Render kernel: omni note pool, derived playhead,
-                                     passthrough-when-stopped, hardcoded UP arp on cable A,
-                                     all-notes-off on transport edges
-  Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState,
-                                     Codable, factory session
-  AudioUnitViewController.swift      Extension UI host + placeholder SwiftUI view
+  MidiSparkAudioUnit.swift            AUAudioUnit: midiOutputNames ["A","B","C","D"], 35-parameter
+                                     tree (STABLE addresses: 0 stepRate, 1 swing, 100+i transpose,
+                                     200+i morph, 300 morphMaster), fullState = host Preset (§1)
+  Kernel.swift                       INPUT side: transport/context derivation, incoming MIDI
+                                     (source pool + passthrough + CC), param events → Router
+  Router.swift                       OUTPUT side (§2/§7): grid columns, chain derivation, per-cell
+                                     processors (arp/ratchet/passgate/strum/chance), fan-out, the
+                                     voice table + (bus,channel,note) collision refcount
+  Derivations.swift                  PURE core (Foundation-only, unit-tested): NotePool, swing warp,
+                                     phase indexing, arp patterns, cellMode dispatch, ratchet/strum/
+                                     chance math
+  Snapshot.swift                     Flat snapshot schema + effective-param morph (§3.2/§13.5), pure
+  SnapshotStore.swift                Atomic publish/acquire bridge (the one swift-atomics user)
+  SnapshotBuilder.swift              document → SnapshotBox: B-over-A resolve, enum→index, run-starts
+  Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
+  TestSessions.swift                 T1–T16 canned patches, loaded from the diagnostic panel
+  AudioUnitViewController.swift      Extension UI host + the live diagnostic panel (4 Hz)
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, 42 tests)
 ```
 
 ## Build order from here (per spec + our plan)
