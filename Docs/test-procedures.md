@@ -108,7 +108,14 @@ not just what the plan expects. Cases not listed have NOT been run yet.
 Note: T6's OUT CH = n half is now exercised (two unfed arps on bus A), upgrading
 the earlier INHERIT-only pass to a full T6.
 
+### 2026-07-20 — router commit 6 (fan-out + collision refcount)
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T4 (fan-out) | PASS | 8a70de1 | identical simultaneous streams on Synth1 + Synth2, each well-paired |
+| T7 (collision policy) | PASS | 8a70de1 | held note zero dropouts under same-pitch arp; one off after release; panel showed instances > distinct |
+| T1–T3, T5, T6 | PASS | 8a70de1 | regressions; T3's same-note glitch now gone |
+
 **Not yet verified** (blocked on the commit that implements them):
-- T4, T7 (fan-out, collision refcount) — commit 6.
 - T8 (PHASE modes) — commit 7.
 - `v0.3-router` gate (T1–T8 + B1–B4 + 10-min soak) — not yet met.

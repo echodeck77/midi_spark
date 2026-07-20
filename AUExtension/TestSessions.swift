@@ -145,6 +145,7 @@ enum TestSessions {
             c[idx("gold")].paramsA.phase = .retrig
             c[idx("azure")].paramsA.phase = .legato
             c[idx("azure")].paramsA.octaves = 2                // 4-note chord × 2 = the 8-note pattern
+            c[idx("azure")].paramsA.rate = .r1_8              // 4 ticks/col × 2-col run = 8 = one pass of the pattern
             c[idx("mint")].paramsA.phase = .free
             c[idx("mint")].paramsA.octaves = 1                 // length 3 on a 3-note hold: coprime with 8
             return doc(c, scene { s in

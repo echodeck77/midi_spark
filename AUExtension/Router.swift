@@ -349,15 +349,40 @@ final class Router {
         }
     }
 
-    /// The base note (pre-this-cell-transpose) + provenance channel an ARP picks at `tick`.
-    /// Unfed (or +SRC) arps read the source pool — the path the test topologies exercise. A FED arp
-    /// samples its feeder's current sounding note (feeders are mono in practice); untested, kept simple.
-    private func arpPick(tick: Int64, octaves: Int, fed: Bool, srcMix: Bool, feederRow: Int,
+    /// The pattern index at this tick per PHASE mode (§3.5). All pure functions of position —
+    /// derived, never accumulated (§7), so tempo/loop/relocate stay drift-free.
+    ///  · RETRIG — restarts at each step (column) boundary.
+    ///  · LEGATO — counts from the run's first column (snapshot-precomputed runStartColumn), so a
+    ///    multi-column run of one Colour continues the pattern; a gap restarts it.
+    ///  · FREE   — free-running from the origin; successive passes land on different slices.
+    @inline(__always)
+    private func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
+                            cycleBeats: Double, phase: ArpPhase, runStartColumn: Int8) -> Int64 {
+        switch phase {
+        case .free:
+            return tick
+        case .retrig:
+            let colStart = (mTickBeat / S).rounded(.down) * S
+            return tick - Int64((colStart / arpBeats).rounded())
+        case .legato:
+            let passStart = (mTickBeat / cycleBeats).rounded(.down) * cycleBeats
+            let rs = runStartColumn >= 0 ? Int(runStartColumn)
+                                         : Int(((mTickBeat - passStart) / S).rounded(.down))
+            let runStart = passStart + Double(rs) * S
+            return tick - Int64((runStart / arpBeats).rounded())
+        }
+    }
+
+    /// The base note (pre-this-cell-transpose) + provenance channel an ARP picks at pattern index
+    /// `phaseIndex`. Unfed (or +SRC) arps read the source pool — the path the test topologies
+    /// exercise. A FED arp samples its feeder's current sounding note (feeders are mono in practice);
+    /// untested, kept simple. Chord changes never reset the index — it is a function of position.
+    private func arpPick(phaseIndex: Int64, octaves: Int, fed: Bool, srcMix: Bool, feederRow: Int,
                          onSample: AUEventSampleTime, pool: NotePool) -> (base: Int, chan: UInt8) {
         if !fed || srcMix {
             guard pool.count > 0 else { return (-1, 0) }
-            let span = pool.count * max(1, octaves)
-            let step = Int(tick % Int64(span))
+            let span = Int64(pool.count * max(1, octaves))
+            let step = Int(((phaseIndex % span) + span) % span)      // safe for relative (0-based) indices
             let base = Int(pool.sorted[step % pool.count])
             return (base + 12 * (step / pool.count), pool.channel(of: base))
         }
@@ -371,7 +396,8 @@ final class Router {
             }
         }
         guard note >= 0 else { return (-1, 0) }
-        return (note + 12 * Int(tick % Int64(max(1, octaves))), prov)
+        let oct = Int64(max(1, octaves))
+        return (note + 12 * Int(((phaseIndex % oct) + oct) % oct), prov)
     }
 
     // MARK: - the render-side pass
@@ -497,7 +523,10 @@ final class Router {
                     let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                            windowStart: windowStart, S: S, a: a)
 
-                    let pick = arpPick(tick: tick, octaves: octaves, fed: fed, srcMix: cell.srcMix,
+                    let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+                                          cycleBeats: cycleBeats, phase: colour.a.phase,
+                                          runStartColumn: cell.runStartColumn)
+                    let pick = arpPick(phaseIndex: pIdx, octaves: octaves, fed: fed, srcMix: cell.srcMix,
                                        feederRow: r - 1, onSample: onTime, pool: pool)
                     guard pick.base >= 0 else { continue }
                     let noteValue = pick.base + transpose
