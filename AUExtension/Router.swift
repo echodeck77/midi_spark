@@ -376,14 +376,41 @@ final class Router {
     }
 
     /// The base note (pre-this-cell-transpose) + provenance channel a source-reading ARP picks at
-    /// pattern index `phaseIndex` (UP over octaves). Chord changes never reset the index — it is a
-    /// function of position. Returns base -1 for an empty pool.
-    private func arpPickSource(phaseIndex: Int64, octaves: Int, pool: NotePool) -> (base: Int, chan: UInt8) {
-        guard pool.count > 0 else { return (-1, 0) }
-        let span = Int64(pool.count * max(1, octaves))
-        let step = Int(((phaseIndex % span) + span) % span)     // safe for relative (0-based) indices
-        let base = Int(pool.sorted[step % pool.count])
-        return (base + 12 * (step / pool.count), pool.channel(of: base))
+    /// pattern index `phaseIndex`, for the given PATTERN (§3) over `octaves`. All patterns are pure
+    /// functions of position (loop-consistent — RANDOM lands the same note on the same tick every
+    /// pass). Chord changes never reset the index. Returns base -1 for an empty pool.
+    private func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
+                               pool: NotePool) -> (base: Int, chan: UInt8) {
+        let count = pool.count
+        guard count > 0 else { return (-1, 0) }
+        let span = count * max(1, octaves)
+        let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
+        let pat = Int(pattern) < ArpPattern.allCases.count ? ArpPattern.allCases[Int(pattern)] : .up
+
+        let pos: Int
+        switch pat {
+        case .up:
+            pos = asc
+        case .down:
+            pos = span - 1 - asc
+        case .upDown:
+            // triangle, no repeated top/bottom: 0…span-1…1, period 2(span-1)
+            let period = max(1, 2 * (span - 1))
+            let tri = Int(((phaseIndex % Int64(period)) + Int64(period)) % Int64(period))
+            pos = tri < span ? tri : period - tri
+        case .random:
+            // deterministic hash of the tick → position (loop-consistent, not accumulated)
+            var h = UInt64(bitPattern: phaseIndex) &+ 0x9E3779B97F4A7C15
+            h = (h ^ (h >> 30)) &* 0xBF58476D1CE4E5B9
+            h = (h ^ (h >> 27)) &* 0x94D049BB133111EB
+            h ^= (h >> 31)
+            pos = Int(h % UInt64(span))
+        case .asPlayed:
+            pos = asc   // TODO: needs press-order in NotePool (note-indexed today); falls back to UP
+        }
+
+        let note = Int(pool.sorted[pos % count])
+        return (note + 12 * (pos / count), pool.channel(of: note))
     }
 
     /// One sounding note (+ provenance channel) of the cell at (column, row) at musical beat `m`,
@@ -426,7 +453,8 @@ final class Router {
                 let oct = Int64(max(1, octaves))
                 return (up.note + 12 * Int(((pIdx % oct) + oct) % oct) + transpose, up.chan)
             }
-            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves, pool: pool)   // unfed / +SRC → source
+            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves,
+                                  pattern: colour.a.patternIndex, pool: pool)   // unfed / +SRC → source
             return p.base >= 0 ? (p.base + transpose, p.chan) : nil
         }
         if fed {
@@ -611,7 +639,8 @@ final class Router {
                         base = f.note + 12 * Int(((pIdx % oct) + oct) % oct)   // f.note already has feeder transpose
                         prov = f.chan
                     } else {
-                        let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves, pool: pool)
+                        let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves,
+                                                 pattern: colour.a.patternIndex, pool: pool)
                         guard pick.base >= 0 else { continue }
                         base = pick.base; prov = pick.chan
                     }
