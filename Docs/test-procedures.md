@@ -145,3 +145,11 @@ HARMONIZE — acceptance items 4–6) then step 5 (SwiftUI grid UI).
 | T1–T11 re-listen | PASS | 86d4fd8 | arps now sound each column's first note; no regressions |
 
 Chosen RATCHET defaults confirmed by ear: velocity ramp = crescendo; stab gate 0.6 of a subdivision.
+
+### 2026-07-20 — step 4: PASSGATE
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T13 (PASSGATE) | PASS | 7b3ac04 | arp gated per pass mod 4 (open,closed,open,closed); click-safe |
+
+Not yet device-verified: T14 (ARP patterns DOWN/UP-DN/RANDOM).
