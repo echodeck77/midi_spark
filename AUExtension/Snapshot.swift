@@ -13,8 +13,9 @@ import Atomics   // swift-atomics via SPM — see project.yml `packages:`
 
 enum Snap {
     static let cols = 8, rows = 8, colours = 16
-    // Rate ladder shared by builder and kernel. Order MUST match ArpRate.allCases (§8: stable).
+    // Ladders shared by builder and kernel. Order MUST match the enums' allCases (§8: stable).
     static let arpRateBeats: [Double] = ArpRate.allCases.map(\.beats)
+    static let stepRateBeats: [Double] = StepRate.allCases.map(\.beats)
 }
 
 // MARK: - Flat cell (one per grid position; colourIndex < 0 = empty)
@@ -55,14 +56,16 @@ struct SnapColour {
 // MARK: - The box: immutable after construction → safe concurrent reads, no locks
 
 final class SnapshotBox {
+    let generation: UInt64           // increments per publish; render clears param overrides on change
     let stepBeats: Double
     let swing: Double                // 50…75 (§4 v2.3)
     let morphMaster: Double          // §13.5, parameter #35
     let colours: [SnapColour]        // exactly 16
     let cells: [SnapCell]            // 64, index = column * 8 + row
 
-    init(stepBeats: Double, swing: Double, morphMaster: Double,
+    init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell]) {
+        self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
         self.morphMaster = morphMaster

@@ -7,7 +7,7 @@ import Foundation
 
 enum SnapshotBuilder {
 
-    static func build(from doc: PluginState) -> SnapshotBox {
+    static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
         let scene = doc.scenes[doc.activeScene]
 
         // ---- colours: resolve A, then B = A overlaid with paramsB's set fields ----
@@ -58,7 +58,8 @@ enum SnapshotBuilder {
             }
         }
 
-        return SnapshotBox(stepBeats: scene.stepRate.beats,
+        return SnapshotBox(generation: generation,
+                           stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
                            morphMaster: max(0, min(1, doc.morphMaster)),
                            colours: colours,

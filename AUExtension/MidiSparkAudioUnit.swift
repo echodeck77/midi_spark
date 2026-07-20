@@ -17,17 +17,23 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var document = PluginState.factory()
     private let store: SnapshotStore
     private var rebuildPending = false
+    private var snapshotGeneration: UInt64 = 1
+
+    /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
+    func kernelDiagnostics() -> KernelDiag { kernel.diag }
 
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if Thread.isMainThread {
-            store.publish(SnapshotBuilder.build(from: document))
+            snapshotGeneration &+= 1
+            store.publish(SnapshotBuilder.build(from: document, generation: snapshotGeneration))
         } else if !rebuildPending {
             rebuildPending = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.rebuildPending = false
-                self.store.publish(SnapshotBuilder.build(from: self.document))
+                self.snapshotGeneration &+= 1
+                self.store.publish(SnapshotBuilder.build(from: self.document, generation: self.snapshotGeneration))
             }
         }
     }
@@ -37,7 +43,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
-        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.factory()))
+        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.factory(), generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
 
         // aumi units still require audio busses; a silent stereo pair is conventional.

@@ -1,35 +1,76 @@
 //  Kernel.swift
-//  MidiSpark — render kernel, snapshot-driven (build-order step 2; spec v2.8 §4/§7).
-//  Behaviour vs step 1: identical shape (passthrough stopped / UP arp playing on cable A),
-//  but rate, gate, octave count, morph(+MASTER), step size, and SWING now come from the
-//  atomically-published snapshot. Automate "Morph Gold" or "Swing" in the host and hear it.
-//  The playhead remains DERIVED, never accumulated; swing is a phase WARP on the derived
-//  beat (§4 v2.3), so the no-accumulation guarantee survives by construction.
+//  MidiSpark — render kernel, snapshot-driven, with render-side parameter events + diagnostics.
+//  New in this revision:
+//   · Handles AURenderEvent .parameter / .parameterRamp — the render-thread route hosts use
+//     for automation & MIDI-mapped controls. Values land in a fixed override table; a fresh
+//     snapshot generation (a real document edit) clears overrides so the two routes agree.
+//   · CC/PB/AT pass through on cable A ALWAYS, playing or stopped (§2.6). Notes pass only
+//     when stopped, as before.
+//   · Diag struct: live counters/values the UI polls (benign torn reads; diagnostics only).
 
 import Foundation
 import AudioToolbox
 import AVFoundation
 
+struct KernelDiag {
+    var renderCount: UInt64 = 0
+    var playing = false
+    var beat: Double = 0
+    var tempo: Double = 0
+    var poolCount = 0
+    var snapshotGen: UInt64 = 0
+    var paramEventCount: UInt64 = 0
+    var lastParamAddr: Int64 = -1
+    var lastParamValue: Double = 0
+    var ccCount: UInt64 = 0
+    var ccStatus: UInt8 = 0, ccData1: UInt8 = 0, ccData2: UInt8 = 0
+    var effMorphGold: Double = 0
+    var effRateBeats: Double = 0
+    var effSwing: Double = 50
+}
+
 final class Kernel {
-    // Captured at allocateRenderResources.
     var midiOut: AUMIDIOutputEventBlock?
     var musicalContext: AUHostMusicalContextBlock?
     var transportState: AUHostTransportStateBlock?
     var sampleRate: Double = 44_100
     var store: SnapshotStore?
+    private(set) var diag = KernelDiag()
 
     // Held-note pool (the source, §2.5): omni, fixed capacity.
     private var pool = [UInt8](repeating: 0, count: 128)
     private var poolSorted = [UInt8](repeating: 0, count: 128)
     private var poolCount = 0
 
-    // Miniature note tracker (§7): one arp voice for now.
+    // Miniature note tracker (§7).
     private var soundingNote: Int = -1
     private var wasPlaying = false
     private var lastTickIndex: Int64 = -1
 
-    // The colour driving the demo arp until the router (step 3) exists: gold = index 0.
-    private let demoColour = 0
+    private let demoColour = 0   // gold drives the demo arp until the router (step 3)
+
+    // ---- render-side parameter overrides -------------------------------------------------
+    // Slots: 0 stepRate · 1 swing · 2+i transpose(i) · 18+i morph(i) · 34 morphMaster
+    private var overrides = [Double](repeating: .nan, count: 35)
+    private var overrideGen: UInt64 = .max
+
+    @inline(__always)
+    private func slot(for address: AUParameterAddress) -> Int? {
+        switch address {
+        case 0: return 0
+        case 1: return 1
+        case 100..<116: return 2 + Int(address - 100)
+        case 200..<216: return 18 + Int(address - 200)
+        case 300: return 34
+        default: return nil
+        }
+    }
+
+    @inline(__always)
+    private func over(_ slotIndex: Int, _ fallback: Double) -> Double {
+        let v = overrides[slotIndex]
+        return v.isNaN ? fallback : v
+    }
 
     func reset() {
         pool = [UInt8](repeating: 0, count: 128)
@@ -37,11 +78,11 @@ final class Kernel {
         flushSounding(atSample: AUEventSampleTimeImmediate)
         wasPlaying = false
         lastTickIndex = -1
+        overrides = [Double](repeating: .nan, count: 35)
+        overrideGen = .max
     }
 
-    // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, pairwise MPC-style at step level.
-    //   a = swing/50 ∈ [1, 1.5]; within each 2-step pair the first step stretches to a·S,
-    //   the second shrinks to (2−a)·S. Identity at swing = 50 by construction.
+    // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50.
 
     @inline(__always)
     private func musicalOf(_ realBeat: Double, stepBeats S: Double, a: Double) -> Double {
@@ -69,6 +110,14 @@ final class Kernel {
                 events: UnsafePointer<AURenderEvent>?) {
 
         guard let box = store?.acquire() else { return }
+        diag.renderCount &+= 1
+        diag.snapshotGen = box.generation
+
+        // A real document edit published a fresh snapshot → it is the new truth; drop overrides.
+        if box.generation != overrideGen {
+            for i in overrides.indices { overrides[i] = .nan }
+            overrideGen = box.generation
+        }
 
         // ---- transport & musical context (derived every render) ----
         var playing = false
@@ -87,12 +136,14 @@ final class Kernel {
                 beatPos = beat
             }
         }
+        diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
 
-        // ---- incoming MIDI: pool + passthrough-when-stopped ----
+        // ---- event list: MIDI + parameter events ----
         var ev = events
         while let e = ev {
             let head = e.pointee.head
-            if head.eventType == .MIDI {
+            switch head.eventType {
+            case .MIDI:
                 let midi = e.pointee.MIDI
                 withUnsafeBytes(of: midi.data) { raw in
                     let bytes = raw.bindMemory(to: UInt8.self)
@@ -100,9 +151,19 @@ final class Kernel {
                     if length >= 1 {
                         handleIncoming(bytes: bytes, length: length,
                                        sampleTime: midi.eventSampleTime,
-                                       passthrough: !playing)
+                                       playing: playing)
                     }
                 }
+            case .parameter, .parameterRamp:
+                let pe = e.pointee.parameter
+                if let idx = slot(for: pe.parameterAddress) {
+                    overrides[idx] = Double(pe.value)
+                    diag.paramEventCount &+= 1
+                    diag.lastParamAddr = Int64(pe.parameterAddress)
+                    diag.lastParamValue = Double(pe.value)
+                }
+            default:
+                break
             }
             ev = UnsafePointer(head.next)
         }
@@ -113,28 +174,36 @@ final class Kernel {
             lastTickIndex = -1
             wasPlaying = playing
         }
-        guard playing, poolCount > 0, let out = midiOut else { return }
 
-        // ---- effective params from the snapshot (§3.2 / §13.5) ----
+        // ---- effective params: snapshot + render-side overrides (§3.2 / §13.5) ----
         let colour = box.colours[demoColour]
-        let t = effectiveMorph(colour.morph, master: box.morphMaster)
-        let arpBeats = effectiveRateBeats(colour, t: t)
+        let master = over(34, box.morphMaster)
+        let morphGold = over(18 + demoColour, colour.morph)
+        let t = effectiveMorph(morphGold, master: master)
+        var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
         let octaves = effectiveOctaves(colour, t: t)
-        let a = box.swing / 50.0
-        let S = box.stepBeats
+        let transpose = Int(over(2 + demoColour, Double(colour.transpose)).rounded())
+        let swing = min(75, max(50, over(1, box.swing)))
+        let a = swing / 50.0
+        var S = box.stepBeats
+        let srIdx = Int(over(0, -1).rounded())
+        if srIdx >= 0 && srIdx < Snap.stepRateBeats.count { S = Snap.stepRateBeats[srIdx] }
+        if arpBeats <= 0 { arpBeats = 0.25 }
+        diag.effMorphGold = t; diag.effRateBeats = arpBeats; diag.effSwing = swing
 
-        // ---- derived arp ticks, in MUSICAL beat space; delivery times unwarped back to real ----
+        guard playing, poolCount > 0, let out = midiOut else { diag.poolCount = poolCount; return }
+
+        // ---- derived ticks in MUSICAL beat space; delivery unwarped to real ----
         let beatsPerSample = tempo / 60.0 / sampleRate
         let windowBeats = Double(frameCount) * beatsPerSample
         let mStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let firstTick = Int64((mStart / arpBeats).rounded(.up))
         let lastTick = Int64((mEnd / arpBeats).rounded(.down))
-        guard firstTick <= lastTick else { return }
-
         rebuildSorted()
-        guard poolCount > 0 else { return }
+        diag.poolCount = poolCount
+        guard firstTick <= lastTick, poolCount > 0 else { return }
         let span = poolCount * octaves
 
         for tick in firstTick...lastTick {
@@ -147,17 +216,15 @@ final class Kernel {
 
             flushSounding(atSample: onTime)
 
-            // UP over octaves: index derived from tick, never accumulated (§1.1 clause 4)
             let step = Int(tick % Int64(span))
             let base = Int(poolSorted[step % poolCount])
             let raised = base + 12 * (step / poolCount)
-            let noteValue = raised + Int(colour.transpose)
-            guard noteValue >= 0 && noteValue <= 127 else { continue }   // clamp policy (§2.6) — skip out-of-range
+            let noteValue = raised + transpose
+            guard noteValue >= 0 && noteValue <= 127 else { continue }
             var on: [UInt8] = [0x90, UInt8(noteValue), 96]
-            _ = out(onTime, 0 /* cable A */, 3, &on)
+            _ = out(onTime, 0, 3, &on)
             soundingNote = noteValue
 
-            // gate-off inside this window if it lands here; next tick's flush catches the rest
             let mOffBeat = mTickBeat + arpBeats * gate
             if mOffBeat < mEnd {
                 let realOff = realOf(mOffBeat, stepBeats: S, a: a)
@@ -168,11 +235,12 @@ final class Kernel {
         }
     }
 
-    // MARK: - helpers (fixed-size storage; no allocation intent on the hot path)
+    // MARK: - helpers
 
     private func handleIncoming(bytes: UnsafeBufferPointer<UInt8>, length: Int,
-                                sampleTime: AUEventSampleTime, passthrough: Bool) {
+                                sampleTime: AUEventSampleTime, playing: Bool) {
         let status = bytes[0] & 0xF0
+        let isNote = (status == 0x90 || status == 0x80)
         if status == 0x90, length >= 3 {
             let vel = bytes[2]
             if vel > 0 { if pool[Int(bytes[1])] == 0 { poolCount += 1 }; pool[Int(bytes[1])] = vel }
@@ -181,7 +249,15 @@ final class Kernel {
             if pool[Int(bytes[1])] != 0 { poolCount -= 1 }
             pool[Int(bytes[1])] = 0
         }
-        if passthrough, let out = midiOut {
+        if !isNote {
+            diag.ccCount &+= 1
+            diag.ccStatus = bytes[0]
+            diag.ccData1 = length > 1 ? bytes[1] : 0
+            diag.ccData2 = length > 2 ? bytes[2] : 0
+        }
+        // §2.6: CC/PB/AT pass through on cable A always; notes pass only when stopped.
+        let shouldForward = isNote ? !playing : true
+        if shouldForward, let out = midiOut {
             var copy: [UInt8] = [0, 0, 0]
             for i in 0..<min(length, 3) { copy[i] = bytes[i] }
             _ = out(sampleTime, 0, min(length, 3), &copy)
