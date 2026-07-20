@@ -47,3 +47,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.MidiSpark.AU
         INFOPLIST_FILE: AUExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+
+# Shared schemes (written to xcshareddata → tracked, always present). Without this, XcodeGen
+# generates no scheme and Xcode's auto-created ones live in xcuserdata — which is gitignored and
+# was deleted, so the app scheme vanished. Run MidiSpark (the app); it embeds + registers the AU.
+schemes:
+  MidiSpark:
+    build:
+      targets:
+        MidiSpark: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
