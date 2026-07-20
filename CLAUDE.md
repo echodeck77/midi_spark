@@ -61,6 +61,13 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   `CODE_SIGNING_ALLOWED=NO` skips signing for a pure compile check; *device install*
   happens in Xcode. The `MidiSpark` scheme is shared (project.yml `schemes:`); regenerate
   never drops it.
+- Off-device unit tests cover the pure engine core (`AUExtension/Derivations.swift`: swing warp,
+  phase modes, arp patterns, cellMode dispatch, ratchet ramp, NotePool). Run them — no simulator,
+  ~seconds — with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test
+  -project MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS'`. The macOS
+  `MidiSparkTests` target compiles the Foundation-only pure sources directly (no iOS/CoreAudio
+  link). Keep new pure logic in Derivations.swift so it stays testable; add a test when you add a
+  processor. Integration behaviour (chains, emission, refcount) is still device-verified via T1–T14.
 - Device testing is manual: the human runs from Xcode onto the iPad and verifies in AUM.
   You cannot hear anything. When behaviour needs verification, say exactly what to check
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).

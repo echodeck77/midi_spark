@@ -9,12 +9,16 @@
 /* Begin PBXBuildFile section */
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
+		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
 		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
+		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
@@ -54,8 +58,11 @@
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
 		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
 		80701821EB9AD6D1683D1DDD /* Router.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Router.swift; sourceTree = "<group>"; };
+		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
+		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -73,6 +80,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0DB60BF9F834AFCB1DEC8926 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				98149EBE4B9E76352A457113 /* DerivationsTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		21631744EFF0267BC0F27291 /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -88,6 +103,7 @@
 			children = (
 				21631744EFF0267BC0F27291 /* App */,
 				75B0A874D0FF06633E4409EE /* AUExtension */,
+				0DB60BF9F834AFCB1DEC8926 /* Tests */,
 				B15E07ABC43302C9284D7563 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
+				B685D12DF249234FFBB1055E /* Derivations.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
@@ -112,6 +129,7 @@
 			children = (
 				1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */,
 				D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */,
+				B049851538F9CC0979176A1D /* MidiSparkTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -137,6 +155,23 @@
 			productName = MidiSparkAU;
 			productReference = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		2DB83F7449E6960EC4CDD98E /* MidiSparkTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D1524C8FF1166F69A3B987CC /* Build configuration list for PBXNativeTarget "MidiSparkTests" */;
+			buildPhases = (
+				CD4213B611035765D177353A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MidiSparkTests;
+			packageProductDependencies = (
+			);
+			productName = MidiSparkTests;
+			productReference = B049851538F9CC0979176A1D /* MidiSparkTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		D6902684FD04DF004696DCC4 /* MidiSpark */ = {
 			isa = PBXNativeTarget;
@@ -170,6 +205,10 @@
 						DevelopmentTeam = U9LCUSTWSQ;
 						ProvisioningStyle = Automatic;
 					};
+					2DB83F7449E6960EC4CDD98E = {
+						DevelopmentTeam = U9LCUSTWSQ;
+						ProvisioningStyle = Automatic;
+					};
 					D6902684FD04DF004696DCC4 = {
 						DevelopmentTeam = U9LCUSTWSQ;
 						ProvisioningStyle = Automatic;
@@ -195,6 +234,7 @@
 			targets = (
 				D6902684FD04DF004696DCC4 /* MidiSpark */,
 				1D0B3E83C3495583749AF302 /* MidiSparkAU */,
+				2DB83F7449E6960EC4CDD98E /* MidiSparkTests */,
 			);
 		};
 /* End PBXProject section */
@@ -205,6 +245,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */,
+				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,
@@ -221,6 +262,16 @@
 			files = (
 				D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */,
 				0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CD4213B611035765D177353A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */,
+				78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */,
+				B6CE33CA239BE671207C2E10 /* Models.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -286,7 +337,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
@@ -307,6 +357,24 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSpark.AU;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6E9FF66A3EDA84D764335CBE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSparkTests;
+				SDKROOT = macosx;
 			};
 			name = Release;
 		};
@@ -384,11 +452,28 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		AA48DBFFEE10551AD42140A0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSparkTests;
+				SDKROOT = macosx;
 			};
 			name = Debug;
 		};
@@ -441,6 +526,15 @@
 			buildConfigurations = (
 				EDCC73B2C20377E6838EDFEB /* Debug */,
 				83DF7671554E4BB1891AF271 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D1524C8FF1166F69A3B987CC /* Build configuration list for PBXNativeTarget "MidiSparkTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA48DBFFEE10551AD42140A0 /* Debug */,
+				6E9FF66A3EDA84D764335CBE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -48,6 +48,23 @@ targets:
         INFOPLIST_FILE: AUExtension/Info.plist
         GENERATE_INFOPLIST_FILE: NO
 
+  # Off-device unit tests for the pure engine core. macOS + host-less logic bundle → runs in
+  # seconds with `xcodebuild test`, no simulator. Compiles the pure sources directly (they are
+  # Foundation-only), so it does not link the iOS extension.
+  MidiSparkTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - Tests
+      - path: AUExtension/Derivations.swift
+      - path: AUExtension/Models.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.MidiSparkTests
+        CODE_SIGNING_ALLOWED: NO
+
 # Shared schemes (written to xcshareddata → tracked, always present). Without this, XcodeGen
 # generates no scheme and Xcode's auto-created ones live in xcuserdata — which is gitignored and
 # was deleted, so the app scheme vanished. Run MidiSpark (the app); it embeds + registers the AU.
@@ -64,3 +81,11 @@ schemes:
       config: Debug
     archive:
       config: Release
+  MidiSparkTests:
+    build:
+      targets:
+        MidiSparkTests: [test]
+    test:
+      config: Debug
+      targets:
+        - MidiSparkTests
