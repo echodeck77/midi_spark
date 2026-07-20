@@ -342,6 +342,43 @@ final class Router {
         return nil   // unfed identity: a chord (pool), not one note — see doc comment
     }
 
+    /// The shared subdivision-tick scaffold for ARP and RATCHET. Walks every tick of length `sub`
+    /// in this window that belongs to `effColumn`, dedups per row, and hands the body the tick's
+    /// index, musical beat, and unwarped on/off sample times. `gateFraction` sets the note length
+    /// as a fraction of `sub` (truncated at the column boundary). The body decides WHAT to emit;
+    /// this owns the timing — so the boundary/dedup logic lives in exactly one place.
+    /// Return from the body to skip a tick (the equivalent of `continue`).
+    private func iterateTicks(row: Int, effColumn: Int, sub: Double, gateFraction: Double,
+                              beatPos: Double, windowBeats: Double, windowStart: AUEventSampleTime,
+                              beatsPerSample: Double, S: Double, a: Double,
+                              _ body: (_ tick: Int64, _ mTickBeat: Double,
+                                       _ onTime: AUEventSampleTime, _ offTime: AUEventSampleTime) -> Void) {
+        let mStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
+        // column's window rejects it (wrong column) and ceil would round past it, dropping the
+        // column's first note. floor + the == dedup catches it once (fired slightly late, clamped).
+        let firstTick = Int64((mStart / sub).rounded(.down))
+        let lastT = Int64((mEnd / sub).rounded(.down))
+        guard firstTick <= lastT else { return }
+
+        for tick in firstTick...lastT {
+            let mTickBeat = Double(tick) * sub
+            let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
+            if tickCol != effColumn { continue }         // handled in that column's own window
+            if tick == lastTick[row] { continue }
+            lastTick[row] = tick
+
+            let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                  windowStart: windowStart, S: S, a: a)
+            let colEnd = (mTickBeat / S).rounded(.down) * S + S
+            let mOff = min(mTickBeat + sub * gateFraction, colEnd)
+            let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                   windowStart: windowStart, S: S, a: a)
+            body(tick, mTickBeat, onTime, offTime)
+        }
+    }
+
     // MARK: - the render-side pass
 
     func process(box: SnapshotBox,
@@ -445,55 +482,32 @@ final class Router {
                 if arpBeats <= 0 { arpBeats = 0.25 }
                 if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
 
-                let mStart = musicalOf(beatPos, stepBeats: S, a: a)
-                let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-                // floor, not ceil: the tick AT a column boundary sits between two render windows —
-                // the previous column's window rejects it (wrong column) and a ceil here would round
-                // past it, dropping each column's first note. floor + the == dedup below catches it
-                // exactly once (fired slightly late, clamped to windowStart).
-                let firstTick = Int64((mStart / arpBeats).rounded(.down))
-                let lastT = Int64((mEnd / arpBeats).rounded(.down))
-                guard firstTick <= lastT else { continue }
-
-                for tick in firstTick...lastT {
-                    let mTickBeat = Double(tick) * arpBeats
-                    // A tick already in the next column is handled in that column's own window.
-                    let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
-                    if tickCol != effColumn { continue }
-                    if tick == lastTick[r] { continue }
-                    lastTick[r] = tick
-
-                    let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                          windowStart: windowStart, S: S, a: a)
-                    let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
-                    let mOff = min(mTickBeat + arpBeats * gate, colEndMusical)
-                    let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                           windowStart: windowStart, S: S, a: a)
-
+                iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
+                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                             beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                     let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                           cycleBeats: cycleBeats, phase: colour.a.phase,
                                           runStartColumn: cell.runStartColumn)
 
                     // Input pick. Unfed (or +SRC) → source pool. FED → the feeder's CURRENT sounding
                     // note by derivation (window-independent), octave-arped by this cell (§1.1.3
-                    // "arpeggiate the arpeggio"). +SRC-on-a-fed-ARP folds in source — no fixture yet,
-                    // so it currently reads source only; revisit when one lands.
+                    // "arpeggiate the arpeggio"). +SRC-on-a-fed-ARP folds in source — no fixture yet.
                     let base: Int, prov: UInt8
                     if fed && !cell.srcMix {
                         guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
-                        else { continue }
+                        else { return }
                         let oct = Int64(max(1, octaves))
                         base = f.note + 12 * Int(((pIdx % oct) + oct) % oct)   // f.note already has feeder transpose
                         prov = f.chan
                     } else {
                         let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves,
                                                  pattern: colour.a.patternIndex, pool: pool)
-                        guard pick.base >= 0 else { continue }
+                        guard pick.base >= 0 else { return }
                         base = pick.base; prov = pick.chan
                     }
                     let noteValue = base + transpose
-                    guard noteValue >= 0 && noteValue <= 127 else { continue }
+                    guard noteValue >= 0 && noteValue <= 127 else { return }
 
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov)
                     if emits {
@@ -504,43 +518,27 @@ final class Router {
                     }
                 }
             } else if mode == .ratchet {
-                // RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato,
-                // with a velocity ramp. Not an arp (no index cycling) — every stab is the full pool.
+                // RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato
+                // (0.6), with a velocity ramp. Not an arp (no index cycling) — every stab is the pool.
                 let repeats = effectiveRepeats(colour, t: t)
                 let ramp = effectiveRamp(colour, t: t)
                 let sub = S / Double(repeats)                          // one repeat every `sub` beats
                 if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = sub }
 
-                let mStart = musicalOf(beatPos, stepBeats: S, a: a)
-                let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-                let firstTick = Int64((mStart / sub).rounded(.down))   // floor: catch the boundary stab (see arp branch)
-                let lastT = Int64((mEnd / sub).rounded(.down))
-                guard firstTick <= lastT else { continue }
-
-                for tick in firstTick...lastT {
-                    let mTickBeat = Double(tick) * sub
-                    let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
-                    if tickCol != effColumn { continue }
-                    if tick == lastTick[r] { continue }
-                    lastTick[r] = tick
-
+                iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
+                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                             beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
                     let colStart = (mTickBeat / S).rounded(.down) * S
                     let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
                     let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
-
-                    let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                          windowStart: windowStart, S: S, a: a)
-                    let mOff = min(mTickBeat + sub * 0.6, colStart + S)          // staccato stab (0.6 of a repeat)
-                    let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                           windowStart: windowStart, S: S, a: a)
 
                     if fed && !cell.srcMix {
                         // ratchet the feeder's CURRENT sounding note (derivation, window-independent)
                         guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
-                        else { continue }
+                        else { return }
                         let n = f.note + transpose
-                        guard n >= 0 && n <= 127 else { continue }
+                        guard n >= 0 && n <= 127 else { return }
                         storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan)
                         if emits {
                             emitArtic(note: UInt8(n), provenanceChan: f.chan, outChannel: colour.outChannel,
