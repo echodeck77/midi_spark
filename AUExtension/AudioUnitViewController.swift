@@ -43,6 +43,7 @@ struct DiagView: View {
     @State private var treeMorphGold: Float = 0
     @State private var treeSwing: Float = 50
     @State private var loadedID = "—"
+    @State private var scene = SceneState.empty()
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
@@ -68,9 +69,10 @@ struct DiagView: View {
     var body: some View {
         ZStack {
             Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 7) {
+            ScrollView {
+              VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("MIDISPARK — BRIDGE DIAGNOSTICS")
+                    Text("MIDISPARK — GRID + DIAGNOSTICS")
                         .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(3)
                         .foregroundColor(.white.opacity(0.85))
                     Spacer()
@@ -78,6 +80,9 @@ struct DiagView: View {
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundColor(.white.opacity(0.4))
                 }
+
+                GridView(scene: scene, playColumn: d.effColumn, playing: d.playing)
+                Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
 
                 row("TRANSPORT", d.playing ? "PLAYING" : "stopped",
                     String(format: "beat %.2f · %.1f bpm", d.beat, d.tempo))
@@ -132,13 +137,15 @@ struct DiagView: View {
                 Text("Loading a session REPLACES the document (host automation state included). Only ARP is implemented — every other type behaves as identity for now.")
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
+              }
+              .padding(18)
+              .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onReceive(timer) { _ in
             guard let au else { return }
             d = au.kernelDiagnostics()
+            scene = au.uiScene()
             treeMorphGold = au.parameterTree?.parameter(withAddress: 200)?.value ?? 0
             treeSwing = au.parameterTree?.parameter(withAddress: 1)?.value ?? 50
         }

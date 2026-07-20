@@ -24,6 +24,7 @@
 		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
+		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
 		ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 651E122AE1C1D347649F79D7 /* Atomics */; };
@@ -74,6 +75,7 @@
 		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 			children = (
 				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
+				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
@@ -257,6 +260,7 @@
 			files = (
 				C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
+				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,

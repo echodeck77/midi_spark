@@ -26,6 +26,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
 
+    /// Read-only view of the active scene for the grid UI (main thread; value copy). Step 5 will
+    /// gain a matching mutation path that goes through scheduleRebuild().
+    func uiScene() -> SceneState { document.scenes[document.activeScene] }
+
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if suppressRebuild { return }
