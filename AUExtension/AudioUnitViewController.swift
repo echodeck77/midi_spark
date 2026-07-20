@@ -52,13 +52,32 @@ struct DiagView: View {
         loadedID = s.id
     }
 
+    /// Build stamp = the extension binary's link time. Not a compile-date macro (Swift has none);
+    /// the executable's mtime is written at link, so it answers the real question — "is AUM running
+    /// THIS build, or a cached older one?" (README: AU registration caches aggressively).
+    private static let buildStamp: String = {
+        let bundle = Bundle(for: MidiSparkAudioUnit.self)
+        let url = bundle.executableURL ?? bundle.bundleURL
+        let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm"
+        fmt.timeZone = .current
+        return date.map(fmt.string(from:)) ?? "unknown"
+    }()
+
     var body: some View {
         ZStack {
             Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 7) {
-                Text("MIDISPARK — BRIDGE DIAGNOSTICS")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(3)
-                    .foregroundColor(.white.opacity(0.85))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("MIDISPARK — BRIDGE DIAGNOSTICS")
+                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(3)
+                        .foregroundColor(.white.opacity(0.85))
+                    Spacer()
+                    Text("build \(Self.buildStamp)")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
+                }
 
                 row("TRANSPORT", d.playing ? "PLAYING" : "stopped",
                     String(format: "beat %.2f · %.1f bpm", d.beat, d.tempo))
