@@ -116,6 +116,14 @@ the earlier INHERIT-only pass to a full T6.
 | T7 (collision policy) | PASS | 8a70de1 | held note zero dropouts under same-pitch arp; one off after release; panel showed instances > distinct |
 | T1–T3, T5, T6 | PASS | 8a70de1 | regressions; T3's same-note glitch now gone |
 
-**Not yet verified** (blocked on the commit that implements them):
-- T8 (PHASE modes) — commit 7.
-- `v0.3-router` gate (T1–T8 + B1–B4 + 10-min soak) — not yet met.
+### 2026-07-20 — router commit 7 (PHASE modes) → v0.3-router
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T8 (PHASE modes) | PASS | 8e20b4f | RETRIG restarts per column; LEGATO run completes once; FREE loop-consistent |
+| T1–T7 (RETRIG re-listen) | PASS | 8e20b4f | phase fix: arps restart at index 0 on column entry (was drifting/FREE); still correct |
+
+**`v0.3-router` gate MET** (2026-07-20): T1–T8 pass, B1–B4 pass, device-confirmed.
+Tagged `v0.3-router` at the router-complete state. The router (spec §2/§7) is done;
+next is step 4 (full processors: ARP patterns, RATCHET, PASSGATE, STRUM, CHANCE,
+HARMONIZE — acceptance items 4–6) then step 5 (SwiftUI grid UI).

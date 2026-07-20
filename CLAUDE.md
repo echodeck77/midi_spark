@@ -53,9 +53,14 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - Extension bundle ID must be prefixed by the app's:
   app `com.paulbarrett.MidiSpark`, extension `com.paulbarrett.MidiSpark.AU` (explicit
   PRODUCT_BUNDLE_IDENTIFIER in the MidiSparkAU target).
-- Compile check from CLI: `xcodegen generate && xcodebuild -project MidiSpark.xcodeproj
-  -scheme MidiSpark -destination 'generic/platform=iOS' build` (signing may need the
-  user's team set; building for *device install* happens in Xcode).
+- Compile check from CLI: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  xcodebuild -project MidiSpark.xcodeproj -scheme MidiSpark -destination
+  'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build` (prepend `xcodegen generate &&`
+  only after adding/removing files). The `DEVELOPER_DIR` prefix is REQUIRED here:
+  `xcode-select` points at CommandLineTools, whose older Swift can't parse the Xcode SDK.
+  `CODE_SIGNING_ALLOWED=NO` skips signing for a pure compile check; *device install*
+  happens in Xcode. The `MidiSpark` scheme is shared (project.yml `schemes:`); regenerate
+  never drops it.
 - Device testing is manual: the human runs from Xcode onto the iPad and verifies in AUM.
   You cannot hear anything. When behaviour needs verification, say exactly what to check
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
@@ -66,15 +71,20 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - DONE step 2 (snapshot bridge): kernel is snapshot-driven; morph/master/swing/stepRate
   live end-to-end; render-side param events handled; CC passthrough on cable A always;
   diagnostic UI in the extension.
-- NEXT step 3 (the ROUTER): kernel consumes `SnapshotBox.cells` (busMask, stack, srcMix,
-  runStartColumn already carried): sender-decides chain derivation (§2), per-cell processor
-  invocation (§1.1: cells are independent; Colours are definitions), bus emission with
-  OUT CH stamping (§2.6), collision refcount (§7). Replaces the hardcoded demo arp.
-- THEN step 4: full processors (ARP patterns + PHASE modes, RATCHET, PASSGATE, STRUM,
-  CHANCE, HARMONIZE) against acceptance items 4–6; step 5: SwiftUI grid UI (port of
-  preview v26) — but the COLOUR-panel layout pass in the spec's pending list comes first.
-- Acceptance checklist: spec §11, 28 items. Tag milestones (`v0.1-scaffold` exists;
-  tag `v0.2-bridge` once the bridge tests pass on device).
+- DONE step 3 (the ROUTER) — tag `v0.3-router`. `Router.swift` (+ `NotePool`) owns grid
+  columns, sender-decides chain derivation (§2), the mirror model for identity cells
+  (identity re-articulates its feeder's ticks; unfed/+SRC holds the source chord), bus
+  fan-out, per-cell ARP with all three PHASE modes (§3.5), OUT CH / INHERIT stamping
+  (§2.6), and the (bus, channel, note) collision refcount (§7). Kernel keeps input +
+  dispatch. `TestSessions.swift` T1–T8 load from the diag panel; all pass on device.
+  Note: only ARP is implemented — every other processor type behaves as identity for now.
+- NEXT step 4: full processors (ARP patterns beyond UP, RATCHET, PASSGATE, STRUM, CHANCE,
+  HARMONIZE) against acceptance items 4–6. The fed-ARP input-pool sampling (arp fed by arp)
+  is implemented but UNTESTED — no fixture hits it; add coverage when a real processor lands.
+- THEN step 5: SwiftUI grid UI (port of preview v26) — but the COLOUR-panel layout pass in
+  the spec's pending list comes first.
+- Acceptance checklist: spec §11, 28 items. Tags: `v0.1-scaffold`, `v0.2-bridge`,
+  `v0.3-router` (this milestone: T1–T8 + B1–B4 device-verified).
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).
