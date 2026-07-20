@@ -15,12 +15,29 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var _outputBusses: AUAudioUnitBusArray!
     private var _parameterTree: AUParameterTree!
     private var document = PluginState.factory()
+    private let store: SnapshotStore
+    private var rebuildPending = false
+
+    /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
+    private func scheduleRebuild() {
+        if Thread.isMainThread {
+            store.publish(SnapshotBuilder.build(from: document))
+        } else if !rebuildPending {
+            rebuildPending = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.rebuildPending = false
+                self.store.publish(SnapshotBuilder.build(from: self.document))
+            }
+        }
+    }
 
     // MARK: - Four MIDI outputs — the load-bearing line (§8). AUM shows these as four sources.
     public override var midiOutputNames: [String] { ["A", "B", "C", "D"] }
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
+        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.factory()))
         try super.init(componentDescription: componentDescription, options: options)
 
         // aumi units still require audio busses; a silent stereo pair is conventional.
@@ -56,33 +73,36 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     private static func buildParameterTree() -> AUParameterTree {
+        let stepped: AudioUnitParameterOptions = [.flag_IsReadable, .flag_IsWritable]
+        let smooth: AudioUnitParameterOptions = [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp]
+
         var params: [AUParameter] = []
         params.append(AUParameterTree.createParameter(
             withIdentifier: "stepRate", name: "Step Rate", address: ParamAddress.stepRate,
             min: 0, max: AUValue(StepRate.allCases.count - 1), unit: .indexed, unitName: nil,
-            valueStrings: StepRate.allCases.map(\.rawValue), dependentParameters: nil))
+            flags: stepped, valueStrings: StepRate.allCases.map(\.rawValue), dependentParameters: nil))
         params.append(AUParameterTree.createParameter(
             withIdentifier: "swing", name: "Swing", address: ParamAddress.swing,
             min: 50, max: 75, unit: .percent, unitName: nil,
-            valueStrings: nil, dependentParameters: nil))
+            flags: smooth, valueStrings: nil, dependentParameters: nil))
         for (i, id) in colourIDs.enumerated() {
             params.append(AUParameterTree.createParameter(
                 withIdentifier: "transpose_\(id)", name: "Transpose \(id.capitalized)",
                 address: ParamAddress.transpose(i),
                 min: -24, max: 24, unit: .indexed, unitName: "st",
-                valueStrings: nil, dependentParameters: nil))
+                flags: stepped, valueStrings: nil, dependentParameters: nil))
         }
         for (i, id) in colourIDs.enumerated() {
             params.append(AUParameterTree.createParameter(
                 withIdentifier: "morph_\(id)", name: "Morph \(id.capitalized)",
                 address: ParamAddress.morph(i),
                 min: 0, max: 1, unit: .generic, unitName: nil,
-                valueStrings: nil, dependentParameters: nil))
+                flags: smooth, valueStrings: nil, dependentParameters: nil))
         }
         params.append(AUParameterTree.createParameter(
             withIdentifier: "morphMaster", name: "Morph Master", address: ParamAddress.morphMaster,
             min: 0, max: 1, unit: .generic, unitName: nil,
-            valueStrings: nil, dependentParameters: nil))
+            flags: smooth, valueStrings: nil, dependentParameters: nil))
         return AUParameterTree.createTree(withChildren: params)
     }
 
@@ -90,6 +110,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         // TODO(spec §7): route into the snapshot. For the scaffold, write into the document directly.
         _parameterTree.implementorValueObserver = { [weak self] param, value in
             guard let self else { return }
+            defer { self.scheduleRebuild() }
             switch param.address {
             case ParamAddress.stepRate:
                 let all = StepRate.allCases
@@ -122,7 +143,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     // MARK: - fullState = the host-level Preset (§1: the only thing called a preset)
-    private static let stateKey = "com.example.midispark.document"   // CHANGE with your bundle prefix
+    private static let stateKey = "com.paulbarrett.midispark.document"
 
     public override var fullState: [String: Any]? {
         get {
@@ -135,6 +156,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             if let data = newValue?[Self.stateKey] as? Data,
                let doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 document = doc
+                scheduleRebuild()
             }
         }
     }
@@ -143,6 +165,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     public override func allocateRenderResources() throws {
         try super.allocateRenderResources()
         kernel.sampleRate = _outputBusses[0].format.sampleRate
+        kernel.store = store
         kernel.midiOut = midiOutputEventBlock
         kernel.musicalContext = musicalContextBlock
         kernel.transportState = transportStateBlock

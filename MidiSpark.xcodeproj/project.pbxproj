@@ -11,9 +11,12 @@
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
+		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
+		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
+		ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 651E122AE1C1D347649F79D7 /* Atomics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +44,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
+		08530382AAA337959EA7983D /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
 		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
@@ -50,8 +55,18 @@
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		E58A80AE0D953E071AE042EB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4EB6D2A2096DE79ACA9EBD5F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		21631744EFF0267BC0F27291 /* App */ = {
@@ -77,10 +92,11 @@
 			isa = PBXGroup;
 			children = (
 				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
-				E58A80AE0D953E071AE042EB /* Info.plist */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
+				0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */,
+				08530382AAA337959EA7983D /* SnapshotBuilder.swift */,
 			);
 			path = AUExtension;
 			sourceTree = "<group>";
@@ -102,6 +118,7 @@
 			buildConfigurationList = 2869B8EE6B8E0EBC3E98594B /* Build configuration list for PBXNativeTarget "MidiSparkAU" */;
 			buildPhases = (
 				2870475AFB7D2D320E3B1972 /* Sources */,
+				4EB6D2A2096DE79ACA9EBD5F /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -109,6 +126,7 @@
 			);
 			name = MidiSparkAU;
 			packageProductDependencies = (
+				651E122AE1C1D347649F79D7 /* Atomics */,
 			);
 			productName = MidiSparkAU;
 			productReference = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */;
@@ -159,6 +177,9 @@
 			);
 			mainGroup = 5A12A22D394BAEFBD77AD6BB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				85B19CF34D2CBABE22DF126A /* XCRemoteSwiftPackageReference "swift-atomics" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B15E07ABC43302C9284D7563 /* Products */;
 			projectDirPath = "";
@@ -179,6 +200,8 @@
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,
+				A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */,
+				838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,7 +295,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark.au;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSpark.AU;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -289,7 +312,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSpark;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -372,7 +395,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSpark;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -389,7 +412,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.MidiSpark.au;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.MidiSpark.AU;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -426,6 +449,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		85B19CF34D2CBABE22DF126A /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-atomics";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		651E122AE1C1D347649F79D7 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 85B19CF34D2CBABE22DF126A /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 547172202D8231C244548AE4 /* Project object */;
 }
