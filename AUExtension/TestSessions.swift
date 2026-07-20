@@ -67,10 +67,12 @@ enum TestSessions {
         Session(id: "T2", title: "chain",
                 expect: "Sound leaves ONLY through row 1 (§2.3). Row 0 has no letters lit, so it "
                       + "must be silent on every bus despite driving the chain. Row 1 (identity) "
-                      + "re-articulates the arp's sounding set.") {
-            doc(baseColours(), scene { s in
+                      + "MIRRORS the feed — a faithful copy of the arp, emitted from row 1.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .ratchet                     // identity stand-in (RATCHET unimplemented)
+            return doc(c, scene { s in
                 s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // feeds down, emits nothing
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // identity (RATCHET unimplemented)
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // identity: mirrors the feed
             })
         },
 
@@ -97,7 +99,9 @@ enum TestSessions {
                 expect: "Feeder (row 0) is muted, so row 1 reverts to SOURCE input (§2.1) and "
                       + "plays as if unchained — NOT silence. Diag panel is the visual check "
                       + "until the wiring UI exists.") {
-            doc(baseColours(), scene { s in
+            var c = baseColours()
+            c[idx("cyan")].type = .ratchet                     // identity: unfed → holds the source chord
+            return doc(c, scene { s in
                 var feeder = Cell(colourID: "gold", stack: true, buses: [])
                 feeder.muted = true
                 s.cells[0][0] = feeder

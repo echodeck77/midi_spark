@@ -81,13 +81,26 @@ final class Router {
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
     private var wasPlaying = false
-    private var lastTickIndex: Int64 = -1
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
+
+    // Per-row chain scratch (§2/§1.1). Each row's TICK articulations this window, so a fed cell can
+    // read its feeder's output (mirror model). Fixed capacity, no hot-path allocation. lastTick
+    // dedups each row's arp independently across (rare) overlapping windows.
+    private struct Artic {
+        var onSample: AUEventSampleTime = 0
+        var offSample: AUEventSampleTime = 0
+        var note: UInt8 = 0    // after this row's accumulated transpose
+        var chan: UInt8 = 0    // provenance channel (for INHERIT); OUT CH is applied only at emission
+    }
+    private static let articCap = 24
+    private var articBuf = [Artic](repeating: Artic(), count: Snap.rows * Router.articCap)
+    private var articCount = [Int](repeating: 0, count: Snap.rows)
+    private var lastTick = [Int64](repeating: -1, count: Snap.rows)
 
     func reset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
         wasPlaying = false
-        lastTickIndex = -1
+        for r in lastTick.indices { lastTick[r] = -1 }
         prevEffColumn = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -172,7 +185,8 @@ final class Router {
     @discardableResult
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
-                           out: AUMIDIOutputEventBlock) -> Int {
+                           out: AUMIDIOutputEventBlock?) -> Int {
+        guard let out else { return -1 }
         var on: [UInt8] = [0x90 | chan, note, 96]
         _ = out(onSample, cable, 3, &on)
         for i in voices.indices where !voices[i].active {
@@ -221,6 +235,112 @@ final class Router {
         return n
     }
 
+    // MARK: - chain helpers (§2.1)
+
+    /// A cell is FED iff the cell directly above is occupied, has ▾ stack on, and is not muted
+    /// (a muted feeder reroutes the follower to source, §2.1/§6.2).
+    @inline(__always)
+    private func isFed(_ box: SnapshotBox, _ column: Int, _ row: Int) -> Bool {
+        guard row > 0 else { return false }
+        let above = box.cells[column * Snap.rows + (row - 1)]
+        return above.colourIndex >= 0 && above.stack && !above.muted
+    }
+
+    @inline(__always)
+    private func sampleOf(musical: Double, beatPos: Double, beatsPerSample: Double,
+                          windowStart: AUEventSampleTime, S: Double, a: Double) -> AUEventSampleTime {
+        let real = realOf(musical, stepBeats: S, a: a)
+        return windowStart + AUEventSampleTime(max(0, (real - beatPos) / beatsPerSample))
+    }
+
+    private func storeArtic(row: Int, on: AUEventSampleTime, off: AUEventSampleTime,
+                            note: UInt8, chan: UInt8) {
+        let c = articCount[row]
+        guard c < Router.articCap else { return }
+        let i = row * Router.articCap + c
+        articBuf[i].onSample = on; articBuf[i].offSample = off
+        articBuf[i].note = note; articBuf[i].chan = chan
+        articCount[row] = c + 1
+    }
+
+    /// Stamp OUT CH (§2.6) and open a voice for one articulation; close it in-loop when the off is
+    /// in-window so wire events stay in ascending sample order. Updates the emit diagnostics.
+    private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, cable: UInt8,
+                           onSample: AUEventSampleTime, offSample: AUEventSampleTime,
+                           windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
+                           diag: inout KernelDiag) {
+        let outCh: UInt8 = outChannel == 0 ? provenanceChan : outChannel - 1
+        let slot = openVoice(note: note, chan: outCh, cable: cable,
+                             onSample: onSample, offSample: offSample, out: out)
+        diag.emitCount &+= 1
+        diag.lastEmitNote = note
+        diag.lastEmitChan = outCh
+        diag.lastEmitInherit = (outChannel == 0)
+        if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
+    }
+
+    /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
+    /// +SRC) articulates the whole source chord and holds it to the column boundary (mirror model:
+    /// identity = sample-and-hold of its input pool). Arp cells and pure-mirror cells have no hold.
+    private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool,
+                                 S: Double, a: Double, mNow: Double, beatPos: Double,
+                                 beatsPerSample: Double, windowStart: AUEventSampleTime,
+                                 windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
+                                 diag: inout KernelDiag) {
+        guard pool.count > 0 else { return }
+        let colStart = (mNow / S).rounded(.down) * S
+        let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                windowStart: windowStart, S: S, a: a)
+        let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                 windowStart: windowStart, S: S, a: a)
+        for r in 0..<Snap.rows {
+            let cell = box.cells[column * Snap.rows + r]
+            if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
+            let ci = Int(cell.colourIndex)
+            let colour = box.colours[ci]
+            let isIdentity = (colour.a.type != .arp) || cell.bypassed
+            guard isIdentity else { continue }
+            let fed = isFed(box, column, r)
+            guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
+            let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+            let cable = UInt8(cell.busMask.trailingZeroBitCount)
+            for k in 0..<pool.count {
+                let base = Int(pool.sorted[k])
+                let n = base + transpose
+                guard n >= 0 && n <= 127 else { continue }
+                emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
+                          outChannel: colour.outChannel, cable: cable,
+                          onSample: onSample, offSample: offSample, windowEnd: windowEnd,
+                          out: out, diag: &diag)
+            }
+        }
+    }
+
+    /// The base note (pre-this-cell-transpose) + provenance channel an ARP picks at `tick`.
+    /// Unfed (or +SRC) arps read the source pool — the path the test topologies exercise. A FED arp
+    /// samples its feeder's current sounding note (feeders are mono in practice); untested, kept simple.
+    private func arpPick(tick: Int64, octaves: Int, fed: Bool, srcMix: Bool, feederRow: Int,
+                         onSample: AUEventSampleTime, pool: NotePool) -> (base: Int, chan: UInt8) {
+        if !fed || srcMix {
+            guard pool.count > 0 else { return (-1, 0) }
+            let span = pool.count * max(1, octaves)
+            let step = Int(tick % Int64(span))
+            let base = Int(pool.sorted[step % pool.count])
+            return (base + 12 * (step / pool.count), pool.channel(of: base))
+        }
+        guard feederRow >= 0 else { return (-1, 0) }
+        var latestOn: AUEventSampleTime = -1, note = -1
+        var prov: UInt8 = 0
+        for k in 0..<articCount[feederRow] {
+            let ar = articBuf[feederRow * Router.articCap + k]
+            if ar.onSample <= onSample && onSample < ar.offSample && ar.onSample >= latestOn {
+                latestOn = ar.onSample; note = Int(ar.note); prov = ar.chan
+            }
+        }
+        guard note >= 0 else { return (-1, 0) }
+        return (note + 12 * Int(tick % Int64(max(1, octaves))), prov)
+    }
+
     // MARK: - the render-side pass
 
     func process(box: SnapshotBox,
@@ -253,7 +373,7 @@ final class Router {
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
             allNotesOff(atSample: AUEventSampleTimeImmediate, out: out)
-            lastTickIndex = -1
+            for r in lastTick.indices { lastTick[r] = -1 }
             prevEffColumn = -1
             wasPlaying = playing
         }
@@ -273,10 +393,11 @@ final class Router {
         let active = topCell(in: effColumn, box)
         diag.activeCellRow = active?.row ?? -1
 
-        guard playing, let out else { return }
+        guard playing else { return }   // `out` stays optional (openVoice/emit* tolerate nil)
 
-        // ---- column transition (§7): the active column changed → truncate the sounding voice at
-        //      the boundary (truncate-at-boundary tails). A relocation/loop is the same edge. ----
+        // ---- column transition (§7): active column changed → truncate all voices at the boundary
+        //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
+        //      relocation/loop is the same edge, no special case. ----
         if effColumn != prevEffColumn {
             if anyVoiceActive() {
                 let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
@@ -285,76 +406,92 @@ final class Router {
                 allNotesOff(atSample: windowStart + AUEventSampleTime(off), out: out)
             }
             prevEffColumn = effColumn
-            lastTickIndex = -1
+            for r in lastTick.indices { lastTick[r] = -1 }
+            emitColumnHolds(box: box, column: effColumn, pool: pool,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
 
-        guard pool.count > 0, let cell = active?.cell else { return }   // rest column / no held notes
+        guard pool.count > 0 else { diag.activeVoiceCount = activeVoiceCount(); return }
 
-        // ---- effective params for THIS cell's Colour (overrides keyed by colour index) ----
-        let ci = Int(cell.colourIndex)
-        let colour = box.colours[ci]
-        let master = over(34, box.morphMaster)
-        let morph = over(18 + ci, colour.morph)
-        let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
-        var arpBeats = effectiveRateBeats(colour, t: t)
-        let gate = effectiveGate(colour, t: t)
-        let octaves = effectiveOctaves(colour, t: t)
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-        if arpBeats <= 0 { arpBeats = 0.25 }
-        diag.effMorphGold = t; diag.effRateBeats = arpBeats
-
-        // Bus: lowest lit letter for now (fan-out across all lit buses lands at commit 6).
-        // No lit letter = no-destination (§2.4): truncate any tail, emit nothing.
-        guard cell.busMask != 0 else { allNotesOff(atSample: windowStart, out: out); return }
-        let cable = UInt8(cell.busMask.trailingZeroBitCount)
-
-        // ---- derived ticks in MUSICAL beat space; delivery unwarped to real ----
+        // ---- per-window TICK content: evaluate rows top-down so a fed cell reads its feeder's
+        //      output (mirror model). ARP cells produce ticks; identity-fed cells mirror the feeder;
+        //      identity-unfed cells have no tick content (their hold was emitted at the transition). ----
+        for r in 0..<Snap.rows { articCount[r] = 0 }
         let windowBeats = Double(frameCount) * beatsPerSample
-        let mStart = musicalOf(beatPos, stepBeats: S, a: a)
-        let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        let firstTick = Int64((mStart / arpBeats).rounded(.up))
-        let lastTick = Int64((mEnd / arpBeats).rounded(.down))
-        guard firstTick <= lastTick else { return }
-        let span = pool.count * octaves
 
-        for tick in firstTick...lastTick {
-            let mTickBeat = Double(tick) * arpBeats
-            // A tick that has already crossed into the next column is handled in that column's own
-            // window — do NOT consume it here (leave lastTickIndex so the next window fires it).
-            let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
-            if tickCol != effColumn { continue }
-            if tick == lastTickIndex { continue }
-            lastTickIndex = tick
+        for r in 0..<Snap.rows {
+            let cell = box.cells[effColumn * Snap.rows + r]
+            if cell.colourIndex < 0 || cell.muted { continue }
+            let ci = Int(cell.colourIndex)
+            let colour = box.colours[ci]
+            let master = over(34, box.morphMaster)
+            let morph = over(18 + ci, colour.morph)
+            let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
+            let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+            let fed = isFed(box, effColumn, r)
+            let isArp = (colour.a.type == .arp) && !cell.bypassed
+            let cable: UInt8? = cell.busMask != 0 ? UInt8(cell.busMask.trailingZeroBitCount) : nil
 
-            let realTickBeat = realOf(mTickBeat, stepBeats: S, a: a)
-            let onOffset = max(0, (realTickBeat - beatPos) / beatsPerSample)
-            let onTime = windowStart + AUEventSampleTime(onOffset)
+            if isArp {
+                var arpBeats = effectiveRateBeats(colour, t: t)
+                let gate = effectiveGate(colour, t: t)
+                let octaves = effectiveOctaves(colour, t: t)
+                if arpBeats <= 0 { arpBeats = 0.25 }
+                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
 
-            let step = Int(tick % Int64(span))
-            let base = Int(pool.sorted[step % pool.count])
-            let raised = base + 12 * (step / pool.count)
-            let noteValue = raised + transpose
-            guard noteValue >= 0 && noteValue <= 127 else { continue }
+                let mStart = musicalOf(beatPos, stepBeats: S, a: a)
+                let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+                let firstTick = Int64((mStart / arpBeats).rounded(.up))
+                let lastT = Int64((mEnd / arpBeats).rounded(.down))
+                guard firstTick <= lastT else { continue }
 
-            // OUT CH stamp (§2.6): INHERIT (0) → the source note's original channel; else n → n−1.
-            let outCh: UInt8 = colour.outChannel == 0 ? pool.channel(of: base) : colour.outChannel - 1
+                for tick in firstTick...lastT {
+                    let mTickBeat = Double(tick) * arpBeats
+                    // A tick already in the next column is handled in that column's own window.
+                    let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
+                    if tickCol != effColumn { continue }
+                    if tick == lastTick[r] { continue }
+                    lastTick[r] = tick
 
-            // Gate-off, truncated at the column boundary (§7 Tails), as an absolute sample.
-            let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
-            let mOffBeat = min(mTickBeat + arpBeats * gate, colEndMusical)
-            let realOff = realOf(mOffBeat, stepBeats: S, a: a)
-            let offOffset = max(0, (realOff - beatPos) / beatsPerSample)
-            let offSample = windowStart + AUEventSampleTime(offOffset)
+                    let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                          windowStart: windowStart, S: S, a: a)
+                    let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
+                    let mOff = min(mTickBeat + arpBeats * gate, colEndMusical)
+                    let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                           windowStart: windowStart, S: S, a: a)
 
-            let slot = openVoice(note: UInt8(noteValue), chan: outCh, cable: cable,
-                                 onSample: onTime, offSample: offSample, out: out)
-            diag.emitCount &+= 1
-            diag.lastEmitNote = UInt8(noteValue)
-            diag.lastEmitChan = outCh
-            diag.lastEmitInherit = (colour.outChannel == 0)
+                    let pick = arpPick(tick: tick, octaves: octaves, fed: fed, srcMix: cell.srcMix,
+                                       feederRow: r - 1, onSample: onTime, pool: pool)
+                    guard pick.base >= 0 else { continue }
+                    let noteValue = pick.base + transpose
+                    guard noteValue >= 0 && noteValue <= 127 else { continue }
 
-            // Within-window gate-off: emit in-loop so wire events stay in ascending sample order.
-            if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: pick.chan)
+                    if let cable {
+                        emitArtic(note: UInt8(noteValue), provenanceChan: pick.chan,
+                                  outChannel: colour.outChannel, cable: cable,
+                                  onSample: onTime, offSample: offTime, windowEnd: windowEnd,
+                                  out: out, diag: &diag)
+                    }
+                }
+            } else if fed {
+                // Identity fed: MIRROR the feeder's ticks this window (+ this cell's transpose).
+                let fr = r - 1
+                for k in 0..<articCount[fr] {
+                    let src = articBuf[fr * Router.articCap + k]
+                    let n = Int(src.note) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan)
+                    if let cable {
+                        emitArtic(note: UInt8(n), provenanceChan: src.chan,
+                                  outChannel: colour.outChannel, cable: cable,
+                                  onSample: src.onSample, offSample: src.offSample,
+                                  windowEnd: windowEnd, out: out, diag: &diag)
+                    }
+                }
+            }
+            // identity-unfed: no tick content (its hold was emitted at the column transition)
         }
         diag.activeVoiceCount = activeVoiceCount()
     }
