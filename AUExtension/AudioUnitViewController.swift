@@ -91,6 +91,11 @@ struct DiagView: View {
                     String(format: "swing %.1f", d.effSwing))
                 row("CC IN", "\(d.ccCount) messages",
                     d.ccCount > 0 ? String(format: "last: %02X %d %d (passed on A)", d.ccStatus, d.ccData1, d.ccData2) : "none yet")
+                row("EMIT", "\(d.emitCount) notes on A",
+                    d.emitCount > 0
+                      ? String(format: "last: note %d · ch %d (%@)", d.lastEmitNote, d.lastEmitChan + 1,
+                               d.lastEmitInherit ? "INHERIT" : "OUT CH")
+                      : "none yet")
 
                 Text("If PARAM EVENTS and TREE both sit still while you move a mapped control, the mapping isn't reaching this instance — check AUM's control target.")
                     .font(.system(size: 8.5, design: .monospaced))

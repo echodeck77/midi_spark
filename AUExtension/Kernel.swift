@@ -27,6 +27,10 @@ struct KernelDiag {
     var effMorphGold: Double = 0
     var effRateBeats: Double = 0
     var effSwing: Double = 50
+    var emitCount: UInt64 = 0
+    var lastEmitNote: UInt8 = 0
+    var lastEmitChan: UInt8 = 0        // 0-based wire channel; panel shows +1 (human numbering)
+    var lastEmitInherit = true         // stamped from source channel (INHERIT) vs Colour OUT CH
 }
 
 final class Kernel {
@@ -37,13 +41,17 @@ final class Kernel {
     var store: SnapshotStore?
     private(set) var diag = KernelDiag()
 
-    // Held-note pool (the source, §2.5): omni, fixed capacity.
-    private var pool = [UInt8](repeating: 0, count: 128)
+    // Held-note pool (the source, §2.5): omni, fixed capacity. Keyed by note number — all input
+    // channels merge (§2.5) — with the originating channel remembered per note for INHERIT
+    // stamping (§2.6). poolChan[n] is meaningful only while pool[n] != 0.
+    private var pool = [UInt8](repeating: 0, count: 128)      // velocity by note (0 = not held)
+    private var poolChan = [UInt8](repeating: 0, count: 128)  // originating channel by note
     private var poolSorted = [UInt8](repeating: 0, count: 128)
     private var poolCount = 0
 
-    // Miniature note tracker (§7).
+    // Miniature note tracker (§7). The off must carry the channel the on used, so we remember it.
     private var soundingNote: Int = -1
+    private var soundingChannel: UInt8 = 0
     private var wasPlaying = false
     private var lastTickIndex: Int64 = -1
 
@@ -74,6 +82,7 @@ final class Kernel {
 
     func reset() {
         pool = [UInt8](repeating: 0, count: 128)
+        poolChan = [UInt8](repeating: 0, count: 128)
         poolCount = 0
         flushSounding(atSample: AUEventSampleTimeImmediate)
         wasPlaying = false
@@ -223,9 +232,18 @@ final class Kernel {
             let raised = base + 12 * (step / poolCount)
             let noteValue = raised + transpose
             guard noteValue >= 0 && noteValue <= 127 else { continue }
-            var on: [UInt8] = [0x90, UInt8(noteValue), 96]
+
+            // OUT CH stamp (§2.6): INHERIT (0) → the source note's original channel; else n → n−1.
+            // This is exactly the expression the router reuses per emitted entry (router-design §6).
+            let outCh: UInt8 = colour.outChannel == 0 ? poolChan[base] : colour.outChannel - 1
+            var on: [UInt8] = [0x90 | outCh, UInt8(noteValue), 96]
             _ = out(onTime, 0, 3, &on)
             soundingNote = noteValue
+            soundingChannel = outCh
+            diag.emitCount &+= 1
+            diag.lastEmitNote = UInt8(noteValue)
+            diag.lastEmitChan = outCh
+            diag.lastEmitInherit = (colour.outChannel == 0)
 
             let mOffBeat = mTickBeat + arpBeats * gate
             if mOffBeat < mEnd {
@@ -243,9 +261,14 @@ final class Kernel {
                                 sampleTime: AUEventSampleTime, playing: Bool) {
         let status = bytes[0] & 0xF0
         let isNote = (status == 0x90 || status == 0x80)
+        let channel = bytes[0] & 0x0F
         if status == 0x90, length >= 3 {
             let vel = bytes[2]
-            if vel > 0 { if pool[Int(bytes[1])] == 0 { poolCount += 1 }; pool[Int(bytes[1])] = vel }
+            if vel > 0 {
+                if pool[Int(bytes[1])] == 0 { poolCount += 1 }
+                pool[Int(bytes[1])] = vel
+                poolChan[Int(bytes[1])] = channel        // remember for INHERIT (§2.6)
+            }
             else { if pool[Int(bytes[1])] != 0 { poolCount -= 1 }; pool[Int(bytes[1])] = 0 }
         } else if status == 0x80, length >= 3 {
             if pool[Int(bytes[1])] != 0 { poolCount -= 1 }
@@ -274,7 +297,7 @@ final class Kernel {
 
     private func flushSounding(atSample time: AUEventSampleTime) {
         guard soundingNote >= 0, let out = midiOut else { soundingNote = -1; return }
-        var off: [UInt8] = [0x80, UInt8(soundingNote), 0]
+        var off: [UInt8] = [0x80 | soundingChannel, UInt8(soundingNote), 0]   // pair on the on's channel
         _ = out(time, 0, 3, &off)
         soundingNote = -1
     }
