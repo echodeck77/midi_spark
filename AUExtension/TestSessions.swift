@@ -156,5 +156,50 @@ enum TestSessions {
                 s.cells[7][0] = Cell(colourID: "mint", buses: [.a])    // FREE
             })
         },
+
+        // ---- step-4 groundwork: coverage for router paths that no T1–T8 fixture exercises ----
+
+        Session(id: "T9", title: "fed ARP (arp of arp)",
+                expect: "Arpeggiate the arpeggio (§1.1.3). Row 0 gold ARP at 1/8 feeds row 1 "
+                      + "(azure ARP, 1/16, 2 octaves) on bus A. For EACH note the upstream arp is "
+                      + "sounding, row 1 should ripple that note across 2 octaves at 1/16. Row 0 is "
+                      + "silent (no letter). NOTE: exercises the fed-ARP path, currently simplified "
+                      + "and untested — this is the fixture that proves or breaks it.") {
+            var c = baseColours()
+            c[idx("gold")].paramsA.rate = .r1_8               // slow upstream: one note per 1/8
+            c[idx("azure")].paramsA.rate = .r1_16             // faster downstream
+            c[idx("azure")].paramsA.octaves = 2               // ripple each fed note over 2 octaves
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // feeds, silent
+                s.cells[0][1] = Cell(colourID: "azure", buses: [.a])             // ARP fed by gold
+            })
+        },
+
+        Session(id: "T10", title: "transpose accumulates in chain",
+                expect: "§2.6: transpose accumulates down a chain. Row 0 gold (+5) feeds row 1 "
+                      + "cyan identity (+7); row 1 on bus A should sound +12 semitones above the "
+                      + "held notes (one octave up), NOT +7. Row 0 silent.") {
+            var c = baseColours()
+            c[idx("gold")].transpose = 5
+            c[idx("cyan")].type = .ratchet                    // identity: mirrors the feed
+            c[idx("cyan")].transpose = 7
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // +5, feeds, silent
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // +7 on top → +12
+            })
+        },
+
+        Session(id: "T11", title: "mid-chain audible tap",
+                expect: "§2.3: ▾ and letters are independent — a cell can emit AND feed. Row 0 "
+                      + "gold ARP taps bus A (audible) AND feeds row 1 cyan identity, which mirrors "
+                      + "onto bus B. Both A and B sound the arp simultaneously; monitors A and B "
+                      + "show the same stream.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .ratchet                    // identity: mirrors the feed
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a])  // tap A + feed down
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])               // mirror onto B
+            })
+        },
     ]
 }
