@@ -1,4 +1,36 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Xcode — user state (never shared)
 xcuserdata/
 *.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Xcode — build products
+build/
 DerivedData/
-.DS_Store
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcarchive
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Fastlane / CocoaPods / Carthage (unused today; harmless guards)
+Pods/
+Carthage/Build/
+fastlane/report.xml
+fastlane/screenshots
