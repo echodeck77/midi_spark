@@ -34,7 +34,8 @@ struct KernelDiag {
     var effColumn = 0                  // active grid column (0…7), derived (§7)
     var pass: Int = 0                  // how many full 8-column cycles elapsed
     var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
-    var activeVoiceCount = 0           // sounding notes in the poly voice table
+    var activeVoiceCount = 0           // instances in the poly voice table (per bus × ch × note)
+    var distinctSounding = 0           // distinct (bus,ch,note) on the wire; < voices when notes collide
 }
 
 final class Kernel {

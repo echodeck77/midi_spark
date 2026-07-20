@@ -69,9 +69,7 @@ final class Router {
 
     // Poly note tracker (§7). Each sounding note is a Voice carrying the channel + cable its on used
     // and an ABSOLUTE gate-off sample, drained every render so an off beyond its opening window is
-    // never dropped (no stuck note). Fixed capacity; no allocation on the hot path. The
-    // (bus, channel, note) COLLISION refcount is commit 6 — until then two voices on the same wire
-    // note off independently (fine for the current single-emitter test topologies).
+    // never dropped (no stuck note). Fixed capacity; no allocation on the hot path.
     private struct Voice {
         var active = false
         var note: UInt8 = 0
@@ -80,8 +78,20 @@ final class Router {
         var offSample: AUEventSampleTime = .max
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
+
+    // Collision refcount (§7, normative): per (bus, channel, note). Note-ONs always emit
+    // (re-articulation is audible truth); the wire note-OFF is emitted only when the LAST instance
+    // releases — so a sustained note never drops under a same-pitch arp. 4 buses × 16 ch × 128 notes.
+    private var refcount = [UInt8](repeating: 0, count: 4 * 16 * 128)
+    private var distinctSounding = 0   // number of (bus,ch,note) with refcount > 0 (diag; kept incrementally)
+
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
+
+    @inline(__always)
+    private func rcIndex(_ cable: UInt8, _ chan: UInt8, _ note: UInt8) -> Int {
+        (Int(cable & 3) * 16 + Int(chan & 15)) * 128 + Int(note & 127)
+    }
 
     // Per-row chain scratch (§2/§1.1). Each row's TICK articulations this window, so a fed cell can
     // read its feeder's output (mirror model). Fixed capacity, no hot-path allocation. lastTick
@@ -99,6 +109,8 @@ final class Router {
 
     func reset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
+        for i in refcount.indices { refcount[i] = 0 }
+        distinctSounding = 0
         wasPlaying = false
         for r in lastTick.indices { lastTick[r] = -1 }
         prevEffColumn = -1
@@ -187,27 +199,43 @@ final class Router {
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
                            out: AUMIDIOutputEventBlock?) -> Int {
         guard let out else { return -1 }
+        // Claim a slot BEFORE emitting: a note we can't track is worse than a dropped one (it would
+        // hang). At 128-voice capacity this never trips for the real topologies.
+        var slot = -1
+        for i in voices.indices where !voices[i].active { slot = i; break }
+        guard slot >= 0 else { return -1 }
+
         var on: [UInt8] = [0x90 | chan, note, 96]
-        _ = out(onSample, cable, 3, &on)
-        for i in voices.indices where !voices[i].active {
-            voices[i].active = true
-            voices[i].note = note
-            voices[i].chan = chan
-            voices[i].cable = cable
-            voices[i].offSample = offSample
-            return i
-        }
-        return -1
+        _ = out(onSample, cable, 3, &on)                     // §7 clause 1: note-ons ALWAYS emit
+        let idx = rcIndex(cable, chan, note)
+        if refcount[idx] == 0 { distinctSounding += 1 }
+        refcount[idx] += 1
+
+        voices[slot].active = true
+        voices[slot].note = note
+        voices[slot].chan = chan
+        voices[slot].cable = cable
+        voices[slot].offSample = offSample
+        return slot
     }
 
     private func closeVoice(_ i: Int, atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
         guard voices[i].active else { return }
-        if let out {
-            var off: [UInt8] = [0x80 | voices[i].chan, voices[i].note, 0]
-            _ = out(time, voices[i].cable, 3, &off)
-        }
+        let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         voices[i].active = false
         voices[i].offSample = .max
+
+        let idx = rcIndex(cable, chan, note)
+        if refcount[idx] > 0 { refcount[idx] -= 1 }
+        if refcount[idx] == 0 {
+            distinctSounding = max(0, distinctSounding - 1)
+            // §7 clause 2: the wire note-off fires ONLY when the last instance releases. Clause 3:
+            // no restoration strike — a surviving instance is simply never re-struck.
+            if let out {
+                var off: [UInt8] = [0x80 | chan, note, 0]
+                _ = out(time, cable, 3, &off)
+            }
+        }
     }
 
     /// Emit any scheduled gate-off that has come due this window (drained every render → no stuck
@@ -263,20 +291,26 @@ final class Router {
         articCount[row] = c + 1
     }
 
-    /// Stamp OUT CH (§2.6) and open a voice for one articulation; close it in-loop when the off is
-    /// in-window so wire events stay in ascending sample order. Updates the emit diagnostics.
-    private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, cable: UInt8,
+    /// Stamp OUT CH (§2.6) and FAN OUT one articulation to every lit bus (§2.3: a cell emits on each
+    /// enabled letter simultaneously, duplicate events per bus). Each bus is an independent voice
+    /// under the refcount. In-window offs close in-loop so wire events stay in ascending sample order.
+    private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, busMask: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
                            windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
                            diag: inout KernelDiag) {
         let outCh: UInt8 = outChannel == 0 ? provenanceChan : outChannel - 1
-        let slot = openVoice(note: note, chan: outCh, cable: cable,
-                             onSample: onSample, offSample: offSample, out: out)
+        var mask = busMask
+        while mask != 0 {
+            let cable = UInt8(mask.trailingZeroBitCount)
+            mask &= mask - 1                                  // clear the lowest set bit
+            let slot = openVoice(note: note, chan: outCh, cable: cable,
+                                 onSample: onSample, offSample: offSample, out: out)
+            if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
+        }
         diag.emitCount &+= 1
         diag.lastEmitNote = note
         diag.lastEmitChan = outCh
         diag.lastEmitInherit = (outChannel == 0)
-        if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
     }
 
     /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
@@ -303,13 +337,12 @@ final class Router {
             let fed = isFed(box, column, r)
             guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-            let cable = UInt8(cell.busMask.trailingZeroBitCount)
             for k in 0..<pool.count {
                 let base = Int(pool.sorted[k])
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
-                          outChannel: colour.outChannel, cable: cable,
+                          outChannel: colour.outChannel, busMask: cell.busMask,
                           onSample: onSample, offSample: offSample, windowEnd: windowEnd,
                           out: out, diag: &diag)
             }
@@ -369,6 +402,7 @@ final class Router {
         //      when a voice's off falls beyond its opening window). Runs regardless of transport. ----
         drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out)
         diag.activeVoiceCount = activeVoiceCount()
+        diag.distinctSounding = distinctSounding
 
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
@@ -412,7 +446,9 @@ final class Router {
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
 
-        guard pool.count > 0 else { diag.activeVoiceCount = activeVoiceCount(); return }
+        guard pool.count > 0 else {
+            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
+        }
 
         // ---- per-window TICK content: evaluate rows top-down so a fed cell reads its feeder's
         //      output (mirror model). ARP cells produce ticks; identity-fed cells mirror the feeder;
@@ -431,7 +467,7 @@ final class Router {
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let fed = isFed(box, effColumn, r)
             let isArp = (colour.a.type == .arp) && !cell.bypassed
-            let cable: UInt8? = cell.busMask != 0 ? UInt8(cell.busMask.trailingZeroBitCount) : nil
+            let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
             if isArp {
                 var arpBeats = effectiveRateBeats(colour, t: t)
@@ -468,9 +504,9 @@ final class Router {
                     guard noteValue >= 0 && noteValue <= 127 else { continue }
 
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: pick.chan)
-                    if let cable {
+                    if emits {
                         emitArtic(note: UInt8(noteValue), provenanceChan: pick.chan,
-                                  outChannel: colour.outChannel, cable: cable,
+                                  outChannel: colour.outChannel, busMask: cell.busMask,
                                   onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                   out: out, diag: &diag)
                     }
@@ -483,9 +519,9 @@ final class Router {
                     let n = Int(src.note) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan)
-                    if let cable {
+                    if emits {
                         emitArtic(note: UInt8(n), provenanceChan: src.chan,
-                                  outChannel: colour.outChannel, cable: cable,
+                                  outChannel: colour.outChannel, busMask: cell.busMask,
                                   onSample: src.onSample, offSample: src.offSample,
                                   windowEnd: windowEnd, out: out, diag: &diag)
                     }
@@ -494,5 +530,6 @@ final class Router {
             // identity-unfed: no tick content (its hold was emitted at the column transition)
         }
         diag.activeVoiceCount = activeVoiceCount()
+        diag.distinctSounding = distinctSounding
     }
 }
