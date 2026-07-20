@@ -7,7 +7,9 @@
 //  Reads on the render thread are lock-free and allocation-free (acquire = one atomic load).
 
 import Foundation
-import Atomics   // swift-atomics via SPM — see project.yml `packages:`
+// Foundation-only on purpose: the effective-parameter functions below (§3.2 morph interpolation +
+// quantization) are pure and unit-tested off-device. SnapshotStore — the one piece needing
+// swift-atomics — lives in SnapshotStore.swift so this file can join the test target.
 
 // MARK: - Fixed geometry
 
@@ -141,31 +143,4 @@ func effectiveSpread(_ c: SnapColour, t: Double) -> Double {
 @inline(__always)
 func effectiveProbability(_ c: SnapColour, t: Double) -> Double {
     max(0, min(1, c.a.probability + (c.b.probability - c.a.probability) * t))
-}
-
-// MARK: - The store: single-writer (main thread) publish, lock-free render acquire
-
-final class SnapshotStore {
-    private let current: ManagedAtomic<UnsafeMutableRawPointer>
-    private var live: [SnapshotBox]          // MAIN THREAD ONLY — keeps recent boxes alive
-    // Lifetime rule: render uses a box only within one render callback (< ms); the publisher
-    // keeps the last 3 boxes strongly referenced, so an in-flight render can never see a
-    // deallocated box. Publish is main-only; violating that voids the guarantee.
-
-    init(initial: SnapshotBox) {
-        live = [initial]
-        current = ManagedAtomic(Unmanaged.passUnretained(initial).toOpaque())
-    }
-
-    func publish(_ box: SnapshotBox) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        live.append(box)
-        current.store(Unmanaged.passUnretained(box).toOpaque(), ordering: .releasing)
-        if live.count > 3 { live.removeFirst(live.count - 3) }
-    }
-
-    @inline(__always)
-    func acquire() -> SnapshotBox {
-        Unmanaged<SnapshotBox>.fromOpaque(current.load(ordering: .acquiring)).takeUnretainedValue()
-    }
 }

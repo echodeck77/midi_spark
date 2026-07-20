@@ -59,6 +59,8 @@ targets:
       - Tests
       - path: AUExtension/Derivations.swift
       - path: AUExtension/Models.swift
+      - path: AUExtension/Snapshot.swift    # pure now (store split out) → effective-param tests
+      - path: AUExtension/SnapshotBuilder.swift   # document → snapshot resolution
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

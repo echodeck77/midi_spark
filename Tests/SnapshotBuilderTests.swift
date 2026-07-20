@@ -1,0 +1,85 @@
+//  SnapshotBuilderTests.swift
+//  Off-device tests for the document → SnapshotBox resolution (§7): sparse B-over-A merge,
+//  enum → index mapping, LEGATO run-start precompute, and the parameter clamps.
+
+import XCTest
+
+final class SnapshotBuilderTests: XCTestCase {
+
+    private func colours(customizing i: Int, _ f: (inout Colour) -> Void) -> [Colour] {
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        f(&cs[i])
+        return cs
+    }
+
+    private func box(_ cs: [Colour], _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
+    }
+
+    func testSparseBInheritsAButSetFieldsOverride() {
+        // The whole point of the B-state: a field left NIL in B inherits A; a field set in B overrides.
+        let cs = colours(customizing: 0) {
+            $0.paramsA.rate = .r1_8
+            $0.paramsA.octaves = 1
+            $0.paramsB = ColourParams()
+            $0.paramsB.rate = nil        // unset in B → inherits A
+            $0.paramsB.octaves = 3       // set in B → overrides
+        }
+        let sc = box(cs) { _ in }.colours[0]
+        XCTAssertEqual(sc.a.rateIndex, Int8(ArpRate.allCases.firstIndex(of: .r1_8)!))
+        XCTAssertEqual(sc.b.rateIndex, sc.a.rateIndex)   // inherited from A
+        XCTAssertEqual(sc.a.octaves, 1)
+        XCTAssertEqual(sc.b.octaves, 3)                  // overridden by B
+    }
+
+    func testEnumToIndexAndClamps() {
+        let cs = colours(customizing: 0) {
+            $0.paramsA.pattern = .down
+            $0.paramsA.octaves = 9       // illegal → clamps to 4
+            $0.transpose = 100           // → clamps to 24
+            $0.outChannel = 99           // → clamps to 16
+        }
+        let sc = box(cs) { _ in }.colours[0]
+        XCTAssertEqual(sc.a.patternIndex, UInt8(ArpPattern.allCases.firstIndex(of: .down)!))
+        XCTAssertEqual(sc.a.octaves, 4)
+        XCTAssertEqual(sc.transpose, 24)
+        XCTAssertEqual(sc.outChannel, 16)
+    }
+
+    func testRunStartColumnForContiguousRun() {
+        // §7 LEGATO precompute: a contiguous same-Colour run in one row shares the run's first column.
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[2][0] = Cell(colourID: "gold")
+            s.cells[3][0] = Cell(colourID: "gold")
+        }
+        XCTAssertEqual(b.cells[2 * Snap.rows + 0].runStartColumn, 2)
+        XCTAssertEqual(b.cells[3 * Snap.rows + 0].runStartColumn, 2)   // continues, not restarts
+    }
+
+    func testRunBreaksOnGap() {
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[2][0] = Cell(colourID: "gold")
+            // column 3 empty → break
+            s.cells[4][0] = Cell(colourID: "gold")
+        }
+        XCTAssertEqual(b.cells[2 * Snap.rows + 0].runStartColumn, 2)
+        XCTAssertEqual(b.cells[4 * Snap.rows + 0].runStartColumn, 4)   // a gap restarts the run
+    }
+
+    func testBusMaskAndCellFlags() {
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a, .c], srcMix: true)
+        }
+        let cell = b.cells[0]
+        XCTAssertEqual(cell.busMask, 0b0101)   // A + C
+        XCTAssertTrue(cell.stack)
+        XCTAssertTrue(cell.srcMix)
+        XCTAssertEqual(cell.colourIndex, 0)
+    }
+
+    func testEmptyCellIsMarkedEmpty() {
+        let b = box(colours(customizing: 0) { _ in }) { _ in }
+        XCTAssertLessThan(b.cells[0].colourIndex, 0)   // colourIndex < 0 = empty
+    }
+}
