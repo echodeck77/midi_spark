@@ -170,7 +170,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, identity, silent }
 
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
@@ -178,11 +178,48 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     switch type {
     case .arp:      return .arp
     case .ratchet:  return .ratchet
+    case .strum:    return .strum
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
-    default:        return .identity                       // STRUM/CHANCE/HARMONIZE: identity until built
+    default:        return .identity                       // CHANCE/HARMONIZE: identity until built
     }
+}
+
+// MARK: - STRUM (§3): stagger a chord's onsets over `spread`, with a timing curve and velocity tilt
+
+/// The onset delay (in beats, 0…spread) for strum position `j` of `count` notes. curve 0 = even
+/// spacing; curve>0 bunches the early notes then opens out; curve<0 the reverse (exp = 2^curve, so
+/// ±1 → ×2 / ÷2 of the linear fraction). ASSUMPTION: this curve shape is a feel choice — tune freely.
+@inline(__always)
+func strumOffset(index j: Int, count: Int, spread: Double, curve: Double) -> Double {
+    guard count > 1 else { return 0 }
+    let frac = Double(j) / Double(count - 1)              // 0 (first) … 1 (last)
+    let shaped = pow(frac, pow(2.0, curve))              // curve 0 → linear
+    return spread * shaped
+}
+
+/// Velocity for strum position `j`. tilt 0 = flat at base; tilt>0 crescendos across the strum
+/// (first softer, last louder), tilt<0 decrescendos. ASSUMPTION: linear tilt around the base.
+@inline(__always)
+func strumVelocity(index j: Int, count: Int, tilt: Double, base: Int) -> UInt8 {
+    guard count > 1 else { return UInt8(max(1, min(127, base))) }
+    let frac = Double(j) / Double(count - 1)              // 0 … 1
+    let scale = 1 + tilt * (frac - 0.5)                  // [1 − tilt/2 … 1 + tilt/2]
+    return UInt8(max(1, min(127, Int((Double(base) * scale).rounded()))))
+}
+
+/// Which SORTED-pool index strum position `j` maps to, per direction. ALTERNATE flips per pass
+/// (position-derived, drift-free): even passes strum UP, odd passes DOWN.
+@inline(__always)
+func strumSortedIndex(position j: Int, count: Int, direction: StrumDir, pass: Int) -> Int {
+    let up: Bool
+    switch direction {
+    case .up:        up = true
+    case .down:      up = false
+    case .alternate: up = (((pass % 2) + 2) % 2) == 0
+    }
+    return up ? j : (count - 1 - j)
 }
 
 // MARK: - RATCHET velocity ramp (§3)

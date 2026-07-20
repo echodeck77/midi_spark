@@ -29,6 +29,7 @@ enum ArpRate: String, Codable, CaseIterable {
 enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D"
     var cable: UInt8 { UInt8(Bus.allCases.firstIndex(of: self)!) }
 }
+enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
 enum TapAction: String, Codable { case alt = "ALT", byp = "BYP", mute = "MUTE" }
 enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
 
@@ -47,6 +48,10 @@ struct ColourParams: Codable, Equatable {
     var count: Int? = 3            // ratchet
     var ramp: Double? = 0.5        // ratchet
     var passes: [Bool]? = [true, true, true, true]  // passgate
+    var strumDir: StrumDir? = .up  // strum
+    var spread: Double? = 0.1      // strum: chord stagger in BEATS (0…1)
+    var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
+    var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
 }
 
 struct Colour: Codable, Equatable {

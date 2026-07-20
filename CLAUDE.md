@@ -64,7 +64,10 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - Off-device unit tests cover the pure engine core (`AUExtension/Derivations.swift`: swing warp,
   phase modes, arp patterns, cellMode dispatch, ratchet ramp, NotePool). Run them — no simulator,
   ~seconds — with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test
-  -project MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS'`. The macOS
+  -project MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS,arch=arm64'
+  -derivedDataPath build/DerivedData`. The `-derivedDataPath` is REQUIRED: the default DerivedData
+  intermittently serves a STALE test bundle (old test count, hidden failures) — a fixed path per
+  run avoids it. The macOS
   `MidiSparkTests` target compiles the Foundation-only pure sources directly (no iOS/CoreAudio
   link). Keep new pure logic in Derivations.swift so it stays testable; add a test when you add a
   processor. Integration behaviour (chains, emission, refcount) is still device-verified via T1–T14.

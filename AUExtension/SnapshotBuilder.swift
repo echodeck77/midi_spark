@@ -81,6 +81,10 @@ enum SnapshotBuilder {
             out.passMask = 0
             for (i, on) in v.prefix(4).enumerated() where on { out.passMask |= UInt8(1 << i) }
         }
+        if let v = p.strumDir { out.strumDir = v }
+        if let v = p.spread { out.spread = max(0, min(1, v)) }
+        if let v = p.curve { out.curve = max(-1, min(1, v)) }
+        if let v = p.velTilt { out.velTilt = max(-1, min(1, v)) }
         return out
     }
 }

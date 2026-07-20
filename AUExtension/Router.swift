@@ -65,13 +65,14 @@ final class Router {
     private var articBuf = [Artic](repeating: Artic(), count: Snap.rows * Router.articCap)
     private var articCount = [Int](repeating: 0, count: Snap.rows)
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
+    private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
 
     func reset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
         for i in refcount.indices { refcount[i] = 0 }
         distinctSounding = 0
         wasPlaying = false
-        for r in lastTick.indices { lastTick[r] = -1 }
+        for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -412,7 +413,7 @@ final class Router {
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
             allNotesOff(atSample: AUEventSampleTimeImmediate, out: out)
-            for r in lastTick.indices { lastTick[r] = -1 }
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
             wasPlaying = playing
         }
@@ -445,7 +446,7 @@ final class Router {
                 allNotesOff(atSample: windowStart + AUEventSampleTime(off), out: out)
             }
             prevEffColumn = effColumn
-            for r in lastTick.indices { lastTick[r] = -1 }
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
@@ -558,6 +559,42 @@ final class Router {
                                           onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                           velocity: vel, out: out, diag: &diag)
                             }
+                        }
+                    }
+                }
+            } else if mode == .strum {
+                // STRUM (§3): stagger the source chord's onsets over `spread` beats from the column
+                // start, held to the column boundary. Emitted per-window as each note's onset arrives
+                // (strumProgress counter, reset per column) — boundary-safe, each note fires once.
+                let spread = effectiveSpread(colour, t: t)
+                let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
+                let count = pool.count
+                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
+
+                if count > 0 {
+                    let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+                    let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
+                                             beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    while strumProgress[r] < count {
+                        let j = strumProgress[r]
+                        let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
+                        let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
+                                                   beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                        if onsetSample >= windowEnd { break }        // onset lands in a later window
+                        strumProgress[r] += 1
+
+                        let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
+                        let baseNote = Int(pool.sorted[sortedIdx])
+                        let n = baseNote + transpose
+                        guard n >= 0 && n <= 127 else { continue }
+                        let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
+                        let onT = max(onsetSample, windowStart)
+                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), chan: pool.channel(of: baseNote))
+                        if emits {
+                            emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: baseNote),
+                                      outChannel: colour.outChannel, busMask: cell.busMask,
+                                      onSample: onT, offSample: offSample, windowEnd: windowEnd,
+                                      velocity: vel, out: out, diag: &diag)
                         }
                     }
                 }

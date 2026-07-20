@@ -245,5 +245,21 @@ enum TestSessions {
                 s.cells[4][0] = Cell(colourID: "magenta", buses: [.a])     // AS-PLAYED
             })
         },
+
+        Session(id: "T15", title: "STRUM",
+                expect: "Hold a chord. Row 0 cyan STRUM on bus A rolls the chord in from LOW to HIGH "
+                      + "over ~0.25 beat (spread), each note held to the column boundary, with a "
+                      + "gentle crescendo (velTilt 0.4). Not simultaneous like a plain hold — you "
+                      + "hear the notes arrive one after another. DIR up · spread 0.25 · curve 0 "
+                      + "(even) · tilt +0.4.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .strum
+            c[idx("cyan")].paramsA.strumDir = .up
+            c[idx("cyan")].paramsA.spread = 0.25
+            c[idx("cyan")].paramsA.velTilt = 0.4
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed STRUM on the source chord
+            })
+        },
     ]
 }

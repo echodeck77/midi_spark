@@ -43,6 +43,10 @@ struct SnapParams {
     var count: UInt8 = 3             // ratchet
     var ramp: Double = 0.5
     var passMask: UInt8 = 0b1111     // passgate
+    var strumDir: StrumDir = .up     // strum
+    var spread: Double = 0.1         // strum stagger, beats
+    var curve: Double = 0            // strum timing curve −1…1
+    var velTilt: Double = 0          // strum velocity tilt −1…1
 }
 
 struct SnapColour {
@@ -124,6 +128,12 @@ func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
 @inline(__always)
 func effectiveRamp(_ c: SnapColour, t: Double) -> Double {
     max(0, min(1, c.a.ramp + (c.b.ramp - c.a.ramp) * t))
+}
+
+// STRUM (§3): spread is B-overridable + continuous; curve/velTilt continuous. Direction not morphed.
+@inline(__always)
+func effectiveSpread(_ c: SnapColour, t: Double) -> Double {
+    max(0, min(1, c.a.spread + (c.b.spread - c.a.spread) * t))
 }
 
 // MARK: - The store: single-writer (main thread) publish, lock-free render acquire

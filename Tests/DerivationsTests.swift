@@ -180,8 +180,9 @@ final class DerivationsTests: XCTestCase {
     func testCellModeBasics() {
         XCTAssertEqual(cellMode(type: .arp, bypassed: false, passMask: 0, pass: 0), .arp)
         XCTAssertEqual(cellMode(type: .ratchet, bypassed: false, passMask: 0, pass: 0), .ratchet)
+        XCTAssertEqual(cellMode(type: .strum, bypassed: false, passMask: 0, pass: 0), .strum)
         XCTAssertEqual(cellMode(type: .arp, bypassed: true, passMask: 0, pass: 0), .identity)   // bypass wins
-        XCTAssertEqual(cellMode(type: .strum, bypassed: false, passMask: 0, pass: 0), .identity) // unimplemented
+        XCTAssertEqual(cellMode(type: .chance, bypassed: false, passMask: 0, pass: 0), .identity) // still unimplemented
     }
 
     func testPassgateGating() {
@@ -208,5 +209,48 @@ final class DerivationsTests: XCTestCase {
         for i in 1..<4 { XCTAssertGreaterThanOrEqual(vels[i], vels[i - 1]) }
         XCTAssertEqual(vels[3], 96)          // last reaches base
         XCTAssertGreaterThanOrEqual(vels[0], 1)  // never a note-off velocity
+    }
+
+    // MARK: strum (§3)
+
+    func testStrumOffsetEndpointsAndMonotonic() {
+        let spread = 0.4, K = 5
+        XCTAssertEqual(strumOffset(index: 0, count: K, spread: spread, curve: 0), 0, accuracy: 1e-9)
+        XCTAssertEqual(strumOffset(index: K - 1, count: K, spread: spread, curve: 0), spread, accuracy: 1e-9)
+        var prev = -1.0
+        for j in 0..<K {
+            let off = strumOffset(index: j, count: K, spread: spread, curve: 0)
+            XCTAssertGreaterThan(off, prev); prev = off      // strictly increasing
+        }
+        // curve 0 is linear
+        XCTAssertEqual(strumOffset(index: 2, count: K, spread: spread, curve: 0), spread * 0.5, accuracy: 1e-9)
+    }
+
+    func testStrumOffsetSingleNote() {
+        XCTAssertEqual(strumOffset(index: 0, count: 1, spread: 0.4, curve: 0), 0)   // nothing to spread
+    }
+
+    func testStrumCurveBunchesEnds() {
+        // curve>0: early notes bunched (midpoint offset < linear half); curve<0: opposite.
+        let mid = { (c: Double) in strumOffset(index: 2, count: 5, spread: 1.0, curve: c) }
+        XCTAssertLessThan(mid(1), mid(0))       // positive curve pulls the midpoint earlier
+        XCTAssertGreaterThan(mid(-1), mid(0))
+    }
+
+    func testStrumVelocityTilt() {
+        XCTAssertEqual(strumVelocity(index: 0, count: 4, tilt: 0, base: 96), 96)   // flat
+        let up = (0..<4).map { strumVelocity(index: $0, count: 4, tilt: 1, base: 96) }
+        XCTAssertLessThan(up[0], up[3])                                            // crescendo
+        let down = (0..<4).map { strumVelocity(index: $0, count: 4, tilt: -1, base: 96) }
+        XCTAssertGreaterThan(down[0], down[3])                                     // decrescendo
+    }
+
+    func testStrumDirection() {
+        XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .up, pass: 0), 0)   // low first
+        XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .down, pass: 0), 3) // high first
+        // ALTERNATE: up on even passes, down on odd
+        XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 0), 0)
+        XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 1), 3)
+        XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 2), 0)
     }
 }
