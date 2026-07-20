@@ -190,5 +190,21 @@ enum TestSessions {
                 s.cells[0][1] = Cell(colourID: "cyan", buses: [.b], bypassed: true)         // BYPASS identity: mirror onto B
             })
         },
+
+        // ---- step 4: first real processor ----
+
+        Session(id: "T12", title: "RATCHET",
+                expect: "Hold a chord. Row 0 cyan RATCHET (count 4) on bus A re-strikes the WHOLE "
+                      + "chord 4 times per column, staccato, with a velocity ramp (soft→loud, ramp "
+                      + "0.8). Distinct from an ARP: no note-cycling — every stab is the full chord. "
+                      + "Panel VOICES pulses to chord-size on each stab; EMIT climbs in bursts.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .ratchet
+            c[idx("cyan")].paramsA.count = 4                  // 4 stabs per column
+            c[idx("cyan")].paramsA.ramp = 0.8                 // audible crescendo across the 4
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed RATCHET on the source chord
+            })
+        },
     ]
 }

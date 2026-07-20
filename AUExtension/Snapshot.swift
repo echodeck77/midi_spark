@@ -109,6 +109,23 @@ func effectiveOctaves(_ c: SnapColour, t: Double) -> Int {
     return max(1, min(4, Int(v.rounded())))                   // stepped: round, clamp legal
 }
 
+// RATCHET (§3): repeats per step. Stepped field — interpolate then quantize to a LEGAL count
+// (2/3/4/6/8; 5 and 7 are not legal), never gliding through illegal values (§3.2).
+@inline(__always)
+func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
+    let v = Double(c.a.count) + (Double(c.b.count) - Double(c.a.count)) * t
+    let legal = [2, 3, 4, 6, 8]
+    var best = legal[0], bestD = Double.greatestFiniteMagnitude
+    for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
+    return best
+}
+
+// RATCHET velocity ramp 0–100% (§3): continuous.
+@inline(__always)
+func effectiveRamp(_ c: SnapColour, t: Double) -> Double {
+    max(0, min(1, c.a.ramp + (c.b.ramp - c.a.ramp) * t))
+}
+
 // MARK: - The store: single-writer (main thread) publish, lock-free render acquire
 
 final class SnapshotStore {

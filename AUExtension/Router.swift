@@ -197,7 +197,7 @@ final class Router {
     @discardableResult
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
-                           out: AUMIDIOutputEventBlock?) -> Int {
+                           velocity: UInt8 = 96, out: AUMIDIOutputEventBlock?) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: a note we can't track is worse than a dropped one (it would
         // hang). At 128-voice capacity this never trips for the real topologies.
@@ -205,7 +205,7 @@ final class Router {
         for i in voices.indices where !voices[i].active { slot = i; break }
         guard slot >= 0 else { return -1 }
 
-        var on: [UInt8] = [0x90 | chan, note, 96]
+        var on: [UInt8] = [0x90 | chan, note, max(1, velocity)]
         _ = out(onSample, cable, 3, &on)                     // §7 clause 1: note-ons ALWAYS emit
         let idx = rcIndex(cable, chan, note)
         if refcount[idx] == 0 { distinctSounding += 1 }
@@ -296,15 +296,15 @@ final class Router {
     /// under the refcount. In-window offs close in-loop so wire events stay in ascending sample order.
     private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, busMask: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
-                           windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
-                           diag: inout KernelDiag) {
+                           windowEnd: AUEventSampleTime, velocity: UInt8 = 96,
+                           out: AUMIDIOutputEventBlock?, diag: inout KernelDiag) {
         let outCh: UInt8 = outChannel == 0 ? provenanceChan : outChannel - 1
         var mask = busMask
         while mask != 0 {
             let cable = UInt8(mask.trailingZeroBitCount)
             mask &= mask - 1                                  // clear the lowest set bit
             let slot = openVoice(note: note, chan: outCh, cable: cable,
-                                 onSample: onSample, offSample: offSample, out: out)
+                                 onSample: onSample, offSample: offSample, velocity: velocity, out: out)
             if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
         }
         diag.emitCount &+= 1
@@ -332,8 +332,8 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            let isIdentity = (colour.a.type != .arp) || cell.bypassed
-            guard isIdentity else { continue }
+            let isIdentity = cell.bypassed || !isImplementedProcessor(colour.a.type)
+            guard isIdentity else { continue }            // real processors (arp/ratchet) don't chord-hold
             let fed = isFed(box, column, r)
             guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
@@ -433,6 +433,22 @@ final class Router {
         return nil   // unfed identity: a chord (pool), not one note — see doc comment
     }
 
+    /// Types with a real processor implementation. Others (PASSGATE/STRUM/CHANCE/HARMONIZE) fall
+    /// back to identity until built. A BYPASSED cell is always identity regardless of type (§3).
+    @inline(__always) private func isImplementedProcessor(_ type: ProcessorType) -> Bool {
+        type == .arp || type == .ratchet
+    }
+
+    /// Velocity for ratchet repeat `index` of `count`. ramp 0 = flat at base; ramp 1 = crescendo
+    /// from ~silent up to base (first hit softest, last full). ASSUMPTION: crescendo direction —
+    /// flip if the feel should accent the first hit instead.
+    @inline(__always) private func ratchetVelocity(base: Int, ramp: Double, index: Int, count: Int) -> UInt8 {
+        guard count > 1 else { return UInt8(max(1, min(127, base))) }
+        let frac = Double(index) / Double(count - 1)          // 0 (first) … 1 (last)
+        let scale = (1.0 - ramp) + ramp * frac                // ramp 0 → 1; ramp 1 → frac
+        return UInt8(max(1, min(127, Int((Double(base) * scale).rounded()))))
+    }
+
     // MARK: - the render-side pass
 
     func process(box: SnapshotBox,
@@ -526,6 +542,7 @@ final class Router {
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let fed = isFed(box, effColumn, r)
             let isArp = (colour.a.type == .arp) && !cell.bypassed
+            let isRatchet = (colour.a.type == .ratchet) && !cell.bypassed
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
             if isArp {
@@ -586,6 +603,66 @@ final class Router {
                                   outChannel: colour.outChannel, busMask: cell.busMask,
                                   onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                   out: out, diag: &diag)
+                    }
+                }
+            } else if isRatchet {
+                // RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato,
+                // with a velocity ramp. Not an arp (no index cycling) — every stab is the full pool.
+                let repeats = effectiveRepeats(colour, t: t)
+                let ramp = effectiveRamp(colour, t: t)
+                let sub = S / Double(repeats)                          // one repeat every `sub` beats
+                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = sub }
+
+                let mStart = musicalOf(beatPos, stepBeats: S, a: a)
+                let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+                let firstTick = Int64((mStart / sub).rounded(.up))
+                let lastT = Int64((mEnd / sub).rounded(.down))
+                guard firstTick <= lastT else { continue }
+
+                for tick in firstTick...lastT {
+                    let mTickBeat = Double(tick) * sub
+                    let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
+                    if tickCol != effColumn { continue }
+                    if tick == lastTick[r] { continue }
+                    lastTick[r] = tick
+
+                    let colStart = (mTickBeat / S).rounded(.down) * S
+                    let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
+                    let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
+
+                    let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                          windowStart: windowStart, S: S, a: a)
+                    let mOff = min(mTickBeat + sub * 0.6, colStart + S)          // staccato stab (0.6 of a repeat)
+                    let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                           windowStart: windowStart, S: S, a: a)
+
+                    if fed && !cell.srcMix {
+                        // ratchet the feeder's CURRENT sounding note (derivation, window-independent)
+                        guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
+                                                         box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                        else { continue }
+                        let n = f.note + transpose
+                        guard n >= 0 && n <= 127 else { continue }
+                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan)
+                        if emits {
+                            emitArtic(note: UInt8(n), provenanceChan: f.chan, outChannel: colour.outChannel,
+                                      busMask: cell.busMask, onSample: onTime, offSample: offTime,
+                                      windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                        }
+                    } else {
+                        // re-strike every held note (the source chord)
+                        for k in 0..<pool.count {
+                            let base = Int(pool.sorted[k])
+                            let n = base + transpose
+                            guard n >= 0 && n <= 127 else { continue }
+                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: pool.channel(of: base))
+                            if emits {
+                                emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
+                                          outChannel: colour.outChannel, busMask: cell.busMask,
+                                          onSample: onTime, offSample: offTime, windowEnd: windowEnd,
+                                          velocity: vel, out: out, diag: &diag)
+                            }
+                        }
                     }
                 }
             } else if fed {
