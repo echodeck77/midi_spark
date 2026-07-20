@@ -316,7 +316,7 @@ final class Router {
     /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
     /// +SRC) articulates the whole source chord and holds it to the column boundary (mirror model:
     /// identity = sample-and-hold of its input pool). Arp cells and pure-mirror cells have no hold.
-    private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool,
+    private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: AUEventSampleTime,
                                  windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
@@ -332,8 +332,10 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            let isIdentity = cell.bypassed || !isImplementedProcessor(colour.a.type)
-            guard isIdentity else { continue }            // real processors (arp/ratchet) don't chord-hold
+            // Only identity cells chord-hold. An OPEN passgate is identity (holds); a CLOSED one and
+            // real processors (arp/ratchet) are not.
+            guard cellMode(type: colour.a.type, bypassed: cell.bypassed,
+                           passMask: colour.a.passMask, pass: pass) == .identity else { continue }
             let fed = isFed(box, column, r)
             guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
@@ -401,9 +403,12 @@ final class Router {
         let colour = box.colours[ci]
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
         let fed = isFed(box, column, row)
-        let isArp = (colour.a.type == .arp) && !cell.bypassed
+        let pass = Int((m / cycleBeats).rounded(.down))
+        let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed, passMask: colour.a.passMask, pass: pass)
+        if mode == .silent { return nil }      // e.g. a closed passgate feeder sounds nothing
+        if mode == .ratchet { return nil }     // ratchet sounds a chord (pool), not one note — see doc comment
 
-        if isArp {
+        if mode == .arp {
             let master = over(34, box.morphMaster)
             let morph = over(18 + ci, colour.morph)
             let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
@@ -433,10 +438,22 @@ final class Router {
         return nil   // unfed identity: a chord (pool), not one note — see doc comment
     }
 
-    /// Types with a real processor implementation. Others (PASSGATE/STRUM/CHANCE/HARMONIZE) fall
-    /// back to identity until built. A BYPASSED cell is always identity regardless of type (§3).
-    @inline(__always) private func isImplementedProcessor(_ type: ProcessorType) -> Bool {
-        type == .arp || type == .ratchet
+    /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
+    /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
+    /// Adding a processor = one case here + its branch in the loop.
+    enum CellMode { case arp, ratchet, identity, silent }
+
+    @inline(__always)
+    private func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
+        if bypassed { return .identity }                       // §3: bypass = identity processor
+        switch type {
+        case .arp:      return .arp
+        case .ratchet:  return .ratchet
+        case .passgate:                                        // §3/§4: gated by pass (mod 4)
+            let bit = ((pass % 4) + 4) % 4
+            return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
+        default:        return .identity                       // STRUM/CHANCE/HARMONIZE: identity until built
+        }
     }
 
     /// Velocity for ratchet repeat `index` of `count`. ramp 0 = flat at base; ramp 1 = crescendo
@@ -516,7 +533,7 @@ final class Router {
             }
             prevEffColumn = effColumn
             for r in lastTick.indices { lastTick[r] = -1 }
-            emitColumnHolds(box: box, column: effColumn, pool: pool,
+            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
@@ -541,11 +558,11 @@ final class Router {
             let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let fed = isFed(box, effColumn, r)
-            let isArp = (colour.a.type == .arp) && !cell.bypassed
-            let isRatchet = (colour.a.type == .ratchet) && !cell.bypassed
+            let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
+                                passMask: colour.a.passMask, pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
-            if isArp {
+            if mode == .arp {
                 var arpBeats = effectiveRateBeats(colour, t: t)
                 let gate = effectiveGate(colour, t: t)
                 let octaves = effectiveOctaves(colour, t: t)
@@ -609,7 +626,7 @@ final class Router {
                                   out: out, diag: &diag)
                     }
                 }
-            } else if isRatchet {
+            } else if mode == .ratchet {
                 // RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato,
                 // with a velocity ramp. Not an arp (no index cycling) — every stab is the full pool.
                 let repeats = effectiveRepeats(colour, t: t)
@@ -669,8 +686,9 @@ final class Router {
                         }
                     }
                 }
-            } else if fed {
-                // Identity fed: MIRROR the feeder's ticks this window (+ this cell's transpose).
+            } else if mode == .identity && fed {
+                // Identity fed (incl. open PASSGATE): MIRROR the feeder's ticks this window
+                // (+ this cell's transpose). A closed passgate is .silent → nothing here.
                 let fr = r - 1
                 for k in 0..<articCount[fr] {
                     let src = articBuf[fr * Router.articCap + k]

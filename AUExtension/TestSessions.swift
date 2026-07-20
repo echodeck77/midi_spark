@@ -206,5 +206,23 @@ enum TestSessions {
                 s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed RATCHET on the source chord
             })
         },
+
+        Session(id: "T13", title: "PASSGATE",
+                expect: "§3/§4: gated per PASS (mod 4). Every column: row 0 gold ARP feeds row 1 "
+                      + "cyan PASSGATE (bus A, mask [open, closed, open, closed]). Hold a chord: a "
+                      + "CONTINUOUS arp for a whole cycle on pass 0, then full SILENCE for pass 1, "
+                      + "arp again pass 2, silent pass 3 — repeating every 4 cycles (1 cycle = 16 "
+                      + "beats at 1/2). Panel: 'pass' counts up; EMIT rises only on even passes. "
+                      + "Click-safe — no stuck notes when it closes each cycle.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .passgate
+            c[idx("cyan")].paramsA.passes = [true, false, true, false]     // open on pass 0 & 2
+            return doc(c, scene { s in
+                for col in 0..<8 {
+                    s.cells[col][0] = Cell(colourID: "gold", stack: true, buses: [])   // arp, feeds, silent
+                    s.cells[col][1] = Cell(colourID: "cyan", buses: [.a])              // PASSGATE gates it per pass
+                }
+            })
+        },
     ]
 }

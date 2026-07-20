@@ -135,3 +135,13 @@ HARMONIZE — acceptance items 4–6) then step 5 (SwiftUI grid UI).
 | T9 (fed ARP / arp-of-arp) | PASS | 2740913 | after the derivation fix: each upstream 1/8 note rippled over 2 oct at 1/16 |
 | T10 (transpose accumulates) | PASS | 2740913 | chain summed +5 and +7 → +12 (one octave up) |
 | T11 (mid-chain tap) | PASS | 2740913 | one cell emits on A and feeds a mirror onto B |
+
+### 2026-07-20 — step 4: RATCHET (first real processor)
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T12 (RATCHET) | PASS | 86d4fd8 | 4 chord stabs/column with velocity crescendo; correct after the boundary fix |
+| Boundary-tick fix | PASS | 86d4fd8 | column-first note/stab no longer dropped (was ceil→floor on firstTick); ARP + RATCHET |
+| T1–T11 re-listen | PASS | 86d4fd8 | arps now sound each column's first note; no regressions |
+
+Chosen RATCHET defaults confirmed by ear: velocity ramp = crescendo; stab gate 0.6 of a subdivision.
