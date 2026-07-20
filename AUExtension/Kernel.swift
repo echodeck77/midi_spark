@@ -179,7 +179,9 @@ final class Kernel {
         let colour = box.colours[demoColour]
         let master = over(34, box.morphMaster)
         let morphGold = over(18 + demoColour, colour.morph)
-        let t = effectiveMorph(morphGold, master: master)
+        // alt: false — the demo arp is not a real cell, so it has no alt bit. The router (step 3)
+        // passes each cell's own bit here; this call site disappears with the demo arp.
+        let t = effectiveT(colourMorph: morphGold, master: master, alt: false)
         var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
         let octaves = effectiveOctaves(colour, t: t)

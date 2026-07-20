@@ -42,7 +42,15 @@ struct DiagView: View {
     @State private var d = KernelDiag()
     @State private var treeMorphGold: Float = 0
     @State private var treeSwing: Float = 50
+    @State private var loadedID = "—"
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
+
+    private func load(_ s: TestSessions.Session) {
+        au?.loadTestSession(s)          // main thread: SwiftUI actions already are
+        loadedID = s.id
+    }
 
     var body: some View {
         ZStack {
@@ -69,6 +77,32 @@ struct DiagView: View {
                     .font(.system(size: 8.5, design: .monospaced))
                     .foregroundColor(.white.opacity(0.35))
                     .padding(.top, 4)
+
+                Divider().background(Color.white.opacity(0.15)).padding(.vertical, 2)
+
+                row("TEST SESSION", loadedID, selected?.title ?? "none loaded")
+                HStack(spacing: 6) {
+                    ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
+                        Button(s.id) { load(s) }
+                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .foregroundColor(s.id == loadedID ? .black : .white.opacity(0.85))
+                            .padding(.vertical, 6).padding(.horizontal, 10)
+                            .background(RoundedRectangle(cornerRadius: 5)
+                                .fill(s.id == loadedID
+                                      ? Color(red: 0.15, green: 0.88, blue: 0.94)
+                                      : Color.white.opacity(0.10)))
+                    }
+                    Spacer()
+                }
+                if let s = selected {
+                    Text(s.expect)
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Loading a session REPLACES the document (host automation state included). Only ARP is implemented — every other type behaves as identity until step 4.")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.3))
             }
             .padding(18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

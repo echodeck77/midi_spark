@@ -81,6 +81,16 @@ func effectiveMorph(_ colourMorph: Double, master: Double) -> Double {
     min(1.0, colourMorph + (1.0 - colourMorph) * master)      // §13.5
 }
 
+/// §7: the effective morph position for ONE CELL — the value every other helper here takes as `t`.
+/// A cell's ALT bit forces full B; otherwise the Colour macro merged with MASTER (§13.5).
+/// Colours are definitions, cells are instances (§1.1): two cells sharing a Colour differ only
+/// by their own alt bit, which is why this is the per-cell entry point and `effectiveMorph` is not.
+/// Step 6 joins rowPush to the same expression: `(alt || push) ? 1 : effectiveMorph(...)`.
+@inline(__always)
+func effectiveT(colourMorph: Double, master: Double, alt: Bool) -> Double {
+    alt ? 1.0 : effectiveMorph(colourMorph, master: master)
+}
+
 @inline(__always)
 func effectiveRateBeats(_ c: SnapColour, t: Double) -> Double {
     let ia = Double(c.a.rateIndex), ib = Double(c.b.rateIndex)

@@ -24,6 +24,10 @@ targets:
       properties:
         UILaunchScreen: {}
         CFBundleDisplayName: MidiSpark
+        # Must match AUExtension/Info.plist's CFBundleShortVersionString — an app extension
+        # whose version differs from its container fails embedded-binary validation.
+        # The extension plist is hand-maintained, so bump BOTH together.
+        CFBundleShortVersionString: "0.1.0"
     dependencies:
       - target: MidiSparkAU
         embed: true

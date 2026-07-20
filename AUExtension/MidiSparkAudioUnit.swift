@@ -18,12 +18,17 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private let store: SnapshotStore
     private var rebuildPending = false
     private var snapshotGeneration: UInt64 = 1
+    private var suppressRebuild = false
+
+    /// Currently loaded test session id ("—" until one is loaded). Diagnostics only.
+    private(set) var loadedTestSession = "—"
 
     /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
 
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
+        if suppressRebuild { return }
         if Thread.isMainThread {
             snapshotGeneration &+= 1
             store.publish(SnapshotBuilder.build(from: document, generation: snapshotGeneration))
@@ -145,6 +150,40 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 return AUValue(self.document.colours[Int(a - 100)].transpose)
             default: return 0
             }
+        }
+    }
+
+    // MARK: - Test-session loading (docs/test-procedures.md; step 3 has no grid UI)
+
+    /// DESTRUCTIVE by design: replaces the whole document, discarding whatever was loaded.
+    /// Goes through the normal document path so it exercises the same code fullState does.
+    /// Parameter tree is resynced afterwards — otherwise the tree would still hold the old
+    /// morph/transpose values and the next host automation touch would fight the new document.
+    func loadTestSession(_ session: TestSessions.Session) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        document = session.make()
+        loadedTestSession = session.id
+
+        // Tree writes re-enter implementorValueObserver (each calling scheduleRebuild), so
+        // suppress and publish exactly one snapshot at the end.
+        suppressRebuild = true
+        syncParameterTreeToDocument()
+        suppressRebuild = false
+        scheduleRebuild()
+    }
+
+    /// Push document values out to the AUParameterTree so host-visible state matches reality.
+    private func syncParameterTreeToDocument() {
+        let scene = document.scenes[document.activeScene]
+        _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value =
+            AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
+        _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
+        _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMaster)
+        for i in colourIDs.indices {
+            _parameterTree.parameter(withAddress: ParamAddress.morph(i))?.value =
+                AUValue(document.colours[i].morph)
+            _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
+                AUValue(document.colours[i].transpose)
         }
     }
 

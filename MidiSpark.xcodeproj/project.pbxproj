@@ -15,6 +15,7 @@
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
+		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
 		ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 651E122AE1C1D347649F79D7 /* Atomics */; };
 /* End PBXBuildFile section */
@@ -47,24 +48,16 @@
 		0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		08530382AAA337959EA7983D /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
 		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
-		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		2C36FED2300E5C2C00557238 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
+		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
+		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		2C36FED3300E5C4C00557238 /* Docs */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Docs;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		4EB6D2A2096DE79ACA9EBD5F /* Frameworks */ = {
@@ -91,8 +84,6 @@
 		5A12A22D394BAEFBD77AD6BB = {
 			isa = PBXGroup;
 			children = (
-				2C36FED3300E5C4C00557238 /* Docs */,
-				2C36FED2300E5C2C00557238 /* CLAUDE.md */,
 				21631744EFF0267BC0F27291 /* App */,
 				75B0A874D0FF06633E4409EE /* AUExtension */,
 				B15E07ABC43302C9284D7563 /* Products */,
@@ -108,6 +99,7 @@
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
 				0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */,
 				08530382AAA337959EA7983D /* SnapshotBuilder.swift */,
+				7A14036510EE49EB0BD7CE1E /* TestSessions.swift */,
 			);
 			path = AUExtension;
 			sourceTree = "<group>";
@@ -172,9 +164,11 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					1D0B3E83C3495583749AF302 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					D6902684FD04DF004696DCC4 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -213,6 +207,7 @@
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,
 				A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */,
 				838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */,
+				D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -298,7 +293,6 @@
 		160566B1C6A5B4C17F987232 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				DEVELOPMENT_TEAM = U9LCUSTWSQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AUExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -317,7 +311,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = U9LCUSTWSQ;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -400,7 +393,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = U9LCUSTWSQ;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -415,7 +407,6 @@
 		F1A230AE278BB09170A7CB41 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				DEVELOPMENT_TEAM = U9LCUSTWSQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AUExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
