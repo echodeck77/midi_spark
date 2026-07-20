@@ -67,19 +67,25 @@ final class Router {
     private var overrides = [Double](repeating: .nan, count: 35)
     private var overrideGen: UInt64 = .max
 
-    // Mono note tracker (§7). The off carries the channel AND cable the on used; the gate-off is an
-    // ABSOLUTE sample time, drained every render so an off beyond the window is never dropped.
-    private var soundingNote: Int = -1
-    private var soundingChannel: UInt8 = 0
-    private var soundingCable: UInt8 = 0
-    private var soundingOffSample: AUEventSampleTime = .max   // .max = nothing scheduled
+    // Poly note tracker (§7). Each sounding note is a Voice carrying the channel + cable its on used
+    // and an ABSOLUTE gate-off sample, drained every render so an off beyond its opening window is
+    // never dropped (no stuck note). Fixed capacity; no allocation on the hot path. The
+    // (bus, channel, note) COLLISION refcount is commit 6 — until then two voices on the same wire
+    // note off independently (fine for the current single-emitter test topologies).
+    private struct Voice {
+        var active = false
+        var note: UInt8 = 0
+        var chan: UInt8 = 0
+        var cable: UInt8 = 0
+        var offSample: AUEventSampleTime = .max
+    }
+    private var voices = [Voice](repeating: Voice(), count: 128)
     private var wasPlaying = false
     private var lastTickIndex: Int64 = -1
-    private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate the voice
+    private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
     func reset() {
-        soundingNote = -1
-        soundingOffSample = .max
+        for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
         wasPlaying = false
         lastTickIndex = -1
         prevEffColumn = -1
@@ -159,14 +165,60 @@ final class Router {
         return nil
     }
 
-    /// Close the mono voice: emit its note-off on the SAME channel and cable the on used, then
-    /// clear the voice and its scheduled gate-off. Idempotent — safe with nothing sounding.
-    func closeVoice(atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
-        guard soundingNote >= 0, let out else { soundingNote = -1; soundingOffSample = .max; return }
-        var off: [UInt8] = [0x80 | soundingChannel, UInt8(soundingNote), 0]
-        _ = out(time, soundingCable, 3, &off)
-        soundingNote = -1
-        soundingOffSample = .max
+    // MARK: voice table
+
+    /// Emit a note-on and register a voice with its scheduled gate-off. Returns the slot, or -1 if
+    /// the table is full (the on still sounded; we just can't track its off — capacity is 128).
+    @discardableResult
+    private func openVoice(note: UInt8, chan: UInt8, cable: UInt8,
+                           onSample: AUEventSampleTime, offSample: AUEventSampleTime,
+                           out: AUMIDIOutputEventBlock) -> Int {
+        var on: [UInt8] = [0x90 | chan, note, 96]
+        _ = out(onSample, cable, 3, &on)
+        for i in voices.indices where !voices[i].active {
+            voices[i].active = true
+            voices[i].note = note
+            voices[i].chan = chan
+            voices[i].cable = cable
+            voices[i].offSample = offSample
+            return i
+        }
+        return -1
+    }
+
+    private func closeVoice(_ i: Int, atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
+        guard voices[i].active else { return }
+        if let out {
+            var off: [UInt8] = [0x80 | voices[i].chan, voices[i].note, 0]
+            _ = out(time, voices[i].cable, 3, &off)
+        }
+        voices[i].active = false
+        voices[i].offSample = .max
+    }
+
+    /// Emit any scheduled gate-off that has come due this window (drained every render → no stuck
+    /// note when a voice's off falls beyond the window it was opened in).
+    private func drainDue(windowStart: AUEventSampleTime, windowEnd: AUEventSampleTime,
+                          out: AUMIDIOutputEventBlock?) {
+        for i in voices.indices where voices[i].active && voices[i].offSample <= windowEnd {
+            closeVoice(i, atSample: max(voices[i].offSample, windowStart), out: out)
+        }
+    }
+
+    /// Close every sounding voice at one sample time (transport edge, column transition, reset).
+    func allNotesOff(atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
+        for i in voices.indices where voices[i].active { closeVoice(i, atSample: time, out: out) }
+    }
+
+    private func anyVoiceActive() -> Bool {
+        for v in voices where v.active { return true }
+        return false
+    }
+
+    private func activeVoiceCount() -> Int {
+        var n = 0
+        for v in voices where v.active { n += 1 }
+        return n
     }
 
     // MARK: - the render-side pass
@@ -193,15 +245,14 @@ final class Router {
         if srIdx >= 0 && srIdx < Snap.stepRateBeats.count { S = Snap.stepRateBeats[srIdx] }
         diag.effSwing = swing
 
-        // ---- drain a scheduled gate-off that has come due (survives across renders → no stuck
-        //      note when a voice enters a silent column). Runs regardless of transport (§7). ----
-        if soundingNote >= 0 && soundingOffSample <= windowEnd {
-            closeVoice(atSample: max(soundingOffSample, windowStart), out: out)
-        }
+        // ---- drain scheduled gate-offs that have come due (survive across renders → no stuck note
+        //      when a voice's off falls beyond its opening window). Runs regardless of transport. ----
+        drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out)
+        diag.activeVoiceCount = activeVoiceCount()
 
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
-            closeVoice(atSample: AUEventSampleTimeImmediate, out: out)
+            allNotesOff(atSample: AUEventSampleTimeImmediate, out: out)
             lastTickIndex = -1
             prevEffColumn = -1
             wasPlaying = playing
@@ -227,11 +278,11 @@ final class Router {
         // ---- column transition (§7): the active column changed → truncate the sounding voice at
         //      the boundary (truncate-at-boundary tails). A relocation/loop is the same edge. ----
         if effColumn != prevEffColumn {
-            if soundingNote >= 0 {
+            if anyVoiceActive() {
                 let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
                 let realB = realOf(boundaryMusical, stepBeats: S, a: a)
                 let off = max(0, (realB - beatPos) / beatsPerSample)
-                closeVoice(atSample: windowStart + AUEventSampleTime(off), out: out)
+                allNotesOff(atSample: windowStart + AUEventSampleTime(off), out: out)
             }
             prevEffColumn = effColumn
             lastTickIndex = -1
@@ -254,7 +305,7 @@ final class Router {
 
         // Bus: lowest lit letter for now (fan-out across all lit buses lands at commit 6).
         // No lit letter = no-destination (§2.4): truncate any tail, emit nothing.
-        guard cell.busMask != 0 else { closeVoice(atSample: windowStart, out: out); return }
+        guard cell.busMask != 0 else { allNotesOff(atSample: windowStart, out: out); return }
         let cable = UInt8(cell.busMask.trailingZeroBitCount)
 
         // ---- derived ticks in MUSICAL beat space; delivery unwarped to real ----
@@ -279,8 +330,6 @@ final class Router {
             let onOffset = max(0, (realTickBeat - beatPos) / beatsPerSample)
             let onTime = windowStart + AUEventSampleTime(onOffset)
 
-            closeVoice(atSample: onTime, out: out)   // mono: close the prior note before the next on
-
             let step = Int(tick % Int64(span))
             let base = Int(pool.sorted[step % pool.count])
             let raised = base + 12 * (step / pool.count)
@@ -288,26 +337,25 @@ final class Router {
             guard noteValue >= 0 && noteValue <= 127 else { continue }
 
             // OUT CH stamp (§2.6): INHERIT (0) → the source note's original channel; else n → n−1.
-            // This is exactly the expression the router reuses per emitted entry (router-design §6).
             let outCh: UInt8 = colour.outChannel == 0 ? pool.channel(of: base) : colour.outChannel - 1
-            var on: [UInt8] = [0x90 | outCh, UInt8(noteValue), 96]
-            _ = out(onTime, cable, 3, &on)
-            soundingNote = noteValue
-            soundingChannel = outCh
-            soundingCable = cable
+
+            // Gate-off, truncated at the column boundary (§7 Tails), as an absolute sample.
+            let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
+            let mOffBeat = min(mTickBeat + arpBeats * gate, colEndMusical)
+            let realOff = realOf(mOffBeat, stepBeats: S, a: a)
+            let offOffset = max(0, (realOff - beatPos) / beatsPerSample)
+            let offSample = windowStart + AUEventSampleTime(offOffset)
+
+            let slot = openVoice(note: UInt8(noteValue), chan: outCh, cable: cable,
+                                 onSample: onTime, offSample: offSample, out: out)
             diag.emitCount &+= 1
             diag.lastEmitNote = UInt8(noteValue)
             diag.lastEmitChan = outCh
             diag.lastEmitInherit = (colour.outChannel == 0)
 
-            // Gate-off, truncated at the column boundary (§7 Tails). Scheduled as an absolute sample:
-            // emitted now if it lands in this window, otherwise drained by a later render.
-            let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
-            let mOffBeat = min(mTickBeat + arpBeats * gate, colEndMusical)
-            let realOff = realOf(mOffBeat, stepBeats: S, a: a)
-            let offOffset = max(0, (realOff - beatPos) / beatsPerSample)
-            soundingOffSample = windowStart + AUEventSampleTime(offOffset)
-            if soundingOffSample <= windowEnd { closeVoice(atSample: soundingOffSample, out: out) }
+            // Within-window gate-off: emit in-loop so wire events stay in ascending sample order.
+            if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
         }
+        diag.activeVoiceCount = activeVoiceCount()
     }
 }

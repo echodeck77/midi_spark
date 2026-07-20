@@ -84,6 +84,7 @@ struct DiagView: View {
                 row("RENDER", "\(d.renderCount) callbacks", "snapshot gen \(d.snapshotGen)")
                 row("COLUMN", "col \(d.effColumn) · pass \(d.pass)",
                     d.activeCellRow >= 0 ? "active cell row \(d.activeCellRow)" : "empty (rest)")
+                row("VOICES", "\(d.activeVoiceCount) sounding", "poly note tracker")
                 row("POOL", "\(d.poolCount) held notes", d.poolCount == 0 ? "→ hold a chord on the routed keyboard" : "")
                 row("PARAM EVENTS", "\(d.paramEventCount) received",
                     d.lastParamAddr >= 0 ? String(format: "last: addr %d = %.3f", d.lastParamAddr, d.lastParamValue) : "none yet")

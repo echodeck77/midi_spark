@@ -34,6 +34,7 @@ struct KernelDiag {
     var effColumn = 0                  // active grid column (0…7), derived (§7)
     var pass: Int = 0                  // how many full 8-column cycles elapsed
     var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
+    var activeVoiceCount = 0           // sounding notes in the poly voice table
 }
 
 final class Kernel {
@@ -49,7 +50,7 @@ final class Kernel {
 
     func reset() {
         pool.reset()
-        router.closeVoice(atSample: AUEventSampleTimeImmediate, out: midiOut)   // flush any hung note
+        router.allNotesOff(atSample: AUEventSampleTimeImmediate, out: midiOut)   // flush any hung notes
         router.reset()
     }
 
