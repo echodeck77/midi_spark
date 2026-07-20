@@ -95,9 +95,20 @@ not just what the plan expects. Cases not listed have NOT been run yet.
 | T6 (OUT CH), INHERIT half | PASS | ca1e359 | held on a non-default channel → arp emits on that channel; panel EMIT shows it |
 | B4 (sync torture / no stuck notes) | PASS | 98ce8a9 | re-run after the note-off rewrite: tempo/loop/relocate + stop-with-keys-held, zero stuck notes |
 
+### 2026-07-20 — router commits 4–5b (chains)
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T1 (single ARP) | PASS | 6942a76 | regression through the Router extraction + poly voice table |
+| T2 (chain, mirror) | PASS | 6942a76 | arp emitted from row 1; row 0 silent (feeds, no letter lit) |
+| T3 (+SRC merge) | PASS | 6942a76 | denser than T2: mirrored arp + held source chord, both bus A |
+| T5 (muted-feeder reroute) | PASS | 6942a76 | feeder muted → row 1 holds the SOURCE chord; feed dark |
+| T6 (OUT CH), full | PASS | 6942a76 | both halves now live: INHERIT on original ch + OUT CH on ch 5 |
+
+Note: T6's OUT CH = n half is now exercised (two unfed arps on bus A), upgrading
+the earlier INHERIT-only pass to a full T6.
+
 **Not yet verified** (blocked on the commit that implements them):
-- T6 OUT CH = n half — needs a rendered stamped cell (router multi-cell, commit 5/6).
-- T2, T3, T5 (chains, +SRC, muted-feeder reroute) — commit 5.
 - T4, T7 (fan-out, collision refcount) — commit 6.
 - T8 (PHASE modes) — commit 7.
 - `v0.3-router` gate (T1–T8 + B1–B4 + 10-min soak) — not yet met.
