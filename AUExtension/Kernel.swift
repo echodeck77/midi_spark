@@ -31,6 +31,9 @@ struct KernelDiag {
     var lastEmitNote: UInt8 = 0
     var lastEmitChan: UInt8 = 0        // 0-based wire channel; panel shows +1 (human numbering)
     var lastEmitInherit = true         // stamped from source channel (INHERIT) vs Colour OUT CH
+    var effColumn = 0                  // active grid column (0…7), derived (§7)
+    var pass: Int = 0                  // how many full 8-column cycles elapsed
+    var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
 }
 
 final class Kernel {
@@ -49,13 +52,17 @@ final class Kernel {
     private var poolSorted = [UInt8](repeating: 0, count: 128)
     private var poolCount = 0
 
-    // Miniature note tracker (§7). The off must carry the channel the on used, so we remember it.
+    // Miniature note tracker (§7), still mono (one arp voice) until the refcount lands at commit 6.
+    // The off must carry the channel AND cable the on used, so we remember both. The gate-off is
+    // scheduled as an ABSOLUTE sample time and drained every render — so an off that falls beyond
+    // the current window (a note entering a silent column) is never dropped (no stuck note).
     private var soundingNote: Int = -1
     private var soundingChannel: UInt8 = 0
+    private var soundingCable: UInt8 = 0
+    private var soundingOffSample: AUEventSampleTime = .max   // .max = nothing scheduled
     private var wasPlaying = false
     private var lastTickIndex: Int64 = -1
-
-    private let demoColour = 0   // gold drives the demo arp until the router (step 3)
+    private var prevEffColumn = -1   // column-transition edge detector (§7): change ⇒ truncate voice
 
     // ---- render-side parameter overrides -------------------------------------------------
     // Slots: 0 stepRate · 1 swing · 2+i transpose(i) · 18+i morph(i) · 34 morphMaster
@@ -84,11 +91,24 @@ final class Kernel {
         pool = [UInt8](repeating: 0, count: 128)
         poolChan = [UInt8](repeating: 0, count: 128)
         poolCount = 0
-        flushSounding(atSample: AUEventSampleTimeImmediate)
+        closeVoice(atSample: AUEventSampleTimeImmediate)
         wasPlaying = false
         lastTickIndex = -1
+        prevEffColumn = -1
         overrides = [Double](repeating: .nan, count: 35)
         overrideGen = .max
+    }
+
+    // Topmost occupied, non-muted cell in a grid column — the single active cell (no chains until
+    // commit 5). cells index = column*8 + row (Snapshot.swift). Muted cells produce nothing (§6.2).
+    @inline(__always)
+    private func topCell(in column: Int, _ box: SnapshotBox) -> (row: Int, cell: SnapCell)? {
+        let c = ((column % Snap.cols) + Snap.cols) % Snap.cols
+        for row in 0..<Snap.rows {
+            let cell = box.cells[c * Snap.rows + row]
+            if cell.colourIndex >= 0 && !cell.muted { return (row, cell) }
+        }
+        return nil
     }
 
     // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50.
@@ -177,55 +197,104 @@ final class Kernel {
             ev = UnsafePointer(head.next)
         }
 
-        // ---- transport edges: all-notes-off (§7) ----
-        if wasPlaying != playing {
-            flushSounding(atSample: AUEventSampleTimeImmediate)
-            lastTickIndex = -1
-            wasPlaying = playing
-        }
-
-        // ---- effective params: snapshot + render-side overrides (§3.2 / §13.5) ----
-        let colour = box.colours[demoColour]
-        let master = over(34, box.morphMaster)
-        let morphGold = over(18 + demoColour, colour.morph)
-        // alt: false — the demo arp is not a real cell, so it has no alt bit. The router (step 3)
-        // passes each cell's own bit here; this call site disappears with the demo arp.
-        let t = effectiveT(colourMorph: morphGold, master: master, alt: false)
-        var arpBeats = effectiveRateBeats(colour, t: t)
-        let gate = effectiveGate(colour, t: t)
-        let octaves = effectiveOctaves(colour, t: t)
-        let transpose = Int(over(2 + demoColour, Double(colour.transpose)).rounded())
+        // ---- window in samples; global (non-cell) timing ----
+        let windowStart = AUEventSampleTime(timestamp.pointee.mSampleTime)
+        let windowEnd = windowStart + AUEventSampleTime(frameCount)
+        let beatsPerSample = tempo / 60.0 / sampleRate
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0
         var S = box.stepBeats
         let srIdx = Int(over(0, -1).rounded())
         if srIdx >= 0 && srIdx < Snap.stepRateBeats.count { S = Snap.stepRateBeats[srIdx] }
-        if arpBeats <= 0 { arpBeats = 0.25 }
-        diag.effMorphGold = t; diag.effRateBeats = arpBeats; diag.effSwing = swing
+        diag.effSwing = swing
 
-        guard playing, poolCount > 0, let out = midiOut else { diag.poolCount = poolCount; return }
+        // ---- drain a scheduled gate-off that has come due (survives across renders → no stuck
+        //      note when a voice enters a silent column). Runs regardless of transport (§7). ----
+        if soundingNote >= 0 && soundingOffSample <= windowEnd {
+            closeVoice(atSample: max(soundingOffSample, windowStart))
+        }
+
+        // ---- transport edges: all-notes-off (§7) ----
+        if wasPlaying != playing {
+            closeVoice(atSample: AUEventSampleTimeImmediate)
+            lastTickIndex = -1
+            prevEffColumn = -1
+            wasPlaying = playing
+        }
+
+        rebuildSorted()
+        diag.poolCount = poolCount
+
+        // ---- derived column (§7). Musical space, so swing warps the beat→column map consistently
+        //      with the arp ticks below. Locks are stubbed until step 6: effColumn == trueColumn. ----
+        let mNow = musicalOf(beatPos, stepBeats: S, a: a)
+        let cycleBeats = Double(Snap.cols) * S
+        let posInCycle = mNow - (mNow / cycleBeats).rounded(.down) * cycleBeats
+        let effColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
+        diag.effColumn = effColumn
+        diag.pass = Int((mNow / cycleBeats).rounded(.down))
+
+        let active = topCell(in: effColumn, box)
+        diag.activeCellRow = active?.row ?? -1
+
+        guard playing, let out = midiOut else { return }
+
+        // ---- column transition (§7): the active column changed → truncate the sounding voice at
+        //      the boundary (truncate-at-boundary tails). A relocation/loop is the same edge. ----
+        if effColumn != prevEffColumn {
+            if soundingNote >= 0 {
+                let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
+                let realB = realOf(boundaryMusical, stepBeats: S, a: a)
+                let off = max(0, (realB - beatPos) / beatsPerSample)
+                closeVoice(atSample: windowStart + AUEventSampleTime(off))
+            }
+            prevEffColumn = effColumn
+            lastTickIndex = -1
+        }
+
+        guard poolCount > 0, let cell = active?.cell else { return }   // rest column / no held notes
+
+        // ---- effective params for THIS cell's Colour (overrides keyed by colour index) ----
+        let ci = Int(cell.colourIndex)
+        let colour = box.colours[ci]
+        let master = over(34, box.morphMaster)
+        let morph = over(18 + ci, colour.morph)
+        let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
+        var arpBeats = effectiveRateBeats(colour, t: t)
+        let gate = effectiveGate(colour, t: t)
+        let octaves = effectiveOctaves(colour, t: t)
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        if arpBeats <= 0 { arpBeats = 0.25 }
+        diag.effMorphGold = t; diag.effRateBeats = arpBeats
+
+        // Bus: lowest lit letter for now (fan-out across all lit buses lands at commit 6).
+        // No lit letter = no-destination (§2.4): truncate any tail, emit nothing.
+        guard cell.busMask != 0 else { closeVoice(atSample: windowStart); return }
+        let cable = UInt8(cell.busMask.trailingZeroBitCount)
 
         // ---- derived ticks in MUSICAL beat space; delivery unwarped to real ----
-        let beatsPerSample = tempo / 60.0 / sampleRate
         let windowBeats = Double(frameCount) * beatsPerSample
         let mStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let firstTick = Int64((mStart / arpBeats).rounded(.up))
         let lastTick = Int64((mEnd / arpBeats).rounded(.down))
-        rebuildSorted()
-        diag.poolCount = poolCount
-        guard firstTick <= lastTick, poolCount > 0 else { return }
+        guard firstTick <= lastTick else { return }
         let span = poolCount * octaves
 
         for tick in firstTick...lastTick {
+            let mTickBeat = Double(tick) * arpBeats
+            // A tick that has already crossed into the next column is handled in that column's own
+            // window — do NOT consume it here (leave lastTickIndex so the next window fires it).
+            let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
+            if tickCol != effColumn { continue }
             if tick == lastTickIndex { continue }
             lastTickIndex = tick
-            let mTickBeat = Double(tick) * arpBeats
+
             let realTickBeat = realOf(mTickBeat, stepBeats: S, a: a)
             let onOffset = max(0, (realTickBeat - beatPos) / beatsPerSample)
-            let onTime = AUEventSampleTime(timestamp.pointee.mSampleTime) + AUEventSampleTime(onOffset)
+            let onTime = windowStart + AUEventSampleTime(onOffset)
 
-            flushSounding(atSample: onTime)
+            closeVoice(atSample: onTime)   // mono: close the prior note before the next on
 
             let step = Int(tick % Int64(span))
             let base = Int(poolSorted[step % poolCount])
@@ -237,21 +306,23 @@ final class Kernel {
             // This is exactly the expression the router reuses per emitted entry (router-design §6).
             let outCh: UInt8 = colour.outChannel == 0 ? poolChan[base] : colour.outChannel - 1
             var on: [UInt8] = [0x90 | outCh, UInt8(noteValue), 96]
-            _ = out(onTime, 0, 3, &on)
+            _ = out(onTime, cable, 3, &on)
             soundingNote = noteValue
             soundingChannel = outCh
+            soundingCable = cable
             diag.emitCount &+= 1
             diag.lastEmitNote = UInt8(noteValue)
             diag.lastEmitChan = outCh
             diag.lastEmitInherit = (colour.outChannel == 0)
 
-            let mOffBeat = mTickBeat + arpBeats * gate
-            if mOffBeat < mEnd {
-                let realOff = realOf(mOffBeat, stepBeats: S, a: a)
-                let offOffset = max(0, (realOff - beatPos) / beatsPerSample)
-                let offTime = AUEventSampleTime(timestamp.pointee.mSampleTime) + AUEventSampleTime(offOffset)
-                flushSounding(atSample: offTime)
-            }
+            // Gate-off, truncated at the column boundary (§7 Tails). Scheduled as an absolute sample:
+            // emitted now if it lands in this window, otherwise drained by a later render.
+            let colEndMusical = (mTickBeat / S).rounded(.down) * S + S
+            let mOffBeat = min(mTickBeat + arpBeats * gate, colEndMusical)
+            let realOff = realOf(mOffBeat, stepBeats: S, a: a)
+            let offOffset = max(0, (realOff - beatPos) / beatsPerSample)
+            soundingOffSample = windowStart + AUEventSampleTime(offOffset)
+            if soundingOffSample <= windowEnd { closeVoice(atSample: soundingOffSample) }
         }
     }
 
@@ -295,10 +366,15 @@ final class Kernel {
         poolCount = n
     }
 
-    private func flushSounding(atSample time: AUEventSampleTime) {
-        guard soundingNote >= 0, let out = midiOut else { soundingNote = -1; return }
-        var off: [UInt8] = [0x80 | soundingChannel, UInt8(soundingNote), 0]   // pair on the on's channel
-        _ = out(time, 0, 3, &off)
+    /// Close the mono voice: emit its note-off on the SAME channel and cable the on used, then
+    /// clear the voice and its scheduled gate-off. Idempotent — safe to call with nothing sounding.
+    private func closeVoice(atSample time: AUEventSampleTime) {
+        guard soundingNote >= 0, let out = midiOut else {
+            soundingNote = -1; soundingOffSample = .max; return
+        }
+        var off: [UInt8] = [0x80 | soundingChannel, UInt8(soundingNote), 0]
+        _ = out(time, soundingCable, 3, &off)
         soundingNote = -1
+        soundingOffSample = .max
     }
 }
