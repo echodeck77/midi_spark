@@ -554,7 +554,11 @@ final class Router {
 
                 let mStart = musicalOf(beatPos, stepBeats: S, a: a)
                 let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-                let firstTick = Int64((mStart / arpBeats).rounded(.up))
+                // floor, not ceil: the tick AT a column boundary sits between two render windows —
+                // the previous column's window rejects it (wrong column) and a ceil here would round
+                // past it, dropping each column's first note. floor + the == dedup below catches it
+                // exactly once (fired slightly late, clamped to windowStart).
+                let firstTick = Int64((mStart / arpBeats).rounded(.down))
                 let lastT = Int64((mEnd / arpBeats).rounded(.down))
                 guard firstTick <= lastT else { continue }
 
@@ -615,7 +619,7 @@ final class Router {
 
                 let mStart = musicalOf(beatPos, stepBeats: S, a: a)
                 let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-                let firstTick = Int64((mStart / sub).rounded(.up))
+                let firstTick = Int64((mStart / sub).rounded(.down))   // floor: catch the boundary stab (see arp branch)
                 let lastT = Int64((mEnd / sub).rounded(.down))
                 guard firstTick <= lastT else { continue }
 
