@@ -62,18 +62,36 @@ struct GridView: View {
         let cell = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
+        let fed = isFed(col, row)                                  // hears its feeder, not source (§2.1)
+        let feedsLive = cell.map { $0.stack && !$0.muted && belowOccupied(col, row) } ?? false
+        let noDest = cell.map { $0.buses.isEmpty && !($0.stack && belowOccupied(col, row)) } ?? false
+
         RoundedRectangle(cornerRadius: 4)
             .fill(cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05))
             .frame(maxWidth: .infinity)
             .frame(height: 30)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.85) : Color.white.opacity(0.10)),
-                            lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 0.5))
-            )
+            // border: selection (amber) > no-destination warning (dashed red, §2.4) > active col > idle
+            .overlay {
+                if noDest && !isSel {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28),
+                                      style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                } else {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.85) : Color.white.opacity(0.10)),
+                                lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 0.5))
+                }
+            }
+            // source tap: a lit left edge when this cell hears the SOURCE (unfed), per §2.1/§2.2
+            .overlay(alignment: .leading) {
+                if cell != nil && !fed {
+                    Rectangle().fill(accentCyan.opacity(0.9)).frame(width: 2.5).padding(.vertical, 5)
+                }
+            }
             .overlay(alignment: .topLeading) {
-                if let cell, cell.stack {           // ▾ marks a cell that feeds the one below
-                    Text("▾").font(.system(size: 9, weight: .bold)).foregroundColor(.black.opacity(0.6)).padding(2)
+                if let cell, cell.stack {                          // ▾ feed: bright when live, dim when dead
+                    Text("▾").font(.system(size: 9, weight: .bold))
+                        .foregroundColor(feedsLive ? .black.opacity(0.75) : .black.opacity(0.3)).padding(2)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -82,14 +100,62 @@ struct GridView: View {
                         .foregroundColor(.black.opacity(0.65)).padding(2)
                 }
             }
+            .overlay(alignment: .bottomLeading) {                  // +SRC on a fed cell (feed ∪ source)
+                if let cell, fed, cell.srcMix {
+                    Text("▸").font(.system(size: 9, weight: .bold)).foregroundColor(accentCyan).padding(2)
+                }
+            }
             .opacity(cell == nil ? 0.6 : 1)
             .contentShape(Rectangle())
             .onTapGesture { onTap?(col, row) }
     }
 
+    // Routing derivation — mirrors the engine (Router.isFed) so the picture is truthful (§2.1).
+    private func cellAt(_ col: Int, _ row: Int) -> Cell? {
+        guard col >= 0, col < scene.cells.count, row >= 0, row < scene.cells[col].count else { return nil }
+        return scene.cells[col][row]
+    }
+    private func isFed(_ col: Int, _ row: Int) -> Bool {
+        guard row > 0, let above = cellAt(col, row - 1) else { return false }
+        return above.stack && !above.muted
+    }
+    private func belowOccupied(_ col: Int, _ row: Int) -> Bool { cellAt(col, row + 1) != nil }
+
     private func busLetters(_ buses: Set<Bus>) -> String? {
         let s = Bus.allCases.filter { buses.contains($0) }.map(\.rawValue).joined()
         return s.isEmpty ? nil : s
+    }
+}
+
+/// The four output bus lanes (A–D). Shows, per column, which buses have an emitting cell — a
+/// truthful map of where sound leaves the plugin. A lane pulses when MIDI is flowing (global
+/// emit activity), the lightweight "current flows when MIDI flows" cue.
+struct BusLanesView: View {
+    let scene: SceneState
+    let active: Bool          // any emission happening right now (from the diag emit counter)
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, bus in
+                HStack(spacing: 3) {
+                    Text(bus.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5)).frame(width: 12)
+                    ForEach(0..<8, id: \.self) { col in
+                        let emits = columnEmits(col, to: bus)
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(emits ? (active ? Color(red: 0.15, green: 0.88, blue: 0.94)
+                                                  : Color(red: 0.15, green: 0.88, blue: 0.94).opacity(0.4))
+                                        : Color.white.opacity(0.05))
+                            .frame(height: 5)
+                    }
+                }
+            }
+        }
+    }
+
+    private func columnEmits(_ col: Int, to bus: Bus) -> Bool {
+        guard col < scene.cells.count else { return false }
+        return scene.cells[col].contains { $0?.buses.contains(bus) ?? false }
     }
 }
 

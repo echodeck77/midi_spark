@@ -47,6 +47,8 @@ struct DiagView: View {
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
     @State private var selRow = -1
+    @State private var emitActive = false
+    @State private var lastEmitCount: UInt64 = 0
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     private var selectedCell: Cell? {
@@ -123,6 +125,7 @@ struct DiagView: View {
 
                 GridView(scene: scene, playColumn: d.effColumn, playing: d.playing,
                          selCol: selCol, selRow: selRow, onTap: tapCell)
+                BusLanesView(scene: scene, active: emitActive)
                 PaletteView(brush: brush) { brush = $0 }
                 CellEditorStrip(cell: selectedCell, brush: brush,
                                 onPaint: paintSelected, onClear: clearSelected,
@@ -193,6 +196,8 @@ struct DiagView: View {
         .onReceive(timer) { _ in
             guard let au else { return }
             d = au.kernelDiagnostics()
+            emitActive = d.emitCount != lastEmitCount   // MIDI flowed since last poll → light the lanes
+            lastEmitCount = d.emitCount
             scene = au.uiScene()
             treeMorphGold = au.parameterTree?.parameter(withAddress: 200)?.value ?? 0
             treeSwing = au.parameterTree?.parameter(withAddress: 1)?.value ?? 50
