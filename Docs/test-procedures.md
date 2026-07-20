@@ -79,3 +79,25 @@ host — slices stay consistent with the derivation, no drift).
 "T_n: PASS/FAIL — [what was heard] — monitor: [anything odd] — diag panel:
 [voices / refcounts / effColumn / emitted count]". Screenshots of the monitor
 beat transcription when timing is disputed.
+
+## Verification log (device-confirmed results; newest first)
+
+Record each device pass/fail here so the doc reflects what is actually proven,
+not just what the plan expects. Cases not listed have NOT been run yet.
+
+### 2026-07-20 — router commits 0–3
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| B1–B4 (bridge regression) | PASS | 4242982 | run after the alt-seam + test-session groundwork |
+| Panel: snapshot gen +1 per session load | PASS | 4242982 | rebuild coalescing intact (one publish per load) |
+| T1 (single ARP) | PASS | 98ce8a9 | arp on bus A only while column 0 active — 1 step in 8, silence elsewhere |
+| T6 (OUT CH), INHERIT half | PASS | ca1e359 | held on a non-default channel → arp emits on that channel; panel EMIT shows it |
+| B4 (sync torture / no stuck notes) | PASS | 98ce8a9 | re-run after the note-off rewrite: tempo/loop/relocate + stop-with-keys-held, zero stuck notes |
+
+**Not yet verified** (blocked on the commit that implements them):
+- T6 OUT CH = n half — needs a rendered stamped cell (router multi-cell, commit 5/6).
+- T2, T3, T5 (chains, +SRC, muted-feeder reroute) — commit 5.
+- T4, T7 (fan-out, collision refcount) — commit 6.
+- T8 (PHASE modes) — commit 7.
+- `v0.3-router` gate (T1–T8 + B1–B4 + 10-min soak) — not yet met.
