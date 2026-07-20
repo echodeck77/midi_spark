@@ -68,22 +68,18 @@ enum TestSessions {
                 expect: "Sound leaves ONLY through row 1 (§2.3). Row 0 has no letters lit, so it "
                       + "must be silent on every bus despite driving the chain. Row 1 (identity) "
                       + "MIRRORS the feed — a faithful copy of the arp, emitted from row 1.") {
-            var c = baseColours()
-            c[idx("cyan")].type = .ratchet                     // identity stand-in (RATCHET unimplemented)
-            return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // feeds down, emits nothing
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // identity: mirrors the feed
+            doc(baseColours(), scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])         // feeds down, emits nothing
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)    // BYPASS = identity: mirrors the feed
             })
         },
 
         Session(id: "T3", title: "+SRC merge",
                 expect: "As T2 but row 1's input = feed ∪ source (§2.2). Audibly denser than T2 "
                       + "on the same chord: the held notes sound alongside the arp's output.") {
-            var c = baseColours()
-            c[idx("cyan")].type = .ratchet                     // identity for now; explicit for clarity
-            return doc(c, scene { s in
+            doc(baseColours(), scene { s in
                 s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], srcMix: true)
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], srcMix: true, bypassed: true)  // BYPASS identity
             })
         },
 
@@ -99,13 +95,11 @@ enum TestSessions {
                 expect: "Feeder (row 0) is muted, so row 1 reverts to SOURCE input (§2.1) and "
                       + "plays as if unchained — NOT silence. Diag panel is the visual check "
                       + "until the wiring UI exists.") {
-            var c = baseColours()
-            c[idx("cyan")].type = .ratchet                     // identity: unfed → holds the source chord
-            return doc(c, scene { s in
+            doc(baseColours(), scene { s in
                 var feeder = Cell(colourID: "gold", stack: true, buses: [])
                 feeder.muted = true
                 s.cells[0][0] = feeder
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)    // BYPASS identity: unfed → holds source
             })
         },
 
@@ -126,11 +120,9 @@ enum TestSessions {
                       + "on the same bus+channel. Expect ZERO dropouts in the sustained note, "
                       + "every arp strike re-articulating, and exactly ONE note-off after the "
                       + "last holder releases (§7 clauses 1–4). No off 'holes' mid-step.") {
-            var c = baseColours()
-            c[idx("teal")].type = .strum                       // identity: sustains its input pool
-            return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "teal", buses: [.a])        // sustained
-                s.cells[0][1] = Cell(colourID: "gold", buses: [.a])        // same pitch, arped
+            doc(baseColours(), scene { s in
+                s.cells[0][0] = Cell(colourID: "teal", buses: [.a], bypassed: true)   // BYPASS identity: sustains its pool
+                s.cells[0][1] = Cell(colourID: "gold", buses: [.a])                   // same pitch, arped
             })
         },
 
@@ -181,11 +173,10 @@ enum TestSessions {
                       + "held notes (one octave up), NOT +7. Row 0 silent.") {
             var c = baseColours()
             c[idx("gold")].transpose = 5
-            c[idx("cyan")].type = .ratchet                    // identity: mirrors the feed
             c[idx("cyan")].transpose = 7
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // +5, feeds, silent
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // +7 on top → +12
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])              // +5, feeds, silent
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)         // +7, BYPASS identity → +12
             })
         },
 
@@ -194,11 +185,9 @@ enum TestSessions {
                       + "gold ARP taps bus A (audible) AND feeds row 1 cyan identity, which mirrors "
                       + "onto bus B. Both A and B sound the arp simultaneously; monitors A and B "
                       + "show the same stream.") {
-            var c = baseColours()
-            c[idx("cyan")].type = .ratchet                    // identity: mirrors the feed
-            return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a])  // tap A + feed down
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])               // mirror onto B
+            doc(baseColours(), scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a])            // tap A + feed down
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.b], bypassed: true)         // BYPASS identity: mirror onto B
             })
         },
     ]

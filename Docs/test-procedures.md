@@ -127,3 +127,11 @@ the earlier INHERIT-only pass to a full T6.
 Tagged `v0.3-router` at the router-complete state. The router (spec §2/§7) is done;
 next is step 4 (full processors: ARP patterns, RATCHET, PASSGATE, STRUM, CHANCE,
 HARMONIZE — acceptance items 4–6) then step 5 (SwiftUI grid UI).
+
+### 2026-07-20 — step-4 groundwork (T9–T11)
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T9 (fed ARP / arp-of-arp) | PASS | 2740913 | after the derivation fix: each upstream 1/8 note rippled over 2 oct at 1/16 |
+| T10 (transpose accumulates) | PASS | 2740913 | chain summed +5 and +7 → +12 (one octave up) |
+| T11 (mid-chain tap) | PASS | 2740913 | one cell emits on A and feeds a mirror onto B |
