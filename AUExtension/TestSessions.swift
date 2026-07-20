@@ -229,17 +229,20 @@ enum TestSessions {
                 expect: "Hold a 3–4 note chord. Each column arps it a different way on bus A: "
                       + "col 0 UP (ascending), col 1 DOWN (descending), col 2 UP-DN (up then back "
                       + "down, no repeated top/bottom note), col 3 RANDOM (shuffled but LOOP-"
-                      + "CONSISTENT — identical every cycle; loop the host to confirm). AS-PLAYED "
-                      + "is not implemented yet (needs press-order tracking) — it plays as UP.") {
+                      + "CONSISTENT — identical every cycle; loop the host to confirm), col 4 "
+                      + "AS-PLAYED (press-order). To hear AS-PLAYED differ from UP, press the notes "
+                      + "in a NON-ascending order (e.g. highest first) — it follows your order.") {
             var c = baseColours()
             c[idx("orange")].paramsA.pattern = .down
             c[idx("vermilion")].paramsA.pattern = .upDown
             c[idx("wine")].paramsA.pattern = .random
+            c[idx("magenta")].paramsA.pattern = .asPlayed
             return doc(c, scene { s in
                 s.cells[0][0] = Cell(colourID: "gold", buses: [.a])        // UP (default)
                 s.cells[1][0] = Cell(colourID: "orange", buses: [.a])      // DOWN
                 s.cells[2][0] = Cell(colourID: "vermilion", buses: [.a])   // UP-DN
                 s.cells[3][0] = Cell(colourID: "wine", buses: [.a])        // RANDOM
+                s.cells[4][0] = Cell(colourID: "magenta", buses: [.a])     // AS-PLAYED
             })
         },
     ]

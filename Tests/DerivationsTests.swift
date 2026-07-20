@@ -103,6 +103,15 @@ final class DerivationsTests: XCTestCase {
                        [60, 64, 72, 76])
     }
 
+    func testPatternAsPlayed() {
+        // Pressed 67, 60, 64 (not ascending) → AS-PLAYED follows PRESS order, not pitch…
+        XCTAssertEqual(sequence(pattern: .asPlayed, octaves: 1, notes: [67, 60, 64], length: 6),
+                       [67, 60, 64, 67, 60, 64])
+        // …while UP on the same pool sorts to pitch order.
+        XCTAssertEqual(sequence(pattern: .up, octaves: 1, notes: [67, 60, 64], length: 3),
+                       [60, 64, 67])
+    }
+
     func testRandomIsLoopConsistent() {
         // Same tick → same note every pass. Compare pass 0 with pass 1 (span apart).
         let p = pool([60, 62, 64, 65, 67])
@@ -152,6 +161,18 @@ final class DerivationsTests: XCTestCase {
         p.noteOff(60)
         p.rebuildSorted()
         XCTAssertEqual(p.count, 0)
+    }
+
+    func testPlayOrderCompactsOnRelease() {
+        let p = NotePool()
+        p.noteOn(67, velocity: 100, channel: 0)
+        p.noteOn(60, velocity: 100, channel: 0)
+        p.noteOn(64, velocity: 100, channel: 0)
+        XCTAssertEqual((0..<p.playedCount).map { p.played(at: $0) }, [67, 60, 64])
+        p.noteOff(60)   // release the middle one
+        XCTAssertEqual((0..<p.playedCount).map { p.played(at: $0) }, [67, 64])   // compacts, order kept
+        p.noteOn(67, velocity: 110, channel: 0)   // re-press a held note → keeps its slot
+        XCTAssertEqual((0..<p.playedCount).map { p.played(at: $0) }, [67, 64])
     }
 
     // MARK: cellMode dispatch (§3/§4)

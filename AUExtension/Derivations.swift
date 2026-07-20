@@ -21,15 +21,25 @@ final class NotePool {
     private(set) var sorted = [UInt8](repeating: 0, count: 128)
     private(set) var count = 0
 
+    // Press order, for the AS-PLAYED arp pattern — the one thing the note-indexed views above lose.
+    // Maintained incrementally: a genuinely new note appends; releasing one compacts it out; a
+    // re-press of a still-held note keeps its original slot. playedCount == count (same held set).
+    private var order = [UInt8](repeating: 0, count: 128)
+    private(set) var playedCount = 0
+
     func reset() {
         for i in 0..<128 { vel[i] = 0; chan[i] = 0 }
         count = 0
+        playedCount = 0
     }
 
     func noteOn(_ note: UInt8, velocity: UInt8, channel: UInt8) {
         let n = Int(note)
         if velocity > 0 {
-            if vel[n] == 0 { count += 1 }
+            if vel[n] == 0 {
+                count += 1
+                if playedCount < 128 { order[playedCount] = note; playedCount += 1 }
+            }
             vel[n] = velocity
             chan[n] = channel
         } else {
@@ -39,11 +49,23 @@ final class NotePool {
 
     func noteOff(_ note: UInt8) {
         let n = Int(note)
-        if vel[n] != 0 { count -= 1 }
+        if vel[n] != 0 {
+            count -= 1
+            removeFromOrder(note)
+        }
         vel[n] = 0
     }
 
+    private func removeFromOrder(_ note: UInt8) {
+        var i = 0
+        while i < playedCount && order[i] != note { i += 1 }
+        guard i < playedCount else { return }
+        for j in i..<(playedCount - 1) { order[j] = order[j + 1] }
+        playedCount -= 1
+    }
+
     @inline(__always) func channel(of note: Int) -> UInt8 { chan[note] }
+    @inline(__always) func played(at index: Int) -> UInt8 { order[index] }   // AS-PLAYED lookup
 
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental
     /// count, matching the pre-split behaviour).
@@ -134,10 +156,12 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         h ^= (h >> 31)
         pos = Int(h % UInt64(span))
     case .asPlayed:
-        pos = asc   // TODO: needs press-order in NotePool (note-indexed today); falls back to UP
+        pos = asc   // ascending through the press sequence (below), not the sorted set
     }
 
-    let note = Int(pool.sorted[pos % count])
+    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list.
+    let note = (pat == .asPlayed) ? Int(pool.played(at: pos % count))
+                                  : Int(pool.sorted[pos % count])
     return (note + 12 * (pos / count), pool.channel(of: note))
 }
 
