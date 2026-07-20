@@ -85,6 +85,7 @@ enum SnapshotBuilder {
         if let v = p.spread { out.spread = max(0, min(1, v)) }
         if let v = p.curve { out.curve = max(-1, min(1, v)) }
         if let v = p.velTilt { out.velTilt = max(-1, min(1, v)) }
+        if let v = p.probability { out.probability = max(0, min(1, v)) }
         return out
     }
 }

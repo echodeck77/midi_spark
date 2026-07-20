@@ -152,4 +152,14 @@ Chosen RATCHET defaults confirmed by ear: velocity ramp = crescendo; stab gate 0
 |---|---|---|---|
 | T13 (PASSGATE) | PASS | 7b3ac04 | arp gated per pass mod 4 (open,closed,open,closed); click-safe |
 
-Not yet device-verified: T14 (ARP patterns DOWN/UP-DN/RANDOM).
+### 2026-07-20 — step 4: patterns complete, iterateTicks refactor, STRUM
+
+| Case | Result | Commit | Notes |
+|---|---|---|---|
+| T14 (ARP patterns) | PASS | — | UP/DOWN/UP-DN/RANDOM + AS-PLAYED (press-order); RANDOM loop-consistent |
+| iterateTicks refactor | PASS | — | T1 (arp) + T12 (ratchet) unchanged after the shared-scaffold extraction |
+| T15 (STRUM) | PASS | — | chord rolls in low→high over the spread, held to boundary, velocity tilt |
+
+Off-device: `MidiSparkTests` — 26 pure-core unit tests green (swing, phase, arp patterns
+incl. AS-PLAYED, cellMode/passgate, ratchet + strum math). Run with the pinned
+`-derivedDataPath build/DerivedData` (default DerivedData serves stale test bundles).

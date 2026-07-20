@@ -52,6 +52,7 @@ struct ColourParams: Codable, Equatable {
     var spread: Double? = 0.1      // strum: chord stagger in BEATS (0…1)
     var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
     var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
+    var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
 }
 
 struct Colour: Codable, Equatable {

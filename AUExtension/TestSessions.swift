@@ -261,5 +261,20 @@ enum TestSessions {
                 s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])   // unfed STRUM on the source chord
             })
         },
+
+        Session(id: "T16", title: "CHANCE",
+                expect: "Hold a chord. Row 0 gold ARP feeds row 1 cyan CHANCE (probability 0.5) on "
+                      + "bus A. Each arp note-on has a 50% chance to pass — you hear a thinned, "
+                      + "stuttering arp (~half the notes). DETERMINISTIC: loop the host and the SAME "
+                      + "notes drop every pass — not a live dice roll. Panel EMIT climbs ~half as "
+                      + "fast as an ungated arp. (off follows on: dropped notes leave no stuck off.)") {
+            var c = baseColours()
+            c[idx("cyan")].type = .chance
+            c[idx("cyan")].paramsA.probability = 0.5
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // arp, feeds, silent
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // CHANCE gates each arp note
+            })
+        },
     ]
 }

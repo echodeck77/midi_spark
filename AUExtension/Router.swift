@@ -60,6 +60,7 @@ final class Router {
         var offSample: AUEventSampleTime = 0
         var note: UInt8 = 0    // after this row's accumulated transpose
         var chan: UInt8 = 0    // provenance channel (for INHERIT); OUT CH is applied only at emission
+        var beat: Double = 0   // musical onset beat — the stable seed for CHANCE (loop-consistent)
     }
     private static let articCap = 24
     private var articBuf = [Artic](repeating: Artic(), count: Snap.rows * Router.articCap)
@@ -221,12 +222,12 @@ final class Router {
     }
 
     private func storeArtic(row: Int, on: AUEventSampleTime, off: AUEventSampleTime,
-                            note: UInt8, chan: UInt8) {
+                            note: UInt8, chan: UInt8, beat: Double) {
         let c = articCount[row]
         guard c < Router.articCap else { return }
         let i = row * Router.articCap + c
         articBuf[i].onSample = on; articBuf[i].offSample = off
-        articBuf[i].note = note; articBuf[i].chan = chan
+        articBuf[i].note = note; articBuf[i].chan = chan; articBuf[i].beat = beat
         articCount[row] = c + 1
     }
 
@@ -271,17 +272,23 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            // Only identity cells chord-hold. An OPEN passgate is identity (holds); a CLOSED one and
-            // real processors (arp/ratchet) are not.
-            guard cellMode(type: colour.a.type, bypassed: cell.bypassed,
-                           passMask: colour.a.passMask, pass: pass) == .identity else { continue }
+            // Cells that chord-hold: identity (incl. open passgate) and CHANCE. CHANCE additionally
+            // drops each chord note by its deterministic probability. Arp/ratchet/strum and a closed
+            // passgate do not chord-hold.
+            let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
+                                passMask: colour.a.passMask, pass: pass)
+            guard mode == .identity || mode == .chance else { continue }
             let fed = isFed(box, column, r)
             guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+            let prob = (mode == .chance) ? effectiveProbability(colour, t: effectiveT(colourMorph: over(18 + ci, colour.morph),
+                                                                                      master: over(34, box.morphMaster),
+                                                                                      alt: cell.alt)) : 1
             for k in 0..<pool.count {
                 let base = Int(pool.sorted[k])
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
+                if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
                 emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
                           outChannel: colour.outChannel, busMask: cell.busMask,
                           onSample: onSample, offSample: offSample, windowEnd: windowEnd,
@@ -510,7 +517,7 @@ final class Router {
                     let noteValue = base + transpose
                     guard noteValue >= 0 && noteValue <= 127 else { return }
 
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov)
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov, beat: mTickBeat)
                     if emits {
                         emitArtic(note: UInt8(noteValue), provenanceChan: prov,
                                   outChannel: colour.outChannel, busMask: cell.busMask,
@@ -540,7 +547,7 @@ final class Router {
                         else { return }
                         let n = f.note + transpose
                         guard n >= 0 && n <= 127 else { return }
-                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan)
+                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan, beat: mTickBeat)
                         if emits {
                             emitArtic(note: UInt8(n), provenanceChan: f.chan, outChannel: colour.outChannel,
                                       busMask: cell.busMask, onSample: onTime, offSample: offTime,
@@ -552,7 +559,7 @@ final class Router {
                             let base = Int(pool.sorted[k])
                             let n = base + transpose
                             guard n >= 0 && n <= 127 else { continue }
-                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: pool.channel(of: base))
+                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: pool.channel(of: base), beat: mTickBeat)
                             if emits {
                                 emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
                                           outChannel: colour.outChannel, busMask: cell.busMask,
@@ -589,7 +596,7 @@ final class Router {
                         guard n >= 0 && n <= 127 else { continue }
                         let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
                         let onT = max(onsetSample, windowStart)
-                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), chan: pool.channel(of: baseNote))
+                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), chan: pool.channel(of: baseNote), beat: onsetMusical)
                         if emits {
                             emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: baseNote),
                                       outChannel: colour.outChannel, busMask: cell.busMask,
@@ -598,15 +605,18 @@ final class Router {
                         }
                     }
                 }
-            } else if mode == .identity && fed {
-                // Identity fed (incl. open PASSGATE): MIRROR the feeder's ticks this window
-                // (+ this cell's transpose). A closed passgate is .silent → nothing here.
+            } else if (mode == .identity || mode == .chance) && fed {
+                // Identity/CHANCE fed: MIRROR the feeder's ticks (+ this cell's transpose). CHANCE
+                // drops each note-on by a deterministic probability (off follows its on — we just
+                // skip both). Open PASSGATE is .identity; a closed passgate is .silent → nothing here.
+                let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
                 let fr = r - 1
                 for k in 0..<articCount[fr] {
                     let src = articBuf[fr * Router.articCap + k]
                     let n = Int(src.note) + transpose
                     guard n >= 0 && n <= 127 else { continue }
-                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan)
+                    if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
+                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan, beat: src.beat)
                     if emits {
                         emitArtic(note: UInt8(n), provenanceChan: src.chan,
                                   outChannel: colour.outChannel, busMask: cell.busMask,
@@ -615,7 +625,7 @@ final class Router {
                     }
                 }
             }
-            // identity-unfed: no tick content (its hold was emitted at the column transition)
+            // identity/chance-unfed: no tick content (their hold is emitted at the column transition)
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding

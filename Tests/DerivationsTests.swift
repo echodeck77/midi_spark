@@ -181,8 +181,9 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(cellMode(type: .arp, bypassed: false, passMask: 0, pass: 0), .arp)
         XCTAssertEqual(cellMode(type: .ratchet, bypassed: false, passMask: 0, pass: 0), .ratchet)
         XCTAssertEqual(cellMode(type: .strum, bypassed: false, passMask: 0, pass: 0), .strum)
+        XCTAssertEqual(cellMode(type: .chance, bypassed: false, passMask: 0, pass: 0), .chance)
         XCTAssertEqual(cellMode(type: .arp, bypassed: true, passMask: 0, pass: 0), .identity)   // bypass wins
-        XCTAssertEqual(cellMode(type: .chance, bypassed: false, passMask: 0, pass: 0), .identity) // still unimplemented
+        XCTAssertEqual(cellMode(type: .harmonize, bypassed: false, passMask: 0, pass: 0), .identity) // still unimplemented
     }
 
     func testPassgateGating() {
@@ -243,6 +244,35 @@ final class DerivationsTests: XCTestCase {
         XCTAssertLessThan(up[0], up[3])                                            // crescendo
         let down = (0..<4).map { strumVelocity(index: $0, count: 4, tilt: -1, base: 96) }
         XCTAssertGreaterThan(down[0], down[3])                                     // decrescendo
+    }
+
+    // MARK: chance (§3)
+
+    func testChanceExtremes() {
+        XCTAssertTrue(chancePasses(beat: 3.25, note: 60, probability: 1))    // 100% always passes
+        XCTAssertFalse(chancePasses(beat: 3.25, note: 60, probability: 0))   // 0% never passes
+    }
+
+    func testChanceIsDeterministic() {
+        // Pure function of (beat, note) → loop-consistent (same position, same fate).
+        for beat in stride(from: 0.0, through: 8.0, by: 0.25) {
+            for note in [48, 60, 72] {
+                XCTAssertEqual(chancePasses(beat: beat, note: note, probability: 0.5),
+                               chancePasses(beat: beat, note: note, probability: 0.5))
+            }
+        }
+    }
+
+    func testChanceRoughlyHalfAtFifty() {
+        var pass = 0, total = 0
+        for t in 0..<300 {
+            for note in [55, 60, 65] {
+                if chancePasses(beat: Double(t) * 0.25, note: note, probability: 0.5) { pass += 1 }
+                total += 1
+            }
+        }
+        let frac = Double(pass) / Double(total)
+        XCTAssertGreaterThan(frac, 0.42); XCTAssertLessThan(frac, 0.58)   // ~50%, not degenerate
     }
 
     func testStrumDirection() {

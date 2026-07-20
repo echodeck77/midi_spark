@@ -47,6 +47,7 @@ struct SnapParams {
     var spread: Double = 0.1         // strum stagger, beats
     var curve: Double = 0            // strum timing curve −1…1
     var velTilt: Double = 0          // strum velocity tilt −1…1
+    var probability: Double = 1      // chance: pass-through probability 0…1
 }
 
 struct SnapColour {
@@ -134,6 +135,12 @@ func effectiveRamp(_ c: SnapColour, t: Double) -> Double {
 @inline(__always)
 func effectiveSpread(_ c: SnapColour, t: Double) -> Double {
     max(0, min(1, c.a.spread + (c.b.spread - c.a.spread) * t))
+}
+
+// CHANCE (§3): probability is B-overridable + continuous.
+@inline(__always)
+func effectiveProbability(_ c: SnapColour, t: Double) -> Double {
+    max(0, min(1, c.a.probability + (c.b.probability - c.a.probability) * t))
 }
 
 // MARK: - The store: single-writer (main thread) publish, lock-free render acquire

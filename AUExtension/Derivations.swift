@@ -170,7 +170,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, identity, silent }
 
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
@@ -179,11 +179,31 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .arp:      return .arp
     case .ratchet:  return .ratchet
     case .strum:    return .strum
+    case .chance:   return .chance
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
-    default:        return .identity                       // CHANCE/HARMONIZE: identity until built
+    default:        return .identity                       // HARMONIZE: identity until built
     }
+}
+
+// MARK: - CHANCE (§3): deterministic per-note-on probability gate
+
+/// Whether a note-on at musical beat `beat` for `note` passes a `probability` (0…1) gate. DETERMINISTIC
+/// — a pure hash of (position, note), NOT a live RNG — so it is loop-consistent: loop the host and the
+/// same notes drop; play forward and each position re-rolls. The off follows its on's fate (§3): the
+/// caller simply doesn't emit either when this returns false. Beat is quantized to a 1/64 grid so
+/// buffer-alignment jitter can't change a note's fate mid-flight.
+@inline(__always)
+func chancePasses(beat: Double, note: Int, probability: Double) -> Bool {
+    if probability >= 1 { return true }
+    if probability <= 0 { return false }
+    let q = Int64((beat * 64).rounded())
+    var h = UInt64(bitPattern: q) &* 0x9E3779B97F4A7C15 &+ UInt64(bitPattern: Int64(note &* 2654435761))
+    h = (h ^ (h >> 30)) &* 0xBF58476D1CE4E5B9
+    h = (h ^ (h >> 27)) &* 0x94D049BB133111EB
+    h ^= (h >> 31)
+    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < probability
 }
 
 // MARK: - STRUM (§3): stagger a chord's onsets over `spread`, with a timing curve and velocity tilt
