@@ -373,31 +373,64 @@ final class Router {
         }
     }
 
-    /// The base note (pre-this-cell-transpose) + provenance channel an ARP picks at pattern index
-    /// `phaseIndex`. Unfed (or +SRC) arps read the source pool — the path the test topologies
-    /// exercise. A FED arp samples its feeder's current sounding note (feeders are mono in practice);
-    /// untested, kept simple. Chord changes never reset the index — it is a function of position.
-    private func arpPick(phaseIndex: Int64, octaves: Int, fed: Bool, srcMix: Bool, feederRow: Int,
-                         onSample: AUEventSampleTime, pool: NotePool) -> (base: Int, chan: UInt8) {
-        if !fed || srcMix {
-            guard pool.count > 0 else { return (-1, 0) }
-            let span = Int64(pool.count * max(1, octaves))
-            let step = Int(((phaseIndex % span) + span) % span)      // safe for relative (0-based) indices
-            let base = Int(pool.sorted[step % pool.count])
-            return (base + 12 * (step / pool.count), pool.channel(of: base))
-        }
-        guard feederRow >= 0 else { return (-1, 0) }
-        var latestOn: AUEventSampleTime = -1, note = -1
-        var prov: UInt8 = 0
-        for k in 0..<articCount[feederRow] {
-            let ar = articBuf[feederRow * Router.articCap + k]
-            if ar.onSample <= onSample && onSample < ar.offSample && ar.onSample >= latestOn {
-                latestOn = ar.onSample; note = Int(ar.note); prov = ar.chan
+    /// The base note (pre-this-cell-transpose) + provenance channel a source-reading ARP picks at
+    /// pattern index `phaseIndex` (UP over octaves). Chord changes never reset the index — it is a
+    /// function of position. Returns base -1 for an empty pool.
+    private func arpPickSource(phaseIndex: Int64, octaves: Int, pool: NotePool) -> (base: Int, chan: UInt8) {
+        guard pool.count > 0 else { return (-1, 0) }
+        let span = Int64(pool.count * max(1, octaves))
+        let step = Int(((phaseIndex % span) + span) % span)     // safe for relative (0-based) indices
+        let base = Int(pool.sorted[step % pool.count])
+        return (base + 12 * (step / pool.count), pool.channel(of: base))
+    }
+
+    /// One sounding note (+ provenance channel) of the cell at (column, row) at musical beat `m`,
+    /// computed by DERIVATION — valid at ANY instant, independent of render-window boundaries. This
+    /// is what lets a fed ARP sample its feeder's CURRENT note even when that note was struck in an
+    /// earlier window (the per-window artic scratch cannot). Recurses up a chain of arps/mirrors.
+    ///  · ARP feeder    → its arp note at m (over its own feeder or source).
+    ///  · identity fed  → mirrors the note above (+ this transpose).
+    ///  · identity unfed → the source chord is a POOL, not a single note; no fixture feeds an ARP
+    ///    from one yet, so this returns nil (documented limitation, not a silent wrong answer).
+    private func feederSoundingNote(row: Int, column: Int, m: Double, box: SnapshotBox,
+                                    pool: NotePool, S: Double, cycleBeats: Double) -> (note: Int, chan: UInt8)? {
+        guard row >= 0 else { return nil }
+        let cell = box.cells[column * Snap.rows + row]
+        guard cell.colourIndex >= 0, !cell.muted else { return nil }
+        let ci = Int(cell.colourIndex)
+        let colour = box.colours[ci]
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let fed = isFed(box, column, row)
+        let isArp = (colour.a.type == .arp) && !cell.bypassed
+
+        if isArp {
+            let master = over(34, box.morphMaster)
+            let morph = over(18 + ci, colour.morph)
+            let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
+            var arpBeats = effectiveRateBeats(colour, t: t)
+            if arpBeats <= 0 { arpBeats = 0.25 }
+            let octaves = effectiveOctaves(colour, t: t)
+            let tick = Int64((m / arpBeats).rounded(.down))
+            let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats,
+                                  S: S, cycleBeats: cycleBeats, phase: colour.a.phase,
+                                  runStartColumn: cell.runStartColumn)
+            if fed && !cell.srcMix {
+                guard let up = feederSoundingNote(row: row - 1, column: column, m: m,
+                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                else { return nil }
+                let oct = Int64(max(1, octaves))
+                return (up.note + 12 * Int(((pIdx % oct) + oct) % oct) + transpose, up.chan)
             }
+            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves, pool: pool)   // unfed / +SRC → source
+            return p.base >= 0 ? (p.base + transpose, p.chan) : nil
         }
-        guard note >= 0 else { return (-1, 0) }
-        let oct = Int64(max(1, octaves))
-        return (note + 12 * Int(((phaseIndex % oct) + oct) % oct), prov)
+        if fed {
+            guard let up = feederSoundingNote(row: row - 1, column: column, m: m,
+                                              box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+            else { return nil }
+            return (up.note + transpose, up.chan)          // identity mirror
+        }
+        return nil   // unfed identity: a chord (pool), not one note — see doc comment
     }
 
     // MARK: - the render-side pass
@@ -526,15 +559,30 @@ final class Router {
                     let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                           cycleBeats: cycleBeats, phase: colour.a.phase,
                                           runStartColumn: cell.runStartColumn)
-                    let pick = arpPick(phaseIndex: pIdx, octaves: octaves, fed: fed, srcMix: cell.srcMix,
-                                       feederRow: r - 1, onSample: onTime, pool: pool)
-                    guard pick.base >= 0 else { continue }
-                    let noteValue = pick.base + transpose
+
+                    // Input pick. Unfed (or +SRC) → source pool. FED → the feeder's CURRENT sounding
+                    // note by derivation (window-independent), octave-arped by this cell (§1.1.3
+                    // "arpeggiate the arpeggio"). +SRC-on-a-fed-ARP folds in source — no fixture yet,
+                    // so it currently reads source only; revisit when one lands.
+                    let base: Int, prov: UInt8
+                    if fed && !cell.srcMix {
+                        guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
+                                                         box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                        else { continue }
+                        let oct = Int64(max(1, octaves))
+                        base = f.note + 12 * Int(((pIdx % oct) + oct) % oct)   // f.note already has feeder transpose
+                        prov = f.chan
+                    } else {
+                        let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves, pool: pool)
+                        guard pick.base >= 0 else { continue }
+                        base = pick.base; prov = pick.chan
+                    }
+                    let noteValue = base + transpose
                     guard noteValue >= 0 && noteValue <= 127 else { continue }
 
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: pick.chan)
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov)
                     if emits {
-                        emitArtic(note: UInt8(noteValue), provenanceChan: pick.chan,
+                        emitArtic(note: UInt8(noteValue), provenanceChan: prov,
                                   outChannel: colour.outChannel, busMask: cell.busMask,
                                   onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                   out: out, diag: &diag)
