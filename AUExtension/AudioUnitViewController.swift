@@ -44,7 +44,47 @@ struct DiagView: View {
     @State private var treeSwing: Float = 50
     @State private var loadedID = "—"
     @State private var scene = SceneState.empty()
+    @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
+    @State private var selCol = -1
+    @State private var selRow = -1
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    private var selectedCell: Cell? {
+        guard selCol >= 0, selCol < scene.cells.count, selRow >= 0, selRow < scene.cells[selCol].count
+        else { return nil }
+        return scene.cells[selCol][selRow]
+    }
+
+    // Tap: paint an empty cell with the brush, or select an occupied one for wiring. Clear/repaint
+    // are explicit in the editor strip.
+    private func tapCell(_ col: Int, _ row: Int) {
+        guard let au else { return }
+        let empty = scene.cells[col][row] == nil
+        if empty { au.editScene { $0.cells[col][row] = Cell(colourID: brush) } }   // default {A, ▾ off, +SRC off}
+        selCol = col; selRow = row
+        scene = au.uiScene()
+    }
+
+    private func editSelected(_ f: @escaping (inout Cell) -> Void) {
+        guard let au, selCol >= 0 else { return }
+        au.editScene { s in if var c = s.cells[selCol][selRow] { f(&c); s.cells[selCol][selRow] = c } }
+        scene = au.uiScene()
+    }
+
+    private func paintSelected() {
+        guard let au, selCol >= 0 else { return }
+        au.editScene { s in
+            if var c = s.cells[selCol][selRow] { c.colourID = brush; s.cells[selCol][selRow] = c }
+            else { s.cells[selCol][selRow] = Cell(colourID: brush) }
+        }
+        scene = au.uiScene()
+    }
+
+    private func clearSelected() {
+        guard let au, selCol >= 0 else { return }
+        au.editScene { $0.cells[selCol][selRow] = nil }
+        scene = au.uiScene()
+    }
 
     private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
 
@@ -81,7 +121,15 @@ struct DiagView: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
 
-                GridView(scene: scene, playColumn: d.effColumn, playing: d.playing)
+                GridView(scene: scene, playColumn: d.effColumn, playing: d.playing,
+                         selCol: selCol, selRow: selRow, onTap: tapCell)
+                PaletteView(brush: brush) { brush = $0 }
+                CellEditorStrip(cell: selectedCell, brush: brush,
+                                onPaint: paintSelected, onClear: clearSelected,
+                                onToggleBus: { b in editSelected { c in
+                                    if c.buses.contains(b) { c.buses.remove(b) } else { c.buses.insert(b) } } },
+                                onToggleStack: { editSelected { $0.stack.toggle() } },
+                                onToggleSrcMix: { editSelected { $0.srcMix.toggle() } })
                 Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
 
                 row("TRANSPORT", d.playing ? "PLAYING" : "stopped",

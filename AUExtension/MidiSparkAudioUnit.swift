@@ -26,9 +26,17 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
 
-    /// Read-only view of the active scene for the grid UI (main thread; value copy). Step 5 will
-    /// gain a matching mutation path that goes through scheduleRebuild().
+    /// Read-only view of the active scene for the grid UI (main thread; value copy).
     func uiScene() -> SceneState { document.scenes[document.activeScene] }
+
+    /// The single grid-edit path: mutate the active scene, then publish a fresh snapshot. MAIN
+    /// THREAD (SwiftUI actions already are). All UI edits — paint, clear, wiring — go through here,
+    /// so the render side sees them exactly as it sees a preset load. UI-only state (selection,
+    /// brush) never touches the document.
+    func editScene(_ mutate: (inout SceneState) -> Void) {
+        mutate(&document.scenes[document.activeScene])
+        scheduleRebuild()
+    }
 
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
