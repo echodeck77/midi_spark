@@ -12,7 +12,10 @@ land; when asking the human to test, quote the relevant procedure by name.
   (any AUv3 instruments; distinct patches so buses are tellable apart).
 - **AUM MIDI monitor nodes** on MidiSpark's input and on output A (add B when
   testing fan-out). The monitor is the truth for timing/pairing claims.
-- MidiSpark's plugin UI open (the diagnostic panel) — report its numbers when asked.
+- MidiSpark's plugin UI open. (The in-plugin diagnostics panel was REMOVED at the
+  GUI reconcile — the AUM MIDI monitor is now the sole source of truth for
+  voice/pairing/timing claims. Test sessions load from the DEV LOADER, which shows
+  in the plugin UI in **portrait** only.)
 
 ## Bridge regression (run after ANY kernel change) — 2 minutes
 
@@ -24,7 +27,7 @@ Hold a chord, transport playing:
 - B4 Sync torture: tempo change mid-hold, loop a bar, relocate — no drift,
   no stuck notes. Stop with keys held — no stuck notes.
 
-## Canned test sessions (loaded from the diagnostic panel)
+## Canned test sessions (loaded from the DEV LOADER — portrait plugin UI)
 
 **NUMBERING AUTHORITY: the repo.** `TestSessions.swift` carries T1–T17
 (processor + migration coverage beyond this document). The repo's numbering WINS — map
@@ -109,6 +112,32 @@ bus B. → Row 0 emits a processed version of row 1's stream (unit-delay
 sampling — musically indistinguishable). Repatch row 0 back to MIDI IN
 live: clean transition.
 
+## Perform layer (P-series) — §6.1/6.2, mode + live tap
+
+Interaction tests, not canned grids — build on any occupied scene (scene 14 ALT
+EGO is designed for P2). Header carries the EDIT·PERFORM toggle; PERFORM shows the
+TAP action selector (ALT / BYP / MUTE, tap to cycle).
+
+**P1 — mode gating.** In EDIT: tapping a cell body paints/recolours, FROM/OUT
+headers open popovers, long-press opens the clear/copy menu. Toggle to PERFORM
+(chip goes cyan): the whole pad is ONE tap target — no popovers, no menu. Toggle
+back: EDIT behaviours return intact.
+
+**P2 — live ALT flip.** Load scene 14, chord held, transport playing, TAP:ALT.
+Tap a cell → it flips to its B-state (breathing ring activates) and the sound
+changes (e.g. gold B rate). Tap again → back to A. No stuck notes across flips.
+
+**P3 — live BYP.** TAP:BYP, tap a mid-chain cell → it becomes identity (passes its
+input through unprocessed); downstream still sounds. Untap → processing returns.
+
+**P4 — live MUTE + column mute.** TAP:MUTE, tap a cell → it drops silent (dims);
+a muted PARENT reroutes its child to MIDI IN (§1 reroute rule), not silence. Tap a
+COLUMN KEY → the whole column mutes/unmutes (key flags coral). Zero stuck notes on
+every mute/unmute.
+
+(DEFERRED — no procedure yet: stutter/loop, isolate/solo, hold-to-stutter. These
+need the engine lock override — `lockLo/lockHi` is stubbed — and are spec-pending.)
+
 ## UI size checkpoints (GUI reconciliation gate)
 
 Screenshot-verify the reconciled UI at: 1024×768 (floor device), 11-inch
@@ -132,6 +161,7 @@ truncates mid-word, static frames hold within the active rung).
 
 ## Reporting template (what the human sends back)
 
-"T_n: PASS/FAIL — [what was heard] — monitor: [anything odd] — diag panel:
-[voices / refcounts / effColumn / emitted count]". Screenshots of the monitor
-beat transcription when timing is disputed.
+"T_n: PASS/FAIL — [what was heard] — monitor: [anything odd — voice count from the
+AUM monitor, pairing, stuck notes]". Screenshots of the monitor beat transcription
+when timing is disputed. (The in-plugin diag panel is gone — the AUM MIDI monitor
+supplies all numbers that panel used to.)

@@ -127,32 +127,40 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **58-test macOS unit suite** over the pure core
-  (Derivations + Snapshot/Builder + loader migration). BOTH stay green every
-  commit; unit tests run off-device and come FIRST.
-- **IN PROGRESS — the GUI reconcile** (`GridUI.swift`, all SwiftUI-only;
-  reconciliation target is now preview **v59** — the done-list below was built
-  against v56 and remains valid, v57–v59 add column keys / static frames /
-  the 16-slot strip). Done:
-  header (STEP rate + SWING + PASS/bpm readout, params 0/1); FOUR-ROW cells
-  (input header · type+params body · A–D emitter strip · empty-cell watermark);
-  real FROM/OUT POPOVERS (not cycling chips); fully in-cell EDITING (tap body =
-  paint/recolour, long-press = clear/copy colour); the PROCESSOR box (all 6 types,
-  A/B state tabs, per-type params, TRANSPOSE, MORPH — the fixed-size box, static-
-  frames rule); OUTPUTS busChannels editing; cell badges (transpose · ∞) +
-  breathing ALT ring; the debug diagnostics + wiring lanes REMOVED. The instrument
-  is now fully authorable in-plugin (no host automation needed for any control).
-- **NEXT (UI):** the one-clock MUTATION-LINE playhead (needs beat extrapolation via
-  TimelineView between the 4 Hz polls); the delta §6 three-box responsive DESK
-  layout (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait band); the
-  PROMINENT COLUMN KEYS (v57: 40px, column number primary, state as sublabel);
-  the SCENE strip — SIXTEEN slots, dev builds wire session slots, release wires
-  `SceneFactory` per Docs/factory-scenes.md. GATE: the UI-size checkpoints in test-procedures
-  (screenshot-verify 1024×768 / 11" / 13" both orientations + a small panel;
-  static frames hold, nothing truncates).
+  `Tests/` holds a **63-test macOS unit suite** over the pure core
+  (Derivations + Snapshot/Builder + loader migration + SceneFactory). BOTH stay
+  green every commit; unit tests run off-device and come FIRST.
+- **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
+  **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
+  FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell
+  watermark); real FROM/OUT POPOVERS (not cycling chips); fully in-cell EDITING
+  (tap body = paint/recolour, long-press = clear/copy colour); the PROCESSOR box
+  (all 6 types, A/B state tabs, per-type params, TRANSPOSE, MORPH — fixed-size box,
+  static-frames rule); OUTPUTS busChannels editing; cell badges (transpose · ∞) +
+  breathing ALT ring; the one-clock playheads (master sweep + per-cell MUTATION
+  LINES via TimelineView beat extrapolation between the 4 Hz polls); the delta §6
+  three-box responsive DESK (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait
+  band); the PROMINENT COLUMN KEYS (v57, tappable); the SIXTEEN-slot SCENE strip
+  (dev builds wire session slots, release wires `SceneFactory`). The debug
+  diagnostics + wiring lanes are REMOVED. The instrument is fully authorable
+  in-plugin — no host automation needed for any control.
+- **PERFORM LAYER v1 — DONE, device-verified** (`53d3591`, §6.1/6.2). EDIT/PERFORM
+  mode toggle; TAP action selector (ALT/BYP/MUTE); in PERFORM the whole pad is one
+  tap target (applies the TAP action via the engine-backed cell flags the router
+  reads — alt/bypassed/muted), and a column-key tap mutes/unmutes the whole column
+  (coral indicator). EDIT keeps painting + popovers + long-press menu. User: "it
+  feels good. There are issues we can come back to with a revised spec."
+- **NEXT:** (a) GATE — the UI-size checkpoints in test-procedures (screenshot-verify
+  1024×768 / 11" / 13" both orientations + a small panel; static frames hold,
+  nothing truncates) — the formal layout lockdown, not yet run. (b) PERFORM v2 —
+  stutter/loop (hold column key), isolate/solo, hold-to-stutter — all **engine-
+  blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in
+  Router as `effColumn == trueColumn`) AND **spec-pending** (user flagged perform
+  issues for a revised spec). (c) MORPH desk (16 faders) — parked per delta.
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
-  `v0.5-outputs`, `v0.6-processors`.
+  `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 are on
+  main **untagged** (next tag candidate `v0.7-gui`, pending the size-checkpoint gate).
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).
