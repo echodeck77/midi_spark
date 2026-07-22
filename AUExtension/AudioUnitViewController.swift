@@ -139,7 +139,9 @@ struct DiagView: View {
                     String(format: "beat %.2f · %.1f bpm", d.beat, d.tempo))
                 row("RENDER", "\(d.renderCount) callbacks", "snapshot gen \(d.snapshotGen)")
                 row("COLUMN", "col \(d.effColumn) · pass \(d.pass)",
-                    d.activeCellRow >= 0 ? "active cell row \(d.activeCellRow)" : "empty (rest)")
+                    d.activeCellRow >= 0
+                      ? "active cell row \(d.activeCellRow) · input \(d.activeCellParent < 0 ? "MIDI IN" : "row \(d.activeCellParent)")"
+                      : "empty (rest)")
                 row("VOICES", "\(d.activeVoiceCount) instances",
                     "\(d.distinctSounding) distinct on wire\(d.activeVoiceCount > d.distinctSounding ? " · collision refcounted" : "")")
                 row("POOL", "\(d.poolCount) held notes", d.poolCount == 0 ? "→ hold a chord on the routed keyboard" : "")

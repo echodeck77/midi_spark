@@ -439,6 +439,8 @@ final class Router {
 
         let active = topCell(in: effColumn, box)
         diag.activeCellRow = active?.row ?? -1
+        // v3.0 precompute exposure (read-only; router still routes by the old model until commit 3)
+        diag.activeCellParent = active.map { box.cells[effColumn * Snap.rows + $0.row].resolvedParent } ?? -1
 
         guard playing else { return }   // `out` stays optional (openVoice/emit* tolerate nil)
 

@@ -31,6 +31,9 @@ struct SnapCell {
     var muted = false
     var busMask: UInt8 = 0     // bits 0–3 = A–D (§2.3: the only exits)
     var runStartColumn: Int8 = -1   // LEGATO precompute (§7 v2.4) — UI-thread work, render just reads
+    // v3.0 graph routing (delta §1, precomputed here so render never scans):
+    var resolvedParent: Int8 = -1   // referenced row IF occupied & ≠ self, else −1 (= MIDI IN)
+    var isTapped = false            // some OTHER cell in this column references this row
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)

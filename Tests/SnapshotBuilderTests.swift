@@ -82,4 +82,38 @@ final class SnapshotBuilderTests: XCTestCase {
         let b = box(colours(customizing: 0) { _ in }) { _ in }
         XCTAssertLessThan(b.cells[0].colourIndex, 0)   // colourIndex < 0 = empty
     }
+
+    // MARK: v3.0 graph-routing precompute (delta §1)
+
+    func testResolvedParentFromInputRow() {
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[0][0] = Cell(colourID: "gold")                          // parent
+            s.cells[0][1] = Cell(colourID: "gold", inputRow: 0)             // references row 0 (upward)
+            s.cells[0][2] = Cell(colourID: "gold", inputRow: 5)             // references empty row → MIDI IN
+            s.cells[0][3] = Cell(colourID: "gold", inputRow: 3)             // self-reference → MIDI IN
+        }
+        XCTAssertEqual(b.cells[0 * Snap.rows + 1].resolvedParent, 0)        // occupied target
+        XCTAssertEqual(b.cells[0 * Snap.rows + 2].resolvedParent, -1)       // empty target → MIDI IN
+        XCTAssertEqual(b.cells[0 * Snap.rows + 3].resolvedParent, -1)       // self → MIDI IN
+        XCTAssertEqual(b.cells[0 * Snap.rows + 0].resolvedParent, -1)       // no inputRow → MIDI IN
+    }
+
+    func testDownwardReferenceIsLegal() {
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[0][0] = Cell(colourID: "gold", inputRow: 2)             // references BELOW itself
+            s.cells[0][2] = Cell(colourID: "gold")
+        }
+        XCTAssertEqual(b.cells[0 * Snap.rows + 0].resolvedParent, 2)        // downward refs are legal
+    }
+
+    func testIsTappedFlag() {
+        let b = box(colours(customizing: 0) { _ in }) { s in
+            s.cells[0][0] = Cell(colourID: "gold")                          // parent — tapped by rows 1 & 2
+            s.cells[0][1] = Cell(colourID: "gold", inputRow: 0)
+            s.cells[0][2] = Cell(colourID: "gold", inputRow: 0)             // fan-out
+            s.cells[0][3] = Cell(colourID: "gold")                          // referenced by nobody
+        }
+        XCTAssertTrue(b.cells[0 * Snap.rows + 0].isTapped)                  // two children reference it
+        XCTAssertFalse(b.cells[0 * Snap.rows + 3].isTapped)                 // untapped
+    }
 }

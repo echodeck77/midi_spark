@@ -37,7 +37,26 @@ enum SnapshotBuilder {
                 sc.bypassed = cell.bypassed
                 sc.muted = cell.muted
                 sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
+                // v3.0 (delta §1): resolve the input reference — inputRow if that row is occupied and
+                // not self, else MIDI IN. Occupancy checked here; the muted-parent reroute is runtime.
+                if let ir = cell.inputRow, ir != r, ir >= 0, ir < Snap.rows,
+                   ir < scene.cells[c].count, scene.cells[c][ir] != nil {
+                    sc.resolvedParent = Int8(ir)
+                }
                 cells[c * Snap.rows + r] = sc
+            }
+        }
+
+        // ---- isTapped (delta §1): does any OTHER cell in the column reference this row? Used by the
+        //      reference-aware no-destination warning. resolvedParent is −1 for MIDI-IN cells, so it
+        //      never matches a real row index. ----
+        for c in 0..<Snap.cols {
+            for r in 0..<Snap.rows {
+                var tapped = false
+                for rr in 0..<Snap.rows where Int(cells[c * Snap.rows + rr].resolvedParent) == r {
+                    tapped = true; break
+                }
+                cells[c * Snap.rows + r].isTapped = tapped
             }
         }
 
