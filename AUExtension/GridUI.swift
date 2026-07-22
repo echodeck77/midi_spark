@@ -69,15 +69,21 @@ struct GridView: View {
         playing ? lastBeat + now.timeIntervalSince(lastBeatAt) * tempo / 60.0 : lastBeat
     }
 
+    // Layout constants — shared by cellView and the mutation-line overlay so they never drift.
+    private static let cellH: CGFloat = 54
+    private static let vGap: CGFloat = 3
+    private static let headH: CGFloat = 12
+
     var body: some View {
-        VStack(spacing: 3) {
-            masterPlayhead                               // sweeping down-arrow (one-clock)
+        VStack(spacing: Self.vGap) {
+            masterPlayhead.frame(height: Self.headH)     // sweeping down-arrow (one-clock)
             ForEach(0..<8, id: \.self) { row in
-                HStack(spacing: 3) {
+                HStack(spacing: Self.vGap) {
                     ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
                 }
             }
         }
+        .overlay { mutationLines }                       // per-cell falling lines in the active column
         .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
     }
@@ -98,7 +104,33 @@ struct GridView: View {
                     .opacity(playing ? 0.95 : 0)
             }
         }
-        .frame(height: 12)
+    }
+
+    // Per-cell MUTATION line (delta §4): in the ACTIVE column, one white horizontal line falls
+    // through each WORKING cell over its step (the "this machine is running" cue). Faint & glowless
+    // when bypassed (identity); absent when muted. One overlay for all — geometry derived from the
+    // shared layout constants; hit-testing off so cell taps pass through.
+    private var mutationLines: some View {
+        GeometryReader { geo in
+            let cellW = (geo.size.width - 7 * Self.vGap) / 8
+            let colX = CGFloat(playColumn) * (cellW + Self.vGap) + cellW / 2
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+                // within-STEP fraction (0 at column entry → 1 at exit)
+                let f = ((liveBeat(tl.date) / max(0.001, stepBeats)).truncatingRemainder(dividingBy: 1) + 1)
+                    .truncatingRemainder(dividingBy: 1)
+                ForEach(0..<8, id: \.self) { r in
+                    if playing, let c = cellAt(playColumn, r), !c.muted {
+                        let faint = c.bypassed
+                        Rectangle()
+                            .fill(Color.white.opacity(faint ? 0.4 : 0.92))
+                            .frame(width: cellW - 4, height: 2)
+                            .shadow(color: faint ? .clear : Color.white.opacity(0.8), radius: faint ? 0 : 4)
+                            .position(x: colX, y: (Self.headH + Self.vGap) + CGFloat(r) * (Self.cellH + Self.vGap) + f * Self.cellH)
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
@@ -130,7 +162,7 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .frame(maxWidth: .infinity).frame(height: 54)
+        .frame(maxWidth: .infinity).frame(height: Self.cellH)
         .overlay {                                          // border: no-dest > selection > active > idle
             if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
