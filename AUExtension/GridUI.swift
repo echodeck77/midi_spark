@@ -72,11 +72,11 @@ struct GridView: View {
     // Layout constants — shared by cellView and the mutation-line overlay so they never drift.
     private static let cellH: CGFloat = 54
     private static let vGap: CGFloat = 3
-    private static let headH: CGFloat = 12
+    private static let headH: CGFloat = 38     // the prominent column-key row (v57)
 
     var body: some View {
         VStack(spacing: Self.vGap) {
-            masterPlayhead.frame(height: Self.headH)     // sweeping down-arrow (one-clock)
+            columnKeys                                   // v57 prominent column keys + sweeping arrow
             ForEach(0..<8, id: \.self) { row in
                 HStack(spacing: Self.vGap) {
                     ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
@@ -88,22 +88,41 @@ struct GridView: View {
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
     }
 
+    // v57 PROMINENT COLUMN KEYS — a numbered 40px key per column; the active one lights while playing.
+    // (The mute/stutter interaction is the perform layer, later.) The master playhead arrow sweeps
+    // across the top of this row (delta §4, one-clock).
+    private var columnKeys: some View {
+        HStack(spacing: Self.vGap) {
+            ForEach(0..<8, id: \.self) { col in
+                let active = playing && col == playColumn
+                Text("\(col + 1)")
+                    .font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    .foregroundColor(active ? .black : .white.opacity(0.45))
+                    .frame(maxWidth: .infinity).frame(height: Self.headH)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(active ? accentCyan : Color.white.opacity(0.06)))
+            }
+        }
+        .overlay { masterArrow }
+    }
+
     // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
     // one cycle, snapping at the loop. Pure function of the extrapolated beat — no view owns a clock.
-    private var masterPlayhead: some View {
+    private var masterArrow: some View {
         GeometryReader { geo in
             let cycle = max(0.001, stepBeats * Double(Snap.cols))
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
                 let b = liveBeat(tl.date)
                 let frac = (b.truncatingRemainder(dividingBy: cycle) / cycle + 1).truncatingRemainder(dividingBy: 1)
                 Text("▼")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundColor(accentCyan)
-                    .shadow(color: accentCyan.opacity(0.8), radius: 3)
-                    .position(x: geo.size.width * frac, y: 6)
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundColor(.white)
+                    .shadow(color: .white.opacity(0.9), radius: 4)
+                    .position(x: geo.size.width * frac, y: 5)
                     .opacity(playing ? 0.95 : 0)
             }
         }
+        .allowsHitTesting(false)
     }
 
     // Per-cell MUTATION line (delta §4): in the ACTIVE column, one white horizontal line falls
