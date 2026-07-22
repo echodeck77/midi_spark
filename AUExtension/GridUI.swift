@@ -355,7 +355,7 @@ struct OutputsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text("OUTPUTS").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced))
                     .foregroundColor(.white.opacity(0.45))
                 Text("All = everything, by channel").font(.system(size: 8, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
@@ -617,14 +617,15 @@ struct ProcessorBox: View {
 /// The Colour brush palette — 16 chips in bank order; the active brush is ringed.
 struct PaletteView: View {
     let brush: String
+    var columns: Int = 4        // 4×4 in the desk (delta §6); callers may widen for a band
     let onPick: (String) -> Void
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 4) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
             ForEach(Array(colourIDs.enumerated()), id: \.offset) { i, id in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color(hex: colourHexes[i]))
-                    .frame(height: 18)
+                    .frame(height: 22)
                     .overlay(RoundedRectangle(cornerRadius: 3)
                         .stroke(id == brush ? Color.white : Color.white.opacity(0.12),
                                 lineWidth: id == brush ? 2 : 0.5))

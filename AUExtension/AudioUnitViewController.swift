@@ -137,76 +137,27 @@ struct DiagView: View {
     }()
 
     var body: some View {
-        ZStack {
-            Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-            ScrollView {
-              VStack(alignment: .leading, spacing: 7) {
-                HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
-                           beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
-                           onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                           onSwing: { au?.setSwing($0); refreshTiming() })
-
-                GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                         beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
-                         selCol: selCol, selRow: selRow, onTap: tapCell,
-                         onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
-                         onClear: clearCell, onCopyColour: copyColour)
-                OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
-                PaletteView(brush: brush) { brush = $0 }
-                if let bc = brushColour {
-                    ProcessorBox(colour: bc, colourIndex: brushIndex,
-                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
-                }
-                Text("TAP cell → paint/recolour \(brush.uppercased()) · TAP header → FROM · TAP A–D → OUT · HOLD → clear/copy · palette selects the Colour to edit above")
-                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                Divider().background(Color.white.opacity(0.15)).padding(.vertical, 2)
-
-                // FACTORY SCENES (Docs/factory-scenes.md) — the curriculum; the eventual v59 scene strip.
-                row("SCENE", loadedID.hasPrefix("S") ? loadedID : "—", sceneName)
-                ScrollView(.horizontal, showsIndicators: false) {
-                  HStack(spacing: 6) {
-                    ForEach(Array(SceneFactory.scenes.enumerated()), id: \.offset) { i, s in
-                        let id = "S\(i + 1)"
-                        Button("\(i + 1)") { au?.loadFactoryScene(i); loadedID = id }
-                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                            .foregroundColor(id == loadedID ? .black : .white.opacity(0.85))
-                            .padding(.vertical, 6).padding(.horizontal, 9)
-                            .background(RoundedRectangle(cornerRadius: 5)
-                                .fill(id == loadedID ? Color(red: 0.98, green: 0.72, blue: 0.12)
-                                                     : Color.white.opacity(0.10)))
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height       // aspect-driven breakpoint (delta §6)
+            ZStack(alignment: .topLeading) {
+                Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
+                if landscape {
+                    VStack(spacing: 8) {
+                        header
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(spacing: 4) { gridBlock; hint }
+                            ScrollView(.vertical, showsIndicators: false) { desk }   // only PROCESSOR-tall content scrolls
+                                .frame(width: 320)
+                        }
+                        sceneStrip
                     }
-                  }
-                }
-                Divider().background(Color.white.opacity(0.10)).padding(.vertical, 2)
-
-                row("TEST SESSION", loadedID.hasPrefix("T") || loadedID == "—" ? loadedID : "—",
-                    selected?.title ?? "none loaded")
-                ScrollView(.horizontal, showsIndicators: false) {
-                  HStack(spacing: 6) {
-                    ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
-                        Button(s.id) { load(s) }
-                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                            .foregroundColor(s.id == loadedID ? .black : .white.opacity(0.85))
-                            .padding(.vertical, 6).padding(.horizontal, 10)
-                            .background(RoundedRectangle(cornerRadius: 5)
-                                .fill(s.id == loadedID
-                                      ? Color(red: 0.15, green: 0.88, blue: 0.94)
-                                      : Color.white.opacity(0.10)))
+                    .padding(12)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 8) { header; gridBlock; hint; desk; sceneStrip; devLoader }
+                            .padding(12)
                     }
-                  }
                 }
-                if let s = selected {
-                    Text(s.expect)
-                        .font(.system(size: 8.5, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text("Loading a session REPLACES the document (host automation state included).")
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
-              }
-              .padding(18)
-              .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .onReceive(timer) { _ in
@@ -217,6 +168,96 @@ struct DiagView: View {
             scene = au.uiScene()
             stepIndex = au.uiStepRateIndex()
             swing = au.uiSwing()
+        }
+    }
+
+    // MARK: - layout pieces
+
+    private var header: some View {
+        HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
+                   beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
+                   onStep: { au?.setStepRateIndex($0); refreshTiming() },
+                   onSwing: { au?.setSwing($0); refreshTiming() })
+    }
+
+    private var gridBlock: some View {
+        GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+                 beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
+                 selCol: selCol, selRow: selRow, onTap: tapCell,
+                 onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
+                 onClear: clearCell, onCopyColour: copyColour)
+    }
+
+    private var hint: some View {
+        Text("TAP cell → paint/recolour \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → clear/copy")
+            .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // The DESK — three named boxes in order: COLOUR · PROCESSOR · EMITTERS (delta §6).
+    private var desk: some View {
+        VStack(spacing: 8) {
+            colourBox
+            if let bc = brushColour {
+                ProcessorBox(colour: bc, colourIndex: brushIndex,
+                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
+            }
+            OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        }
+    }
+
+    private var colourBox: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("COLOUR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
+                Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+            }
+            PaletteView(brush: brush) { brush = $0 }
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // SCENE strip — the 16 factory scenes (Docs/factory-scenes.md), full-width along the bottom.
+    private var sceneStrip: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text(sceneName).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            }
+            HStack(spacing: 4) {
+                ForEach(Array(SceneFactory.scenes.enumerated()), id: \.offset) { i, _ in
+                    let id = "S\(i + 1)"
+                    Text("\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(id == loadedID ? .black : .white.opacity(0.8))
+                        .frame(maxWidth: .infinity).frame(height: 26)
+                        .background(RoundedRectangle(cornerRadius: 4)
+                            .fill(id == loadedID ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
+                        .onTapGesture { au?.loadFactoryScene(i); loadedID = id }
+                }
+            }
+        }
+    }
+
+    // Dev-only: the canned TestSessions loader (portrait scroll; not part of the release strip).
+    private var devLoader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("TEST SESSIONS (dev)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack(spacing: 6) {
+                ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
+                    Button(s.id) { load(s) }
+                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(s.id == loadedID ? .black : .white.opacity(0.75))
+                        .padding(.vertical, 5).padding(.horizontal, 8)
+                        .background(RoundedRectangle(cornerRadius: 4)
+                            .fill(s.id == loadedID ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.08)))
+                }
+              }
+            }
         }
     }
 
