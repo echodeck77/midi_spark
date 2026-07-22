@@ -78,6 +78,21 @@ struct DiagView: View {
         scene = au.uiScene()
     }
 
+    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The gesture
+    // fires .onChanged repeatedly while held, so dedup on the target; only occupied cells audition.
+    @State private var auditionCR: (col: Int, row: Int)? = nil
+    private func startAudition(_ col: Int, _ row: Int) {
+        guard let au, scene.cells[col][row] != nil else { return }
+        if auditionCR?.col == col && auditionCR?.row == row { return }
+        auditionCR = (col, row)
+        au.setAudition(col: col, row: row)
+    }
+    private func endAudition() {
+        guard au != nil, auditionCR != nil else { return }
+        auditionCR = nil
+        au?.clearAudition()
+    }
+
     // PERFORM: tap a column key → toggle mute on ALL occupied cells in the column.
     private func muteColumn(_ col: Int) {
         guard let au, !editing else { return }
@@ -229,13 +244,14 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
-                 onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn)
+                 onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn,
+                 onAuditionStart: startAudition, onAuditionEnd: endAudition)
     }
 
     private var hint: some View {
         Text(editing
-             ? "EDIT · TAP cell → paint/recolour \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → clear/copy"
-             : "PERFORM · TAP cell → \(tapAction.rawValue) · TAP column key → mute column · (stutter/isolate: soon)")
+             ? "EDIT · TAP → paint \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → audition (stopped) / menu"
+             : "PERFORM · TAP → \(tapAction.rawValue) · column key → mute · HOLD → audition (stopped) · (stutter/isolate: soon)")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }

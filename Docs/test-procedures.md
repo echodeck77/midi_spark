@@ -135,8 +135,18 @@ a muted PARENT reroutes its child to MIDI IN (§1 reroute rule), not silence. Ta
 COLUMN KEY → the whole column mutes/unmutes (key flags coral). Zero stuck notes on
 every mute/unmute.
 
-(DEFERRED — no procedure yet: stutter/loop, isolate/solo, hold-to-stutter. These
-need the engine lock override — `lockLo/lockHi` is stubbed — and are spec-pending.)
+**P5 — audition (§6.4 / delta §5), v1 = ARP + RATCHET.** Transport **STOPPED**, hold a
+chord. Press-and-hold (~0.3s) an **ARP** cell → it **arpeggiates at host tempo against the
+held chord** on its lit buses, phase from the moment you pressed, ignoring its FROM wiring
+(source-forced), passgate all-open; the **raw chord passthrough stops** while held (you hear
+the processor ALONE). Release → arp stops, no stuck notes. Repeat on a **RATCHET** cell →
+re-strikes the chord. Hold a **HARMONIZE/CHANCE/STRUM/identity** cell → raw chord passthrough
+continues (chord-hold audition is v2, not silent). Press **play** while holding → audition
+auto-releases and sequencing takes over cleanly. Hold with **no keys down** → silence.
+
+(DEFERRED — no procedure yet: chord-hold audition (harmonize/chance/strum live-tracked),
+APPLY latch, column audition, popover-live audition; and stutter/loop, isolate/solo — the
+lock features need the `lockLo/lockHi` engine override and are spec-pending.)
 
 ## UI size checkpoints (GUI reconciliation gate)
 

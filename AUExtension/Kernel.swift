@@ -37,6 +37,13 @@ final class Kernel {
     var store: SnapshotStore?
     private(set) var diag = KernelDiag()
 
+    // AUDITION (§6.4 / delta §5): the held cell (col*rows+row, −1 = none), set from the UI thread and
+    // read on the render thread. Plain Int32 — a single aligned word, main-writes / render-reads, same
+    // cross-thread pattern as `midiOut`; ephemeral, never persisted. `setAudition` is the only writer.
+    private var auditionTarget: Int32 = -1
+    private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
+    func setAudition(_ target: Int) { auditionTarget = Int32(target) }
+
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
@@ -82,6 +89,12 @@ final class Kernel {
         }
         diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
 
+        // Audition (stopped only) REPLACES raw note passthrough when the held cell is a patterned type
+        // (ARP/RATCHET, v1) — you hear the processor alone (§6.4). Other types / not auditioning → notes
+        // still pass for soundcheck. CC/PB/AT always pass. Computed once here so handleIncoming is cheap.
+        let audition = playing ? -1 : Int(auditionTarget)
+        suppressAuditionNotes = audition >= 0 && auditionCellIsPatterned(box, audition)
+
         // ---- event list: MIDI + parameter events ----
         var ev = events
         while let e = ev {
@@ -112,7 +125,19 @@ final class Kernel {
                         playing: playing, beatPos: beatPos, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, out: liveEmitter, diag: &diag)
+                        frameCount: frameCount, audition: audition, out: liveEmitter, diag: &diag)
+    }
+
+    /// True when the audition target is an occupied, non-muted, non-bypassed cell whose active type is
+    /// ARP or RATCHET — the v1 audition types, which fully replace the raw note passthrough. Must agree
+    /// with Router.auditionRender's own type switch (both gate on the same condition).
+    private func auditionCellIsPatterned(_ box: SnapshotBox, _ target: Int) -> Bool {
+        let col = target / Snap.rows, row = target % Snap.rows
+        guard col >= 0, col < Snap.cols, row >= 0, row < Snap.rows else { return false }
+        let cell = box.cells[col * Snap.rows + row]
+        guard cell.colourIndex >= 0, !cell.muted, !cell.bypassed else { return false }
+        let type = box.colours[Int(cell.colourIndex)].a.type
+        return type == .arp || type == .ratchet
     }
 
     // MARK: - incoming MIDI (source pool + passthrough)
@@ -133,8 +158,9 @@ final class Kernel {
             diag.ccData1 = length > 1 ? bytes[1] : 0
             diag.ccData2 = length > 2 ? bytes[2] : 0
         }
-        // §2.6: CC/PB/AT pass through on cable A always; notes pass only when stopped.
-        let shouldForward = isNote ? !playing : true
+        // §2.6: CC/PB/AT pass through on cable A always; notes pass only when stopped AND not being
+        // replaced by an audition (§6.4 — the held processor sounds alone instead of the raw chord).
+        let shouldForward = isNote ? (!playing && !suppressAuditionNotes) : true
         if shouldForward, let out = midiOut {
             var copy: [UInt8] = [0, 0, 0]
             for i in 0..<min(length, 3) { copy[i] = bytes[i] }

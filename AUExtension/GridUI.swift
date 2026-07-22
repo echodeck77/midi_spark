@@ -59,6 +59,10 @@ struct GridView: View {
     var onClear: ((Int, Int) -> Void)? = nil        // body long-press → clear
     var onCopyColour: ((Int, Int) -> Void)? = nil   // body long-press → adopt colour as brush
     var onColumnTap: ((Int) -> Void)? = nil         // PERFORM: tap a column key → mute the column
+    // AUDITION (§6.4 / delta §5): press-and-hold a cell (≈0.3s) → sound its processor alone while the
+    // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
+    var onAuditionStart: ((Int, Int) -> Void)? = nil
+    var onAuditionEnd: (() -> Void)? = nil
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -216,6 +220,12 @@ struct GridView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap?(col, row) }                  // body / empty → paint / recolour
+        .simultaneousGesture(                               // press-hold → audition (§6.4); coexists with tap/menu
+            LongPressGesture(minimumDuration: 0.3)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { value in if case .second(true, _) = value { onAuditionStart?(col, row) } }
+                .onEnded { _ in onAuditionEnd?() }
+        )
         .contextMenu {                                      // EDIT only: body long-press → cell menu (§5)
             if cell != nil && editing {
                 Button(role: .destructive) { onClear?(col, row) } label: { Label("Clear", systemImage: "xmark") }

@@ -136,10 +136,10 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **69-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **75-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
-  §7b two-cable / channel-stamp / muted-silence, off-device, since Router went
+  §7b two-cable / channel-stamp / muted-silence / AUDITION, off-device, since Router went
   Foundation-only). BOTH stay green every commit; unit tests run off-device, come FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
@@ -161,6 +161,15 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   reads — alt/bypassed/muted), and a column-key tap mutes/unmutes the whole column
   (coral indicator). EDIT keeps painting + popovers + long-press menu. User: "it
   feels good. There are issues we can come back to with a revised spec."
+- **AUDITION v1 — DONE (needs device verify)** (§6.4 / delta §5). Press-hold a cell while the
+  transport is STOPPED → its processor sounds ALONE against the held source (phase zeroed,
+  input source-forced, all-open passgate, host tempo); release or transport-start ends it.
+  v1 covers the time-varying types **ARP + RATCHET**; chord-hold types fall through to raw
+  passthrough (their live-tracked audition is v2). Engine: `Router.auditionRender/auditionTicks`
+  (Foundation-only, unit-tested — `RouterTests` audition cases); `Kernel` suppresses raw note
+  passthrough only while auditioning a patterned cell (`auditionCellIsPatterned`); target set via
+  `MidiSparkAudioUnit.setAudition/clearAudition` (ephemeral, never persisted); UI gesture is a
+  `simultaneousGesture` press-hold on the cell body. Closes acceptance-#6-audition/#10 PARTIAL→v1.
 - **NEXT:** (a) GATE — the UI-size checkpoints in test-procedures (screenshot-verify
   1024×768 / 11" / 13" both orientations + a small panel; static frames hold,
   nothing truncates) — the formal layout lockdown, not yet run. (b) PERFORM v2 —

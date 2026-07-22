@@ -44,6 +44,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    /// AUDITION (§6.4 / delta §5): hold a cell → sound its processor alone while stopped. Ephemeral
+    /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
+    func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
+    func clearAudition() { kernel.setAudition(-1) }
+
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 

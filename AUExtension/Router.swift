@@ -52,6 +52,13 @@ final class Router {
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
+    // AUDITION (§6.4 / delta §5): the held cell's target (col*rows+row, −1 = none), the sample the hold
+    // began (its free phase clock's origin), and a dedicated tick-dedup slot. All ephemeral — audition
+    // is a live gesture, never persisted, never in the snapshot.
+    private var prevAudition = -1
+    private var auditionStartSample: Int64 = 0
+    private var auditionLastTick: Int64 = -1
+
     @inline(__always)
     private func rcIndex(_ cable: UInt8, _ chan: UInt8, _ note: UInt8) -> Int {
         (Int(cable % 5) * 16 + Int(chan & 15)) * 128 + Int(note & 127)
@@ -81,6 +88,7 @@ final class Router {
         wasPlaying = false
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
+        prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
     }
@@ -442,6 +450,7 @@ final class Router {
                  sampleRate: Double,
                  timestampSample: Double,
                  frameCount: UInt32,
+                 audition: Int = -1,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
 
@@ -474,6 +483,18 @@ final class Router {
 
         pool.rebuildSorted()
         diag.poolCount = pool.count
+
+        // ---- AUDITION (transport stopped): a held cell sounds its processor ALONE against the live
+        //      source — phase zeroed, input forced to source, all-open passgate, host tempo (§6.4 /
+        //      delta §5). The wasPlaying edge above already flushed any voices, so transport start
+        //      auto-releases the audition; release is handled inside auditionRender on target change. ----
+        if !playing {
+            auditionRender(box: box, pool: pool, target: audition, tempo: tempo, sampleRate: sampleRate,
+                           timestampSample: timestampSample, frameCount: frameCount, S: S, out: out, diag: &diag)
+            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
+            return
+        }
+        prevAudition = -1   // playing ⇒ any audition was auto-released by the transport-start edge
 
         // ---- derived column (§7). Musical space, so swing warps the beat→column map consistently
         //      with the arp ticks below. Locks are stubbed until step 6: effColumn == trueColumn. ----
@@ -683,5 +704,96 @@ final class Router {
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+    }
+
+    // MARK: - audition (§6.4 / delta §5)
+
+    /// Sound the held cell's processor ALONE against the live source while the transport is stopped.
+    /// §6.4: phase zeroed, input FORCED to source (the `inputRow` reference is ignored), the cell's
+    /// active A/B state, its lit letters, passgates all-open, an internal phase clock at host tempo.
+    /// A change of `target` (new cell, switched cell, or release → −1) flushes and restarts the clock;
+    /// transport start flushes via the process() transport edge (auto-release). v1 handles the
+    /// time-varying processors ARP and RATCHET; chord-hold types (identity/passgate/chance/harmonize/
+    /// strum) fall through to the Kernel's raw passthrough (their live-tracked audition is v2).
+    private func auditionRender(box: SnapshotBox, pool: NotePool, target: Int,
+                                tempo: Double, sampleRate: Double, timestampSample: Double,
+                                frameCount: UInt32, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        let windowStart = Int64(timestampSample)
+        if target != prevAudition {          // hold began / switched / released → cut and re-origin the clock
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            prevAudition = target
+            auditionStartSample = windowStart
+            auditionLastTick = -1
+        }
+        guard target >= 0 else { return }
+        let col = target / Snap.rows, row = target % Snap.rows
+        guard col >= 0, col < Snap.cols, row >= 0, row < Snap.rows else { return }
+        let cell = box.cells[col * Snap.rows + row]
+        guard cell.colourIndex >= 0, !cell.muted, cell.busMask != 0, !cell.bypassed else { return }
+        guard pool.count > 0 else { return }          // no held notes → silence (soundcheck)
+        let ci = Int(cell.colourIndex)
+        let colour = box.colours[ci]
+
+        let beatsPerSample = tempo / 60.0 / sampleRate
+        let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
+        let windowBeats = Double(frameCount) * beatsPerSample
+        let windowEnd = windowStart + Int64(frameCount)
+        let t = effectiveT(colourMorph: over(18 + ci, colour.morph), master: over(34, box.morphMaster), alt: cell.alt)
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+
+        switch colour.a.type {
+        case .arp:
+            var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(colour, t: t)
+            let octaves = effectiveOctaves(colour, t: t)
+            auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
+                          windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
+                let base = arpPickSource(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
+                                         pattern: colour.a.patternIndex, pool: pool, filter: cell.inputChannel)
+                guard base >= 0 else { return }
+                let n = base + transpose; guard n >= 0 && n <= 127 else { return }
+                emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
+                          windowEnd: windowEnd, out: out, diag: &diag)
+            }
+        case .ratchet:
+            let repeats = effectiveRepeats(colour, t: t)
+            let ramp = effectiveRamp(colour, t: t)
+            let sub = S / Double(max(1, repeats))
+            auditionTicks(sub: sub, gateFraction: 0.6, startBeat: auditionBeat, windowBeats: windowBeats,
+                          windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
+                let repIdx = ((Int(tick) % repeats) + repeats) % repeats
+                let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
+                let srcN = pool.srcCount(filter: cell.inputChannel)
+                for k in 0..<srcN {
+                    let n = Int(pool.srcAscending(k, filter: cell.inputChannel)) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
+                              windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            }
+        default:
+            return   // chord-hold audition is v2 (needs live pool-tracking); passthrough covers it for now
+        }
+    }
+
+    /// The audition tick scaffold: like `iterateTicks` but with NO column gating and a single dedup
+    /// slot — audition is one free-running cell. `startBeat` is beats elapsed since the hold began, so
+    /// `tick` counts from 0 (phase zeroed). floor + the `== auditionLastTick` dedup catches a boundary
+    /// tick exactly once across windows (fired at window start when clamped), matching iterateTicks.
+    private func auditionTicks(sub: Double, gateFraction: Double, startBeat: Double, windowBeats: Double,
+                               windowStart: Int64, beatsPerSample: Double,
+                               _ body: (_ tick: Int64, _ onT: Int64, _ offT: Int64) -> Void) {
+        guard sub > 0 else { return }
+        let firstTick = Int64((startBeat / sub).rounded(.down))
+        let lastT = Int64(((startBeat + windowBeats) / sub).rounded(.down))
+        guard firstTick <= lastT else { return }
+        for tick in firstTick...lastT {
+            if tick == auditionLastTick { continue }
+            auditionLastTick = tick
+            let tickBeat = Double(tick) * sub
+            let onT = windowStart + Int64(max(0, (tickBeat - startBeat) / beatsPerSample))
+            let offT = windowStart + Int64(max(0, (tickBeat + sub * gateFraction - startBeat) / beatsPerSample))
+            body(tick, onT, offT)
+        }
     }
 }

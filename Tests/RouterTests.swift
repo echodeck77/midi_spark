@@ -127,6 +127,93 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: audition (§6.4 / delta §5)
+
+    /// Drive `windows` STOPPED render windows holding `target` (col*8+row), then optionally release
+    /// (target → −1). Audition's phase clock is driven by the advancing sample timestamp, not beatPos.
+    private func auditionRun(_ box: SnapshotBox, _ pool: NotePool, target: Int, windows: Int,
+                             into emitter: RecordingEmitter, releaseAtEnd: Bool = true,
+                             tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
+        let router = Router()
+        var diag = KernelDiag()
+        var ts = 0.0
+        for _ in 0..<windows {
+            router.process(box: box, pool: pool, playing: false, beatPos: 0, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, audition: target, out: emitter, diag: &diag)
+            ts += Double(frames)
+        }
+        if releaseAtEnd {
+            router.process(box: box, pool: pool, playing: false, beatPos: 0, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, audition: -1, out: emitter, diag: &diag)
+        }
+    }
+
+    func testAuditionArpSoundsWhileStoppedAndLeavesNothingStuck() {
+        // Hold an ARP cell (col 0, row 0) with a chord held, transport STOPPED → it arpeggiates.
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)   // 0 = col0*8+row0
+        XCTAssertGreaterThan(e.ons.count, 0, "a held ARP should sound while stopped (audition)")
+        assertNothingLeftSounding(e)
+    }
+
+    func testAuditionWithNoHeldNotesIsSilent() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        auditionRun(b, NotePool(), target: 0, windows: 12, into: e)            // no keys held
+        XCTAssertTrue(e.events.isEmpty, "audition soundcheck is silent with no source notes")
+    }
+
+    func testAuditionOfEmptyCellIsSilent() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60, 64, 67]), target: 5 * 8 + 5, windows: 12, into: e)   // (col5,row5) empty
+        XCTAssertTrue(e.events.isEmpty, "auditioning an empty cell produces nothing")
+    }
+
+    func testAuditionRatchetSounds() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60, 63, 67]), target: 0, windows: 24, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "a held RATCHET re-strikes the chord while stopped")
+        assertNothingLeftSounding(e)
+    }
+
+    func testAuditionEmitsOnTheCellsBusAndAllCable() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.b]) }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60, 64, 67]), target: 0, windows: 24, into: e)
+        XCTAssertTrue(e.ons.contains { $0.cable == 2 }, "audition emits on the lit bus (B = cable 2)")
+        XCTAssertTrue(e.ons.contains { $0.cable == 0 }, "audition also emits on the ALL cable")
+        XCTAssertTrue(e.ons.allSatisfy { $0.cable == 0 || $0.cable == 2 }, "no emission on unlit buses")
+    }
+
+    func testTransportStartAutoReleasesAudition() {
+        // Hold an ARP audition, then start the transport: the transport-start edge must flush the
+        // audition voices (auto-release, §6.4) — nothing left sounding after a stop.
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var ts = 0.0
+        for _ in 0..<10 {   // stopped + auditioning
+            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag); ts += Double(frames)
+        }
+        XCTAssertGreaterThan(e.ons.count, 0)
+        // transport starts; audition target cleared as the UI would on auto-release
+        var beat = 0.0
+        for _ in 0..<40 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)
+            ts += Double(frames); beat += Double(frames) * 120 / 60 / sr
+        }
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)   // stop → flush
+        assertNothingLeftSounding(e)
+    }
+
     func testStopEdgeFlushesEverySoundingVoice() {
         // Even with a slow ARP and a stop mid-window, the transport edge must leave nothing sounding.
         let b = box(colours: arpColours()) {
