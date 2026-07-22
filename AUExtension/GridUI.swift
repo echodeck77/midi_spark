@@ -422,7 +422,7 @@ struct HeaderView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text("MIDISPARK").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
+            Text("8×8 STATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
                 .foregroundColor(.white.opacity(0.85))
 
             // EDIT / PERFORM mode (§6.1/6.2)

@@ -58,9 +58,15 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
-- Product name candidate: **"8x8 State"** (the v54+ mockups display it as the
-  logotype; still display-name-only and undecided); bundle IDs and code-level
-  product strings stay `MidiSpark` / `com.paulbarrett.MidiSpark` regardless.
+- Public/product name: **"8x8 State"** — DECIDED and APPLIED (display-only). It is the
+  app `CFBundleDisplayName`, the extension `CFBundleDisplayName`, the AudioComponents
+  `name` ("8x8 State: 8x8 State" → AUM shows "8x8 State"), and the in-plugin/app
+  logotype ("8×8 STATE"). The AppIcon (App/Assets.xcassets, single 1024 master →
+  actool downscales) carries the same mark. EVERYTHING at the code/identity level stays
+  `MidiSpark`: target/scheme/module names, `PRODUCT_NAME`/`CFBundleName`, bundle IDs
+  (`com.paulbarrett.MidiSpark[.AU]`), and the aumi component codes (type `aumi`,
+  subtype `MSpk`, manufacturer `MSPK` — never change these; they are the plugin's
+  identity and saved AUM sessions key on them).
 
 ## Architecture invariants (violating these = bug, regardless of tests passing)
 1. **The render thread reads ONLY `SnapshotBox`** (immutable, atomically published).

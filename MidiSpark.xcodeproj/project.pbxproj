@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		021019A5AE17098B3B3FFD3E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20AB7B8688724B64F843182A /* Assets.xcassets */; };
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		0DC85821415CABE6E2AE13F2 /* SnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */; };
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
@@ -72,6 +73,7 @@
 		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactoryTests.swift; sourceTree = "<group>"; };
+		20AB7B8688724B64F843182A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
@@ -122,6 +124,7 @@
 		21631744EFF0267BC0F27291 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				20AB7B8688724B64F843182A /* Assets.xcassets */,
 				DC80E358AFF64399AA7C7A69 /* ContentView.swift */,
 				D4B004FB0FED39A5E1961BD8 /* Info.plist */,
 				344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */,
@@ -214,6 +217,7 @@
 			buildConfigurationList = 4645653E49AACC9666E394A6 /* Build configuration list for PBXNativeTarget "MidiSpark" */;
 			buildPhases = (
 				BB935E09C83B76B8115C78BE /* Sources */,
+				532E50EB7994010F1BEDC377 /* Resources */,
 				E8A5FFA993C2ABD193CB7C3D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -274,6 +278,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		532E50EB7994010F1BEDC377 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				021019A5AE17098B3B3FFD3E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2870475AFB7D2D320E3B1972 /* Sources */ = {

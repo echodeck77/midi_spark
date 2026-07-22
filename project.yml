@@ -19,11 +19,16 @@ targets:
     type: application
     platform: iOS
     sources: [App]
+    settings:
+      base:
+        # Public/display branding is "8x8 State" (display-only); the target, bundle IDs, product
+        # name, and the aumi component codes all stay MidiSpark. AppIcon set lives in App/Assets.xcassets.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: App/Info.plist
       properties:
         UILaunchScreen: {}
-        CFBundleDisplayName: MidiSpark
+        CFBundleDisplayName: "8x8 State"
         # Must match AUExtension/Info.plist's CFBundleShortVersionString — an app extension
         # whose version differs from its container fails embedded-binary validation.
         # The extension plist is hand-maintained, so bump BOTH together.

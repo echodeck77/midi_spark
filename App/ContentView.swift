@@ -5,9 +5,9 @@ struct ContentView: View {
         ZStack {
             Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
             VStack(spacing: 16) {
-                Text("MIDISPARK").font(.system(size: 18, weight: .heavy, design: .monospaced)).tracking(8)
+                Text("8×8 STATE").font(.system(size: 18, weight: .heavy, design: .monospaced)).tracking(8)
                     .foregroundColor(.white.opacity(0.9))
-                Text("The AUv3 extension is installed with this app.\nOpen AUM → add a MIDI Processor → MidiSpark: MidiSpark.")
+                Text("The AUv3 extension is installed with this app.\nOpen AUM → add a MIDI Processor → 8x8 State: 8x8 State.")
                     .multilineTextAlignment(.center)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))

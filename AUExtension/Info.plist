@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>MidiSpark</string>
+	<string>8x8 State</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -32,7 +32,7 @@
 					<key>manufacturer</key>
 					<string>MSPK</string>
 					<key>name</key>
-					<string>MidiSpark: MidiSpark</string>
+					<string>8x8 State: 8x8 State</string>
 					<key>sandboxSafe</key>
 					<true/>
 					<key>subtype</key>
