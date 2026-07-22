@@ -10,12 +10,15 @@
 //  collision refcount arrive at commits 5–6; the seams are marked.
 
 import Foundation
-import AudioToolbox
-import AVFoundation
+// AudioToolbox is GONE (standalone-plan seam rule 1): the Router now emits through the Foundation-only
+// `MIDIEmitter` protocol (Emission.swift) and names sample times as plain Int64 — the AU integer
+// typedefs were only aliases (Int64=Int64, UInt32=UInt32, UInt64=
+// UInt64). So this whole file — tick generation, the graph derivation, the 5-cable refcount — compiles
+// into the macOS unit-test target. The live MIDIEmitter adapter lives in Kernel.swift.
 
 // NotePool and the pure derivation functions (musicalOf/realOf, phaseIndex, arpPickSource,
 // cellMode/CellMode, ratchetVelocity) now live in Derivations.swift — pure, Foundation-only, and
-// unit-tested. The Router keeps only what depends on its state or CoreAudio.
+// unit-tested. The Router keeps only what depends on its state.
 
 // MARK: - The router / arp engine
 
@@ -34,7 +37,7 @@ final class Router {
         var note: UInt8 = 0
         var chan: UInt8 = 0
         var cable: UInt8 = 0
-        var offSample: AUEventSampleTime = .max
+        var offSample: Int64 = .max
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -58,8 +61,8 @@ final class Router {
     // referencing cell can mirror its parent's output. Fixed capacity, no hot-path allocation.
     // lastTick dedups each row's arp independently across (rare) overlapping windows.
     private struct Artic {
-        var onSample: AUEventSampleTime = 0
-        var offSample: AUEventSampleTime = 0
+        var onSample: Int64 = 0
+        var offSample: Int64 = 0
         var note: UInt8 = 0    // after this row's accumulated transpose
         var beat: Double = 0   // musical onset beat — the stable seed for CHANCE (loop-consistent)
     }
@@ -85,7 +88,7 @@ final class Router {
     // MARK: parameter overrides
 
     @inline(__always)
-    private func slot(for address: AUParameterAddress) -> Int? {
+    private func slot(for address: UInt64) -> Int? {
         switch address {
         case 0: return 0
         case 1: return 1
@@ -113,7 +116,7 @@ final class Router {
     }
 
     /// Apply one render-side .parameter/.parameterRamp event.
-    func applyParamEvent(_ address: AUParameterAddress, _ value: Double, diag: inout KernelDiag) {
+    func applyParamEvent(_ address: UInt64, _ value: Double, diag: inout KernelDiag) {
         guard let idx = slot(for: address) else { return }
         overrides[idx] = value
         diag.paramEventCount &+= 1
@@ -139,8 +142,8 @@ final class Router {
     /// the table is full (the on still sounded; we just can't track its off — capacity is 128).
     @discardableResult
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8,
-                           onSample: AUEventSampleTime, offSample: AUEventSampleTime,
-                           velocity: UInt8 = 96, out: AUMIDIOutputEventBlock?) -> Int {
+                           onSample: Int64, offSample: Int64,
+                           velocity: UInt8 = 96, out: MIDIEmitter?) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: a note we can't track is worse than a dropped one (it would
         // hang). At 128-voice capacity this never trips for the real topologies.
@@ -148,8 +151,7 @@ final class Router {
         for i in voices.indices where !voices[i].active { slot = i; break }
         guard slot >= 0 else { return -1 }
 
-        var on: [UInt8] = [0x90 | chan, note, max(1, velocity)]
-        _ = out(onSample, cable, 3, &on)                     // §7 clause 1: note-ons ALWAYS emit
+        out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
         let idx = rcIndex(cable, chan, note)
         if refcount[idx] == 0 { distinctSounding += 1 }
         refcount[idx] += 1
@@ -162,7 +164,7 @@ final class Router {
         return slot
     }
 
-    private func closeVoice(_ i: Int, atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
+    private func closeVoice(_ i: Int, atSample time: Int64, out: MIDIEmitter?) {
         guard voices[i].active else { return }
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         voices[i].active = false
@@ -174,24 +176,21 @@ final class Router {
             distinctSounding = max(0, distinctSounding - 1)
             // §7 clause 2: the wire note-off fires ONLY when the last instance releases. Clause 3:
             // no restoration strike — a surviving instance is simply never re-struck.
-            if let out {
-                var off: [UInt8] = [0x80 | chan, note, 0]
-                _ = out(time, cable, 3, &off)
-            }
+            out?.emit(sampleTime: time, cable: cable, 0x80 | chan, note, 0)
         }
     }
 
     /// Emit any scheduled gate-off that has come due this window (drained every render → no stuck
     /// note when a voice's off falls beyond the window it was opened in).
-    private func drainDue(windowStart: AUEventSampleTime, windowEnd: AUEventSampleTime,
-                          out: AUMIDIOutputEventBlock?) {
+    private func drainDue(windowStart: Int64, windowEnd: Int64,
+                          out: MIDIEmitter?) {
         for i in voices.indices where voices[i].active && voices[i].offSample <= windowEnd {
             closeVoice(i, atSample: max(voices[i].offSample, windowStart), out: out)
         }
     }
 
     /// Close every sounding voice at one sample time (transport edge, column transition, reset).
-    func allNotesOff(atSample time: AUEventSampleTime, out: AUMIDIOutputEventBlock?) {
+    func allNotesOff(atSample time: Int64, out: MIDIEmitter?) {
         for i in voices.indices where voices[i].active { closeVoice(i, atSample: time, out: out) }
     }
 
@@ -222,12 +221,12 @@ final class Router {
 
     @inline(__always)
     private func sampleOf(musical: Double, beatPos: Double, beatsPerSample: Double,
-                          windowStart: AUEventSampleTime, S: Double, a: Double) -> AUEventSampleTime {
+                          windowStart: Int64, S: Double, a: Double) -> Int64 {
         let real = realOf(musical, stepBeats: S, a: a)
-        return windowStart + AUEventSampleTime(max(0, (real - beatPos) / beatsPerSample))
+        return windowStart + Int64(max(0, (real - beatPos) / beatsPerSample))
     }
 
-    private func storeArtic(row: Int, on: AUEventSampleTime, off: AUEventSampleTime,
+    private func storeArtic(row: Int, on: Int64, off: Int64,
                             note: UInt8, beat: Double) {
         let c = articCount[row]
         guard c < Router.articCap else { return }
@@ -243,9 +242,9 @@ final class Router {
     /// voice under the refcount, so the ALL duplicate and any shared-channel merge off-pair correctly.
     /// Channel comes ONLY from the bus stamp now (INHERIT/OUT CH removed, delta §7).
     private func emitArtic(note: UInt8, busMask: UInt8,
-                           onSample: AUEventSampleTime, offSample: AUEventSampleTime,
-                           windowEnd: AUEventSampleTime, velocity: UInt8 = 96,
-                           out: AUMIDIOutputEventBlock?, diag: inout KernelDiag) {
+                           onSample: Int64, offSample: Int64,
+                           windowEnd: Int64, velocity: UInt8 = 96,
+                           out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
         var mask = busMask
         while mask != 0 {
@@ -275,8 +274,8 @@ final class Router {
     /// downstream mirror sees the full expanded set. Shared by the MIDI-IN hold and the mirror path.
     private func emitHarmony(base: Int, colour: SnapColour, t: Double, baseVel: UInt8, row: Int,
                              storeArtics: Bool, busMask: UInt8,
-                             on: AUEventSampleTime, off: AUEventSampleTime, beat: Double,
-                             windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
+                             on: Int64, off: Int64, beat: Double,
+                             windowEnd: Int64, out: MIDIEmitter?,
                              diag: inout KernelDiag) {
         let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
                   Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
@@ -295,8 +294,8 @@ final class Router {
 
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
-                                 beatsPerSample: Double, windowStart: AUEventSampleTime,
-                                 windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
+                                 beatsPerSample: Double, windowStart: Int64,
+                                 windowEnd: Int64, out: MIDIEmitter?,
                                  diag: inout KernelDiag) {
         guard pool.count > 0 else { return }
         let colStart = (mNow / S).rounded(.down) * S
@@ -403,10 +402,10 @@ final class Router {
     /// this owns the timing — so the boundary/dedup logic lives in exactly one place.
     /// Return from the body to skip a tick (the equivalent of `continue`).
     private func iterateTicks(row: Int, effColumn: Int, sub: Double, gateFraction: Double,
-                              beatPos: Double, windowBeats: Double, windowStart: AUEventSampleTime,
+                              beatPos: Double, windowBeats: Double, windowStart: Int64,
                               beatsPerSample: Double, S: Double, a: Double,
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
-                                       _ onTime: AUEventSampleTime, _ offTime: AUEventSampleTime) -> Void) {
+                                       _ onTime: Int64, _ offTime: Int64) -> Void) {
         let mStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
@@ -442,15 +441,15 @@ final class Router {
                  tempo: Double,
                  sampleRate: Double,
                  timestampSample: Double,
-                 frameCount: AUAudioFrameCount,
-                 out: AUMIDIOutputEventBlock?,
+                 frameCount: UInt32,
+                 out: MIDIEmitter?,
                  diag: inout KernelDiag) {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
 
         // ---- window in samples; global (non-cell) timing ----
-        let windowStart = AUEventSampleTime(timestampSample)
-        let windowEnd = windowStart + AUEventSampleTime(frameCount)
+        let windowStart = Int64(timestampSample)
+        let windowEnd = windowStart + Int64(frameCount)
         let beatsPerSample = tempo / 60.0 / sampleRate
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0
@@ -467,7 +466,7 @@ final class Router {
 
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
-            allNotesOff(atSample: AUEventSampleTimeImmediate, out: out)
+            allNotesOff(atSample: renderSampleImmediate, out: out)
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
             wasPlaying = playing
@@ -500,7 +499,7 @@ final class Router {
                 let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
                 let realB = realOf(boundaryMusical, stepBeats: S, a: a)
                 let off = max(0, (realB - beatPos) / beatsPerSample)
-                allNotesOff(atSample: windowStart + AUEventSampleTime(off), out: out)
+                allNotesOff(atSample: windowStart + Int64(off), out: out)
             }
             prevEffColumn = effColumn
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }

@@ -19,13 +19,16 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   TestSessions/the grid UI.
 - `Docs/standalone-plan.md` — DEFERRED milestone (standalone app = a second HOST of
   the same AUv3), but its THREE SEAM RULES are enforced NOW: (1) import hygiene —
-  only `MidiSparkAudioUnit.swift` / `AudioUnitViewController.swift` may import
-  AudioToolbox/AU frameworks; Kernel/Router/Derivations/Snapshot*/Models/TestSessions
-  and ALL of GridUI stay Foundation/SwiftUI-only (GridUI is shared by both targets).
-  (2) one-named beat seam. (3) emission is the only place that knows cables. KNOWN
-  VIOLATION: Kernel.swift + Router.swift still import AudioToolbox (AU event/time
-  types) — fix when the standalone milestone opens or when those files are touched
-  for that purpose; GridUI is already clean (SwiftUI-only).
+  only `MidiSparkAudioUnit.swift` / `AudioUnitViewController.swift` / `Kernel.swift`
+  may import AudioToolbox/AU frameworks; Router/Derivations/Snapshot*/Models/Emission/
+  Diag/TestSessions and ALL of GridUI stay Foundation/SwiftUI-only. (2) one-named beat
+  seam. (3) emission is the only place that knows cables. STATUS: seam (3) is realised
+  as the `MIDIEmitter` protocol (`Emission.swift`); `Router.swift` was made Foundation-
+  only against it (was a violation through v0.6) and now compiles into the unit-test
+  target — see `RouterTests.swift`. `Kernel.swift` KEEPS AudioToolbox on purpose (the
+  render boundary — host transport/context blocks + render-event types; it hosts the
+  `LiveMIDIEmitter` adapter and sheds the import only when the standalone swap replaces
+  those host reads per rule 2). GridUI is clean (SwiftUI-only).
 - `Docs/router-design.md` — the engine reference (pools/sounding-sets model,
   voice/refcount design, PHASE formulas, per-render flow). Its routing
   derivation and commit plan are marked HISTORICAL (old model, as built);
@@ -127,9 +130,11 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **63-test macOS unit suite** over the pure core
-  (Derivations + Snapshot/Builder + loader migration + SceneFactory). BOTH stay
-  green every commit; unit tests run off-device and come FIRST.
+  `Tests/` holds a **69-test macOS unit suite** over the pure core (Derivations +
+  Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
+  (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
+  §7b two-cable / channel-stamp / muted-silence, off-device, since Router went
+  Foundation-only). BOTH stay green every commit; unit tests run off-device, come FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
   FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell

@@ -29,11 +29,23 @@ session, files/document browser for Presets.
 ## The three seam rules (ENFORCED DURING THE MIGRATION — they are the entire
 ## "early support" cost, and they are nearly free while everything is open)
 
-1. **Import hygiene.** Only `MidiSparkAudioUnit.swift` and
-   `AudioUnitViewController.swift` may import AudioToolbox / AU-specific
-   frameworks. Kernel, Router, Derivations, Snapshot*, Models, TestSessions,
-   and EVERYTHING in GridUI stay Foundation/SwiftUI-only. (GridUI will be
-   shared by both targets; an AU import there is a future build error.)
+1. **Import hygiene.** Only `MidiSparkAudioUnit.swift`, `AudioUnitViewController.swift`,
+   and `Kernel.swift` may import AudioToolbox / AU-specific frameworks. Router,
+   Derivations, Snapshot*, Models, Emission, Diag, TestSessions, and EVERYTHING in
+   GridUI stay Foundation/SwiftUI-only. (GridUI will be shared by both targets; an
+   AU import there is a future build error.)
+   - **Kernel is the render boundary, and keeps AudioToolbox on purpose**: it reads
+     the host transport/musical-context blocks and the `AURenderEvent`/`AudioTimeStamp`
+     render types. Rule 2 is exactly what lets standalone swap the SOURCE of those
+     reads later; only then does Kernel shed the import. Kernel also hosts
+     `LiveMIDIEmitter` — the one adapter onto `AUMIDIOutputEventBlock`.
+   - **Router is now clean** (was a violation through v0.6). It emits through the
+     Foundation-only `MIDIEmitter` protocol (`Emission.swift`) and names sample times
+     as plain `Int64`; the AU integer typedefs it used (`AUEventSampleTime`=Int64,
+     `AUAudioFrameCount`=UInt32, `AUParameterAddress`=UInt64) were only aliases. Payoff:
+     the entire render engine — tick generation, graph derivation, the 5-cable refcount
+     — now compiles into the macOS unit-test target (`RouterTests.swift`, a recording
+     `MIDIEmitter` double asserts no-stuck-notes / §7b two-cable / channel stamp).
    During the migration survey, list any current violations; fix them in the
    commit that touches the offending file anyway.
 2. **The beat seam has ONE name.** The kernel consumes a single derived

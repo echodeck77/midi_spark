@@ -62,6 +62,9 @@ targets:
       - path: AUExtension/Snapshot.swift    # pure now (store split out) → effective-param tests
       - path: AUExtension/SnapshotBuilder.swift   # document → snapshot resolution
       - path: AUExtension/SceneFactory.swift       # the 16 factory scenes (Foundation-only)
+      - path: AUExtension/Emission.swift    # MIDIEmitter seam — tests inject a recording double
+      - path: AUExtension/Diag.swift        # KernelDiag (moved out of Kernel so Router is pure)
+      - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

@@ -12,30 +12,21 @@ import Foundation
 import AudioToolbox
 import AVFoundation
 
-struct KernelDiag {
-    var renderCount: UInt64 = 0
-    var playing = false
-    var beat: Double = 0
-    var tempo: Double = 0
-    var poolCount = 0
-    var snapshotGen: UInt64 = 0
-    var paramEventCount: UInt64 = 0
-    var lastParamAddr: Int64 = -1
-    var lastParamValue: Double = 0
-    var ccCount: UInt64 = 0
-    var ccStatus: UInt8 = 0, ccData1: UInt8 = 0, ccData2: UInt8 = 0
-    var effMorphGold: Double = 0
-    var effRateBeats: Double = 0
-    var effSwing: Double = 50
-    var emitCount: UInt64 = 0
-    var lastEmitNote: UInt8 = 0
-    var lastEmitChan: UInt8 = 0        // 0-based wire channel (bus stamp); panel shows +1 (human)
-    var effColumn = 0                  // active grid column (0…7), derived (§7)
-    var pass: Int = 0                  // how many full 8-column cycles elapsed
-    var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
-    var activeCellParent: Int8 = -1    // v3.0 resolvedParent of the active cell (−1 = MIDI IN)
-    var activeVoiceCount = 0           // instances in the poly voice table (per bus × ch × note)
-    var distinctSounding = 0           // distinct (bus,ch,note) on the wire; < voices when notes collide
+// KernelDiag moved to Diag.swift (Foundation-only) so Router can compile into the unit-test target.
+
+/// The LIVE emission seam: adapts the render engine's Foundation-only `MIDIEmitter` protocol onto the
+/// host's `AUMIDIOutputEventBlock`. This is the one place a note becomes AudioToolbox — and it lives
+/// with the Kernel, the render boundary that already owns AudioToolbox legitimately. Called only from
+/// the render thread (synchronously, inside Router.process), so `scratch` is reused without locking and
+/// no per-note array is allocated on the hot path (the previous inline code allocated one per emit).
+final class LiveMIDIEmitter: MIDIEmitter {
+    var out: AUMIDIOutputEventBlock?
+    private var scratch: [UInt8] = [0, 0, 0]
+    func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        guard let out else { return }
+        scratch[0] = b0; scratch[1] = b1; scratch[2] = b2
+        _ = out(sampleTime, cable, 3, &scratch)   // AUEventSampleTime == Int64: passes through unchanged
+    }
 }
 
 final class Kernel {
@@ -48,10 +39,12 @@ final class Kernel {
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
+    private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
 
     func reset() {
         pool.reset()
-        router.allNotesOff(atSample: AUEventSampleTimeImmediate, out: midiOut)   // flush any hung notes
+        liveEmitter.out = midiOut       // pick up the current host block before flushing
+        router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
         router.reset()
     }
 
@@ -64,6 +57,7 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
+        liveEmitter.out = midiOut       // sync the emission seam to the current host block, this render
 
         // A real document edit published a fresh snapshot → drop render-side overrides. Must run
         // BEFORE this render's parameter events are applied (§7).
@@ -118,7 +112,7 @@ final class Kernel {
                         playing: playing, beatPos: beatPos, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, out: midiOut, diag: &diag)
+                        frameCount: frameCount, out: liveEmitter, diag: &diag)
     }
 
     // MARK: - incoming MIDI (source pool + passthrough)
