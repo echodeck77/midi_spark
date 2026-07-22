@@ -34,17 +34,21 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   T1–T17; the doc details T1–T11 + reconciled intents), bridge regression B1–B4,
   the UI-size-checkpoint gate, milestone gates, and the reporting template. When
   asking the human to verify anything, quote the procedure by name.
+- `Docs/factory-scenes.md` — the SIXTEEN factory scenes for the scene strip (a
+  curriculum, slot 1 → 16; slot 15's cycle/backward-tap are INTENTIONAL; every
+  LISTEN line ships ear-tested). Distinct from TestSessions T1–T17 — never merge.
 - `Docs/ui-port-guide.md` — mockup→SwiftUI mapping, design tokens (the 16 Colour
   hexes are canonical), gesture map, and the REVISED order of work (a grid
   slice exists; reconcile, don't rebuild).
 - `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
-- `Docs/midispark-preview-v56.html` — the GUI reference mockup (open in a browser);
-  the behavioural spec for the UI (three-box desk, scene strip, header per
-  ui-port-guide). v26–v55 are history; v50/v51 are BROKEN (JSX bug) — never
-  open as reference; v40 is the preserved abandoned fork (module boxes /
-  linear chains) — do not implement it. The mockup's AUTO/WIDE/TALL toggle
-  is a browser preview affordance — never port it.
+- `Docs/midispark-preview-v59.html` — the GUI reference mockup (open in a browser);
+  the behavioural spec for the UI. v57 added PROMINENT COLUMN KEYS (40px,
+  number-primary, state as hue+sublabel); v58 the STATIC FRAMES rule made
+  visible; v59 the SIXTEEN-slot scene strip. v26–v58 are history; v50/v51 are
+  BROKEN (JSX bug) — never open as reference; v40 is the preserved abandoned
+  fork (module boxes / linear chains) — do not implement it. The mockup's
+  AUTO/WIDE/TALL toggle is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
@@ -126,8 +130,11 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   `Tests/` holds a **58-test macOS unit suite** over the pure core
   (Derivations + Snapshot/Builder + loader migration). BOTH stay green every
   commit; unit tests run off-device and come FIRST.
-- **IN PROGRESS — the v56 GUI reconcile** (`GridUI.swift`, all SwiftUI-only). Done:
-  header (STEP rate + SWING + PASS/bpm readout, params 0/1); v56 FOUR-ROW cells
+- **IN PROGRESS — the GUI reconcile** (`GridUI.swift`, all SwiftUI-only;
+  reconciliation target is now preview **v59** — the done-list below was built
+  against v56 and remains valid, v57–v59 add column keys / static frames /
+  the 16-slot strip). Done:
+  header (STEP rate + SWING + PASS/bpm readout, params 0/1); FOUR-ROW cells
   (input header · type+params body · A–D emitter strip · empty-cell watermark);
   real FROM/OUT POPOVERS (not cycling chips); fully in-cell EDITING (tap body =
   paint/recolour, long-press = clear/copy colour); the PROCESSOR box (all 6 types,
@@ -137,8 +144,10 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   is now fully authorable in-plugin (no host automation needed for any control).
 - **NEXT (UI):** the one-clock MUTATION-LINE playhead (needs beat extrapolation via
   TimelineView between the 4 Hz polls); the delta §6 three-box responsive DESK
-  layout (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait band); the SCENE
-  strip (wire session slots). GATE: the UI-size checkpoints in test-procedures
+  layout (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait band); the
+  PROMINENT COLUMN KEYS (v57: 40px, column number primary, state as sublabel);
+  the SCENE strip — SIXTEEN slots, dev builds wire session slots, release wires
+  `SceneFactory` per Docs/factory-scenes.md. GATE: the UI-size checkpoints in test-procedures
   (screenshot-verify 1024×768 / 11" / 13" both orientations + a small panel;
   static frames hold, nothing truncates).
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:

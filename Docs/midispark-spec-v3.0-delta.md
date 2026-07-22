@@ -4,9 +4,10 @@ STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
 (colours/cells/presets, processors, morph/ALT, swing, QUANT, performance layers,
 engine snapshot architecture, collision policy, parameters, MORPH desk).
-Reference implementation of the UI: `Docs/midispark-preview-v56.html`
-(v50/v51 contain a JSX bug — do not use; v52 fixed base → v53 responsive desk
-→ v54 three-box layout → v55 big emitters → v56 scene strip = canonical).
+Reference implementation of the UI: `Docs/midispark-preview-v59.html`
+(v50/v51 contain a JSX bug — do not use; v52 fixed base → v54 three-box
+layout → v56 scene strip → v57 column keys → v58 static frames → v59
+sixteen-slot strip = canonical).
 The abandoned alternative (linear chains + module boxes) is preserved as
 `midispark-preview-v40.html` for the record; do not implement it.
 
@@ -82,7 +83,7 @@ Document gains `busChannels[4]` (there is no outputMode — see §7b).
 
 ## 4. Visual language — PERFORM (supersedes §5)
 
-The perform grid is a **readable table that plays**. Reference: v56 preview.
+The perform grid is a **readable table that plays**. Reference: v59 preview.
 
 - **Cell = four rows** (top→bottom):
   1. INPUT HEADER — text: `FROM MIDI` (dim white = the default), `MIDI CHn`
@@ -162,8 +163,9 @@ single point). The PROCESSOR frame is sized for the LARGEST field set;
 smaller types leave calm space; only content that exceeds the frame scrolls
 WITHIN it. The mockup's content-driven sizing is a simulation artifact.
 A **SCENE strip** runs full-width along the BOTTOM in both
-orientations: 8 slots, current highlighted (dev builds host the canned test
-sessions in these slots until scenes are implemented). RESERVED, details TBD:
+orientations: SIXTEEN slots, current highlighted — factory content per
+Docs/factory-scenes.md (dev builds may host the canned test sessions here
+until SceneFactory lands). RESERVED, details TBD:
 a MIDI-IN display ABOVE the COLOUR box. BACKLOG (log, don't invent):
 collapsible/scalable desk sections for tucking away unused panels.
 Final dimension tuning happens on device.
@@ -203,8 +205,8 @@ reads (unsupported cables are silently discarded, not refused), so a mode
 switch would be manual forever. Instead, the Fugue Machine pattern: publish
 every answer at once.
 
-- The AU declares FIVE MIDI outputs: `["MidiSpark ALL", "MidiSpark A", "B",
-  "C", "D"]` (cables 0–4). Static, all modes of host served simultaneously:
+- The AU declares FIVE MIDI outputs, labels AS BUILT: `["All", "Emit A",
+  "Emit B", "Emit C", "Emit D"]` (cables 0–4). Static, all modes of host served simultaneously:
   - **ALL (cable 0):** every emitter's notes, distinguished by their stamped
     channels. A single-cable host reads this and simply works — channels are
     the routing. Also useful everywhere: record-everything, or drive one

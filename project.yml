@@ -61,6 +61,7 @@ targets:
       - path: AUExtension/Models.swift
       - path: AUExtension/Snapshot.swift    # pure now (store split out) → effective-param tests
       - path: AUExtension/SnapshotBuilder.swift   # document → snapshot resolution
+      - path: AUExtension/SceneFactory.swift       # the 16 factory scenes (Foundation-only)
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

@@ -234,6 +234,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
+    func loadFactoryScene(_ index: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard index >= 0, index < SceneFactory.scenes.count else { return }
+        document = SceneFactory.load(index)
+        document.migrateLegacyRoutingIfNeeded()   // no-op (scenes are v3) but keeps the one load path
+        loadedTestSession = "S\(index + 1)"
+        suppressRebuild = true
+        syncParameterTreeToDocument()
+        suppressRebuild = false
+        scheduleRebuild()
+    }
+
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {
         let scene = document.scenes[document.activeScene]

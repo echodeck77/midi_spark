@@ -1,5 +1,10 @@
 # Migration: chain routing → graph routing (spec v3.0-delta)
 
+> STATUS: ENGINE COMMITS 1–5 ARE DONE AND TAGGED (`v0.4-graph-routing`,
+> `v0.5-outputs`; engine feature-complete + device-verified at
+> `v0.6-processors`). The GUI RECONCILIATION section below is the LIVE task;
+> everything above it is the historical record of how the engine got here.
+
 (Filename says "tree" for historical reasons; the model is a reference GRAPH —
 any-row references, cycles legal-and-silent. Do not rename the file; links
 point here.)
@@ -149,9 +154,9 @@ of the plan, sequenced LAST)
 A SwiftUI grid has been built against the OLD model/visuals. Do not touch it
 during engine commits 1–5 beyond keeping it compiling. Then:
 6. **UI survey** (rule zero again): catalogue what the grid binds (schema
-   fields, gestures, visual generation — it likely predates v56). List before
+   fields, gestures, visual generation — it likely predates v59). List before
    editing.
-7. **Reconcile** to `Docs/midispark-preview-v56.html` per ui-port-guide:
+7. **Reconcile** to `Docs/midispark-preview-v59.html` per ui-port-guide:
    new schema bindings (inputRow/inputChannel/busChannels), four-row cell,
    FROM + emitter popovers, three-box desk (COLOUR/PROCESSOR/EMITTERS) +
    SCENE strip (wired to TestSessions in dev builds), watermarks, playheads

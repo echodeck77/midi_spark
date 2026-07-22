@@ -112,6 +112,11 @@ struct DiagView: View {
     }
 
     private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
+    private var sceneName: String {
+        guard loadedID.hasPrefix("S"), let i = Int(loadedID.dropFirst()), i >= 1, i <= SceneFactory.scenes.count
+        else { return "1–16 · the factory curriculum" }
+        return SceneFactory.scenes[i - 1].name
+    }
 
     private func load(_ s: TestSessions.Session) {
         au?.loadTestSession(s)          // main thread: SwiftUI actions already are
@@ -155,7 +160,26 @@ struct DiagView: View {
                     .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                 Divider().background(Color.white.opacity(0.15)).padding(.vertical, 2)
 
-                row("TEST SESSION", loadedID, selected?.title ?? "none loaded")
+                // FACTORY SCENES (Docs/factory-scenes.md) — the curriculum; the eventual v59 scene strip.
+                row("SCENE", loadedID.hasPrefix("S") ? loadedID : "—", sceneName)
+                ScrollView(.horizontal, showsIndicators: false) {
+                  HStack(spacing: 6) {
+                    ForEach(Array(SceneFactory.scenes.enumerated()), id: \.offset) { i, s in
+                        let id = "S\(i + 1)"
+                        Button("\(i + 1)") { au?.loadFactoryScene(i); loadedID = id }
+                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .foregroundColor(id == loadedID ? .black : .white.opacity(0.85))
+                            .padding(.vertical, 6).padding(.horizontal, 9)
+                            .background(RoundedRectangle(cornerRadius: 5)
+                                .fill(id == loadedID ? Color(red: 0.98, green: 0.72, blue: 0.12)
+                                                     : Color.white.opacity(0.10)))
+                    }
+                  }
+                }
+                Divider().background(Color.white.opacity(0.10)).padding(.vertical, 2)
+
+                row("TEST SESSION", loadedID.hasPrefix("T") || loadedID == "—" ? loadedID : "—",
+                    selected?.title ?? "none loaded")
                 ScrollView(.horizontal, showsIndicators: false) {
                   HStack(spacing: 6) {
                     ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
