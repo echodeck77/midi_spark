@@ -13,19 +13,27 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   (§5: four-row text cells, arrow playhead, one-clock rule) and the desk
   (§6: responsive performance surface).** Where they conflict, the delta wins. Behaviour
   changes still require a spec revision first.
-- `Docs/migration-tree-routing.md` — **THE CURRENT TASK**: the router exists and
-  works under the old chain model, and a first grid-UI slice exists built to an
-  earlier visual generation; this is the survey-first migration plan to the
-  v3.0 graph model (6 engine changes + GUI reconciliation, green-suite commits,
-  saved-session compatibility). Read it before touching ANY of
-  Router/Snapshot/TestSessions/the grid UI.
+- `Docs/migration-tree-routing.md` — the survey-first plan for the v3.0 graph-routing
+  migration. Its ENGINE commits (1–5) are DONE and tagged (see status); its GUI
+  reconciliation section is the live task. Read it before touching Router/Snapshot/
+  TestSessions/the grid UI.
+- `Docs/standalone-plan.md` — DEFERRED milestone (standalone app = a second HOST of
+  the same AUv3), but its THREE SEAM RULES are enforced NOW: (1) import hygiene —
+  only `MidiSparkAudioUnit.swift` / `AudioUnitViewController.swift` may import
+  AudioToolbox/AU frameworks; Kernel/Router/Derivations/Snapshot*/Models/TestSessions
+  and ALL of GridUI stay Foundation/SwiftUI-only (GridUI is shared by both targets).
+  (2) one-named beat seam. (3) emission is the only place that knows cables. KNOWN
+  VIOLATION: Kernel.swift + Router.swift still import AudioToolbox (AU event/time
+  types) — fix when the standalone milestone opens or when those files are touched
+  for that purpose; GridUI is already clean (SwiftUI-only).
 - `Docs/router-design.md` — the engine reference (pools/sounding-sets model,
   voice/refcount design, PHASE formulas, per-render flow). Its routing
   derivation and commit plan are marked HISTORICAL (old model, as built);
   use it for what the migration's guard-rail says not to touch.
-- `Docs/test-procedures.md` — the device playbook: canned sessions T1–T11, bridge
-  regression B1–B4, milestone gates, and the reporting template. When asking the human
-  to verify anything, quote the procedure by name.
+- `Docs/test-procedures.md` — the device playbook: canned sessions (repo carries
+  T1–T17; the doc details T1–T11 + reconciled intents), bridge regression B1–B4,
+  the UI-size-checkpoint gate, milestone gates, and the reporting template. When
+  asking the human to verify anything, quote the procedure by name.
 - `Docs/ui-port-guide.md` — mockup→SwiftUI mapping, design tokens (the 16 Colour
   hexes are canonical), gesture map, and the REVISED order of work (a grid
   slice exists; reconcile, don't rebuild).
@@ -111,26 +119,31 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
     stamp-out (`busChannels`, default 1-4); OUT CH & INHERIT removed; FIVE cables
     (All + Emit A–D), every note emitted on its own cable + All; refcount keys on
     the EMITTED (cable, channel, note). Labels: "All", "Emit A"…"Emit D".
-- DONE — grid UI rebound to the v3 model (`GridUI.swift`): authors references
-  (FROM), input-channel filter (IN CH), bus emitters, and OUTPUTS busChannels.
-  Truthful wiring viz (source/reference-aware). This is a FUNCTIONAL stand-in —
-  the full v56 visual language (four-row cells, FROM/emitter popovers, one-clock
-  playheads) is NOT ported yet; cycling chips stand in for popovers.
-- **ENGINE FEATURE-COMPLETE and fully device-verified** — the full manual suite
-  (T1–T17 + B1–B4) passes on device; graph routing + channels/outputs + all six
-  processors, zero stuck notes.
-- Test assets: `TestSessions.swift` carries **T1–T17** (numbering authority —
-  see test-procedures preamble) and `Tests/` holds a **58-test macOS unit
-  suite** over the pure core (Derivations.swift + Snapshot/Builder + loader
-  migration). BOTH must stay green through every commit; unit tests run
-  off-device and come FIRST.
-- **NEXT:** the v56 visual reconcile per ui-port-guide (survey-first; the grid
-  EXISTS — reconcile, don't rebuild). The v3 model is already fully authorable
-  (FROM / IN CH / bus emitters / OUTPUTS busChannels); this is the visual-language
-  port — four-row cells, FROM/emitter popovers, one-clock playheads, watermarks.
+- **ENGINE FEATURE-COMPLETE and fully device-verified** — tag `v0.6-processors`.
+  The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
+  channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
+  carries **T1–T17** (numbering authority — see test-procedures preamble);
+  `Tests/` holds a **58-test macOS unit suite** over the pure core
+  (Derivations + Snapshot/Builder + loader migration). BOTH stay green every
+  commit; unit tests run off-device and come FIRST.
+- **IN PROGRESS — the v56 GUI reconcile** (`GridUI.swift`, all SwiftUI-only). Done:
+  header (STEP rate + SWING + PASS/bpm readout, params 0/1); v56 FOUR-ROW cells
+  (input header · type+params body · A–D emitter strip · empty-cell watermark);
+  real FROM/OUT POPOVERS (not cycling chips); fully in-cell EDITING (tap body =
+  paint/recolour, long-press = clear/copy colour); the PROCESSOR box (all 6 types,
+  A/B state tabs, per-type params, TRANSPOSE, MORPH — the fixed-size box, static-
+  frames rule); OUTPUTS busChannels editing; cell badges (transpose · ∞) +
+  breathing ALT ring; the debug diagnostics + wiring lanes REMOVED. The instrument
+  is now fully authorable in-plugin (no host automation needed for any control).
+- **NEXT (UI):** the one-clock MUTATION-LINE playhead (needs beat extrapolation via
+  TimelineView between the 4 Hz polls); the delta §6 three-box responsive DESK
+  layout (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait band); the SCENE
+  strip (wire session slots). GATE: the UI-size checkpoints in test-procedures
+  (screenshot-verify 1024×768 / 11" / 13" both orientations + a small panel;
+  static frames hold, nothing truncates).
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
-  `v0.5-outputs`.
+  `v0.5-outputs`, `v0.6-processors`.
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).

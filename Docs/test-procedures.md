@@ -134,4 +134,28 @@ truncates mid-word, static frames hold within the active rung).
 
 "T_n: PASS/FAIL — [what was heard] — monitor: [anything odd] — diag panel:
 [voices / refcounts / effColumn / emitted count]". Screenshots of the monitor
-beat transcription when timing is disputed.
+beat transcription when timing is disputed. (The in-plugin diagnostics readout was
+removed once the grid became the UI — verification now leans on ears + the AUM MIDI
+monitor; a minimal toggle-hidden readout can return if a render-path bug needs it.)
+
+## Verification log (device-confirmed; newest first)
+
+### 2026-07 — engine feature-complete + v56 GUI reconcile underway
+
+| Milestone | Result | Tag |
+|---|---|---|
+| `v0.4-graph-routing` | MET | `v0.4-graph-routing` |
+| `v0.5-outputs` (filter-in/stamp-out, 5 cables) | MET | `v0.5-outputs` |
+| Engine feature-complete — all 6 processors, full manual suite T1–T17 + B1–B4 | ALL PASS | `v0.6-processors` |
+
+**GUI reconcile (v56) — device-confirmed increments** (no formal size-checkpoint pass yet):
+header (STEP/SWING/PASS); four-row cells; FROM/OUT popovers; in-cell paint/recolour +
+long-press clear/copy; PROCESSOR box (6 types, A/B tabs, params, transpose, morph —
+morph now audibly ladder-steps A→B from the UI); OUTPUTS busChannels; badges + ALT ring.
+
+Off-device: `MidiSparkTests` — **58 pure-core unit tests** green. Run with the pinned
+`-derivedDataPath build/DerivedData`.
+
+NOT yet done: the UI-size-checkpoint gate (§UI size checkpoints — 1024×768 / 11" / 13"
+both orientations + small panel); the one-clock mutation-line playhead; the §6 three-box
+responsive desk; the SCENE strip.
