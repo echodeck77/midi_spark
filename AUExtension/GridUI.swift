@@ -56,6 +56,7 @@ struct GridView: View {
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
+    @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
 
     var body: some View {
         VStack(spacing: 3) {
@@ -73,6 +74,7 @@ struct GridView: View {
                 }
             }
         }
+        .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
@@ -113,6 +115,13 @@ struct GridView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.7) : cellEdge),
                             lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 1))
+            }
+        }
+        .overlay {                                          // ALT (B-state) breathing ring (§6.5)
+            if cell?.alt == true {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.white.opacity(breathe ? 0.95 : 0.35), lineWidth: 2)
+                    .padding(3)
             }
         }
         .contentShape(Rectangle())
@@ -242,19 +251,22 @@ struct GridView: View {
     }
     private func paramText(_ c: Colour?) -> String {
         guard let c else { return "" }
+        var s: String
         switch c.type {
         case .arp:
-            var s = c.paramsA.rate?.rawValue ?? ""
+            s = c.paramsA.rate?.rawValue ?? ""
             if let o = c.paramsA.octaves, o > 1 { s += " \(o)OCT" }
-            return s
-        case .ratchet:  return "×\(c.paramsA.count ?? 3)"
-        case .passgate: return "GATE"
-        case .strum:    return "SPR \(Int((c.paramsA.spread ?? 0.1) * 100))"
-        case .chance:   return "\(Int((c.paramsA.probability ?? 1) * 100))%"
+            if c.paramsA.phase == .free { s += " ∞" }            // FREE-phase badge (§4)
+        case .ratchet:  s = "×\(c.paramsA.count ?? 3)"
+        case .passgate: s = "GATE"
+        case .strum:    s = "SPR \(Int((c.paramsA.spread ?? 0.1) * 100))"
+        case .chance:   s = "\(Int((c.paramsA.probability ?? 1) * 100))%"
         case .harmonize:
             let iv = (c.paramsA.harmIntervals ?? [0,0,0]).filter { $0 != 0 }
-            return iv.isEmpty ? "UNISON" : iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: " ")
+            s = iv.isEmpty ? "UNISON" : iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: " ")
         }
+        if c.transpose != 0 { s += " \(c.transpose > 0 ? "+" : "")\(c.transpose)" }   // transpose badge
+        return s
     }
 }
 
