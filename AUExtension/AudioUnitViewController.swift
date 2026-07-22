@@ -142,10 +142,13 @@ struct DiagView: View {
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 if landscape {
+                    // Shrink the grid cells to fit the height left after header + scene strip, so the
+                    // strip is never clipped (degradation ladder: cells clamp at a legible floor).
+                    let cellH = max(30, min(54, (geo.size.height - 150) / 8))
                     VStack(spacing: 8) {
                         header
                         HStack(alignment: .top, spacing: 10) {
-                            VStack(spacing: 4) { gridBlock; hint }
+                            VStack(spacing: 4) { gridBlock(cellH); hint }
                             ScrollView(.vertical, showsIndicators: false) { desk }   // only PROCESSOR-tall content scrolls
                                 .frame(width: 320)
                         }
@@ -154,7 +157,7 @@ struct DiagView: View {
                     .padding(12)
                 } else {
                     ScrollView {
-                        VStack(spacing: 8) { header; gridBlock; hint; desk; sceneStrip; devLoader }
+                        VStack(spacing: 8) { header; gridBlock(54); hint; desk; sceneStrip; devLoader }
                             .padding(12)
                     }
                 }
@@ -180,9 +183,10 @@ struct DiagView: View {
                    onSwing: { au?.setSwing($0); refreshTiming() })
     }
 
-    private var gridBlock: some View {
+    private func gridBlock(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
+                 cellHeight: cellHeight,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                  onClear: clearCell, onCopyColour: copyColour)

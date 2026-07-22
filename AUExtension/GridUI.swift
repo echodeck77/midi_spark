@@ -47,6 +47,7 @@ struct GridView: View {
     var beat: Double = 0        // host beat position, polled ~4 Hz; extrapolated per-frame below
     var tempo: Double = 120
     var stepBeats: Double = 2   // beats per grid step (from the global STEP rate)
+    var cellHeight: CGFloat = 54   // set by the parent to fit the available height (landscape)
     var selCol: Int = -1
     var selRow: Int = -1
     var onTap: ((Int, Int) -> Void)? = nil
@@ -70,7 +71,6 @@ struct GridView: View {
     }
 
     // Layout constants — shared by cellView and the mutation-line overlay so they never drift.
-    private static let cellH: CGFloat = 54
     private static let vGap: CGFloat = 3
     private static let headH: CGFloat = 38     // the prominent column-key row (v57)
 
@@ -144,7 +144,7 @@ struct GridView: View {
                             .fill(Color.white.opacity(faint ? 0.4 : 0.92))
                             .frame(width: cellW - 4, height: 2)
                             .shadow(color: faint ? .clear : Color.white.opacity(0.8), radius: faint ? 0 : 4)
-                            .position(x: colX, y: (Self.headH + Self.vGap) + CGFloat(r) * (Self.cellH + Self.vGap) + f * Self.cellH)
+                            .position(x: colX, y: (Self.headH + Self.vGap) + CGFloat(r) * (cellHeight + Self.vGap) + f * cellHeight)
                     }
                 }
             }
@@ -181,7 +181,7 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .frame(maxWidth: .infinity).frame(height: Self.cellH)
+        .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // border: no-dest > selection > active > idle
             if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
