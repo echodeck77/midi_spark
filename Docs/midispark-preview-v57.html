@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>8x8 State — v57 Prominent Column Buttons</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+html,body{margin:0;background:#111318;}
+@keyframes flowX { from { background-position: 0 0; } to { background-position: 14px 0; } }
+@keyframes flowY { from { background-position: 0 0; } to { background-position: 0 14px; } }
+@keyframes lampPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes altBreathe { 0%,100% { opacity: 0.95; } 50% { opacity: 0.3; } }
+@keyframes padSweepX { from { left: 2px; } to { left: calc(100% - 4px); } }
+@keyframes padSweepY { from { top: 14px; } to { top: calc(100% - 17px); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const T = {
+  bg:"#111318", panel:"#1A1D24", panelEdge:"#262B35",
+  cellBg:"#0B0D11", cellEdge:"#20242D",
+  text:"#C9CFDB", dim:"#5C6472",
+  wire:"#252B36",
+  inLit:"#E8ECF4",
+  mono:"'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace",
+};
+const HUES = { select:"#EDF0F6", mute:"#FF6B4D", bypass:"#FFB020", solo:"#9FE84D", apply:"#2DD9E8" };
+const COLORS = [
+  { id:"gold",       hex:"#FFC53D" }, { id:"orange",  hex:"#FF7A1A" },
+  { id:"vermilion",  hex:"#FF4B33" }, { id:"wine",    hex:"#C2244B" },
+  { id:"magenta",    hex:"#FF4D9E" }, { id:"blush",   hex:"#FFA8B8" },
+  { id:"purple",     hex:"#B44DFF" }, { id:"violet",  hex:"#7A3DF0" },
+  { id:"indigo",     hex:"#5566FF" }, { id:"azure",   hex:"#38A6FF" },
+  { id:"cyan",       hex:"#25E0F0" }, { id:"teal",    hex:"#148F80" },
+  { id:"mint",       hex:"#7BF2CE" }, { id:"green",   hex:"#2ECC5E" },
+  { id:"chartreuse", hex:"#C6F23D" }, { id:"bronze",  hex:"#C9A227" },
+];
+const PATTERNS = ["UP","DOWN","UP-DN","RANDOM","AS PLAYED"];
+const ARP_RATES = ["1/4","1/8","1/8T","1/16","1/16T","1/32"];
+const STEP_RATES = ["2/1","1/1","1/2","1/2.","1/4","1/8"];
+const RATCHETS = [2,3,4,6,8];
+const TYPES = ["ARP","RATCHET","PASS"];
+const BUSES = ["A","B","C","D"];
+const TAP_ACTIONS = ["ALT","BYP","MUTE"];
+const PHASES = ["RETRIG","LEGATO","FREE"];
+const COLS = 8, ROWS = 8, PASSES = 4;
+const LANE_H = 13, LANE_PAD = 4;
+
+// preset = the sound, now with a designed B-state (alt) per type
+const typeDefaults = {
+  ARP:     { type:"ARP", pattern:"UP", rate:"1/16", octaves:1, gate:0.6, phase:"RETRIG" },
+  RATCHET: { type:"RATCHET", count:3, ramp:0.5 },
+  PASS:    { type:"PASS", passes:[true,true,true,true] },
+};
+const altDefaults = (type) => (
+  type === "ARP" ? { rate:"1/32", octaves:2 } :
+  type === "RATCHET" ? { count:8 } :
+  { passes:[true,false,true,false] }
+);
+const mkPreset = (type, extra) =>
+  Object.assign({}, typeDefaults[type], { channel:0, transpose:0, morph:0, alt: altDefaults(type) }, extra || {});
+const initialPresets = () => ({
+  gold:       mkPreset("ARP", { pattern:"UP", rate:"1/16", octaves:2, alt:{ rate:"1/32", octaves:3 } }),
+  orange:     mkPreset("ARP", { pattern:"UP-DN", rate:"1/8" }),
+  vermilion:  mkPreset("PASS", { alt:{ passes:[true,false,true,false] } }),
+  wine:       mkPreset("RATCHET", { count:2, alt:{ count:4 } }),
+  magenta:    mkPreset("ARP", { channel:2, transpose:12, pattern:"UP-DN", rate:"1/8", alt:{ rate:"1/16", octaves:2 } }),
+  blush:      mkPreset("ARP", { pattern:"AS PLAYED", rate:"1/8T" }),
+  purple:     mkPreset("RATCHET", { count:6 }),
+  violet:     mkPreset("ARP", { transpose:7, pattern:"DOWN", rate:"1/8T", octaves:2, gate:0.7, phase:"LEGATO", alt:{ rate:"1/16T", octaves:3 } }),
+  indigo:     mkPreset("ARP", { pattern:"DOWN", rate:"1/4", transpose:-12 }),
+  azure:      mkPreset("PASS", { passes:[true,false,false,false] }),
+  cyan:       mkPreset("RATCHET", { count:4, alt:{ count:8 } }),
+  teal:       mkPreset("ARP", { pattern:"RANDOM", rate:"1/16", phase:"FREE" }),
+  mint:       mkPreset("RATCHET", { count:3, ramp:0.8 }),
+  green:      mkPreset("PASS", { passes:[false,true,false,true] }),
+  chartreuse: mkPreset("ARP", { channel:3, pattern:"RANDOM", rate:"1/16T", octaves:3, gate:0.5, alt:{ rate:"1/32", octaves:4 } }),
+  bronze:     mkPreset("ARP", { pattern:"UP", rate:"1/32", gate:0.3 }),
+});
+const mkCell = (presetID, routing) =>
+  Object.assign({ presetID, inputRow:null, inputChannel:0, buses:["A"], alt:false }, routing || {});
+
+function ArpGrid() {
+  const [grid, setGrid] = useState(() => {
+    const g = Array.from({ length: COLS }, () => Array(ROWS).fill(null));
+    g[0][0] = mkCell("gold");
+    g[1][0] = mkCell("vermilion");
+    g[2][0] = mkCell("vermilion", { buses:["A"] });
+    g[2][1] = mkCell("magenta", { inputRow:0, buses:["B"] });
+    g[3][0] = mkCell("violet", { buses:[] });        // LEGATO run with col 5's violet
+    g[3][1] = mkCell("teal", { inputRow:0, buses:["D"] });        // FREE phase demo
+    g[4][0] = mkCell("violet", { buses:[] });
+    g[4][1] = mkCell("cyan", { inputRow:0, buses:[] });
+    g[4][2] = mkCell("chartreuse", { inputRow:0, buses:["A","C"] });   // FAN-OUT: also taps row 1
+    g[4][3] = mkCell("mint", { inputRow:1, buses:["B"] });             // taps the cyan — a tree
+    g[5][0] = mkCell("gold", { alt:true });          // one cell pre-flipped to B
+    g[6][0] = mkCell("violet", { buses:[] });
+    g[6][1] = mkCell("cyan", { inputRow:0, buses:["A"] });
+    g[7][0] = mkCell("magenta", { buses:["B"] });
+    return g;
+  });
+  const [bypassed, setBypassed] = useState(() => new Set());
+  const [cellMuted, setCellMuted] = useState(() => new Set());
+  const [rowBypass, setRowBypass] = useState(() => new Set());
+  const [colMute, setColMute] = useState(() => new Set());
+  const [soloStacks, setSoloStacks] = useState(() => new Set());
+  const [sMod, setSMod] = useState(false);
+  const [tapAction, setTapAction] = useState("ALT");
+  const [isolated, setIsolated] = useState(null);      // "c,r" hold-to-isolate
+  const [heldStacks, setHeldStacks] = useState(() => new Set());  // stutter / loop brace
+  const [heldRows, setHeldRows] = useState(() => new Set());      // row ALT push
+  const sideTimers = useRef({});
+  const suppressStack = useRef(false);
+  const suppressRow = useRef(false);
+  const [selStack, setSelStack] = useState(null);
+  const [selRow, setSelRow] = useState(null);
+  const [clipboard, setClipboard] = useState(null);
+  const [presets, setPresets] = useState(initialPresets);
+  const [selected, setSelected] = useState("gold");
+  const [stateTab, setStateTab] = useState("A");       // sound panel A/B editor
+  const [mode, setMode] = useState("PERFORM");
+  const [playing, setPlaying] = useState(true);
+  const [step, setStep] = useState(0);
+  const [pass, setPass] = useState(0);
+  const [stepRate, setStepRate] = useState("1/2");
+  const [swing, setSwing] = useState(50);              // 50 = straight, 75 = max swing
+  const [stepDur, setStepDur] = useState(1000);        // ms of the step in flight (drives the sweep)
+  const [panelView, setPanelView] = useState("COLOUR"); // COLOUR | MORPH
+  const [popover, setPopover] = useState(null);         // {c, r, kind:"in"|"out"} — edit-mode IO selector
+  const [busChannels, setBusChannels] = useState([1, 2, 3, 4]); // per-bus stamp (INHERIT no longer exists)
+  const [selectedBus, setSelectedBus] = useState(0);             // OUTPUTS panel selection
+  const [autoWide, setAutoWide] = useState(typeof window !== "undefined" && window.innerWidth > 980);
+  const [layoutMode, setLayoutMode] = useState("AUTO");   // AUTO | WIDE (landscape) | TALL (portrait)
+  const [scene, setScene] = useState(0);                  // scene selector (slots host test sessions in dev builds)
+  const wide = layoutMode === "AUTO" ? autoWide : layoutMode === "WIDE";
+  useEffect(() => {
+    const onR = () => setAutoWide(window.innerWidth > 980);
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
+  }, []);
+  const [spring, setSpring] = useState(false);
+  const [master, setMaster] = useState(0);
+  const springStore = useRef({});
+  const lastTapRef = useRef({});
+
+  useEffect(() => {
+    if (!playing) return;
+    const base = { "2/1":4000, "1/1":2000, "1/2":1000, "1/2.":1500, "1/4":500, "1/8":250 }[stepRate];
+    let t = null;
+    const tick = () => {
+      setStep((sPrev) => {
+        const next = (sPrev + 1) % COLS;
+        if (next === 0) setPass((p) => (p + 1) % PASSES);
+        const even = (next % 2) === 0;
+        const dur = even ? base * (swing / 50) : base * (2 - swing / 50);
+        setStepDur(dur);
+        t = setTimeout(tick, dur);
+        return next;
+      });
+    };
+    t = setTimeout(tick, base);
+    return () => clearTimeout(t);
+  }, [playing, stepRate, swing]);
+  const [heldCell, setHeldCell] = useState(null);      // audition hold
+  const [latchedStacks, setLatchedStacks] = useState(() => new Set());
+  const holdTimer = useRef(null);
+  const suppressTap = useRef(false);
+
+  const audition = mode === "PERFORM" && !playing;
+  const performing = mode === "PERFORM" && playing;
+  const soloActive = soloStacks.size > 0 && playing;
+  const EDIT = mode === "EDIT";
+  const GUT = EDIT ? 20 : 6;
+  const GAPB = EDIT ? 17 : 5;
+
+  const togglePlay = () => {
+    setPlaying((pl) => {
+      if (!pl) { setHeldCell(null); setLatchedStacks(new Set()); }
+      setIsolated(null);
+      setHeldStacks(new Set()); setHeldRows(new Set());
+      return !pl;
+    });
+  };
+  const switchMode = (m) => {
+    setMode(m); setSelStack(null); setSelRow(null); setSMod(false); setIsolated(null);
+    setHeldStacks(new Set()); setHeldRows(new Set());
+  };
+
+  const hexOf = (id) => { const c = COLORS.find((x) => x.id === id); return c ? c.hex : undefined; };
+  const key = (c, r) => c + "," + r;
+  const toggleSet = (setter) => (v) =>
+    setter((s) => { const n = new Set(s); n.has(v) ? n.delete(v) : n.add(v); return n; });
+
+  const updateCell = (c, r, patch) =>
+    setGrid((g) => {
+      const n = g.map((col) => col.map((x) => (x ? Object.assign({}, x) : null)));
+      if (n[c][r]) Object.assign(n[c][r], patch);
+      return n;
+    });
+
+  // effective params for a cell (A or B state; row ALT push forces B while held)
+  const altOf = (cell, r) => cell.alt || (performing && heldRows.has(r));
+  const interpField = (key, a, b, t) => {
+    if (t <= 0) return a;
+    if (t >= 0.999) return b;
+    if (key === "rate") {
+      const ia = ARP_RATES.indexOf(a), ib = ARP_RATES.indexOf(b);
+      return ARP_RATES[Math.round(ia + (ib - ia) * t)];
+    }
+    if (typeof a === "number") {
+      const v = a + (b - a) * t;
+      return Number.isInteger(a) && Number.isInteger(b) ? Math.round(v) : v;
+    }
+    return t < 0.5 ? a : b;   // masks and other discrete fields switch at halfway
+  };
+  const effMorphOf = (pr) =>
+    Math.min(1, (pr.morph || 0) + (1 - (pr.morph || 0)) * master);
+  const effOf = (cell, r) => {
+    const pr = presets[cell.presetID];
+    if (altOf(cell, r)) return Object.assign({}, pr, pr.alt);   // flipped/pushed = full B
+    const t = effMorphOf(pr);
+    if (t <= 0) return pr;
+    const m = Object.assign({}, pr);
+    for (const k in pr.alt) m[k] = interpField(k, pr[k], pr.alt[k], t);
+    return m;
+  };
+
+  // ---- taps & holds ----
+  const performTap = (c, r) => {
+    const cell = grid[c][r];
+    if (!cell) return;
+    if (tapAction === "ALT") updateCell(c, r, { alt: !cell.alt });
+    else if (tapAction === "BYP") toggleSet(setBypassed)(key(c, r));
+    else toggleSet(setCellMuted)(key(c, r));
+  };
+  const onCellClick = (c, r) => {
+    if (suppressTap.current) { suppressTap.current = false; return; }
+    if (EDIT) {
+      setGrid((g) => {
+        const n = g.map((col) => [...col]);
+        const cur = n[c][r];
+        if (!cur) n[c][r] = mkCell(selected);
+        else if (cur.presetID === selected) n[c][r] = null;
+        else n[c][r] = Object.assign({}, cur, { presetID: selected });
+        return n;
+      });
+    } else if (performing) performTap(c, r);
+  };
+  const onCellDown = (c, r) => {
+    if (audition) { if (grid[c][r]) setHeldCell(key(c, r)); return; }
+    if (performing && grid[c][r]) {
+      holdTimer.current = setTimeout(() => {
+        setIsolated(key(c, r));
+        suppressTap.current = true;
+      }, 300);
+    }
+  };
+  const onCellUp = () => {
+    if (audition) { setHeldCell(null); return; }
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (isolated) setIsolated(null);
+  };
+
+  const beginStackHold = (c) => {
+    if (!performing) return;
+    sideTimers.current["s" + c] = setTimeout(() => {
+      setHeldStacks((s) => { const n = new Set(s); n.add(c); return n; });
+      suppressStack.current = true;
+    }, 300);
+  };
+  const endStackHold = (c) => {
+    if (sideTimers.current["s" + c]) { clearTimeout(sideTimers.current["s" + c]); delete sideTimers.current["s" + c]; }
+    setHeldStacks((s) => { if (!s.has(c)) return s; const n = new Set(s); n.delete(c); return n; });
+  };
+  const beginRowHold = (r) => {
+    if (!performing) return;
+    sideTimers.current["r" + r] = setTimeout(() => {
+      setHeldRows((s) => { const n = new Set(s); n.add(r); return n; });
+      suppressRow.current = true;
+    }, 300);
+  };
+  const endRowHold = (r) => {
+    if (sideTimers.current["r" + r]) { clearTimeout(sideTimers.current["r" + r]); delete sideTimers.current["r" + r]; }
+    setHeldRows((s) => { if (!s.has(r)) return s; const n = new Set(s); n.delete(r); return n; });
+  };
+
+  const onStackBtn = (c) => {
+    if (suppressStack.current) { suppressStack.current = false; return; }
+    if (EDIT) { setSelStack(selStack === c ? null : c); setSelRow(null); }
+    else if (audition) toggleSet(setLatchedStacks)(c);
+    else if (sMod) toggleSet(setSoloStacks)(c);
+    else toggleSet(setColMute)(c);
+  };
+  const onRowBtn = (r) => {
+    if (suppressRow.current) { suppressRow.current = false; return; }
+    if (EDIT) { setSelRow(selRow === r ? null : r); setSelStack(null); }
+    else if (!audition) toggleSet(setRowBypass)(r);
+  };
+
+  const copyStack = () => selStack !== null &&
+    setClipboard(grid[selStack].map((x) => (x ? Object.assign({}, x) : null)));
+  const pasteStack = () => {
+    if (selStack === null || !clipboard) return;
+    setGrid((g) => { const n = g.map((col) => [...col]); n[selStack] = clipboard.map((x) => (x ? Object.assign({}, x) : null)); return n; });
+  };
+  const clearStack = () =>
+    selStack !== null && setGrid((g) => { const n = g.map((col) => [...col]); n[selStack] = Array(ROWS).fill(null); return n; });
+  const fillRow = () =>
+    selRow !== null && setGrid((g) => g.map((col) => col.map((v, r) => (r === selRow ? mkCell(selected) : v))));
+  const clearRow = () =>
+    selRow !== null && setGrid((g) => g.map((col) => col.map((v, r) => (r === selRow ? null : v))));
+
+  const p = presets[selected];
+  const setP = (patch) =>
+    setPresets((ps) => ({ ...ps, [selected]: { ...ps[selected], ...patch } }));
+  const setAlt = (patch) =>
+    setPresets((ps) => ({ ...ps, [selected]: { ...ps[selected], alt: { ...ps[selected].alt, ...patch } } }));
+  const STRAIGHT = ["1/4","1/8","1/16","1/32"], TRIPLETS = ["1/8T","1/16T"];
+  const RUP = {2:4,3:6,4:8,6:8,8:8}, RDN = {2:2,3:2,4:2,6:3,8:4};
+  const timeShift = (dir) => {
+    if (p.type === "ARP") {
+      const l = STRAIGHT.includes(p.rate) ? STRAIGHT : TRIPLETS;
+      const i = Math.max(0, Math.min(l.length - 1, l.indexOf(p.rate) + dir));
+      setP({ rate: l[i] });
+    } else if (p.type === "RATCHET") {
+      setP({ count: (dir > 0 ? RUP : RDN)[p.count] });
+    }
+  };
+  const presetsRef = useRef(presets); presetsRef.current = presets;
+  const masterRef = useRef(master); masterRef.current = master;
+  const glideMorph = (cid, target) => {
+    const start = cid === "__master" ? masterRef.current : (presetsRef.current[cid].morph || 0);
+    const t0 = performance.now(), dur = 180;
+    const stepFn = (now) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const v = start + (target - start) * k;
+      if (cid === "__master") setMaster(v);
+      else setPresets((ps) => ({ ...ps, [cid]: { ...ps[cid], morph: v } }));
+      if (k < 1) requestAnimationFrame(stepFn);
+    };
+    requestAnimationFrame(stepFn);
+  };
+  const setType = (type) => {
+    const keep = { channel: p.channel, transpose: p.transpose };
+    const defaults = {
+      ARP: { type:"ARP", pattern:"UP", rate:"1/16", octaves:1, gate:0.6 },
+      RATCHET: { type:"RATCHET", count:3, ramp:0.5 },
+      PASS: { type:"PASS", passes:[true,false,false,false] },
+    };
+    setPresets((ps) => ({ ...ps, [selected]: Object.assign({}, defaults[type], keep, { alt: altDefaults(type) }) }));
+    setStateTab("A");
+  };
+
+  // ---------- derived routing ----------
+  const parentOf = (c, r) => {
+    const cell = grid[c][r];
+    if (!cell || cell.inputRow == null) return null;
+    return cell.inputRow !== r && grid[c][cell.inputRow] ? cell.inputRow : null;
+  };
+  const structFed = (c, r) => parentOf(c, r) != null;
+  const liveFed = (c, r) => {
+    const p = parentOf(c, r);
+    return p != null && !cellMuted.has(key(c, p));        // parent muted → revert to MIDI IN
+  };
+  const usesSource = (c, r) => !!grid[c][r] && !liveFed(c, r);
+  const isTapped = (c, r) => {
+    for (let r2 = 0; r2 < ROWS; r2++)
+      if (r2 !== r && grid[c][r2] && grid[c][r2].inputRow === r) return true;
+    return false;
+  };
+  const chainsBelow = (c, r) => !!grid[c][r] && isTapped(c, r);
+  const noDestination = (c, r) => {
+    const cell = grid[c][r];
+    if (!cell || cell.buses.length > 0) return false;
+    return !isTapped(c, r);
+  };
+
+  // playhead override: derived position means we can borrow time and snap back losslessly
+  let effStep = step;
+  if (performing && heldStacks.size === 1) {
+    effStep = [...heldStacks][0];
+  } else if (performing && heldStacks.size >= 2) {
+    const locks = [...heldStacks];
+    const lo = Math.min.apply(null, locks), hi = Math.max.apply(null, locks);
+    effStep = lo + (step % (hi - lo + 1));
+  }
+
+  const colLive = (c) => {
+    const cMuted = colMute.has(c) && playing && !soloActive;
+    const soloedOut = soloActive && !soloStacks.has(c);
+    if (cMuted || soloedOut) return false;
+    if (playing) return effStep === c;
+    if (audition) {
+      if (latchedStacks.has(c)) return true;
+      if (heldCell && heldCell.split(",")[0] == c) return true;
+    }
+    return false;
+  };
+  const cellActive = (c, r) => {
+    const cell = grid[c][r];
+    if (!cell || !colLive(c)) return false;
+    if (cellMuted.has(key(c, r))) return false;
+    if (isolated && isolated !== key(c, r)) return false;
+    const eff = effOf(cell, r);
+    if (playing && eff.type === "PASS" && !eff.passes[pass]) return false;
+    if (audition && heldCell && heldCell !== key(c, r) && !latchedStacks.has(c)) return false;
+    return true;
+  };
+  const cellEmitBuses = (c, r) => (cellActive(c, r) ? (grid[c][r] ? grid[c][r].buses : []) : []);
+  const busFeeders = (b) => {
+    const cols = [];
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) {
+        if (cellEmitBuses(c, r).includes(b)) { cols.push(c); break; }
+      }
+    }
+    return cols;
+  };
+  const columnUsesSource = (c) => {
+    if (!colLive(c)) return false;
+    for (let r = 0; r < ROWS; r++) {
+      if (grid[c][r] && usesSource(c, r) && (!isolated || isolated === key(c, r))) return true;
+    }
+    return false;
+  };
+  const srcCols = Array.from({ length: COLS }, (_, c) => c).filter((c) => columnUsesSource(c));
+  const anySourceUse = srcCols.length > 0;
+  const inEnd = anySourceUse ? Math.max.apply(null, srcCols) : -1;
+
+  const railLeftX = (c) => "calc(" + c + " * (100% - 35px) / 8 + " + (c * 5 + 4) + "px)";
+  const railRightX = (c) => "calc(" + (c + 1) + " * (100% - 35px) / 8 + " + (c * 5 - 4) + "px)";
+  const laneEntryX = (c) => railRightX(c);
+
+  function Wire({ dir, lit, color, style, thick }) {
+    const w = thick || 2;
+    const base = Object.assign({
+      position:"absolute", borderRadius:w,
+      background: lit ? color : T.wire,
+      boxShadow: lit ? "0 0 6px " + color + "99" : "none",
+      transition:"background 100ms, box-shadow 100ms",
+      overflow:"hidden",
+    }, style);
+    if (dir === "h") { base.height = w; } else { base.width = w; }
+    return (
+      <div style={base}>
+        {lit && (
+          <div style={{
+            position:"absolute", inset:0, borderRadius:w, opacity:0.85,
+            background: dir === "h"
+              ? "repeating-linear-gradient(90deg, rgba(255,255,255,0.95) 0 3px, transparent 3px 10px)"
+              : "repeating-linear-gradient(180deg, rgba(255,255,255,0.95) 0 3px, transparent 3px 10px)",
+            animation: (dir === "h" ? "flowX" : "flowY") + " 0.55s linear infinite",
+          }} />
+        )}
+      </div>
+    );
+  }
+  function Node({ lit, color, style }) {
+    return (
+      <div style={Object.assign({
+        position:"absolute", width:6, height:6, borderRadius:3, marginLeft:-2, marginTop:-2,
+        background: lit ? color : T.wire,
+        boxShadow: lit ? "0 0 6px " + color : "none",
+        border:"1px solid " + (lit ? "rgba(255,255,255,0.6)" : "#1A1F28"),
+        transition:"all 100ms", zIndex:4,
+      }, style)} />
+    );
+  }
+  function Chevron({ dirn, lit, color, style }) {
+    const s = Object.assign({ position:"absolute", width:0, height:0, zIndex:4, transition:"all 100ms" }, style);
+    if (dirn === "right") {
+      s.borderTop = "3.5px solid transparent"; s.borderBottom = "3.5px solid transparent";
+      s.borderLeft = "5px solid " + (lit ? color : T.wire);
+    } else {
+      s.borderLeft = "3.5px solid transparent"; s.borderRight = "3.5px solid transparent";
+      s.borderTop = "5px solid " + (lit ? color : T.wire);
+    }
+    if (lit) s.filter = "drop-shadow(0 0 3px " + color + ")";
+    return <div style={s} />;
+  }
+  function Port({ side, style }) {
+    return (
+      <div style={Object.assign({
+        position:"absolute", width:4, height:8, zIndex:4,
+        background:"rgba(0,0,0,0.5)",
+        borderRadius: side === "left" ? "0 3px 3px 0" : "3px 0 0 3px",
+        borderTop:"1px solid rgba(255,255,255,0.12)",
+      }, style)} />
+    );
+  }
+
+  useEffect(() => {
+    if (!popover || !EDIT) { if (popover && !EDIT) setPopover(null); return; }
+    const close = () => setPopover(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [popover, EDIT]);
+  const cellParams = (eff) => {
+    if (!eff) return "";
+    const bits = [];
+    if (eff.rate) bits.push(eff.rate);
+    if (eff.type === "RATCHET" && eff.count) bits.push("\u00d7" + eff.count);
+    if (eff.type === "ARP" && eff.octaves > 1) bits.push(eff.octaves + "OCT");
+    return bits.length ? bits.join(" ") : eff.type;
+  };
+  const Glyph = ({ eff, dimmed, unlitHex }) => {
+    if (!eff) return null;
+    const ink = dimmed ? "rgba(255,255,255,0.25)" : unlitHex ? unlitHex + "B0" : "rgba(0,0,0,0.45)";
+    if (eff.type === "RATCHET")
+      return (
+        <div style={{ display:"flex", gap:2, alignItems:"flex-end", height:9 }}>
+          {Array.from({ length: eff.count }).map((_, i) => (
+            <div key={i} style={{ width:2.5, height:3.5+(i%2)*3.5, background:ink, borderRadius:1 }} />
+          ))}
+        </div>
+      );
+    if (eff.type === "PASS")
+      return (
+        <div style={{ display:"flex", gap:2 }}>
+          {eff.passes.map((on, i) => (
+            <div key={i} style={{
+              width:4.5, height:4.5, borderRadius:3,
+              background: on ? ink : "transparent",
+              border:"1.5px solid " + ink,
+            }} />
+          ))}
+        </div>
+      );
+    return null;
+  };
+
+  const sideBtn = (lit, litColor) => ({
+    borderRadius:6, cursor:"pointer", fontFamily:T.mono,
+    fontSize:8, fontWeight:800, letterSpacing:0.5,
+    border:"1px solid " + (lit ? litColor : T.cellEdge),
+    background: lit ? (litColor === HUES.select ? litColor + "22" : litColor + "33") : "transparent",
+    color: lit ? "#EDF0F6" : T.dim,
+    transition:"all 120ms",
+  });
+  const stackBtnState = (c) => {
+    if (EDIT) return { lit: selStack === c, hue: HUES.select, label: "SEL" };
+    if (audition) return { lit: latchedStacks.has(c), hue: HUES.apply, label: "APPLY" };
+    if (performing && heldStacks.has(c))
+      return { lit: true, hue: HUES.select, label: heldStacks.size >= 2 ? "LOOP" : "LOCK" };
+    if (sMod) return { lit: soloStacks.has(c), hue: HUES.solo, label: "SOLO" };
+    return { lit: colMute.has(c), hue: HUES.mute, label: soloStacks.has(c) ? "S·M" : "MUTE" };
+  };
+  const micro = (on, color, locked) => ({
+    padding:0, cursor: locked ? "default" : "pointer",
+    fontFamily:T.mono, fontSize:7.5, fontWeight:800, lineHeight:1,
+    borderRadius:3, border:"1px solid " + (on ? color : T.cellEdge),
+    background: on ? color + (locked ? "26" : "44") : "rgba(11,13,17,0.85)",
+    color: on ? "#EDF0F6" : T.dim,
+    opacity: locked ? 0.8 : 1,
+    transition:"all 100ms", zIndex:5, position:"absolute",
+    display:"flex", alignItems:"center", justifyContent:"center",
+  });
+
+
+  // sound panel: state-aware value accessor for editable-by-B fields
+  const sv = (field) => (stateTab === "A" ? p[field] : (p.alt[field] !== undefined ? p.alt[field] : p[field]));
+  const setSv = (field, v) => (stateTab === "A" ? setP({ [field]: v }) : setAlt({ [field]: v }));
+
+  return (
+    <div style={{
+      minHeight:"100vh", background:T.bg, color:T.text,
+      fontFamily:T.mono, display:"flex", alignItems:"flex-start", justifyContent:"center", padding:6,
+    }}>
+      <div style={{
+        width:"100%", maxWidth:1340, background:T.panel,
+        border:"1px solid " + T.panelEdge, borderRadius:14, padding:"10px 14px",
+        boxShadow:"0 20px 60px rgba(0,0,0,.5)",
+      }}>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexWrap:"wrap", gap:8 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+            <div style={{ fontWeight:800, letterSpacing:4, fontSize:13 }}>
+              8×8 <span style={{ color: hexOf(selected) }}>STATE</span>
+            </div>
+            <div style={{ display:"flex", border:"1px solid " + T.panelEdge, borderRadius:8, overflow:"hidden" }}>
+              {["EDIT","PERFORM"].map((m) => (
+                <button key={m} onClick={() => switchMode(m)} style={{
+                  padding:"5px 10px", fontSize:9, fontFamily:T.mono, fontWeight:800,
+                  letterSpacing:1, cursor:"pointer", border:"none",
+                  background: mode === m ? (m === "EDIT" ? HUES.bypass + "33" : HUES.apply + "33") : "transparent",
+                  color: mode === m ? "#EDF0F6" : T.dim,
+                }}>{m}</button>
+              ))}
+            </div>
+            {performing && (
+              <React.Fragment>
+                <span style={{ fontSize:8, color:T.dim, letterSpacing:1 }}>TAP:</span>
+                <Seg options={TAP_ACTIONS} value={tapAction} onChange={setTapAction}
+                  accent={ tapAction === "ALT" ? HUES.apply : tapAction === "BYP" ? HUES.bypass : HUES.mute } />
+                <button onClick={() => setSMod(!sMod)} style={Object.assign({}, sideBtn(sMod, HUES.solo), {
+                  width:28, height:28, fontSize:11,
+                  boxShadow: sMod ? "0 0 10px " + HUES.solo + "66" : "none",
+                })}>S</button>
+              </React.Fragment>
+            )}
+            {audition && (
+              <span style={{
+                fontSize:9, fontWeight:800, letterSpacing:2, color:HUES.bypass,
+                border:"1px solid " + HUES.bypass + "66", borderRadius:6, padding:"4px 8px",
+              }}>AUDITION</span>
+            )}
+            {isolated && (
+              <span style={{ fontSize:8, color:HUES.select, letterSpacing:1 }}>ISOLATE</span>
+            )}
+            {heldStacks.size > 0 && performing && (
+              <span style={{ fontSize:8, color:HUES.select, letterSpacing:1 }}>
+                {heldStacks.size >= 2 ? "LOOP " + (Math.min.apply(null,[...heldStacks])+1) + "–" + (Math.max.apply(null,[...heldStacks])+1) : "STUTTER"}
+              </span>
+            )}
+            {heldRows.size > 0 && performing && (
+              <span style={{ fontSize:8, color:HUES.apply, letterSpacing:1 }}>ROW ALT</span>
+            )}
+            {soloActive && !sMod && (
+              <span style={{ fontSize:8, color:HUES.solo, letterSpacing:1 }}>SOLO ×{soloStacks.size}</span>
+            )}
+          </div>
+          <div style={{ display:"flex", gap:10, alignItems:"center", fontSize:10 }}>
+            <span style={{ color:T.dim }}>STEP</span>
+            <Seg options={STEP_RATES} value={stepRate} onChange={setStepRate} />
+            <span style={{ color:T.dim, marginLeft:4 }}>SWING</span>
+            <input type="range" min="50" max="75" value={swing}
+              onChange={(e) => setSwing(+e.target.value)}
+              style={{ width:52, accentColor: swing > 50 ? "#EDF0F6" : "#3D4657" }} />
+            <span style={{ fontSize:8, color: swing > 50 ? T.text : T.dim, minWidth:20 }}>{swing}%</span>
+            <div style={{ display:"flex", border:"1px solid " + T.panelEdge, borderRadius:6, overflow:"hidden", marginLeft:8 }}>
+              {["AUTO","WIDE","TALL"].map((m) => (
+                <button key={m} onClick={() => setLayoutMode(m)} style={{
+                  padding:"2px 6px", fontSize:6.5, fontFamily:T.mono, fontWeight:800, letterSpacing:0.5,
+                  cursor:"pointer", border:"none",
+                  background: layoutMode === m ? HUES.select + "22" : "transparent",
+                  color: layoutMode === m ? "#EDF0F6" : T.dim,
+                }}>{m}</button>
+              ))}
+            </div>
+            <span style={{ color:T.dim, marginLeft:8 }}>PASS</span>
+            <div style={{ display:"flex", gap:4 }}>
+              {Array.from({ length: PASSES }).map((_, i) => (
+                <div key={i} style={{
+                  width:8, height:8, borderRadius:4,
+                  background: playing && i === pass ? T.text : "transparent",
+                  border:"1.5px solid " + (playing && i === pass ? T.text : T.cellEdge),
+                }} />
+              ))}
+            </div>
+            <button onClick={togglePlay} style={{
+              width:30, height:30, borderRadius:8, cursor:"pointer",
+              border:"1px solid " + T.panelEdge, background: playing ? "#2A3140" : T.cellBg,
+              color:T.text, fontSize:10,
+            }}>{playing ? "❚❚" : "▶"}</button>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection: wide ? "row" : "column", gap:10, alignItems:"stretch" }}>
+        <div style={{ flex: wide ? "2 1 0" : "1 1 auto", minWidth:0 }}>
+        {/* Grid frame */}
+        <div style={{
+          border: EDIT ? "2px solid " + hexOf(selected) + "88" : "2px solid transparent",
+          borderRadius:12, padding:6, transition:"border 150ms",
+        }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(" + COLS + ", 1fr) 30px", gap:3, marginBottom:2 }}>
+            {Array.from({ length: COLS }).map((_, c) => {
+              const st = stackBtnState(c);
+              return (
+                <button key={c} onClick={() => onStackBtn(c)}
+                  onMouseDown={() => beginStackHold(c)}
+                  onMouseUp={() => endStackHold(c)}
+                  onMouseLeave={() => endStackHold(c)}
+                  onTouchStart={() => beginStackHold(c)}
+                  onTouchEnd={() => endStackHold(c)}
+                  style={{
+                    height:40, minWidth:0, borderRadius:9, cursor:"pointer",
+                    display:"flex", flexDirection:"column", alignItems:"center",
+                    justifyContent:"center", gap:2, padding:0,
+                    fontFamily:T.mono, fontWeight:800, lineHeight:1,
+                    border: st.lit ? "2px solid " + st.hue : "1px solid " + T.panelEdge,
+                    background: st.lit ? st.hue + "26"
+                      : (playing && effStep === c) ? "rgba(255,255,255,0.06)"
+                      : "rgba(255,255,255,0.02)",
+                    color: st.lit ? "#EDF0F6" : T.dim,
+                    boxShadow: st.lit
+                      ? "0 0 12px " + st.hue + "55"
+                      : "inset 0 2px 4px rgba(0,0,0,0.35)",
+                    transition:"all 100ms",
+                  }}>
+                  <span style={{ fontSize:14 }}>{c + 1}</span>
+                  <span style={{ fontSize:6, letterSpacing:0.8,
+                    color: st.lit ? st.hue : "rgba(255,255,255,0.28)" }}>{st.label}</span>
+                </button>
+              );
+            })}
+            <div />
+          </div>
+
+          {/* COLUMNS + sweep playhead */}
+          <div style={{ position:"relative", marginTop:13 }}>
+          {playing && (
+            <div style={{
+              position:"absolute", top:-13, zIndex:2, pointerEvents:"none",
+              width:0, height:0,
+              borderLeft:"6px solid transparent",
+              borderRight:"6px solid transparent",
+              borderTop:"8px solid rgba(255,255,255,0.95)",
+              filter:"drop-shadow(0 0 5px rgba(255,255,255,0.9)) drop-shadow(0 0 14px rgba(255,255,255,0.4))",
+              left:"calc(" + effStep + " * ((100% - 51px) / 8 + 3px) + (100% - 51px) / 8 - 6px)",
+              transition: effStep === 0 ? "none" : "left " + stepDur + "ms linear",
+            }} />
+          )}
+
+          <div style={{ position:"relative", zIndex:1, display:"grid", gridTemplateColumns:"repeat(" + COLS + ", 1fr) 30px", gap:3 }}>
+            {Array.from({ length: COLS }).map((_, c) => {
+              const cMutedCol = colMute.has(c) && playing && !soloActive;
+              const soloedOut = soloActive && !soloStacks.has(c);
+              const cSilent = cMutedCol || soloedOut;
+              const cLatched = latchedStacks.has(c) && audition;
+              const cSelected = selStack === c && EDIT;
+              const live = colLive(c);
+              const colLit = EDIT || !playing || (effStep === c && !cSilent);
+              const srcLit = columnUsesSource(c);
+              const srcRows = [], busTapRows = [];
+              for (let r = 0; r < ROWS; r++) {
+                if (!grid[c][r]) continue;
+                if (usesSource(c, r)) srcRows.push(r);
+                if (grid[c][r].buses.length > 0) busTapRows.push(r);
+              }
+              const hasSrc = srcRows.length > 0;
+              const lastSrcRow = hasSrc ? srcRows[srcRows.length - 1] : -1;
+              const hasBusTap = busTapRows.length > 0;
+              const firstBusTapRow = hasBusTap ? busTapRows[0] : ROWS;
+              const railLit = busTapRows.some((r) => cellActive(c, r));
+              let deepLane = -1;
+              for (const r of busTapRows)
+                for (const b of grid[c][r].buses) deepLane = Math.max(deepLane, BUSES.indexOf(b));
+              return (
+                <div key={c} style={{
+                  position:"relative",
+                  display:"flex", flexDirection:"column", padding:"0 " + GUT + "px",
+                  borderRadius:8, transition:"all 120ms",
+                  background: playing && effStep === c ? "rgba(255,255,255,0.07)"
+                    : cLatched ? HUES.apply + "14"
+                    : cSelected ? HUES.select + "0D" : "transparent",
+                  outline: cSelected ? "1.5px solid " + HUES.select + "55" : "none",
+                  opacity: cSilent ? 0.3 : 1,
+                }}>
+
+                  {Array.from({ length: ROWS }).map((_, r) => {
+                    const cell = grid[c][r];
+                    const eff = cell ? effOf(cell, r) : null;
+                    const cid = cell ? cell.presetID : null;
+                    const k = key(c, r);
+                    const isBypassed = cell && (bypassed.has(k) || rowBypass.has(r));
+                    const isMuted = cell && cellMuted.has(k);
+                    const isAlt = cell && altOf(cell, r);
+                    const isIso = isolated === k;
+                    const dimByIso = isolated && !isIso;
+                    const gateClosed = playing && eff && eff.type === "PASS" && !eff.passes[pass];
+                    const held = heldCell === k;
+                    const auditionLive = audition && cell && (held || cLatched);
+                    const seqLive = playing && effStep === c && cell && !gateClosed && !cSilent && !isMuted && !dimByIso;
+                    const cellLive = (seqLive && !isBypassed) || auditionLive;
+                    const emitB = cell && cell.buses.length > 0 && cellActive(c, r);
+                    const srcIn = cell && usesSource(c, r);
+                    const fedS = cell && structFed(c, r);
+                    const fedL = cell && liveFed(c, r);
+                    const srcLocked = cell && !fedS;
+                    const srcOn = cell && srcLocked;
+                    const rowSel = selRow === r && EDIT;
+                    const srcTapLit = (cellLive || (live && srcIn && !isBypassed)) && !dimByIso;
+                    const warn = noDestination(c, r);
+                    return (
+                      <div key={r} style={{ position:"relative" }}>
+
+                        {/* CELL BOX */}
+                        <div style={{ position:"relative", opacity: dimByIso ? 0.25 : 1, transition:"opacity 100ms" }}>
+
+
+                          {/* the cell */}
+                          <div
+                            onMouseDown={() => onCellDown(c, r)}
+                            onMouseUp={onCellUp}
+                            onMouseLeave={() => { if (audition && held) setHeldCell(null); if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; } if (isolated === k) setIsolated(null); }}
+                            onTouchStart={() => onCellDown(c, r)}
+                            onTouchEnd={onCellUp}
+                            onClick={() => onCellClick(c, r)}
+                            style={{
+                              aspectRatio:"1", cursor:"pointer", borderRadius:8,
+                              position:"relative",
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              background: !cell ? T.cellBg
+                                : isMuted ? hexOf(cid) + "1A"
+                                : isBypassed ? "transparent" : hexOf(cid),
+                              border: !cell ? "1px solid " + (rowSel ? HUES.select + "44" : T.cellEdge)
+                                : isMuted ? "1px solid " + HUES.mute + "88"
+                                : isBypassed ? "2px solid " + hexOf(cid) + "55"
+                                : warn ? "2px dashed rgba(255,107,77,0.8)" : "1px solid transparent",
+                              outline: isIso ? "2px solid " + HUES.select
+                                : rowSel && cell ? "1.5px solid " + HUES.select + "55" : "none",
+                              outlineOffset: isIso ? "1px" : "0",
+                              boxShadow: isIso
+                                ? "0 0 16px " + HUES.select + "66"
+                                : cellLive
+                                ? "0 0 18px " + hexOf(cid) + "AA, inset 0 0 0 2px #fff5"
+                                : cell && !isBypassed && !isMuted ? "inset 0 -3px 6px rgba(0,0,0,.4)"
+                                : "inset 0 2px 6px rgba(0,0,0,.55)",
+                              opacity: cell && gateClosed && effStep === c ? 0.35 : 1,
+                              transition:"box-shadow 100ms, opacity 100ms, background 100ms",
+                            }}>
+                            {cell && (
+                              <div style={{
+                                display:"flex", flexDirection:"column", alignItems:"center",
+                                gap:2, pointerEvents:"none",
+                              }}>
+                                <Glyph eff={eff} dimmed={isBypassed || isMuted} />
+                                <span style={{
+                                  fontSize:7, fontWeight:800, fontFamily:T.mono, letterSpacing:0.4,
+                                  color: (isBypassed || isMuted) ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.55)",
+                                  lineHeight:1,
+                                }}>{cellParams(eff)}</span>
+                              </div>
+                            )}
+                            {EDIT && popover && popover.c === c && popover.r === r && (
+                              <div style={{
+                                position:"absolute", bottom:"calc(100% + 5px)", left:"50%",
+                                transform:"translateX(-50%)", zIndex:60, minWidth:86,
+                                background:"#0E1420", border:"1px solid rgba(255,255,255,0.28)",
+                                borderRadius:8, padding:5, boxShadow:"0 8px 28px rgba(0,0,0,0.7)",
+                                display:"flex", flexDirection:"column", gap:3,
+                              }}
+                                onClick={(e) => e.stopPropagation()}>
+                                {popover.kind === "in" ? (
+                                  [null].concat(Array.from({ length: ROWS }, (_, i) => i).filter((i) => i !== r && grid[c][i]))
+                                    .map((opt) => {
+                                      const isSel = opt === null ? cell.inputRow == null : cell.inputRow === opt;
+                                      return (
+                                        <button key={opt === null ? "midi" : opt}
+                                          onClick={() => { updateCell(c, r, { inputRow: opt }); setPopover(null); }}
+                                          style={{
+                                            padding:"5px 8px", borderRadius:5, cursor:"pointer",
+                                            fontSize:7.5, fontWeight:800, fontFamily:T.mono, letterSpacing:0.5,
+                                            border:"1px solid " + (isSel ? "#FFFFFF" : "rgba(255,255,255,0.2)"),
+                                            background: isSel ? "#FFFFFF" : "transparent",
+                                            color: isSel ? "rgba(0,0,0,0.9)" : "#EDF0F6",
+                                          }}>{opt === null ? "MIDI IN" : "ROW " + (opt + 1)}</button>
+                                      );
+                                    })
+                                    .concat(cell.inputRow == null ? [
+                                      <button key="chan"
+                                        onClick={() => updateCell(c, r, { inputChannel: ((cell.inputChannel || 0) + 1) % 17 })}
+                                        style={{
+                                          padding:"5px 8px", borderRadius:5, cursor:"pointer",
+                                          fontSize:7.5, fontWeight:800, fontFamily:T.mono, letterSpacing:0.5,
+                                          border:"1px dashed rgba(255,255,255,0.35)",
+                                          background:"transparent", color:"#9FE8FF",
+                                        }}>{"IN CH: " + (cell.inputChannel ? cell.inputChannel : "OMNI")}</button>
+                                    ] : [])
+                                ) : (
+                                  <div style={{ display:"flex", gap:3 }}>
+                                    {BUSES.map((b) => {
+                                      const on = cell.buses.includes(b);
+                                      return (
+                                        <button key={b}
+                                          onClick={() => {
+                                            const bs = on ? cell.buses.filter((x) => x !== b) : cell.buses.concat(b);
+                                            updateCell(c, r, { buses: bs });
+                                          }}
+                                          style={{
+                                            width:22, height:22, borderRadius:5, cursor:"pointer",
+                                            fontSize:8.5, fontWeight:800, fontFamily:T.mono,
+                                            border:"1px solid " + (on ? "#FFFFFF" : "rgba(255,255,255,0.2)"),
+                                            background: on ? "#FFFFFF" : "transparent",
+                                            color: on ? "rgba(0,0,0,0.9)" : "#EDF0F6",
+                                          }}>{b}</button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {!EDIT && !cell && (
+                              <span style={{
+                                fontSize:22, fontWeight:800, fontFamily:T.mono,
+                                color:"rgba(255,255,255,0.08)", pointerEvents:"none",
+                              }}>{r + 1}</span>
+                            )}
+                            {cell && (() => {
+                              const p = cell.inputRow;
+                              const isMidi = p == null;
+                              const recv = cellLive && (isMidi ? srcIn : fedL);
+                              const label = isMidi
+                                ? (cell.inputChannel ? "MIDI CH" + cell.inputChannel : "FROM MIDI")
+                                : "FROM ROW " + (p + 1);
+                              return (
+                                <div
+                                  onClick={EDIT ? ((e) => { e.stopPropagation(); setPopover({ c, r, kind:"in" }); }) : undefined}
+                                  style={{
+                                    position:"absolute", top:0, left:0, right:0, height:13, zIndex:4,
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    fontSize:6.5, fontWeight:800, fontFamily:T.mono,
+                                    letterSpacing:0.6, lineHeight:1,
+                                    cursor: EDIT ? "pointer" : "default",
+                                    pointerEvents: EDIT ? "auto" : "none",
+                                    background: recv ? "#FFFFFF" : "rgba(0,0,0,0.52)",
+                                    color: recv ? "rgba(0,0,0,0.9)" : isMidi ? "rgba(255,255,255,0.7)" : "#FFFFFF",
+                                    borderRadius:"7px 7px 0 0",
+                                    boxShadow: recv ? "0 0 8px rgba(255,255,255,0.8)" : "none",
+                                    transition:"all 80ms",
+                                  }}>{label}</div>
+                              );
+                            })()}
+                            {cell && (
+                              <div style={{
+                                position:"absolute", bottom:0, left:0, right:0, height:13, zIndex:4,
+                                display:"flex", gap:2, padding:"0 2px 2px 2px",
+                              }}>
+                                {BUSES.map((b) => {
+                                  const on = cell.buses.includes(b);
+                                  const firing = on && emitB;
+                                  return (
+                                    <span key={b}
+                                      onClick={EDIT ? ((e) => { e.stopPropagation(); setPopover({ c, r, kind:"out" }); }) : undefined}
+                                      style={{
+                                        flex:1, minWidth:0, borderRadius:3,
+                                        display:"flex", alignItems:"center", justifyContent:"center",
+                                        fontSize:7, fontWeight:800, fontFamily:T.mono, lineHeight:1,
+                                        cursor: EDIT ? "pointer" : "default",
+                                        pointerEvents: EDIT ? "auto" : "none",
+                                        background: firing ? "#FFFFFF" : on ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.18)",
+                                        color: firing ? "rgba(0,0,0,0.9)" : on ? "#FFFFFF" : "rgba(0,0,0,0.4)",
+                                        boxShadow: firing ? "0 3px 10px rgba(255,255,255,0.9)"
+                                          : on ? "inset 0 0 0 1px rgba(255,255,255,0.5)" : "none",
+                                        transition:"all 80ms",
+                                      }}>{b}</span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {cell && playing && effStep === c && !cSilent && !isMuted && (
+                              <div style={{
+                                position:"absolute", left:2, right:2, height:2, borderRadius:1,
+                                background:"rgba(255,255,255," + (isBypassed ? 0.4 : 0.92) + ")",
+                                boxShadow: isBypassed ? "none" : "0 0 6px rgba(255,255,255,0.8)",
+                                pointerEvents:"none", zIndex:3,
+                                animation:"padSweepY " + stepDur + "ms linear infinite",
+                              }} />
+                            )}
+                            {isAlt && cell && !isBypassed && !isMuted && (
+                              <div style={{
+                                position:"absolute", inset:2, borderRadius:4,
+                                border:"2px solid rgba(255,255,255,0.9)",
+                                animation:"altBreathe 1.4s ease-in-out infinite",
+                                pointerEvents:"none",
+                              }} />
+                            )}
+                            {cell && !isAlt && !isBypassed && !isMuted && effMorphOf(presets[cid]) > 0 && (
+                              <div style={{
+                                position:"absolute", inset:2, borderRadius:4,
+                                border:"2px solid rgba(255,255,255," + (0.12 + 0.6 * effMorphOf(presets[cid])).toFixed(2) + ")",
+                                pointerEvents:"none",
+                              }} />
+                            )}
+                            {isAlt && cell && (
+                              <span style={{
+                                position:"absolute", top:15, left:3, fontSize:6.5, fontWeight:800,
+                                color: isBypassed || isMuted ? hexOf(cid) + "88" : "rgba(0,0,0,.6)",
+                              }}>B</span>
+                            )}
+                            {isMuted && (
+                              <span style={{
+                                position:"absolute", top:15, right:3, fontSize:6.5, fontWeight:800,
+                                color:HUES.mute,
+                              }}>M</span>
+                            )}
+                            {cell && presets[cid].type === "ARP" && presets[cid].phase === "FREE" && (
+                              <span style={{
+                                position:"absolute", bottom:15, left:3, fontSize:7, fontWeight:800,
+                                color: isBypassed || isMuted ? hexOf(cid) + "88" : "rgba(0,0,0,.55)",
+                              }}>∞</span>
+                            )}
+                            {cell && presets[cid].type === "ARP" && presets[cid].phase === "LEGATO" &&
+                              c > 0 && grid[c-1][r] && grid[c-1][r].presetID === cid && (
+                              <span style={{
+                                position:"absolute", left:0, top:"calc(50% - 4px)", width:3, height:8,
+                                borderRadius:"0 2px 2px 0", background:"rgba(0,0,0,.5)",
+                                borderTop:"1px solid rgba(255,255,255,0.25)",
+                              }} />
+                            )}
+
+                            {cell && !isMuted && presets[cid].transpose !== 0 && (
+                              <span style={{
+                                position:"absolute", bottom:15, right:3, fontSize:6, fontWeight:800,
+                                color: isBypassed ? hexOf(cid) + "88" : "rgba(0,0,0,.55)",
+                              }}>
+                                {presets[cid].transpose > 0 ? "+" + presets[cid].transpose : presets[cid].transpose}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* BELOW ZONE */}
+                        <div style={{ height:GAPB, position:"relative" }}>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{ height:6 }} />
+                </div>
+              );
+            })}
+
+            <div style={{ display:"flex", flexDirection:"column", gap:5, paddingTop:2 }}>
+              {Array.from({ length: ROWS }).map((_, r) => {
+                const pushed = performing && heldRows.has(r);
+                const lit = EDIT ? selRow === r : pushed || rowBypass.has(r);
+                const hue = EDIT ? HUES.select : pushed ? HUES.apply : HUES.bypass;
+                return (
+                  <button key={r} onClick={() => onRowBtn(r)}
+                    onMouseDown={() => beginRowHold(r)}
+                    onMouseUp={() => endRowHold(r)}
+                    onMouseLeave={() => endRowHold(r)}
+                    onTouchStart={() => beginRowHold(r)}
+                    onTouchEnd={() => endRowHold(r)}
+                    disabled={audition}
+                    style={Object.assign({}, sideBtn(lit, hue), {
+                      flex:1, minHeight:0, width:30,
+                      opacity: audition ? 0.3 : 1,
+                      boxShadow: pushed ? "0 0 10px " + HUES.apply + "66" : "none",
+                    })}>
+                    {EDIT ? (lit ? "SEL" : "─") : pushed ? "ALT" : lit ? "BYP" : "─"}
+                  </button>
+                );
+              })}
+              <div style={{ height:6 }} />
+            </div>
+          </div>
+          </div>
+
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(" + COLS + ", 1fr) 30px", gap:3 }}>
+            {Array.from({ length: COLS }).map((_, c) => (
+              <div key={c} style={{
+                textAlign:"center", fontSize:8,
+                color: playing && effStep === c ? T.text : T.dim,
+                fontWeight: playing && effStep === c ? 800 : 400,
+              }}>{c + 1}</div>
+            ))}
+            <div />
+          </div>
+
+          {EDIT && (selStack !== null || selRow !== null) && (
+            <div style={{
+              marginTop:6, display:"flex", gap:6, alignItems:"center",
+              padding:"6px 8px", borderRadius:8,
+              background:HUES.select + "0A", border:"1px solid " + HUES.select + "22",
+            }}>
+              <span style={{ fontSize:8, color:T.dim, letterSpacing:1, marginRight:4 }}>
+                {selStack !== null ? "STACK " + (selStack + 1) : "ROW " + (selRow + 1)}
+              </span>
+              {selStack !== null ? (
+                <React.Fragment>
+                  <ActionBtn onClick={copyStack}>COPY</ActionBtn>
+                  <ActionBtn onClick={pasteStack} disabled={!clipboard}>PASTE</ActionBtn>
+                  <ActionBtn onClick={clearStack}>CLEAR</ActionBtn>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <ActionBtn onClick={fillRow}>FILL {selected.toUpperCase()}</ActionBtn>
+                  <ActionBtn onClick={clearRow}>CLEAR</ActionBtn>
+                </React.Fragment>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop:6, fontSize:8, color:T.dim, letterSpacing:0.8 }}>
+          {EDIT
+            ? "EDIT — TAP CELL BODY: APPLY SELECTED COLOUR (stands in for drag-drop) · TAP FROM LABEL: INPUT SELECTOR · TAP A–D STRIP: OUTPUT SELECTOR"
+            : audition
+            ? "AUDITION — HOLD A CELL TO PREVIEW · TOP BUTTONS LATCH STACKS"
+            : "PERFORM — TAP = " + tapAction + " (SELECTOR IN HEADER) · HOLD CELL = ISOLATE · HOLD STACK BTN = STUTTER (TWO = LOOP BRACE) · HOLD ROW BTN = ALT PUSH · BREATHING RING + B = ALT · M = MUTED"}
+        </div>
+        </div>
+
+        <div style={{ flex: wide ? "1 1 0" : "1 1 auto", minWidth: wide ? 235 : 0 }}>
+
+
+        {/* Three boxes: COLOUR · PROCESSOR · EMITTERS */}
+        <div style={{
+          marginTop: wide ? 0 : 8, display:"flex",
+          flexDirection: wide ? "column" : "row", gap:8, alignItems:"stretch",
+        }}>
+          <div style={{ flex: wide ? "0 0 auto" : "1 1 0", minWidth:0,
+            background:T.cellBg, border:"1px solid " + T.cellEdge, borderRadius:10, padding:8 }}>
+            <Label>COLOUR</Label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 26px)", gap:4, marginTop:5 }}>
+              {COLORS.map((c) => {
+                const pr = presets[c.id];
+                return (
+                  <div key={c.id} onClick={() => { setSelected(c.id); setStateTab("A"); }} style={{
+                    width:26, height:26, borderRadius:6, background:c.hex, cursor:"pointer",
+                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end",
+                    position:"relative",
+                    boxShadow: selected === c.id
+                      ? "0 0 0 2px " + T.cellBg + ", 0 0 0 4px " + c.hex
+                      : "inset 0 -3px 6px rgba(0,0,0,.35)",
+                  }}>
+                    <span style={{ fontSize:5, fontWeight:800, color:"rgba(0,0,0,.55)", letterSpacing:0.5, marginBottom:3 }}>
+                      {pr.type === "RATCHET" ? "RAT" : pr.type}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop:6, fontSize:8, fontFamily:T.mono, fontWeight:800, letterSpacing:0.5 }}>
+              <span style={{ color: hexOf(selected) }}>{selected.toUpperCase()}</span>
+              <span style={{ color:T.dim }}> · {p.type}</span>
+            </div>
+          </div>
+          <div style={{ flex: wide ? "0 1 auto" : "1 1 0", minWidth:0,
+            background:T.cellBg, border:"1px solid " + T.cellEdge, borderRadius:10, padding:8,
+            maxHeight: wide ? 430 : 300, overflowY:"auto" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <Label>
+                PROCESSOR · <span style={{ color: hexOf(selected) }}>{selected.toUpperCase()}</span>
+              </Label>
+              {/* A/B state editor tabs */}
+              <div style={{ display:"flex", border:"1px solid " + T.cellEdge, borderRadius:6, overflow:"hidden" }}>
+                {["A","B"].map((s) => (
+                  <button key={s} onClick={() => setStateTab(s)} style={{
+                    padding:"3px 10px", fontSize:8.5, fontFamily:T.mono, fontWeight:800, cursor:"pointer",
+                    border:"none",
+                    background: stateTab === s
+                      ? (s === "A" ? hexOf(selected) + "33" : "#FFFFFF22") : "transparent",
+                    color: stateTab === s ? "#EDF0F6" : T.dim,
+                  }}>{s}</button>
+                ))}
+              </div>
+              <span style={{ fontSize:7.5, color:T.dim }}>
+                {stateTab === "A" ? "base state" : "alt state — tap cells in perform (TAP: ALT) to flip"}
+              </span>
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:5 }}>
+              {stateTab === "A" && (
+                <React.Fragment>
+                  <Field name="TYPE">
+                    <Seg options={TYPES} value={p.type} onChange={setType} accent={hexOf(selected)} />
+                  </Field>
+                  <Field name="TRANSPOSE">
+                    <Stepper value={p.transpose}
+                      onChange={(v) => setP({ transpose: Math.max(-24, Math.min(24, v)) })}
+                      accent={hexOf(selected)} bigStep={12}
+                      format={(v) => (v > 0 ? "+" + v : "" + v)} />
+                  </Field>
+                  {p.type === "ARP" && (
+                    <Field name="PHASE">
+                      <Seg options={PHASES} value={p.phase || "RETRIG"} onChange={(v) => setP({ phase: v })} accent={hexOf(selected)} />
+                    </Field>
+                  )}
+                  {(p.type === "ARP" || p.type === "RATCHET") && (
+                    <Field name={p.type === "ARP" ? "TIME" : "DENSITY"}>
+                      <div style={{ display:"flex", gap:3 }}>
+                        <ActionBtn onClick={() => timeShift(-1)}>÷2</ActionBtn>
+                        <ActionBtn onClick={() => timeShift(1)}>×2</ActionBtn>
+                      </div>
+                    </Field>
+                  )}
+                </React.Fragment>
+              )}
+              {p.type === "ARP" && (
+                <React.Fragment>
+                  {stateTab === "A" && (
+                    <React.Fragment>
+                      <Field name="PATTERN">
+                        <HoldSeg options={PATTERNS} value={p.pattern} onChange={(v) => setP({ pattern: v })} accent={hexOf(selected)} />
+                      </Field>
+                      <Field name={"GATE " + Math.round(p.gate * 100) + "%"}>
+                        <input type="range" min="5" max="100" value={p.gate * 100}
+                          onChange={(e) => setP({ gate: e.target.value / 100 })}
+                          style={{ accentColor: hexOf(selected), width: 110 }} />
+                      </Field>
+                    </React.Fragment>
+                  )}
+                  <Field name={"RATE" + (stateTab === "B" ? " (B)" : "")}>
+                    <HoldSeg options={ARP_RATES} value={sv("rate")} onChange={(v) => setSv("rate", v)}
+                      accent={stateTab === "B" ? "#FFFFFF" : hexOf(selected)} />
+                  </Field>
+                  <Field name={"OCTAVES" + (stateTab === "B" ? " (B)" : "")}>
+                    <HoldSeg options={[1,2,3,4]} value={sv("octaves")} onChange={(v) => setSv("octaves", v)}
+                      accent={stateTab === "B" ? "#FFFFFF" : hexOf(selected)} />
+                  </Field>
+                </React.Fragment>
+              )}
+              {p.type === "RATCHET" && (
+                <React.Fragment>
+                  <Field name={"REPEATS" + (stateTab === "B" ? " (B)" : "")}>
+                    <HoldSeg options={RATCHETS} value={sv("count")} onChange={(v) => setSv("count", v)}
+                      accent={stateTab === "B" ? "#FFFFFF" : hexOf(selected)} />
+                  </Field>
+                  {stateTab === "A" && (
+                    <Field name={"VEL RAMP " + Math.round(p.ramp * 100) + "%"}>
+                      <input type="range" min="0" max="100" value={p.ramp * 100}
+                        onChange={(e) => setP({ ramp: e.target.value / 100 })}
+                        style={{ accentColor: hexOf(selected), width: 110 }} />
+                    </Field>
+                  )}
+                </React.Fragment>
+              )}
+              {p.type === "PASS" && (
+                <Field name={"PLAY ON PASS" + (stateTab === "B" ? " (B)" : "")}>
+                  <div style={{ display:"flex", gap:5 }}>
+                    {sv("passes").map((on, i) => (
+                      <button key={i} onClick={() => {
+                        const passes = [...sv("passes")]; passes[i] = !passes[i];
+                        setSv("passes", passes);
+                      }} style={{
+                        width:32, height:32, borderRadius:8, cursor:"pointer",
+                        fontFamily:T.mono, fontSize:10, fontWeight:800,
+                        border:"1px solid " + (on ? (stateTab === "B" ? "#FFFFFF" : hexOf(selected)) : T.cellEdge),
+                        background: on ? (stateTab === "B" ? "#FFFFFF22" : hexOf(selected) + "33") : "transparent",
+                        color: on ? "#EDF0F6" : T.dim,
+                      }}>{i + 1}</button>
+                    ))}
+                  </div>
+                </Field>
+              )}
+            </div>
+          </div>
+          <div style={{ flex: wide ? "0 0 auto" : "1 1 0", minWidth:0,
+            background:T.cellBg, border:"1px solid " + T.cellEdge, borderRadius:10, padding:8 }}>
+            <Label>EMITTERS</Label>
+            <div style={{ display:"flex", gap:6, marginTop:6 }}>
+              {BUSES.map((b, i) => (
+                <button key={b} onClick={() => setSelectedBus(i)} style={{
+                  flex:1, aspectRatio:"1", minWidth:0, borderRadius:10, cursor:"pointer",
+                  display:"flex", flexDirection:"column", alignItems:"center",
+                  justifyContent:"center", gap:3, fontFamily:T.mono, fontWeight:800,
+                  border: selectedBus === i ? "2px solid #FFFFFF" : "1px solid " + T.panelEdge,
+                  background: selectedBus === i ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.03)",
+                  color: selectedBus === i ? "#EDF0F6" : T.dim,
+                  boxShadow: selectedBus === i
+                    ? "0 0 14px rgba(255,255,255,0.25)"
+                    : "inset 0 2px 5px rgba(0,0,0,0.4)",
+                }}>
+                  <span style={{ fontSize:20, lineHeight:1 }}>{b}</span>
+                  <span style={{ fontSize:8 }}>CH {busChannels[i]}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop:5, display:"flex", flexDirection:"column", gap:4 }}>
+              <div style={{ fontSize:9.5, fontFamily:T.mono, fontWeight:800, color:"#EDF0F6", letterSpacing:0.4 }}>
+                {"CABLE " + BUSES[selectedBus] + " · CH "}
+                <button
+                  onClick={() => {
+                    const next = busChannels.slice();
+                    next[selectedBus] = (next[selectedBus] % 16) + 1;
+                    setBusChannels(next);
+                  }}
+                  style={{
+                    padding:"4px 11px", borderRadius:6, cursor:"pointer",
+                    fontSize:10, fontFamily:T.mono, fontWeight:800,
+                    border:"1px solid rgba(255,255,255,0.35)",
+                    background:"rgba(255,255,255,0.08)", color:"#EDF0F6",
+                  }}>{busChannels[selectedBus]}</button>
+              </div>
+              <span style={{ fontSize:8, fontFamily:T.mono, fontWeight:800, color:T.dim, letterSpacing:0.3 }}>
+                + "ALL" CABLE: EVERYTHING, BY CHANNEL
+              </span>
+              {new Set(busChannels).size < 4 && (
+                <span style={{ fontSize:8, fontFamily:T.mono, fontWeight:800, color:"#FFB84D", letterSpacing:0.3 }}>
+                  ⚠ SHARED CHANNELS MERGE ON "ALL"
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        </div>
+        </div>
+
+        {/* SCENES — full-width strip along the bottom (hosts test sessions in dev builds) */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
+          <span style={{ fontSize:8, fontWeight:800, color:T.dim, letterSpacing:1.5, marginRight:2 }}>SCENE</span>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <button key={i} onClick={() => setScene(i)} style={{
+              flex:1, minWidth:0, height:30, borderRadius:8, cursor:"pointer",
+              fontFamily:T.mono, fontSize:10, fontWeight:800,
+              border: scene === i ? "2px solid #FFFFFF" : "1px solid " + T.panelEdge,
+              background: scene === i ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.02)",
+              color: scene === i ? "#EDF0F6" : T.dim,
+              boxShadow: scene === i ? "0 0 10px rgba(255,255,255,0.2)" : "inset 0 2px 4px rgba(0,0,0,0.35)",
+              transition:"all 80ms",
+            }}>{i + 1}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  function ActionBtn({ children, onClick, disabled }) {
+    return (
+      <button onClick={onClick} disabled={disabled} style={{
+        padding:"4px 10px", fontSize:8.5, fontFamily:T.mono, fontWeight:700,
+        letterSpacing:1, cursor: disabled ? "default" : "pointer", borderRadius:6,
+        border:"1px solid " + (disabled ? T.cellEdge : "#EDF0F644"),
+        background:"transparent", color: disabled ? T.dim : T.text,
+      }}>{children}</button>
+    );
+  }
+  function Label({ children }) {
+    return <div style={{ fontSize:9, letterSpacing:2, color:T.dim }}>{children}</div>;
+  }
+  function Field({ name, children }) {
+    return (
+      <div>
+        <div style={{ fontSize:8.5, letterSpacing:1.5, color:T.dim, marginBottom:4 }}>{name}</div>
+        {children}
+      </div>
+    );
+  }
+  function Stepper({ value, onChange, accent, bigStep, format }) {
+    bigStep = bigStep || 12;
+    format = format || ((v) => v);
+    const btn = {
+      width:24, height:24, borderRadius:6, cursor:"pointer",
+      fontFamily:T.mono, fontSize:10, fontWeight:700,
+      border:"1px solid " + T.cellEdge, background:"transparent", color:T.text,
+    };
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+        <button style={Object.assign({}, btn, { fontSize:7 })} onClick={() => onChange(value - bigStep)}>-{bigStep}</button>
+        <button style={btn} onClick={() => onChange(value - 1)}>−</button>
+        <div style={{
+          minWidth:30, textAlign:"center", fontSize:10, fontWeight:800,
+          color: value !== 0 ? accent : T.dim,
+        }}>{format(value)}</div>
+        <button style={btn} onClick={() => onChange(value + 1)}>+</button>
+        <button style={Object.assign({}, btn, { fontSize:7 })} onClick={() => onChange(value + bigStep)}>+{bigStep}</button>
+      </div>
+    );
+  }
+  function VFader({ value, onChange, accent, onGrab, onRelease }) {
+    const trackRef = useRef(null);
+    const setFrom = (clientY) => {
+      const r = trackRef.current.getBoundingClientRect();
+      onChange(Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height)));
+    };
+    const start = (e) => {
+      onGrab && onGrab();
+      setFrom(e.touches ? e.touches[0].clientY : e.clientY);
+      const move = (ev) => setFrom(ev.touches ? ev.touches[0].clientY : ev.clientY);
+      const up = () => {
+        window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+        window.removeEventListener("touchmove", move); window.removeEventListener("touchend", up);
+        onRelease && onRelease();
+      };
+      window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+      window.addEventListener("touchmove", move); window.addEventListener("touchend", up);
+    };
+    const pct = value * 100;
+    return (
+      <div ref={trackRef} onMouseDown={start} onTouchStart={start} style={{
+        width:22, height:110, borderRadius:6, background:"#07090C",
+        border:"1px solid " + T.cellEdge, position:"relative",
+        cursor:"ns-resize", touchAction:"none", overflow:"hidden",
+      }}>
+        <div style={{
+          position:"absolute", left:2, right:2, bottom:2,
+          height:"calc(" + pct + "% - 3px)", borderRadius:4,
+          background:accent + "44",
+        }} />
+        <div style={{
+          position:"absolute", left:1, right:1, height:8, borderRadius:4,
+          bottom:"calc(" + Math.max(0, Math.min(93, pct - 3)) + "%)",
+          background:accent, boxShadow:"0 0 6px " + accent + "88",
+        }} />
+      </div>
+    );
+  }
+  function MixStrip({ cid }) {
+    const isMaster = cid === "__master";
+    const hex = isMaster ? "#EDF0F6" : hexOf(cid);
+    const val = isMaster ? master : (presets[cid].morph || 0);
+    const used = isMaster || grid.some((col) => col.some((x) => x && x.presetID === cid));
+    const bLit = !isMaster && grid.some((col) => col.some((x, rr) => x && x.presetID === cid && altOf(x, rr)));
+    const setVal = (v) => isMaster ? setMaster(v)
+      : setPresets((ps) => ({ ...ps, [cid]: { ...ps[cid], morph: v } }));
+    const grab = () => {
+      const now = performance.now();
+      if (now - (lastTapRef.current[cid] || 0) < 300) setVal(0);
+      lastTapRef.current[cid] = now;
+      if (spring) springStore.current[cid] = val;
+    };
+    const release = () => {
+      if (spring && springStore.current[cid] !== undefined) {
+        glideMorph(cid, springStore.current[cid]);
+        delete springStore.current[cid];
+      }
+    };
+    return (
+      <div style={{
+        width:44, minWidth:44, display:"flex", flexDirection:"column",
+        alignItems:"center", gap:4, opacity: used ? 1 : 0.35,
+      }}>
+        <div onClick={() => { if (!isMaster) { setSelected(cid); setStateTab("A"); } }} style={{
+          width:20, height:14, borderRadius:4, background:hex,
+          cursor: isMaster ? "default" : "pointer",
+          boxShadow: !isMaster && selected === cid
+            ? "0 0 0 1.5px " + T.cellBg + ", 0 0 0 3px " + hex
+            : "inset 0 -2px 3px rgba(0,0,0,.35)",
+        }} />
+        <VFader value={val} onChange={setVal} accent={hex} onGrab={grab} onRelease={release} />
+        <span style={{ fontSize:6.5, fontWeight:800, color: val > 0.005 ? (isMaster ? "#EDF0F6" : hex) : T.dim }}>
+          {Math.round(val * 100)}
+        </span>
+        <span style={{ fontSize:5.5, letterSpacing:0.5, color:T.dim, fontWeight:800 }}>
+          {isMaster ? "MASTER" : (presets[cid].type === "RATCHET" ? "RAT" : presets[cid].type)}
+        </span>
+        <span title="a cell of this colour is at full B" style={{
+          width:5, height:5, borderRadius:3,
+          background: bLit ? "#FFFFFF" : "transparent",
+          border:"1px solid " + (bLit ? "#FFFFFF" : T.cellEdge),
+          boxShadow: bLit ? "0 0 5px #fff" : "none",
+        }} />
+      </div>
+    );
+  }
+  function HoldSeg({ options, value, onChange, accent }) {
+    accent = accent || "#3D4657";
+    const timer = useRef(null), borrowFrom = useRef(null), supp = useRef(false);
+    const valRef = useRef(value); valRef.current = value;
+    const [borrowed, setBorrowed] = useState(null);
+    const down = (o) => {
+      timer.current = setTimeout(() => {
+        borrowFrom.current = valRef.current;
+        setBorrowed(o); supp.current = true; onChange(o);
+      }, 300);
+    };
+    const up = () => {
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+      if (borrowFrom.current !== null) {
+        onChange(borrowFrom.current); borrowFrom.current = null; setBorrowed(null);
+      }
+    };
+    const click = (o) => { if (supp.current) { supp.current = false; return; } onChange(o); };
+    return (
+      <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
+        {options.map((o) => (
+          <button key={o}
+            onMouseDown={() => down(o)} onMouseUp={up} onMouseLeave={up}
+            onTouchStart={() => down(o)} onTouchEnd={up}
+            onClick={() => click(o)}
+            style={{
+              padding:"4px 7px", fontSize:8.5, fontFamily:T.mono, cursor:"pointer",
+              borderRadius:6,
+              border:"1px solid " + (borrowed === o ? "#FFFFFF" : value === o ? accent : T.cellEdge),
+              background: value === o ? accent + "26" : "transparent",
+              color: value === o ? "#EDF0F6" : T.dim, fontWeight: value === o ? 700 : 400,
+              boxShadow: borrowed === o ? "0 0 8px #FFFFFF88" : "none",
+            }}>{o}</button>
+        ))}
+      </div>
+    );
+  }
+  function Seg({ options, value, onChange, accent }) {
+    accent = accent || "#3D4657";
+    return (
+      <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
+        {options.map((o) => (
+          <button key={o} onClick={() => onChange(o)} style={{
+            padding:"4px 7px", fontSize:8.5, fontFamily:T.mono, cursor:"pointer",
+            borderRadius:6, border:"1px solid " + (value === o ? accent : T.cellEdge),
+            background: value === o ? accent + "26" : "transparent",
+            color: value === o ? "#EDF0F6" : T.dim, fontWeight: value === o ? 700 : 400,
+          }}>{o}</button>
+        ))}
+      </div>
+    );
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ArpGrid />);
+</script>
+</body>
+</html>
