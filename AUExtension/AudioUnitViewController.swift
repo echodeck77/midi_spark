@@ -78,6 +78,18 @@ struct DiagView: View {
         if let id = scene.cells[col][row]?.colourID { brush = id }
     }
 
+    // ---- PROCESSOR box: edit the selected (brush) Colour ----
+    private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
+    private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
+
+    private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
+        guard let au else { return }
+        au.editColour(brushIndex, f)
+        docColours = au.uiColours()
+    }
+    private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
+    private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
+
     // ---- in-cell popover edits (target a specific col,row, not the selection) ----
     private func editCell(_ col: Int, _ row: Int, _ f: @escaping (inout Cell) -> Void) {
         guard let au else { return }
@@ -142,7 +154,11 @@ struct DiagView: View {
                 BusLanesView(scene: scene, active: emitActive)
                 OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
                 PaletteView(brush: brush) { brush = $0 }
-                Text("TAP cell → paint/recolour with the \(brush.uppercased()) brush · TAP header → FROM · TAP A–D → OUT · HOLD → clear/copy")
+                if let bc = brushColour {
+                    ProcessorBox(colour: bc, colourIndex: brushIndex,
+                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
+                }
+                Text("TAP cell → paint/recolour \(brush.uppercased()) · TAP header → FROM · TAP A–D → OUT · HOLD → clear/copy · palette selects the Colour to edit above")
                     .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                 Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
 

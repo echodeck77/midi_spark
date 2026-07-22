@@ -329,6 +329,136 @@ struct OutputsView: View {
     }
 }
 
+/// PROCESSOR box (delta §6): edits the SELECTED Colour (= the palette brush). Fixed height (static-
+/// frames rule — sized for the largest field set; smaller types leave calm space). Type + transpose +
+/// per-type params + morph. A-state only for now; B-state tab is a follow-up. Transpose/morph are
+/// AUParameters (own callbacks); the rest go through editColour.
+struct ProcessorBox: View {
+    let colour: Colour
+    let colourIndex: Int
+    let onEdit: (@escaping (inout Colour) -> Void) -> Void
+    let onTranspose: (Int) -> Void
+    let onMorph: (Double) -> Void
+
+    private var accent: Color { colourColor(colour.colourID) ?? .gray }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Text("PROCESSOR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text(colour.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+            }
+            seg(ProcessorType.allCases.map { typeShort($0) },
+                sel: typeShort(colour.type)) { i in onEdit { $0.type = ProcessorType.allCases[i] } }
+
+            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
+                stepper(colour.transpose, -24, 24) { onTranspose($0) }
+            }
+
+            typeParams()
+
+            field("MORPH \(Int(colour.morph * 100))%") {
+                Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(height: 168, alignment: .top)   // fixed: sized for the largest (ARP) field set
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    @ViewBuilder private func typeParams() -> some View {
+        switch colour.type {
+        case .arp:
+            field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: colour.paramsA.pattern?.rawValue ?? "UP") { i in
+                onEdit { $0.paramsA.pattern = ArpPattern.allCases[i] } } }
+            field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: colour.paramsA.rate?.rawValue ?? "1/16") { i in
+                onEdit { $0.paramsA.rate = ArpRate.allCases[i] } } }
+            HStack(spacing: 8) {
+                field("OCT") { seg(["1","2","3","4"], sel: "\(colour.paramsA.octaves ?? 1)") { i in
+                    onEdit { $0.paramsA.octaves = i + 1 } } }
+                field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: colour.paramsA.phase?.rawValue ?? "RETRIG") { i in
+                    onEdit { $0.paramsA.phase = ArpPhase.allCases[i] } } }
+            }
+            field("GATE \(Int((colour.paramsA.gate ?? 0.6) * 100))%") {
+                Slider(value: bind(colour.paramsA.gate ?? 0.6) { v in onEdit { $0.paramsA.gate = v } }, in: 0.05...1).tint(accent)
+            }
+        case .ratchet:
+            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(colour.paramsA.count ?? 3)") { i in
+                onEdit { $0.paramsA.count = [2,3,4,6,8][i] } } }
+            field("RAMP \(Int((colour.paramsA.ramp ?? 0.5) * 100))%") {
+                Slider(value: bind(colour.paramsA.ramp ?? 0.5) { v in onEdit { $0.paramsA.ramp = v } }, in: 0...1).tint(accent)
+            }
+        case .passgate:
+            field("PASSES") { HStack(spacing: 4) {
+                ForEach(0..<4, id: \.self) { i in
+                    let on = (colour.paramsA.passes ?? [true,true,true,true])[i]
+                    Text("\(i+1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.6))
+                        .frame(maxWidth: .infinity).frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.1)))
+                        .onTapGesture { onEdit { var p = $0.paramsA.passes ?? [true,true,true,true]; p[i].toggle(); $0.paramsA.passes = p } }
+                }
+            } }
+        case .strum:
+            field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (colour.paramsA.strumDir ?? .up).rawValue) { i in
+                onEdit { $0.paramsA.strumDir = StrumDir.allCases[i] } } }
+            field("SPREAD \(Int((colour.paramsA.spread ?? 0.1) * 100))") {
+                Slider(value: bind(colour.paramsA.spread ?? 0.1) { v in onEdit { $0.paramsA.spread = v } }, in: 0...1).tint(accent) }
+            field("TILT \(Int((colour.paramsA.velTilt ?? 0) * 100))") {
+                Slider(value: bind((colour.paramsA.velTilt ?? 0) / 2 + 0.5) { v in onEdit { $0.paramsA.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+        case .chance:
+            field("PROBABILITY \(Int((colour.paramsA.probability ?? 1) * 100))%") {
+                Slider(value: bind(colour.paramsA.probability ?? 1) { v in onEdit { $0.paramsA.probability = v } }, in: 0...1).tint(accent) }
+        case .harmonize:
+            let iv = colour.paramsA.harmIntervals ?? [0,0,0]
+            ForEach(0..<3, id: \.self) { k in
+                field("VOICE \(k+1) \(iv[k] == 0 ? "off" : (iv[k] > 0 ? "+\(iv[k])" : "\(iv[k])"))") {
+                    stepper(iv[k], -24, 24) { v in onEdit { var a = $0.paramsA.harmIntervals ?? [0,0,0]; a[k] = v; $0.paramsA.harmIntervals = a } }
+                }
+            }
+        }
+    }
+
+    // ---- small controls ----
+    private func typeShort(_ t: ProcessorType) -> String {
+        switch t { case .arp: "ARP"; case .ratchet: "RTC"; case .passgate: "PASS"
+        case .strum: "STRM"; case .chance: "CHNC"; case .harmonize: "HARM" }
+    }
+    private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
+        Binding(get: { v }, set: set)
+    }
+    private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            content()
+        }
+    }
+    private func seg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, o in
+                Text(o).font(.system(size: 7.5, weight: .heavy, design: .monospaced))
+                    .foregroundColor(o == sel ? .black : .white.opacity(0.7))
+                    .frame(maxWidth: .infinity).frame(height: 18)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(o == sel ? accent : Color.white.opacity(0.08)))
+                    .onTapGesture { onPick(i) }
+            }
+        }
+    }
+    private func stepper(_ v: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text("−").font(.system(size: 13, weight: .heavy)).foregroundColor(.white.opacity(0.7))
+                .frame(width: 26, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+                .onTapGesture { set(max(lo, v - 1)) }
+            Text("\(v)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).frame(minWidth: 30)
+            Text("+").font(.system(size: 13, weight: .heavy)).foregroundColor(.white.opacity(0.7))
+                .frame(width: 26, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+                .onTapGesture { set(min(hi, v + 1)) }
+            Spacer()
+        }
+    }
+}
+
 /// The Colour brush palette — 16 chips in bank order; the active brush is ringed.
 struct PaletteView: View {
     let brush: String

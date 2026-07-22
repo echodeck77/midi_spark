@@ -50,6 +50,26 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
     func uiColours() -> [Colour] { document.colours }
 
+    /// Edit a Colour's NON-AUParameter fields (type, pattern, rate, octaves, gate, phase, count,
+    /// passes, strum, chance, harmonize) → rebuild. Transpose/morph are AUParameters — use the
+    /// dedicated setters below so host automation stays in sync.
+    func editColour(_ index: Int, _ mutate: (inout Colour) -> Void) {
+        guard index >= 0, index < document.colours.count else { return }
+        mutate(&document.colours[index])
+        scheduleRebuild()
+    }
+
+    /// Transpose (AUParameter 100+i) — set via the tree so the observer writes the document and host
+    /// automation reflects it.
+    func setColourTranspose(_ index: Int, _ value: Int) {
+        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(max(-24, min(24, value)))
+    }
+
+    /// Morph (AUParameter 200+i) — the per-Colour macro fader.
+    func setColourMorph(_ index: Int, _ value: Double) {
+        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
+    }
+
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if suppressRebuild { return }
