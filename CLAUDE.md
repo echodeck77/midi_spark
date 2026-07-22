@@ -75,37 +75,59 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - Extension bundle ID must be prefixed by the app's:
   app `com.paulbarrett.MidiSpark`, extension `com.paulbarrett.MidiSpark.AU` (explicit
   PRODUCT_BUNDLE_IDENTIFIER in the MidiSparkAU target).
-- Compile check from CLI: `xcodegen generate && xcodebuild -project MidiSpark.xcodeproj
-  -scheme MidiSpark -destination 'generic/platform=iOS' build` (signing may need the
-  user's team set; building for *device install* happens in Xcode).
+- Compile check from CLI (the `DEVELOPER_DIR` prefix is REQUIRED — `xcode-select`
+  points at CommandLineTools, whose older Swift can't parse the Xcode SDK):
+  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project
+  MidiSpark.xcodeproj -scheme MidiSpark -destination 'generic/platform=iOS'
+  CODE_SIGNING_ALLOWED=NO build`. Prepend `xcodegen generate &&` only after
+  adding/removing files. *Device install* happens in Xcode.
+- Off-device unit tests (FIRST line of verification, ~seconds, no simulator):
+  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test
+  -project MidiSpark.xcodeproj -scheme MidiSparkTests -destination
+  'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData`. The pinned
+  `-derivedDataPath` is REQUIRED: the default DerivedData intermittently serves a
+  STALE test bundle (old count, hidden failures). The macOS `MidiSparkTests`
+  target compiles the Foundation-only pure sources directly (no iOS/CoreAudio
+  link); keep new pure logic in Derivations.swift so it stays testable.
 - Device testing is manual: the human runs from Xcode onto the iPad and verifies in AUM.
   You cannot hear anything. When behaviour needs verification, say exactly what to check
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
-- DONE step 1 (scaffold): loads in AUM, 4 MIDI outputs, passthrough stopped, hardcoded
-  gold arp playing, derived sync verified.
-- DONE step 2 (snapshot bridge): kernel is snapshot-driven; morph/master/swing/stepRate
-  live end-to-end; render-side param events handled; CC passthrough on cable A always;
-  diagnostic UI in the extension.
-- DONE step 3 (the ROUTER) — **under the OLD chain model** (▾/srcMix,
-  sender-decides, OUT CH). Works; tagged `v0.3-router`.
-- DONE step 4 (mostly): FIVE of six processors built (ARP/RATCHET/PASSGATE/
-  STRUM/CHANCE); **HARMONIZE outstanding** (identity until built).
-- DONE (partial) grid UI: a first SwiftUI grid slice exists in `GridUI/`
-  (may be work-in-progress in the working tree, not just HEAD — survey the
-  tree), built to an earlier visual generation.
+- DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
+  passthrough stopped, derived sync, snapshot-driven kernel, render-side param
+  events, diagnostic UI.
+- DONE step 3 (the ROUTER) — shipped under the OLD chain model, tagged
+  `v0.3-router` (HISTORICAL).
+- DONE step 4 (mostly): FIVE of six processors built (ARP incl. all 5 patterns +
+  3 PHASE modes / RATCHET / PASSGATE / STRUM / CHANCE); **HARMONIZE outstanding**
+  (falls back to identity until built).
+- **DONE — THE MIGRATION to v3.0 graph routing** (Docs/migration-tree-routing.md),
+  engine complete:
+  - `v0.4-graph-routing` (tag): receiver-picked `inputRow` references replace
+    ▾/+SRC — any row, cycles legal-and-silent, fan-out. Loader migrates v2
+    saved sessions on load (stack→inputRow). Precompute: resolvedParent/isTapped.
+  - `v0.5-outputs` (tag): channels are filter-in (`inputChannel`, OMNI default) /
+    stamp-out (`busChannels`, default 1-4); OUT CH & INHERIT removed; FIVE cables
+    (All + Emit A–D), every note emitted on its own cable + All; refcount keys on
+    the EMITTED (cable, channel, note). Labels: "All", "Emit A"…"Emit D".
+- DONE — grid UI rebound to the v3 model (`GridUI.swift`): authors references
+  (FROM), input-channel filter (IN CH), bus emitters, and OUTPUTS busChannels.
+  Truthful wiring viz (source/reference-aware). This is a FUNCTIONAL stand-in —
+  the full v56 visual language (four-row cells, FROM/emitter popovers, one-clock
+  playheads) is NOT ported yet; cycling chips stand in for popovers.
 - Test assets: `TestSessions.swift` carries **T1–T16** (numbering authority —
-  see test-procedures preamble) and `Tests/` holds a **42-test macOS unit
-  suite** over the pure core (Derivations.swift). BOTH must stay green
-  through every commit; unit tests run off-device and come FIRST.
-- **NEXT: THE MIGRATION** (Docs/migration-tree-routing.md): engine commits 1–5
-  to the v3.0 graph model + outputs, THEN GUI reconciliation to preview v56.
-  Survey-first on everything. Old saved AUM sessions must load and convert.
-- THEN: HARMONIZE (the step-4 remainder) and the remaining UI passes per
-  ui-port-guide's revised order.
-- Acceptance checklist: spec §11, 28 items. Tag milestones (`v0.1-scaffold` exists;
-  tag `v0.2-bridge` once the bridge tests pass on device).
+  see test-procedures preamble) and `Tests/` holds a **55-test macOS unit
+  suite** over the pure core (Derivations.swift + Snapshot/Builder + loader
+  migration). BOTH must stay green through every commit; unit tests run
+  off-device and come FIRST.
+- **NEXT:** HARMONIZE (the step-4 remainder — engine, unit-testable), and the v56
+  visual reconcile per ui-port-guide (survey-first; the grid EXISTS — reconcile,
+  don't rebuild). busChannels/FROM/IN-CH editing already works; the visual port
+  is polish + the popover/four-row-cell language.
+- Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
+  `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
+  `v0.5-outputs`.
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).

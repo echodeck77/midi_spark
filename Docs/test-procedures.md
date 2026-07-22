@@ -123,6 +123,25 @@ live: clean transition.
   note partial coverage honestly (e.g. item 4 is "engine-verified via T2/T5,
   UI-verified at step 5").
 
+## Verification log (device-confirmed; newest first)
+
+### 2026-07 — migration to v3.0 graph routing + outputs
+
+| Milestone | Result | Tag | Notes |
+|---|---|---|---|
+| `v0.4-graph-routing` | MET | `v0.4-graph-routing` | T1–T5, T7–T9, T11 + B1–B4 device-verified; receiver-picked inputRow references replace ▾/+SRC; old sessions migrate on load |
+| `v0.5-outputs` | MET | `v0.5-outputs` | T6 (new filter-in/stamp-out form) + regressions verified; 5 cables (All + Emit A–D), busChannels stamp, OUT CH/INHERIT removed |
+| UI rebind (6a/6b) | device-confirmed | — | grid authors the v3 model: FROM references, IN CH filter, bus emitters, OUTPUTS busChannels editing |
+
+Off-device: `MidiSparkTests` — **55 pure-core unit tests** green (swing, phase, arp
+patterns, cellMode, processor math, effective-param morph, snapshot builder,
+loader migration, resolvedParent/isTapped, input-channel filter). Run with the
+pinned `-derivedDataPath build/DerivedData`.
+
+Not yet done: HARMONIZE (6th processor, identity until built); the full v56 visual
+port (four-row cells / FROM+emitter popovers / one-clock playheads — current UI is
+a functional stand-in).
+
 ## Reporting template (what the human sends back)
 
 "T_n: PASS/FAIL — [what was heard] — monitor: [anything odd] — diag panel:
