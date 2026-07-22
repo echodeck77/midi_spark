@@ -1,18 +1,25 @@
-# MidiSpark — Xcode Scaffold
+# MidiSpark — working title "8x8 State"
 
-Container app + AUv3 MIDI-processor extension (`aumi`, four MIDI outputs), per **spec v2.8**.
-Scope of this scaffold = **acceptance items 1–3**: load in AUM with four declared outputs,
-raw passthrough when stopped, and a host-locked hardcoded 1/16 arp on output A when playing —
-the moment the design meets real MIDI.
+Container app + AUv3 MIDI-processor extension (`aumi`) for iPadOS. An 8×8 grid
+sequences MIDI *processors* (arps, ratchets, gates) over time; held chords go
+in, bus outputs come out (currently four cables A–D; becomes five — ALL + A–D —
+with the v0.5 outputs work). Primary host: AUM.
 
-> Written off-Mac: expect minor compiler fix-ups (API signatures drift between SDK versions),
-> not structural ones. Everything uses boring, standard AUv3 plumbing.
+**Spec:** `Docs/midispark-spec-v2.8.md` read together with
+`Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
+**Live status and the current plan:** `CLAUDE.md` → `Docs/migration-tree-routing.md`.
+**UI reference:** `Docs/midispark-preview-v56.html` (open in a browser).
+
+> Status in one line: router complete under the OLD chain model
+> (tag `v0.3-router`), five of six processors built, a first SwiftUI grid
+> slice exists — the current task is the survey-first migration to the v3.0
+> graph-routing model, then GUI reconciliation. See CLAUDE.md; do not code
+> from this README.
 
 ## Setup — Path A (recommended): XcodeGen
 
-```bash
+```
 brew install xcodegen
-cd MidiSparkScaffold
 # 1. Edit project.yml: set bundleIdPrefix to your reverse-DNS, DEVELOPMENT_TEAM to your Team ID
 xcodegen generate
 open MidiSpark.xcodeproj
@@ -21,78 +28,63 @@ open MidiSpark.xcodeproj
 ## Setup — Path B: manual Xcode
 
 1. Xcode → New Project → iOS **App** → name `MidiSpark`, SwiftUI, iPad. Replace its Swift files with `App/`.
-2. File → New → Target → **Audio Unit Extension** → name `MidiSparkAU`
-   (any AU type in the wizard — we overwrite the declaration next). Delete the template's generated
-   AU/DSP files; add everything in `AUExtension/`.
-3. Replace the extension target's Info.plist content with `AUExtension/Info.plist`
-   (this is what declares `aumi` / `MSpk` / `MSPK` and tags MIDI).
-4. Both targets: Signing & Capabilities → your team, unique bundle IDs
-   (extension ID must be prefixed by the app's, e.g. `com.you.midispark` / `com.you.midispark.au`).
+2. File → New → Target → **Audio Unit Extension** → name `MidiSparkAU` (any AU type in the wizard — we overwrite the declaration next). Delete the template's generated AU/DSP files; add everything in `AUExtension/`.
+3. Replace the extension target's Info.plist content with `AUExtension/Info.plist` (this is what declares `aumi` / `MSpk` / `MSPK` and tags MIDI).
+4. Both targets: Signing & Capabilities → your team, unique bundle IDs (extension ID must be prefixed by the app's, e.g. `com.you.midispark` / `com.you.midispark.au`).
 
 ## Signing on a free account
-The component name is "MidiSpark: MidiSpark" (Manufacturer: Product); replace the left half with your own dev/brand name in AUExtension/Info.plist if you have one.
-Personal Team works: 7-day provisioning, re-deploy weekly. Change `com.example` everywhere
-(project.yml + `MidiSparkAudioUnit.stateKey`). First run on device: Settings → General →
-VPN & Device Management → trust your certificate.
 
-## Verify in AUM (= acceptance 1–3)
+The component name is "MidiSpark: MidiSpark" (Manufacturer: Product). Personal
+Team works: 7-day provisioning, re-deploy weekly. First run on device:
+Settings → General → VPN & Device Management → trust your certificate.
 
-1. Build & run **MidiSpark** (the app) on the iPad once — this registers the extension.
-2. Open AUM → `+` → MIDI Processors → **MidiSpark: MidiSpark**. It should list and instantiate. *(item 1)*
-3. Check AUM's MIDI routing: MidiSpark exposes **four sources (A–D)**. Route A → any synth,
-   and a keyboard → MidiSpark's input. *(item 1)*
-4. Transport **stopped**: play the keyboard → notes pass straight through (soundcheck). *(item 1)*
-5. Hold a chord, press **play**: an ascending 1/16 arp on output A, locked to AUM's clock.
-   Change tempo mid-hold; loop a section; relocate — the arp must follow with zero drift,
-   because position is derived, never accumulated. *(items 2–3)*
-6. Stop with notes sounding: no stuck notes (transport-edge all-notes-off). *(item 2)*
+## Verify in AUM
 
-If the plugin doesn't appear in AUM: reboot the iPad once (AU registration cache),
-confirm the extension's Info.plist made it into the build, and that `sandboxSafe` is true.
+Smoke test (scaffold-era acceptance 1–3 still apply): instantiate under MIDI
+Processors, route outputs to synths and a keyboard to the input, passthrough
+when stopped, host-locked playing behaviour with zero drift across tempo
+changes / loops / relocations, no stuck notes on stop. Full device
+verification lives in `Docs/test-procedures.md` (canned sessions loaded from
+the diagnostic panel; the repo's T-numbering is authoritative).
+
+If the plugin doesn't appear in AUM: reboot the iPad once (AU registration
+cache), confirm the extension's Info.plist made it into the build, and that
+`sandboxSafe` is true.
 
 ## What's here
-
-> Well past the original scaffold now — the router (spec §2/§7) is complete (tag
-> `v0.3-router`) and five of six processors are built. See CLAUDE.md for live status.
 
 ```
 project.yml                          XcodeGen definition (targets, embed, signing, test target)
 App/                                 Container app (registers the extension; instructions screen)
+GridUI/                              SwiftUI grid slice (work-in-progress; reconciliation target = preview v56)
 AUExtension/
   Info.plist                         aumi declaration: type/subtype/manufacturer, MIDI tag
-  MidiSparkAudioUnit.swift            AUAudioUnit: midiOutputNames ["A","B","C","D"], 35-parameter
-                                     tree (STABLE addresses: 0 stepRate, 1 swing, 100+i transpose,
-                                     200+i morph, 300 morphMaster), fullState = host Preset (§1)
+  MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames, 35-parameter tree (STABLE
+                                     addresses: 0 stepRate, 1 swing, 100+i transpose, 200+i morph,
+                                     300 morphMaster), fullState = host Preset (§1)
   Kernel.swift                       INPUT side: transport/context derivation, incoming MIDI
                                      (source pool + passthrough + CC), param events → Router
-  Router.swift                       OUTPUT side (§2/§7): grid columns, chain derivation, per-cell
-                                     processors (arp/ratchet/passgate/strum/chance), fan-out, the
-                                     voice table + (bus,channel,note) collision refcount
+  Router.swift                       OUTPUT side (§2/§7): grid columns, routing derivation, per-cell
+                                     processors, fan-out, the voice table + collision refcount
+                                     (chain model as built — migrating per Docs/migration-tree-routing.md)
   Derivations.swift                  PURE core (Foundation-only, unit-tested): NotePool, swing warp,
-                                     phase indexing, arp patterns, cellMode dispatch, ratchet/strum/
-                                     chance math
+                                     phase indexing, arp patterns, cellMode dispatch, processor math
   Snapshot.swift                     Flat snapshot schema + effective-param morph (§3.2/§13.5), pure
   SnapshotStore.swift                Atomic publish/acquire bridge (the one swift-atomics user)
   SnapshotBuilder.swift              document → SnapshotBox: B-over-A resolve, enum→index, run-starts
   Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
   TestSessions.swift                 T1–T16 canned patches, loaded from the diagnostic panel
   AudioUnitViewController.swift      Extension UI host + the live diagnostic panel (4 Hz)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, 42 tests)
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, 42 tests —
+                                     first line of verification; keep green through every commit)
+Docs/                                Specs, migration plan, test playbook, UI guide, preview mockups
 ```
 
-## Build order from here (per spec + our plan)
+## Where the plan lives (this section intentionally does not duplicate it)
 
-1. **Prove sync** (this scaffold): acceptance 1–3 pass in AUM.
-2. **Snapshot bridge** (spec §7): flat, atomically-swapped engine state; kernel reads snapshots,
-   never the document. Replace the kernel's hardcoded arp with snapshot-driven cells.
-3. **Router**: sender-decides derivation, buses, OUT CH stamping, collision refcount (§7 v2.3).
-4. **Processors**: ARP (full: patterns, rates, octaves, gate, PHASE modes) → RATCHET → PASSGATE →
-   STRUM/CHANCE/HARMONIZE. Note tracker invariants throughout (acceptance 4–6).
-5. **UI**: the grid + wiring visualisation, porting `midispark-preview-v26.html` into SwiftUI
-   (after the COLOUR-panel layout pass). Then performance layers, audition, Launchpad.
-6. Regenerate the stale architecture/domain diagrams once the snapshot layout is real.
-
-Known scaffold shortcuts (all TODO-tagged in source): incoming-MIDI passthrough copies only
-3-byte messages; no MIDI 2 event-list path; parameters write to the document directly instead
-of through the snapshot; the arp ignores swing/step-rate (fixed 1/16). All are replaced in
-build-order steps 2–4.
+The build order that used to sit here described the pre-v3.0 model and is
+retired. The single source of truth for what to do next is **CLAUDE.md**
+(status + doc index) and **Docs/migration-tree-routing.md** (the sequenced
+plan: engine migration commits, then GUI reconciliation to preview v56).
+Behaviour questions go to the spec + delta; device verification goes to
+Docs/test-procedures.md.

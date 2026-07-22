@@ -49,6 +49,7 @@ struct DiagView: View {
     @State private var selRow = -1
     @State private var emitActive = false
     @State private var lastEmitCount: UInt64 = 0
+    @State private var busChannels: [Int] = [1, 2, 3, 4]
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     private var selectedCell: Cell? {
@@ -110,6 +111,16 @@ struct DiagView: View {
         editSelected { c in c.inputChannel = (c.inputChannel + 1) % 17 }
     }
 
+    // OUTPUTS: bump bus i's stamp channel 1…16 → wraps to 1.
+    private func bumpBusChannel(_ i: Int) {
+        guard let au else { return }
+        au.editDocument { d in
+            while d.busChannels.count < 4 { d.busChannels.append(d.busChannels.count + 1) }
+            d.busChannels[i] = d.busChannels[i] % 16 + 1
+        }
+        busChannels = au.uiBusChannels()
+    }
+
     private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
 
     private func load(_ s: TestSessions.Session) {
@@ -148,6 +159,7 @@ struct DiagView: View {
                 GridView(scene: scene, playColumn: d.effColumn, playing: d.playing,
                          selCol: selCol, selRow: selRow, onTap: tapCell)
                 BusLanesView(scene: scene, active: emitActive)
+                OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
                 PaletteView(brush: brush) { brush = $0 }
                 CellEditorStrip(cell: selectedCell, brush: brush, occupiedRows: occupiedRows,
                                 onPaint: paintSelected, onClear: clearSelected,
@@ -220,6 +232,7 @@ struct DiagView: View {
             d = au.kernelDiagnostics()
             emitActive = d.emitCount != lastEmitCount   // MIDI flowed since last poll → light the lanes
             lastEmitCount = d.emitCount
+            busChannels = au.uiBusChannels()
             scene = au.uiScene()
             treeMorphGold = au.parameterTree?.parameter(withAddress: 200)?.value ?? 0
             treeSwing = au.parameterTree?.parameter(withAddress: 1)?.value ?? 50

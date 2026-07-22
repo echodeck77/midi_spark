@@ -134,12 +134,13 @@ of the plan, sequenced LAST)
 A SwiftUI grid has been built against the OLD model/visuals. Do not touch it
 during engine commits 1–5 beyond keeping it compiling. Then:
 6. **UI survey** (rule zero again): catalogue what the grid binds (schema
-   fields, gestures, visual generation — it likely predates v53). List before
+   fields, gestures, visual generation — it likely predates v56). List before
    editing.
-7. **Reconcile** to `Docs/midispark-preview-v53.html` per ui-port-guide:
+7. **Reconcile** to `Docs/midispark-preview-v56.html` per ui-port-guide:
    new schema bindings (inputRow/inputChannel/busChannels), four-row cell,
-   FROM + emitter popovers, OUTPUTS panel, responsive desk placement,
-   watermarks, playheads per the one-clock rule. Human verifies each visual
+   FROM + emitter popovers, three-box desk (COLOUR/PROCESSOR/EMITTERS) +
+   SCENE strip (wired to TestSessions in dev builds), watermarks, playheads
+   per the one-clock rule. Human verifies each visual
    claim against the mockup side-by-side on the iPad.
 
 ## Explicitly out of scope

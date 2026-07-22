@@ -38,6 +38,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    /// Document-level edit path (busChannels, morphMaster, …) — same publish semantics as editScene.
+    func editDocument(_ mutate: (inout PluginState) -> Void) {
+        mutate(&document)
+        scheduleRebuild()
+    }
+
+    /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
+    func uiBusChannels() -> [Int] { document.busChannels }
+
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if suppressRebuild { return }

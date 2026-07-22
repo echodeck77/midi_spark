@@ -4,9 +4,9 @@ STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
 (colours/cells/presets, processors, morph/ALT, swing, QUANT, performance layers,
 engine snapshot architecture, collision policy, parameters, MORPH desk).
-Reference implementation of the UI: `Docs/midispark-preview-v53.html`
-(v50/v51 contain a JSX bug — do not use; v52 is the fixed base, v53 adds the
-responsive desk).
+Reference implementation of the UI: `Docs/midispark-preview-v56.html`
+(v50/v51 contain a JSX bug — do not use; v52 fixed base → v53 responsive desk
+→ v54 three-box layout → v55 big emitters → v56 scene strip = canonical).
 The abandoned alternative (linear chains + module boxes) is preserved as
 `midispark-preview-v40.html` for the record; do not implement it.
 
@@ -82,7 +82,7 @@ Document gains `busChannels[4]` (there is no outputMode — see §7b).
 
 ## 4. Visual language — PERFORM (supersedes §5)
 
-The perform grid is a **readable table that plays**. Reference: v53 preview.
+The perform grid is a **readable table that plays**. Reference: v56 preview.
 
 - **Cell = four rows** (top→bottom):
   1. INPUT HEADER — text: `FROM MIDI` (dim white = the default), `MIDI CHn`
@@ -146,13 +146,21 @@ the grid, full grid height (generous). Portrait: a compact band BELOW the
 grid (the tight case; the height budget applies here). The breakpoint is
 aspect-driven, not device-driven.
 
-Desk contents, top to bottom: STEP rate + SWING (relocated from the header,
-which keeps only transport, mode, PASS, and momentary indicators) ·
-COLOUR ⇄ MORPH toggle (defaults COLOUR) · palette 4×4 · OUTPUTS panel
-(emitter select + channel + the ALL note) · the selected Colour's parameter
-fields · A/B tabs + inline MORPH. In landscape the MORPH view renders its
-16 strips as VERTICAL faders (a mixer column); portrait keeps horizontal
-strips. Final dimension tuning happens on device.
+HEADER contents (v54 decision — supersedes the earlier STEP/SWING
+relocation): "8×8 STATE" logotype (candidate branding; display only) ·
+EDIT/PERFORM · TAP selector · STEP rate · SWING · PASS · transport ·
+momentary indicators. Desk contents: palette 4×4 · the selected Colour's
+parameter
+fields · A/B tabs. (MORPH desk: parked — returns as its own design pass.)
+Desk boxes are three NAMED panels — COLOUR, PROCESSOR, EMITTERS — in that
+order in both orientations; only PROCESSOR may scroll (content-sized up to a
+ceiling); emitter select buttons are grid-pad-scale squares carrying their
+channel readouts. A **SCENE strip** runs full-width along the BOTTOM in both
+orientations: 8 slots, current highlighted (dev builds host the canned test
+sessions in these slots until scenes are implemented). RESERVED, details TBD:
+a MIDI-IN display ABOVE the COLOUR box. BACKLOG (log, don't invent):
+collapsible/scalable desk sections for tucking away unused panels.
+Final dimension tuning happens on device.
 
 ## 7. Channels: filter in, stamp out (supersedes v2.8 §2.6 and all INHERIT semantics)
 

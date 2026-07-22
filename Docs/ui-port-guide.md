@@ -1,13 +1,16 @@
-# UI port guide — mockup v53 → SwiftUI
+# UI port guide — mockup v56 → SwiftUI
 
-The reference implementation is `Docs/midispark-preview-v53.html` (React, runs
+The reference implementation is `Docs/midispark-preview-v56.html` (React, runs
 in any browser). A first grid slice EXISTS in the repo built to an earlier
 generation — reconciliation, not greenfield, is the task (see the migration
 doc's GUI section for sequencing). It is the *behavioural* spec for the UI: when this guide and
 the HTML disagree on look/feel/timing, open the HTML and match it. When either
 disagrees with the spec (v2.8 + v3.0-delta) on semantics, the spec wins.
-v26–v49 are historical; v50/v51 contain a JSX bug (do not open); v52 is the
-fixed base; v53 is canonical. v40 is the preserved abandoned fork.
+v26–v49 are historical; v50/v51 contain a JSX bug (do not open); v52–v55 are
+intermediates; v56 is canonical. v40 is the preserved abandoned fork.
+MOCKUP-ONLY AFFORDANCE — DO NOT PORT: the header's AUTO/WIDE/TALL layout
+toggle exists so both orientations can be previewed in a browser; the real
+app derives orientation from size classes, never a user toggle.
 
 ## Design tokens
 
@@ -30,10 +33,11 @@ the HTML's `T` constant.
 
 ## Component inventory (top → bottom of the mockup)
 
-1. **Header (slim):** transport, mode toggle (EDIT amber / PERFORM cyan),
-   TAP action selector (perform), PASS counter, momentary indicators
-   (ISOLATE / STUTTER / LOOP n–m / ROW ALT). STEP rate and SWING live in the
-   DESK, not the header (delta §6).
+1. **Header:** "8×8 STATE" logotype (candidate branding — product strings
+   stay MidiSpark until the name is decided), mode toggle (EDIT amber /
+   PERFORM cyan), TAP action selector (perform), STEP rate, SWING, PASS
+   counter, transport, momentary indicators (ISOLATE / STUTTER / LOOP n–m /
+   ROW ALT). (v54 decision: STEP/SWING live HERE, not the desk.)
 2. **Playhead strip:** the master DOWN-ARROW sweeping above the grid —
    continuous through each step, swing-stretched, loop-snapped.
 3. **Grid 8×8** + side buttons (stack/MUTE row on top, row column at right) +
@@ -49,15 +53,22 @@ the HTML's `T` constant.
    LEGATO left tick, breathing ALT ring, falling MUTATION sweep on working
    cells of the live column (faint when bypassed), row-number WATERMARK on
    empty cells (perform).
-4. **Desk (a PERFORMANCE surface — delta §6):** placement is responsive —
-   right column beside the grid in landscape, band below it in portrait
-   ("the grid is square, screens are not"). Contents top→bottom: STEP + SWING
-   · COLOUR ⇄ MORPH toggle (defaults COLOUR) · palette 4×4 (26px chips) ·
-   OUTPUTS panel (A–D select, per-emitter channel, the ALL-cable note,
-   shared-channel warning) · the selected Colour's fields (TYPE, TRANSPOSE,
-   PHASE, TIME/DENSITY, params — NO channel field here; channels are
-   bus-owned) · A/B tabs + inline MORPH. MORPH view: 16 strips + MASTER +
-   SPRING; render strips as VERTICAL faders in the landscape column.
+4. **Desk (a PERFORMANCE surface — delta §6): three NAMED boxes** in fixed
+   order COLOUR → PROCESSOR → EMITTERS; stacked vertically in the right
+   third beside the grid in landscape (grid takes two-thirds), left-to-right
+   thirds below the grid in portrait ("the grid is square, screens are
+   not"). Scroll policy: ONLY the PROCESSOR box may scroll (content-sized to
+   a ceiling); COLOUR and EMITTERS never. COLOUR = palette 4×4 + selected
+   name·type readout. PROCESSOR = A/B tabs + the selected Colour's fields
+   (TYPE, TRANSPOSE, PHASE, TIME/DENSITY, params — NO channel field;
+   channels are bus-owned). EMITTERS = four GRID-PAD-SCALE square buttons
+   each printing its letter + CH readout, selected = white ring; below them
+   CABLE·CH edit control, ALL-cable note, shared-channel warning. MORPH desk:
+   PARKED (own later pass); RESERVED above COLOUR: the MIDI-IN display
+   (details TBD).
+5. **SCENE strip:** full-width along the bottom in both orientations —
+   8 grid-idiom slots, current ringed; dev builds host the canned test
+   sessions in these slots until scenes are implemented.
 
 ## Gesture map (the grammar, §0 — implement uniformly)
 
@@ -104,13 +115,14 @@ the HTML's `T` constant.
    visual generation it implements. List before editing.
 2. Rebind to the new schema (inputRow / inputChannel / busChannels) once the
    engine migration lands — the grid must never write old fields.
-3. Reconcile visuals to v53: four-row cell, watermarks, playheads (one-clock
+3. Reconcile visuals to v56: four-row cell, watermarks, playheads (one-clock
    rule), header/emitter states. Acceptance 12 (rescoped): header names the
    live parent; emitter strip matches actual emission — verify vs a monitor.
 4. Edit interactions: FROM/OUT popovers → then drag-and-drop + hold menu.
-5. Desk: responsive placement, OUTPUTS panel, fields, MORPH (vertical faders
-   in landscape) → perform layers → audition (incl. EDIT-stopped hold,
-   delta §5) → QUANT arming visuals.
+5. Desk: three-box responsive placement + SCENE strip (wire scene slots to
+   the TestSessions loader in dev builds) → perform layers → audition
+   (incl. EDIT-stopped hold, delta §5) → QUANT arming visuals. MORPH desk
+   returns as its own later pass.
 
 The §6.9 layout pass is CLOSED — delta §6 is its outcome; implement, don't
 re-design.

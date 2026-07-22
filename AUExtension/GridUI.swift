@@ -163,6 +163,45 @@ struct BusLanesView: View {
     }
 }
 
+/// OUTPUTS panel (delta §7/§7b): the fixed cable identities + each bus's stamp channel. Tap a bus's
+/// channel to bump it (1…16 → wraps). Flags when two buses share a channel (their streams merge on
+/// the All cable — legal, never blocked).
+struct OutputsView: View {
+    let busChannels: [Int]        // 4 values, 1–16
+    let onBump: (Int) -> Void     // bump bus i's channel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("OUTPUTS").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.45))
+                Text("All = everything, by channel").font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.3))
+            }
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { i in
+                    let ch = i < busChannels.count ? busChannels[i] : i + 1
+                    let shared = busChannels.filter { $0 == ch }.count > 1
+                    HStack(spacing: 3) {
+                        Text("\(["A","B","C","D"][i])").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.55))
+                        Text("ch \(ch)")
+                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.black)
+                            .padding(.vertical, 3).padding(.horizontal, 6)
+                            .background(RoundedRectangle(cornerRadius: 4)
+                                .fill(shared ? Color(red: 0.98, green: 0.72, blue: 0.12)   // amber: shared-channel flag
+                                             : Color(red: 0.15, green: 0.88, blue: 0.94)))
+                            .contentShape(Rectangle())
+                            .onTapGesture { onBump(i) }
+                    }
+                }
+                Spacer()
+            }
+        }
+    }
+}
+
 /// The Colour brush palette — 16 chips in bank order; the active brush is ringed.
 struct PaletteView: View {
     let brush: String

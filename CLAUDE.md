@@ -31,18 +31,21 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   slice exists; reconcile, don't rebuild).
 - `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
-- `Docs/midispark-preview-v53.html` — the GUI reference mockup (open in a browser);
-  the behavioural spec for the UI. v26–v49 are history; v50/v51 are BROKEN
-  (JSX bug) — never open as reference; v40 is the preserved abandoned fork
-  (module boxes / linear chains) — do not implement it.
+- `Docs/midispark-preview-v56.html` — the GUI reference mockup (open in a browser);
+  the behavioural spec for the UI (three-box desk, scene strip, header per
+  ui-port-guide). v26–v55 are history; v50/v51 are BROKEN (JSX bug) — never
+  open as reference; v40 is the preserved abandoned fork (module boxes /
+  linear chains) — do not implement it. The mockup's AUTO/WIDE/TALL toggle
+  is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
-- Product name candidate: **"8x8 State"** (display name only, undecided);
-  bundle IDs stay `com.paulbarrett.MidiSpark` FOREVER regardless.
+- Product name candidate: **"8x8 State"** (the v54+ mockups display it as the
+  logotype; still display-name-only and undecided); bundle IDs and code-level
+  product strings stay `MidiSpark` / `com.paulbarrett.MidiSpark` regardless.
 
 ## Architecture invariants (violating these = bug, regardless of tests passing)
 1. **The render thread reads ONLY `SnapshotBox`** (immutable, atomically published).
@@ -89,14 +92,15 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   sender-decides, OUT CH). Works; tagged `v0.3-router`.
 - DONE step 4 (mostly): FIVE of six processors built (ARP/RATCHET/PASSGATE/
   STRUM/CHANCE); **HARMONIZE outstanding** (identity until built).
-- DONE (partial) grid UI: a first SwiftUI grid slice exists, built to an
-  earlier visual generation.
+- DONE (partial) grid UI: a first SwiftUI grid slice exists in `GridUI/`
+  (may be work-in-progress in the working tree, not just HEAD — survey the
+  tree), built to an earlier visual generation.
 - Test assets: `TestSessions.swift` carries **T1–T16** (numbering authority —
   see test-procedures preamble) and `Tests/` holds a **42-test macOS unit
   suite** over the pure core (Derivations.swift). BOTH must stay green
   through every commit; unit tests run off-device and come FIRST.
 - **NEXT: THE MIGRATION** (Docs/migration-tree-routing.md): engine commits 1–5
-  to the v3.0 graph model + outputs, THEN GUI reconciliation to preview v53.
+  to the v3.0 graph model + outputs, THEN GUI reconciliation to preview v56.
   Survey-first on everything. Old saved AUM sessions must load and convert.
 - THEN: HARMONIZE (the step-4 remainder) and the remaining UI passes per
   ui-port-guide's revised order.
