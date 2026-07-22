@@ -183,13 +183,14 @@ struct GridView: View {
         }
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // border: no-dest > selection > active > idle
+            let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
             if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.7) : cellEdge),
-                            lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 1))
+                    .stroke(isSel ? accentAmber : (activeGlow ? Color.white.opacity(0.7) : cellEdge),
+                            lineWidth: isSel ? 2 : (activeGlow ? 1.5 : 1))
             }
         }
         .overlay {                                          // ALT (B-state) breathing ring (§6.5)
