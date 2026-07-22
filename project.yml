@@ -28,6 +28,20 @@ targets:
         # whose version differs from its container fails embedded-binary validation.
         # The extension plist is hand-maintained, so bump BOTH together.
         CFBundleShortVersionString: "0.1.0"
+        # iPad-only app: iOS requires all four orientations (or UIRequiresFullScreen). The
+        # container UI (DiagView) is fully responsive both ways, so we support all four.
+        # These live HERE, not in App/Info.plist — XcodeGen regenerates that file from these
+        # properties, so a direct plist edit would be clobbered. ~ipad is the key iOS reads.
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     dependencies:
       - target: MidiSparkAU
         embed: true
