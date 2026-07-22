@@ -820,10 +820,12 @@ final class Router {
         for i in 0..<128 { auditionCurrent[i] = false }
         for v in voices where v.active { auditionCurrent[Int(v.note)] = true }
         for i in voices.indices where voices[i].active && !auditionDesired[Int(voices[i].note)] {
-            closeVoice(i, atSample: windowStart, out: out)
+            closeVoice(i, atSample: renderSampleImmediate, out: out)
         }
+        // Sustained preview notes have no rhythm — emit them IMMEDIATELY ("sound now") rather than at the
+        // buffer boundary, and never auto-close (offSample .max); reconcile / release ends them.
         for n in 0..<128 where auditionDesired[n] && !auditionCurrent[n] {
-            emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: windowStart, offSample: .max,
+            emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: renderSampleImmediate, offSample: .max,
                       windowEnd: windowEnd, velocity: auditionVel[n], out: out, diag: &diag)
         }
     }

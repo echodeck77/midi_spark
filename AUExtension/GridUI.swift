@@ -220,12 +220,11 @@ struct GridView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap?(col, row) }                  // body / empty → paint / recolour
-        .simultaneousGesture(                               // press-hold → audition (§6.4); coexists with tap/menu
-            LongPressGesture(minimumDuration: 0.3)
-                .sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { value in if case .second(true, _) = value { onAuditionStart?(col, row) } }
-                .onEnded { _ in onAuditionEnd?() }
-        )
+        .onLongPressGesture(minimumDuration: 0.3, maximumDistance: .infinity) {
+            onAuditionStart?(col, row)                      // fires ONCE at ~0.3s while holding → audition
+        } onPressingChanged: { pressing in
+            if !pressing { onAuditionEnd?() }               // release/cancel → stop. No mid-hold flicker, so a
+        }                                                   // SUSTAINED chord-hold preview is never cut short.
         .contextMenu {                                      // EDIT only: body long-press → cell menu (§5)
             if cell != nil && editing {
                 Button(role: .destructive) { onClear?(col, row) } label: { Label("Clear", systemImage: "xmark") }
