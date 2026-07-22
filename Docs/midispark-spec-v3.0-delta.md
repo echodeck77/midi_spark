@@ -168,6 +168,17 @@ a MIDI-IN display ABOVE the COLOUR box. BACKLOG (log, don't invent):
 collapsible/scalable desk sections for tucking away unused panels.
 Final dimension tuning happens on device.
 
+**Sizing across devices and host windows:** all UI dimensions and type sizes
+are TOKENS derived from the resolved cell size, with a legibility floor —
+no hardcoded literals survive the port. Screens (1024×768 floor → 13") need
+only the tokens. The AUv3 HOST WINDOW is the real variable: define a minimum
+design size, below which the canvas scales UNIFORMLY; for small-but-usable
+views apply the DEGRADATION LADDER: (1) full UI → (2) type tiers shrink to
+floor → (3) cell captions drop (colour + glyph + strips only) → (4) desk
+collapses to a summonable drawer, grid-only. Rung 4 shares its mechanism
+with the tuck-away-sections backlog item — build once. Static-frames rule
+applies WITHIN each rung; rung changes are size-driven, never content-driven.
+
 ## 7. Channels: filter in, stamp out (supersedes v2.8 §2.6 and all INHERIT semantics)
 
 **The whole channel story in one sentence: channel is FILTERED at the front
