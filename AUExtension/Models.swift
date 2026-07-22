@@ -78,8 +78,11 @@ struct Cell: Codable, Equatable {
     // v3.0 (delta §1/§2): the cell's single input reference. nil = MIDI IN; else the referenced row
     // in the same column (any row; cycles legal-and-silent). Optional → old docs (no key) decode as
     // nil and are filled by migrateLegacyRoutingIfNeeded(); the render path uses SnapCell's Int
-    // sentinel, not this. Router still reads `stack` until the commit-3 flip.
+    // sentinel, not this.
     var inputRow: Int? = nil
+    // v3.0 (delta §7): input-channel filter for a MIDI-IN cell. 0 = OMNI (default); 1–16 = only notes
+    // arriving on that channel. Applies at the source boundary only (referenced parents aren't filtered).
+    var inputChannel: Int = 0
 }
 
 // MARK: - Scene & document — §9
@@ -105,6 +108,7 @@ struct PluginState: Codable, Equatable {
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
     var activeScene: Int = 0
     var morphMaster: Double = 0    // §13.5 — parameter #35, reserved & functional now
+    var busChannels: [Int] = [1, 2, 3, 4]   // v3.0 (delta §7): each bus A–D stamps this channel on exit
 
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /

@@ -41,6 +41,7 @@ enum SnapshotBuilder {
                    ir < scene.cells[c].count, scene.cells[c][ir] != nil {
                     sc.resolvedParent = Int8(ir)
                 }
+                sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // delta §7 source filter
                 cells[c * Snap.rows + r] = sc
             }
         }
@@ -75,12 +76,20 @@ enum SnapshotBuilder {
             }
         }
 
+        // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
+        var busCh = [UInt8](repeating: 0, count: 4)
+        for i in 0..<4 {
+            let v = i < doc.busChannels.count ? doc.busChannels[i] : (i + 1)
+            busCh[i] = UInt8(max(1, min(16, v)))
+        }
+
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
                            morphMaster: max(0, min(1, doc.morphMaster)),
                            colours: colours,
-                           cells: cells)
+                           cells: cells,
+                           busChannels: busCh)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

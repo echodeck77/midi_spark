@@ -32,6 +32,7 @@ struct SnapCell {
     // v3.0 graph routing (delta §1, precomputed here so render never scans):
     var resolvedParent: Int8 = -1   // referenced row IF occupied & ≠ self, else −1 (= MIDI IN)
     var isTapped = false            // some OTHER cell in this column references this row
+    var inputChannel: UInt8 = 0     // delta §7: source filter, 0 = OMNI, else 1–16 (MIDI-IN cells only)
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)
@@ -70,15 +71,17 @@ final class SnapshotBox {
     let morphMaster: Double          // §13.5, parameter #35
     let colours: [SnapColour]        // exactly 16
     let cells: [SnapCell]            // 64, index = column * 8 + row
+    let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
-         colours: [SnapColour], cells: [SnapCell]) {
+         colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8]) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
         self.morphMaster = morphMaster
         self.colours = colours
         self.cells = cells
+        self.busChannels = busChannels
     }
 }
 

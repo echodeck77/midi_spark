@@ -56,7 +56,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     // MARK: - Four MIDI outputs — the load-bearing line (§8). AUM shows these as four sources.
-    public override var midiOutputNames: [String] { ["A", "B", "C", "D"] }
+    // delta §7b: FIVE cables — ALL (0) carries every emitter channel-distinguished; A–D (1–4) each
+    // carry their own stream. Static; serves single-cable and multi-out hosts simultaneously.
+    public override var midiOutputNames: [String] {
+        ["MidiSpark ALL", "MidiSpark A", "MidiSpark B", "MidiSpark C", "MidiSpark D"]
+    }
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {

@@ -41,15 +41,17 @@ final class Router {
     // Collision refcount (§7, normative): per (bus, channel, note). Note-ONs always emit
     // (re-articulation is audible truth); the wire note-OFF is emitted only when the LAST instance
     // releases — so a sustained note never drops under a same-pitch arp. 4 buses × 16 ch × 128 notes.
-    private var refcount = [UInt8](repeating: 0, count: 4 * 16 * 128)
-    private var distinctSounding = 0   // number of (bus,ch,note) with refcount > 0 (diag; kept incrementally)
+    // 5 cables now (delta §7b): 0 = ALL, 1–4 = A–D.
+    private var refcount = [UInt8](repeating: 0, count: 5 * 16 * 128)
+    private var distinctSounding = 0   // number of (cable,ch,note) with refcount > 0 (diag; kept incrementally)
 
+    private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
     @inline(__always)
     private func rcIndex(_ cable: UInt8, _ chan: UInt8, _ note: UInt8) -> Int {
-        (Int(cable & 3) * 16 + Int(chan & 15)) * 128 + Int(note & 127)
+        (Int(cable % 5) * 16 + Int(chan & 15)) * 128 + Int(note & 127)
     }
 
     // Per-row chain scratch (§2/§1.1). Each row's TICK articulations this window, so a fed cell can
@@ -234,26 +236,35 @@ final class Router {
         articCount[row] = c + 1
     }
 
-    /// Stamp OUT CH (§2.6) and FAN OUT one articulation to every lit bus (§2.3: a cell emits on each
-    /// enabled letter simultaneously, duplicate events per bus). Each bus is an independent voice
-    /// under the refcount. In-window offs close in-loop so wire events stay in ascending sample order.
+    /// FAN OUT one articulation to every lit bus (§2.3). Channel is STAMPED per bus here (delta §7:
+    /// notes have no channel until this exit); each bus emits TWICE — its own cable (bus+1) and the
+    /// ALL cable (0), both on busChannels[bus] (§7b). Every (cable,channel,note) is an independent
+    /// voice under the refcount, so the ALL duplicate and any shared-channel merge off-pair correctly.
+    /// `provenanceChan`/`outChannel` are vestigial (INHERIT/OUT CH removed) — ignored; dropped in 5b.
     private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, busMask: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
                            windowEnd: AUEventSampleTime, velocity: UInt8 = 96,
                            out: AUMIDIOutputEventBlock?, diag: inout KernelDiag) {
-        let outCh: UInt8 = outChannel == 0 ? provenanceChan : outChannel - 1
+        var lastCh: UInt8 = 0
         var mask = busMask
         while mask != 0 {
-            let cable = UInt8(mask.trailingZeroBitCount)
-            mask &= mask - 1                                  // clear the lowest set bit
-            let slot = openVoice(note: note, chan: outCh, cable: cable,
-                                 onSample: onSample, offSample: offSample, velocity: velocity, out: out)
-            if slot >= 0 && offSample <= windowEnd { closeVoice(slot, atSample: offSample, out: out) }
+            let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
+            mask &= mask - 1
+            let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
+            lastCh = ch
+            // own cable (bus+1) and the ALL cable (0) — both channel-stamped identically (no array
+            // literal on the hot path). Unrolled to avoid allocation.
+            let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1),
+                                onSample: onSample, offSample: offSample, velocity: velocity, out: out)
+            if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
+            let all = openVoice(note: note, chan: ch, cable: 0,
+                                onSample: onSample, offSample: offSample, velocity: velocity, out: out)
+            if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
         }
         diag.emitCount &+= 1
         diag.lastEmitNote = note
-        diag.lastEmitChan = outCh
-        diag.lastEmitInherit = (outChannel == 0)
+        diag.lastEmitChan = lastCh
+        diag.lastEmitInherit = false
     }
 
     /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
@@ -405,6 +416,8 @@ final class Router {
                  frameCount: AUAudioFrameCount,
                  out: AUMIDIOutputEventBlock?,
                  diag: inout KernelDiag) {
+
+        busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = AUEventSampleTime(timestampSample)
