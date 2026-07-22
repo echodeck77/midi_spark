@@ -53,6 +53,10 @@ struct ColourParams: Codable, Equatable {
     var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
     var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
     var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
+    // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
+    // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
+    var harmIntervals: [Int]? = [0, 0, 0]
+    var harmVelScale: Double? = 0.8
 }
 
 struct Colour: Codable, Equatable {

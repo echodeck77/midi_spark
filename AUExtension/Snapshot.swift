@@ -52,6 +52,8 @@ struct SnapParams {
     var curve: Double = 0            // strum timing curve −1…1
     var velTilt: Double = 0          // strum velocity tilt −1…1
     var probability: Double = 1      // chance: pass-through probability 0…1
+    var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
+    var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
 }
 
 struct SnapColour {
@@ -146,4 +148,23 @@ func effectiveSpread(_ c: SnapColour, t: Double) -> Double {
 @inline(__always)
 func effectiveProbability(_ c: SnapColour, t: Double) -> Double {
     max(0, min(1, c.a.probability + (c.b.probability - c.a.probability) * t))
+}
+
+// HARMONIZE (§3): the 3 added-voice intervals are STEPPED (semitones) — interpolate each toward B
+// and round; velScale is continuous. Intervals clamp to −24…+24; 0 = voice off.
+@inline(__always)
+func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
+    let a: Int, b: Int
+    switch voice {
+    case 0: a = Int(c.a.harmIntervals.0); b = Int(c.b.harmIntervals.0)
+    case 1: a = Int(c.a.harmIntervals.1); b = Int(c.b.harmIntervals.1)
+    default: a = Int(c.a.harmIntervals.2); b = Int(c.b.harmIntervals.2)
+    }
+    let v = (Double(a) + (Double(b) - Double(a)) * t).rounded()
+    return max(-24, min(24, Int(v)))
+}
+
+@inline(__always)
+func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double {
+    max(0.1, min(1, c.a.harmVelScale + (c.b.harmVelScale - c.a.harmVelScale) * t))
 }

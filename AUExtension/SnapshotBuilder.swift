@@ -111,6 +111,13 @@ enum SnapshotBuilder {
         if let v = p.curve { out.curve = max(-1, min(1, v)) }
         if let v = p.velTilt { out.velTilt = max(-1, min(1, v)) }
         if let v = p.probability { out.probability = max(0, min(1, v)) }
+        if let v = p.harmIntervals {
+            func clampInt(_ i: Int) -> Int8 { Int8(max(-24, min(24, i))) }
+            out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),
+                                 clampInt(v.count > 1 ? v[1] : 0),
+                                 clampInt(v.count > 2 ? v[2] : 0))
+        }
+        if let v = p.harmVelScale { out.harmVelScale = max(0.1, min(1, v)) }
         return out
     }
 }

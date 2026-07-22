@@ -68,6 +68,8 @@ final class Router {
     private var articCount = [Int](repeating: 0, count: Snap.rows)
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
+    private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
+    private var harmVels = [UInt8](repeating: 0, count: 4)
 
     func reset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
@@ -268,6 +270,29 @@ final class Router {
     /// HOLD content, emitted ONCE per column at the transition: an identity cell whose input is MIDI
     /// IN articulates the whole (filtered) source chord and holds it to the column boundary (identity
     /// = sample-and-hold of its input pool). Arp cells and referencing mirrors have no hold.
+    /// HARMONIZE emit (§3): expand `base` (post-transpose) into root + up to 3 interval voices and
+    /// emit each with its velocity (root full, added voices scaled). Optionally stores artics so a
+    /// downstream mirror sees the full expanded set. Shared by the MIDI-IN hold and the mirror path.
+    private func emitHarmony(base: Int, colour: SnapColour, t: Double, baseVel: UInt8, row: Int,
+                             storeArtics: Bool, busMask: UInt8,
+                             on: AUEventSampleTime, off: AUEventSampleTime, beat: Double,
+                             windowEnd: AUEventSampleTime, out: AUMIDIOutputEventBlock?,
+                             diag: inout KernelDiag) {
+        let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
+                  Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
+                  Int8(effectiveHarmInterval(colour, voice: 2, t: t)))
+        let scale = effectiveHarmVelScale(colour, t: t)
+        let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
+                                  vel: baseVel, velScale: scale, vels: &harmVels)
+        for i in 0..<cnt {
+            if storeArtics { storeArtic(row: row, on: on, off: off, note: UInt8(harmNotes[i]), beat: beat) }
+            if busMask != 0 {
+                emitArtic(note: UInt8(harmNotes[i]), busMask: busMask, onSample: on, offSample: off,
+                          windowEnd: windowEnd, velocity: harmVels[i], out: out, diag: &diag)
+            }
+        }
+    }
+
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: AUEventSampleTime,
@@ -284,26 +309,31 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            // Cells that chord-hold: identity (incl. open passgate) and CHANCE. CHANCE additionally
-            // drops each chord note by its deterministic probability. Arp/ratchet/strum and a closed
-            // passgate do not chord-hold.
+            // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
+            // (drops each note by probability), and HARMONIZE (expands each note to voices).
+            // Arp/ratchet/strum and a closed passgate do not chord-hold.
             let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
                                 passMask: colour.a.passMask, pass: pass)
-            guard mode == .identity || mode == .chance else { continue }
+            guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-            let prob = (mode == .chance) ? effectiveProbability(colour, t: effectiveT(colourMorph: over(18 + ci, colour.morph),
-                                                                                      master: over(34, box.morphMaster),
-                                                                                      alt: cell.alt)) : 1
+            let t = effectiveT(colourMorph: over(18 + ci, colour.morph), master: over(34, box.morphMaster), alt: cell.alt)
+            let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let srcN = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
             for k in 0..<srcN {
                 let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
-                emitArtic(note: UInt8(n), busMask: cell.busMask,
-                          onSample: onSample, offSample: offSample, windowEnd: windowEnd,
-                          out: out, diag: &diag)
+                if mode == .harmonize {
+                    emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: false,
+                                busMask: cell.busMask, on: onSample, off: offSample, beat: colStart,
+                                windowEnd: windowEnd, out: out, diag: &diag)
+                } else {
+                    emitArtic(note: UInt8(n), busMask: cell.busMask,
+                              onSample: onSample, offSample: offSample, windowEnd: windowEnd,
+                              out: out, diag: &diag)
+                }
             }
         }
     }
@@ -330,7 +360,8 @@ final class Router {
         let pass = Int((m / cycleBeats).rounded(.down))
         let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed, passMask: colour.a.passMask, pass: pass)
         if mode == .silent { return nil }      // e.g. a closed passgate sounds nothing
-        if mode == .ratchet { return nil }     // ratchet sounds a chord (pool), not one note — see doc
+        // ratchet & harmonize sound a POOL (a chord), not one note — a referencing arp can't sample them
+        if mode == .ratchet || mode == .harmonize { return nil }
 
         if mode == .arp {
             let master = over(34, box.morphMaster)
@@ -622,9 +653,9 @@ final class Router {
                         }
                     }
                 }
-            } else if (mode == .identity || mode == .chance) && fed {
-                // Identity/CHANCE referenced: MIRROR the parent's ticks (+ this cell's transpose).
-                // CHANCE drops each note-on by a deterministic probability (off follows its on).
+            } else if (mode == .identity || mode == .chance || mode == .harmonize) && fed {
+                // Identity/CHANCE/HARMONIZE referenced: MIRROR the parent's ticks (+ this transpose).
+                // CHANCE drops each note-on by probability; HARMONIZE expands each to voices.
                 // articBuf holds this-pass artics, so an UPWARD parent (already evaluated) mirrors
                 // correctly; a DOWNWARD parent's buffer is empty this pass → silent (unit-delay not
                 // yet double-buffered — no fixture needs it; backward taps use ARP references).
@@ -635,11 +666,17 @@ final class Router {
                     let n = Int(src.note) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
-                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), beat: src.beat)
-                    if emits {
-                        emitArtic(note: UInt8(n), busMask: cell.busMask,
-                                  onSample: src.onSample, offSample: src.offSample,
-                                  windowEnd: windowEnd, out: out, diag: &diag)
+                    if mode == .harmonize {
+                        emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: true,
+                                    busMask: emits ? cell.busMask : 0, on: src.onSample, off: src.offSample,
+                                    beat: src.beat, windowEnd: windowEnd, out: out, diag: &diag)
+                    } else {
+                        storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), beat: src.beat)
+                        if emits {
+                            emitArtic(note: UInt8(n), busMask: cell.busMask,
+                                      onSample: src.onSample, offSample: src.offSample,
+                                      windowEnd: windowEnd, out: out, diag: &diag)
+                        }
                     }
                 }
             }

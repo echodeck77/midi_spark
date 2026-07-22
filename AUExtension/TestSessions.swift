@@ -290,5 +290,24 @@ enum TestSessions {
                 s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)     // CHANCE references row 0
             })
         },
+
+        Session(id: "T17", title: "HARMONIZE",
+                expect: "The 6th processor completes the roster. Col 0 cyan HARMONIZE at MIDI IN "
+                      + "(intervals +4/+7) on bus A: hold ONE note → a MAJOR TRIAD (root + third + "
+                      + "fifth); hold a chord → each note gains its third & fifth (fuller). Added "
+                      + "voices sit under the root (velScale 0.8). Col 2 gold ARP feeds azure "
+                      + "HARMONIZE (+12) → each arp note doubled an octave up. Held to the column "
+                      + "boundary; no stuck notes.") {
+            var c = baseColours()
+            c[idx("cyan")].type = .harmonize
+            c[idx("cyan")].paramsA.harmIntervals = [4, 7, 0]        // major triad
+            c[idx("azure")].type = .harmonize
+            c[idx("azure")].paramsA.harmIntervals = [12, 0, 0]      // octave doubler
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "cyan", buses: [.a])                   // MIDI IN → harmonize chord
+                s.cells[2][0] = Cell(colourID: "gold", buses: [])                     // arp parent
+                s.cells[2][1] = Cell(colourID: "azure", buses: [.a], inputRow: 0)     // harmonize the arp
+            })
+        },
     ]
 }

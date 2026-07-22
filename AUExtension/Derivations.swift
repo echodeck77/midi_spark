@@ -208,21 +208,43 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, identity, silent }
 
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor
     switch type {
-    case .arp:      return .arp
-    case .ratchet:  return .ratchet
-    case .strum:    return .strum
-    case .chance:   return .chance
+    case .arp:       return .arp
+    case .ratchet:   return .ratchet
+    case .strum:     return .strum
+    case .chance:    return .chance
+    case .harmonize: return .harmonize
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
-    default:        return .identity                       // HARMONIZE: identity until built
+    }                                                      // roster complete — every type handled
+}
+
+// MARK: - HARMONIZE (§3): expand one note into itself + up to 3 transposed voices
+
+/// The notes a HARMONIZE cell emits for one input `base` note: the root, then each non-zero interval
+/// (−24…+24 st), clamped to MIDI range and de-duplicated (a unison/collision would just refcount).
+/// Returns count; fills `out` (caller-sized ≥ 4). `scaledVel` gives each voice's velocity: the root
+/// at `baseVel`, added voices scaled by `velScale`. Pure — no allocation (caller owns the buffer).
+@inline(__always)
+func harmonizeVoices(base: Int, intervals: (Int8, Int8, Int8),
+                     into out: inout [Int], vel baseVel: UInt8, velScale: Double,
+                     vels: inout [UInt8]) -> Int {
+    var n = 0
+    func add(_ note: Int, _ v: UInt8) {
+        guard note >= 0 && note <= 127 else { return }
+        for i in 0..<n where out[i] == note { return }    // de-dup (unison → single voice)
+        out[n] = note; vels[n] = v; n += 1
     }
+    add(base, baseVel)                                     // root at full velocity
+    let addedVel = UInt8(max(1, min(127, Int((Double(baseVel) * velScale).rounded()))))
+    for iv in [intervals.0, intervals.1, intervals.2] where iv != 0 { add(base + Int(iv), addedVel) }
+    return n
 }
 
 // MARK: - CHANCE (§3): deterministic per-note-on probability gate

@@ -216,8 +216,8 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(cellMode(type: .ratchet, bypassed: false, passMask: 0, pass: 0), .ratchet)
         XCTAssertEqual(cellMode(type: .strum, bypassed: false, passMask: 0, pass: 0), .strum)
         XCTAssertEqual(cellMode(type: .chance, bypassed: false, passMask: 0, pass: 0), .chance)
-        XCTAssertEqual(cellMode(type: .arp, bypassed: true, passMask: 0, pass: 0), .identity)   // bypass wins
-        XCTAssertEqual(cellMode(type: .harmonize, bypassed: false, passMask: 0, pass: 0), .identity) // still unimplemented
+        XCTAssertEqual(cellMode(type: .harmonize, bypassed: false, passMask: 0, pass: 0), .harmonize)
+        XCTAssertEqual(cellMode(type: .harmonize, bypassed: true, passMask: 0, pass: 0), .identity)  // bypass wins
     }
 
     func testPassgateGating() {
@@ -316,5 +316,39 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 0), 0)
         XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 1), 3)
         XCTAssertEqual(strumSortedIndex(position: 0, count: 4, direction: .alternate, pass: 2), 0)
+    }
+
+    // MARK: harmonize (§3)
+
+    private func harmonize(_ base: Int, _ intervals: (Int8, Int8, Int8),
+                           vel: UInt8 = 96, scale: Double = 0.8) -> (notes: [Int], vels: [UInt8]) {
+        var notes = [Int](repeating: 0, count: 4), vels = [UInt8](repeating: 0, count: 4)
+        let n = harmonizeVoices(base: base, intervals: intervals, into: &notes,
+                                vel: vel, velScale: scale, vels: &vels)
+        return (Array(notes[0..<n]), Array(vels[0..<n]))
+    }
+
+    func testHarmonizeMajorTriad() {
+        // C (60) + [4, 7, 0] → C E G. Root first, then the two non-zero intervals; a 0 voice is off.
+        XCTAssertEqual(harmonize(60, (4, 7, 0)).notes, [60, 64, 67])
+    }
+
+    func testHarmonizeRootFullAddedScaled() {
+        let (notes, vels) = harmonize(60, (7, 0, 0), vel: 100, scale: 0.5)
+        XCTAssertEqual(notes, [60, 67])
+        XCTAssertEqual(vels[0], 100)   // root full
+        XCTAssertEqual(vels[1], 50)    // added voice scaled
+    }
+
+    func testHarmonizeNoIntervalsIsIdentity() {
+        XCTAssertEqual(harmonize(60, (0, 0, 0)).notes, [60])   // all off → just the root
+    }
+
+    func testHarmonizeDeDupesAndClampsRange() {
+        // A +12 that lands on a held-elsewhere pitch would refcount; within one call, a unison de-dups.
+        XCTAssertEqual(harmonize(60, (0, 12, 12)).notes, [60, 72])   // duplicate +12 collapses
+        // out-of-range voices are dropped, root kept
+        XCTAssertEqual(harmonize(120, (24, 0, 0)).notes, [120])      // 120+24=144 > 127 → dropped
+        XCTAssertEqual(harmonize(5, (-24, 0, 0)).notes, [5])         // 5-24 < 0 → dropped
     }
 }
