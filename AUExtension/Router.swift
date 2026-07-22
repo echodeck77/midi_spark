@@ -203,15 +203,18 @@ final class Router {
         return n
     }
 
-    // MARK: - chain helpers (§2.1)
+    // MARK: - graph routing (delta §1)
 
-    /// A cell is FED iff the cell directly above is occupied, has ▾ stack on, and is not muted
-    /// (a muted feeder reroutes the follower to source, §2.1/§6.2).
+    /// The resolved parent ROW of a cell's input, with the live reroute applied. Returns the
+    /// precomputed `resolvedParent` (§2), UNLESS that parent is muted → revert to MIDI IN. −1 = MIDI
+    /// IN (the cell hears the source pool). Configuration (`inputRow`) is untouched — derivation only
+    /// (delta §1 reroute rule). Any row is legal (upward or downward); cycles are broken by the
+    /// depth guard in feederSoundingNote and are silent by construction.
     @inline(__always)
-    private func isFed(_ box: SnapshotBox, _ column: Int, _ row: Int) -> Bool {
-        guard row > 0 else { return false }
-        let above = box.cells[column * Snap.rows + (row - 1)]
-        return above.colourIndex >= 0 && above.stack && !above.muted
+    private func parentRow(_ box: SnapshotBox, _ column: Int, _ row: Int) -> Int {
+        let p = Int(box.cells[column * Snap.rows + row].resolvedParent)
+        if p >= 0 && !box.cells[column * Snap.rows + p].muted { return p }
+        return -1
     }
 
     @inline(__always)
@@ -278,8 +281,7 @@ final class Router {
             let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
                                 passMask: colour.a.passMask, pass: pass)
             guard mode == .identity || mode == .chance else { continue }
-            let fed = isFed(box, column, r)
-            guard !fed || cell.srcMix else { continue }   // holds source only when unfed or +SRC
+            guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let prob = (mode == .chance) ? effectiveProbability(colour, t: effectiveT(colourMorph: over(18 + ci, colour.morph),
                                                                                       master: over(34, box.morphMaster),
@@ -306,14 +308,16 @@ final class Router {
     ///  · identity unfed → the source chord is a POOL, not a single note; no fixture feeds an ARP
     ///    from one yet, so this returns nil (documented limitation, not a silent wrong answer).
     private func feederSoundingNote(row: Int, column: Int, m: Double, box: SnapshotBox,
-                                    pool: NotePool, S: Double, cycleBeats: Double) -> (note: Int, chan: UInt8)? {
-        guard row >= 0 else { return nil }
+                                    pool: NotePool, S: Double, cycleBeats: Double,
+                                    depth: Int = 0) -> (note: Int, chan: UInt8)? {
+        guard row >= 0, depth < Snap.rows else { return nil }   // depth guard = cycles are silent (delta §1)
         let cell = box.cells[column * Snap.rows + row]
         guard cell.colourIndex >= 0, !cell.muted else { return nil }
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-        let fed = isFed(box, column, row)
+        let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
+        let fed = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
         let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed, passMask: colour.a.passMask, pass: pass)
         if mode == .silent { return nil }      // e.g. a closed passgate feeder sounds nothing
@@ -330,20 +334,22 @@ final class Router {
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats,
                                   S: S, cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
-            if fed && !cell.srcMix {
-                guard let up = feederSoundingNote(row: row - 1, column: column, m: m,
-                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+            if fed {
+                guard let up = feederSoundingNote(row: parent, column: column, m: m,
+                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats,
+                                                  depth: depth + 1)
                 else { return nil }
                 let oct = Int64(max(1, octaves))
                 return (up.note + 12 * Int(((pIdx % oct) + oct) % oct) + transpose, up.chan)
             }
             let p = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                  pattern: colour.a.patternIndex, pool: pool)   // unfed / +SRC → source
+                                  pattern: colour.a.patternIndex, pool: pool)   // MIDI IN → source
             return p.base >= 0 ? (p.base + transpose, p.chan) : nil
         }
         if fed {
-            guard let up = feederSoundingNote(row: row - 1, column: column, m: m,
-                                              box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+            guard let up = feederSoundingNote(row: parent, column: column, m: m,
+                                              box: box, pool: pool, S: S, cycleBeats: cycleBeats,
+                                              depth: depth + 1)
             else { return nil }
             return (up.note + transpose, up.chan)          // identity mirror
         }
@@ -480,7 +486,8 @@ final class Router {
             let morph = over(18 + ci, colour.morph)
             let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-            let fed = isFed(box, effColumn, r)
+            let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
+            let fed = parent >= 0
             let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
                                 passMask: colour.a.passMask, pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
@@ -499,12 +506,12 @@ final class Router {
                                           cycleBeats: cycleBeats, phase: colour.a.phase,
                                           runStartColumn: cell.runStartColumn)
 
-                    // Input pick. Unfed (or +SRC) → source pool. FED → the feeder's CURRENT sounding
-                    // note by derivation (window-independent), octave-arped by this cell (§1.1.3
-                    // "arpeggiate the arpeggio"). +SRC-on-a-fed-ARP folds in source — no fixture yet.
+                    // Input pick. MIDI IN → source pool. Referenced → the parent's CURRENT sounding
+                    // note by derivation (window-independent, any row incl. downward; cycle-guarded),
+                    // octave-arped by this cell (§1.1.3 "arpeggiate the arpeggio").
                     let base: Int, prov: UInt8
-                    if fed && !cell.srcMix {
-                        guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
+                    if fed {
+                        guard let f = feederSoundingNote(row: parent, column: effColumn, m: mTickBeat,
                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
                         else { return }
                         let oct = Int64(max(1, octaves))
@@ -542,9 +549,9 @@ final class Router {
                     let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
                     let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
 
-                    if fed && !cell.srcMix {
-                        // ratchet the feeder's CURRENT sounding note (derivation, window-independent)
-                        guard let f = feederSoundingNote(row: r - 1, column: effColumn, m: mTickBeat,
+                    if fed {
+                        // ratchet the parent's CURRENT sounding note (derivation, any row, cycle-guarded)
+                        guard let f = feederSoundingNote(row: parent, column: effColumn, m: mTickBeat,
                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
                         else { return }
                         let n = f.note + transpose
@@ -608,11 +615,13 @@ final class Router {
                     }
                 }
             } else if (mode == .identity || mode == .chance) && fed {
-                // Identity/CHANCE fed: MIRROR the feeder's ticks (+ this cell's transpose). CHANCE
-                // drops each note-on by a deterministic probability (off follows its on — we just
-                // skip both). Open PASSGATE is .identity; a closed passgate is .silent → nothing here.
+                // Identity/CHANCE referenced: MIRROR the parent's ticks (+ this cell's transpose).
+                // CHANCE drops each note-on by a deterministic probability (off follows its on).
+                // articBuf holds this-pass artics, so an UPWARD parent (already evaluated) mirrors
+                // correctly; a DOWNWARD parent's buffer is empty this pass → silent (unit-delay not
+                // yet double-buffered — no fixture needs it; backward taps use ARP references).
                 let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
-                let fr = r - 1
+                let fr = parent
                 for k in 0..<articCount[fr] {
                     let src = articBuf[fr * Router.articCap + k]
                     let n = Int(src.note) + transpose
