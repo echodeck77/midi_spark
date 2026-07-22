@@ -43,6 +43,10 @@ re-read the delta — it almost certainly doesn't.
    the host blocks — do not smear host-block reads into new code.
 3. Nothing upstream of the emission boundary may mention cables; the
    (bus)→(cable, channel) mapping added in commit 5 lands AT the boundary.
+4. The router's cell contract is "articulate input in, track sounding voices
+   out" — never "call a pure function". Do not let migration refactors bake
+   purity assumptions into dispatch or data flow (future EXTERNAL processors
+   are opaque and stateful — Docs/standalone-plan.md).
 
 ## Verification order (cheapest first, always)
 

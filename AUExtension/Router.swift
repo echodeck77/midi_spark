@@ -54,14 +54,13 @@ final class Router {
         (Int(cable % 5) * 16 + Int(chan & 15)) * 128 + Int(note & 127)
     }
 
-    // Per-row chain scratch (§2/§1.1). Each row's TICK articulations this window, so a fed cell can
-    // read its feeder's output (mirror model). Fixed capacity, no hot-path allocation. lastTick
-    // dedups each row's arp independently across (rare) overlapping windows.
+    // Per-row reference scratch (delta §1). Each row's TICK articulations this window, so a
+    // referencing cell can mirror its parent's output. Fixed capacity, no hot-path allocation.
+    // lastTick dedups each row's arp independently across (rare) overlapping windows.
     private struct Artic {
         var onSample: AUEventSampleTime = 0
         var offSample: AUEventSampleTime = 0
         var note: UInt8 = 0    // after this row's accumulated transpose
-        var chan: UInt8 = 0    // provenance channel (for INHERIT); OUT CH is applied only at emission
         var beat: Double = 0   // musical onset beat — the stable seed for CHANCE (loop-consistent)
     }
     private static let articCap = 24
@@ -211,7 +210,7 @@ final class Router {
     /// precomputed `resolvedParent` (§2), UNLESS that parent is muted → revert to MIDI IN. −1 = MIDI
     /// IN (the cell hears the source pool). Configuration (`inputRow`) is untouched — derivation only
     /// (delta §1 reroute rule). Any row is legal (upward or downward); cycles are broken by the
-    /// depth guard in feederSoundingNote and are silent by construction.
+    /// depth guard in parentSoundingNote and are silent by construction.
     @inline(__always)
     private func parentRow(_ box: SnapshotBox, _ column: Int, _ row: Int) -> Int {
         let p = Int(box.cells[column * Snap.rows + row].resolvedParent)
@@ -227,12 +226,12 @@ final class Router {
     }
 
     private func storeArtic(row: Int, on: AUEventSampleTime, off: AUEventSampleTime,
-                            note: UInt8, chan: UInt8, beat: Double) {
+                            note: UInt8, beat: Double) {
         let c = articCount[row]
         guard c < Router.articCap else { return }
         let i = row * Router.articCap + c
         articBuf[i].onSample = on; articBuf[i].offSample = off
-        articBuf[i].note = note; articBuf[i].chan = chan; articBuf[i].beat = beat
+        articBuf[i].note = note; articBuf[i].beat = beat
         articCount[row] = c + 1
     }
 
@@ -266,9 +265,9 @@ final class Router {
         diag.lastEmitChan = lastCh
     }
 
-    /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
-    /// +SRC) articulates the whole source chord and holds it to the column boundary (mirror model:
-    /// identity = sample-and-hold of its input pool). Arp cells and pure-mirror cells have no hold.
+    /// HOLD content, emitted ONCE per column at the transition: an identity cell whose input is MIDI
+    /// IN articulates the whole (filtered) source chord and holds it to the column boundary (identity
+    /// = sample-and-hold of its input pool). Arp cells and referencing mirrors have no hold.
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: AUEventSampleTime,
@@ -309,17 +308,17 @@ final class Router {
         }
     }
 
-    /// One sounding note (+ provenance channel) of the cell at (column, row) at musical beat `m`,
-    /// computed by DERIVATION — valid at ANY instant, independent of render-window boundaries. This
-    /// is what lets a fed ARP sample its feeder's CURRENT note even when that note was struck in an
-    /// earlier window (the per-window artic scratch cannot). Recurses up a chain of arps/mirrors.
-    ///  · ARP feeder    → its arp note at m (over its own feeder or source).
-    ///  · identity fed  → mirrors the note above (+ this transpose).
-    ///  · identity unfed → the source chord is a POOL, not a single note; no fixture feeds an ARP
-    ///    from one yet, so this returns nil (documented limitation, not a silent wrong answer).
-    private func feederSoundingNote(row: Int, column: Int, m: Double, box: SnapshotBox,
+    /// The single sounding note of the cell at (column, row) at musical beat `m`, computed by
+    /// DERIVATION — valid at ANY instant, independent of render-window boundaries. This is what lets
+    /// a referencing ARP sample its parent's CURRENT note even when that note was struck in an earlier
+    /// window (the per-window artic scratch cannot). Recurses up the reference graph (delta §1), any
+    /// row, cycle-guarded by `depth`. No channel — past the input filter notes carry none (delta §7).
+    ///  · ARP referencing    → its arp note at m (over its own parent or the filtered source).
+    ///  · identity referencing → mirrors the parent's note (+ this transpose).
+    ///  · identity at MIDI IN → the source chord is a POOL, not one note → nil (documented limit).
+    private func parentSoundingNote(row: Int, column: Int, m: Double, box: SnapshotBox,
                                     pool: NotePool, S: Double, cycleBeats: Double,
-                                    depth: Int = 0) -> (note: Int, chan: UInt8)? {
+                                    depth: Int = 0) -> Int? {
         guard row >= 0, depth < Snap.rows else { return nil }   // depth guard = cycles are silent (delta §1)
         let cell = box.cells[column * Snap.rows + row]
         guard cell.colourIndex >= 0, !cell.muted else { return nil }
@@ -327,11 +326,11 @@ final class Router {
         let colour = box.colours[ci]
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
-        let fed = parent >= 0
+        let referencing = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
         let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed, passMask: colour.a.passMask, pass: pass)
-        if mode == .silent { return nil }      // e.g. a closed passgate feeder sounds nothing
-        if mode == .ratchet { return nil }     // ratchet sounds a chord (pool), not one note — see doc comment
+        if mode == .silent { return nil }      // e.g. a closed passgate sounds nothing
+        if mode == .ratchet { return nil }     // ratchet sounds a chord (pool), not one note — see doc
 
         if mode == .arp {
             let master = over(34, box.morphMaster)
@@ -344,26 +343,26 @@ final class Router {
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats,
                                   S: S, cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
-            if fed {
-                guard let up = feederSoundingNote(row: parent, column: column, m: m,
+            if referencing {
+                guard let up = parentSoundingNote(row: parent, column: column, m: m,
                                                   box: box, pool: pool, S: S, cycleBeats: cycleBeats,
                                                   depth: depth + 1)
                 else { return nil }
                 let oct = Int64(max(1, octaves))
-                return (up.note + 12 * Int(((pIdx % oct) + oct) % oct) + transpose, up.chan)
+                return up + 12 * Int(((pIdx % oct) + oct) % oct) + transpose
             }
-            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
-                                  pool: pool, filter: cell.inputChannel)   // MIDI IN → filtered source (§7)
-            return p.base >= 0 ? (p.base + transpose, p.chan) : nil
+            let base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                                     pool: pool, filter: cell.inputChannel)   // MIDI IN → filtered source (§7)
+            return base >= 0 ? base + transpose : nil
         }
-        if fed {
-            guard let up = feederSoundingNote(row: parent, column: column, m: m,
+        if referencing {
+            guard let up = parentSoundingNote(row: parent, column: column, m: m,
                                               box: box, pool: pool, S: S, cycleBeats: cycleBeats,
                                               depth: depth + 1)
             else { return nil }
-            return (up.note + transpose, up.chan)          // identity mirror
+            return up + transpose          // identity mirror
         }
-        return nil   // unfed identity: a chord (pool), not one note — see doc comment
+        return nil   // identity at MIDI IN: a chord (pool), not one note — see doc comment
     }
 
     /// The shared subdivision-tick scaffold for ARP and RATCHET. Walks every tick of length `sub`
@@ -518,28 +517,26 @@ final class Router {
                                           cycleBeats: cycleBeats, phase: colour.a.phase,
                                           runStartColumn: cell.runStartColumn)
 
-                    // Input pick. MIDI IN → source pool. Referenced → the parent's CURRENT sounding
-                    // note by derivation (window-independent, any row incl. downward; cycle-guarded),
-                    // octave-arped by this cell (§1.1.3 "arpeggiate the arpeggio").
-                    let base: Int, prov: UInt8
+                    // Input pick. MIDI IN → filtered source pool. Referencing → the parent's CURRENT
+                    // sounding note by derivation (window-independent, any row incl. downward;
+                    // cycle-guarded), octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
+                    let base: Int
                     if fed {
-                        guard let f = feederSoundingNote(row: parent, column: effColumn, m: mTickBeat,
-                                                         box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                        guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
+                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
                         else { return }
                         let oct = Int64(max(1, octaves))
-                        base = f.note + 12 * Int(((pIdx % oct) + oct) % oct)   // f.note already has feeder transpose
-                        prov = f.chan
+                        base = up + 12 * Int(((pIdx % oct) + oct) % oct)   // up already has parent transpose
                     } else {
-                        let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                                 pattern: colour.a.patternIndex, pool: pool,
-                                                 filter: cell.inputChannel)   // §7 source filter
-                        guard pick.base >= 0 else { return }
-                        base = pick.base; prov = pick.chan
+                        base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
+                                             pattern: colour.a.patternIndex, pool: pool,
+                                             filter: cell.inputChannel)   // §7 source filter
+                        guard base >= 0 else { return }
                     }
                     let noteValue = base + transpose
                     guard noteValue >= 0 && noteValue <= 127 else { return }
 
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov, beat: mTickBeat)
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
                     if emits {
                         emitArtic(note: UInt8(noteValue), busMask: cell.busMask,
                                   onSample: onTime, offSample: offTime, windowEnd: windowEnd,
@@ -563,12 +560,12 @@ final class Router {
 
                     if fed {
                         // ratchet the parent's CURRENT sounding note (derivation, any row, cycle-guarded)
-                        guard let f = feederSoundingNote(row: parent, column: effColumn, m: mTickBeat,
-                                                         box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                        guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
+                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
                         else { return }
-                        let n = f.note + transpose
+                        let n = up + transpose
                         guard n >= 0 && n <= 127 else { return }
-                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan, beat: mTickBeat)
+                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                         if emits {
                             emitArtic(note: UInt8(n), busMask: cell.busMask,
                                       onSample: onTime, offSample: offTime,
@@ -581,7 +578,7 @@ final class Router {
                             let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
                             let n = base + transpose
                             guard n >= 0 && n <= 127 else { continue }
-                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: pool.channel(of: base), beat: mTickBeat)
+                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                             if emits {
                                 emitArtic(note: UInt8(n), busMask: cell.busMask,
                                           onSample: onTime, offSample: offTime, windowEnd: windowEnd,
@@ -617,7 +614,7 @@ final class Router {
                         guard n >= 0 && n <= 127 else { continue }
                         let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
                         let onT = max(onsetSample, windowStart)
-                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), chan: pool.channel(of: baseNote), beat: onsetMusical)
+                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
                         if emits {
                             emitArtic(note: UInt8(n), busMask: cell.busMask,
                                       onSample: onT, offSample: offSample, windowEnd: windowEnd,
@@ -638,7 +635,7 @@ final class Router {
                     let n = Int(src.note) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
-                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan, beat: src.beat)
+                    storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), beat: src.beat)
                     if emits {
                         emitArtic(note: UInt8(n), busMask: cell.busMask,
                                   onSample: src.onSample, offSample: src.offSample,

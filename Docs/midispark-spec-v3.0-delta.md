@@ -234,3 +234,8 @@ every answer at once.
 - Cross-column references: FORBIDDEN, now and later. Reference graphs are per-column.
 - The dead-loop (cycle) indicator: DEFERRED — visual design later; engine
   needs nothing.
+- EXTERNAL processor type (hosted 3rd-party MIDI AUv3s): decided direction,
+  standalone-only by platform law, fully deferred — see
+  Docs/standalone-plan.md. Do not design or implement ahead of it; DO honour
+  the router contract it states (articulate-in / track-voices-out, never
+  assume processor purity).

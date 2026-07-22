@@ -78,7 +78,7 @@ final class DerivationsTests: XCTestCase {
         let p = pool(notes)
         let pi = UInt8(ArpPattern.allCases.firstIndex(of: pattern)!)
         return (0..<length).map { arpPickSource(phaseIndex: Int64($0), octaves: octaves,
-                                                pattern: pi, pool: p).base }
+                                                pattern: pi, pool: p) }
     }
 
     func testPatternUp() {
@@ -118,29 +118,22 @@ final class DerivationsTests: XCTestCase {
         let pi = UInt8(ArpPattern.allCases.firstIndex(of: .random)!)
         let span = Int64(p.count)   // octaves 1
         for t in 0..<span {
-            let a = arpPickSource(phaseIndex: t, octaves: 1, pattern: pi, pool: p).base
-            let b = arpPickSource(phaseIndex: t, octaves: 1, pattern: pi, pool: p).base
+            let a = arpPickSource(phaseIndex: t, octaves: 1, pattern: pi, pool: p)
+            let b = arpPickSource(phaseIndex: t, octaves: 1, pattern: pi, pool: p)
             XCTAssertEqual(a, b, "RANDOM must be a pure function of the tick")
         }
         // and it should actually shuffle (not equal UP for this pool/length)
-        let rnd = (0..<8).map { arpPickSource(phaseIndex: Int64($0), octaves: 1, pattern: pi, pool: p).base }
+        let rnd = (0..<8).map { arpPickSource(phaseIndex: Int64($0), octaves: 1, pattern: pi, pool: p) }
         let up = sequence(pattern: .up, octaves: 1, notes: [60, 62, 64, 65, 67], length: 8)
         XCTAssertNotEqual(rnd, up)
     }
 
-    func testArpProvenanceChannel() {
-        let p = NotePool()
-        p.noteOn(60, velocity: 100, channel: 3)
-        p.noteOn(64, velocity: 100, channel: 7)
-        p.rebuildSorted()
-        let up = UInt8(ArpPattern.allCases.firstIndex(of: .up)!)
-        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p).chan, 3)
-        XCTAssertEqual(arpPickSource(phaseIndex: 1, octaves: 1, pattern: up, pool: p).chan, 7)
-    }
+    // (Provenance channel removed with delta §7 — a note carries no channel past the input filter;
+    //  channel behaviour is covered by the input-channel filter tests below.)
 
     func testEmptyPoolReturnsMinusOne() {
         let up = UInt8(ArpPattern.allCases.firstIndex(of: .up)!)
-        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: NotePool()).base, -1)
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: NotePool()), -1)
     }
 
     // MARK: input-channel filter (delta §7)
@@ -173,13 +166,13 @@ final class DerivationsTests: XCTestCase {
         let p = mixedPool()
         let up = UInt8(ArpPattern.allCases.firstIndex(of: .up)!)
         // filter ch 1: the arp cycles only 60 and 67
-        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 1).base, 60)
-        XCTAssertEqual(arpPickSource(phaseIndex: 1, octaves: 1, pattern: up, pool: p, filter: 1).base, 67)
-        XCTAssertEqual(arpPickSource(phaseIndex: 2, octaves: 1, pattern: up, pool: p, filter: 1).base, 60)  // wraps (span 2)
-        // filter ch 5: empty → base −1
-        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 5).base, -1)
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 1), 60)
+        XCTAssertEqual(arpPickSource(phaseIndex: 1, octaves: 1, pattern: up, pool: p, filter: 1), 67)
+        XCTAssertEqual(arpPickSource(phaseIndex: 2, octaves: 1, pattern: up, pool: p, filter: 1), 60)  // wraps (span 2)
+        // filter ch 5: empty → −1
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 5), -1)
         // OMNI default unchanged from pre-filter behaviour
-        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p).base, 60)
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p), 60)
     }
 
     // MARK: NotePool (§2.5)
@@ -196,7 +189,9 @@ final class DerivationsTests: XCTestCase {
         p.noteOn(60, velocity: 100, channel: 5)   // same note, different channel → merges (omni)
         p.rebuildSorted()
         XCTAssertEqual(p.count, 1)
-        XCTAssertEqual(p.channel(of: 60), 5)       // latest channel wins
+        // latest channel wins — observable through the input filter (wire ch 5 = filter 6):
+        XCTAssertEqual(p.srcCount(filter: 6), 1)   // now on ch 5
+        XCTAssertEqual(p.srcCount(filter: 1), 0)   // no longer on ch 0
         p.noteOff(60)
         p.rebuildSorted()
         XCTAssertEqual(p.count, 0)

@@ -64,7 +64,6 @@ final class NotePool {
         playedCount -= 1
     }
 
-    @inline(__always) func channel(of note: Int) -> UInt8 { chan[note] }
     @inline(__always) func played(at index: Int) -> UInt8 { order[index] }   // AS-PLAYED lookup
 
     // MARK: - input-channel filter (delta §7): a MIDI-IN cell hears only its channel. `filter` is
@@ -163,14 +162,15 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 
 // MARK: - ARP pattern selection (§3)
 
-/// The base note (pre-this-cell-transpose) + provenance channel a source-reading ARP picks at
-/// pattern index `phaseIndex`, for the given PATTERN over `octaves`. `filter` (delta §7) restricts the
-/// source pool to one input channel (0 = OMNI). All patterns are pure functions of position
-/// (loop-consistent). Chord changes never reset the index. Returns base -1 for an empty (filtered) pool.
+/// The base note (pre-this-cell-transpose) a source-reading ARP picks at pattern index `phaseIndex`,
+/// for the given PATTERN over `octaves`. `filter` (delta §7) restricts the source pool to one input
+/// channel (0 = OMNI). All patterns are pure functions of position (loop-consistent). Chord changes
+/// never reset the index. Returns -1 for an empty (filtered) pool. No channel is returned — past the
+/// input filter notes carry no channel (delta §7); emission stamps the bus channel.
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-                   pool: NotePool, filter: UInt8 = 0) -> (base: Int, chan: UInt8) {
+                   pool: NotePool, filter: UInt8 = 0) -> Int {
     let count = pool.srcCount(filter: filter)
-    guard count > 0 else { return (-1, 0) }
+    guard count > 0 else { return -1 }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
     let pat = Int(pattern) < ArpPattern.allCases.count ? ArpPattern.allCases[Int(pattern)] : .up
@@ -200,7 +200,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered.
     let note = (pat == .asPlayed) ? Int(pool.srcPlayed(pos % count, filter: filter))
                                   : Int(pool.srcAscending(pos % count, filter: filter))
-    return (note + 12 * (pos / count), pool.channel(of: note))
+    return note + 12 * (pos / count)
 }
 
 // MARK: - Processor dispatch (§3/§4)
