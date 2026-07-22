@@ -31,8 +31,6 @@ enum SnapshotBuilder {
                       let colourIndex = colourIDs.firstIndex(of: cell.colourID) else { continue }
                 var sc = SnapCell()
                 sc.colourIndex = Int8(colourIndex)
-                sc.stack = cell.stack
-                sc.srcMix = cell.srcMix
                 sc.alt = cell.alt
                 sc.bypassed = cell.bypassed
                 sc.muted = cell.muted

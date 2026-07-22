@@ -69,12 +69,11 @@ final class SnapshotBuilderTests: XCTestCase {
 
     func testBusMaskAndCellFlags() {
         let b = box(colours(customizing: 0) { _ in }) { s in
-            s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a, .c], srcMix: true)
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .c], alt: true)
         }
         let cell = b.cells[0]
         XCTAssertEqual(cell.busMask, 0b0101)   // A + C
-        XCTAssertTrue(cell.stack)
-        XCTAssertTrue(cell.srcMix)
+        XCTAssertTrue(cell.alt)
         XCTAssertEqual(cell.colourIndex, 0)
     }
 

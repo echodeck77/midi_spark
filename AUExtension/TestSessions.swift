@@ -48,7 +48,9 @@ enum TestSessions {
     }
 
     private static func doc(_ colours: [Colour], _ s: SceneState) -> PluginState {
-        PluginState(colours: colours, scenes: [s])
+        var d = PluginState(colours: colours, scenes: [s])
+        d.formatVersion = 3   // v3.0 fixtures set inputRow directly — skip the legacy chain migration
+        return d
     }
 
     // MARK: - T1–T8
@@ -64,22 +66,25 @@ enum TestSessions {
             })
         },
 
-        Session(id: "T2", title: "chain",
-                expect: "Sound leaves ONLY through row 1 (§2.3). Row 0 has no letters lit, so it "
-                      + "must be silent on every bus despite driving the chain. Row 1 (identity) "
-                      + "MIRRORS the feed — a faithful copy of the arp, emitted from row 1.") {
+        Session(id: "T2", title: "reference chain",
+                expect: "Sound leaves ONLY through row 1. Row 0 gold ARP has no letters lit → silent "
+                      + "on every bus; row 1 references row 0 (FROM ROW 0) and MIRRORS it onto bus A. "
+                      + "The old ▾ chain, now a receiver-picked reference (delta §1).") {
             doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])         // feeds down, emits nothing
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)    // BYPASS = identity: mirrors the feed
+                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // parent, emits nothing
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // references row 0
             })
         },
 
-        Session(id: "T3", title: "+SRC merge",
-                expect: "As T2 but row 1's input = feed ∪ source (§2.2). Audibly denser than T2 "
-                      + "on the same chord: the held notes sound alongside the arp's output.") {
+        Session(id: "T3", title: "sibling source tap",
+                expect: "The old +SRC intent as SIBLINGS (delta §1 — no input union). Row 0 gold ARP "
+                      + "(no bus); row 1 references row 0 → bus A (the processed feed); row 2 hears "
+                      + "MIDI IN → bus A (the source chord). Bus A carries BOTH, denser than T2. Two "
+                      + "cells on the same bus, each well-paired on the monitor.") {
             doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], srcMix: true, bypassed: true)  // BYPASS identity
+                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // parent arp
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // mirror the arp → A
+                s.cells[0][2] = Cell(colourID: "teal", buses: [.a], bypassed: true)               // MIDI IN → source chord → A
             })
         },
 
@@ -91,15 +96,16 @@ enum TestSessions {
             })
         },
 
-        Session(id: "T5", title: "muted-feeder reroute",
-                expect: "Feeder (row 0) is muted, so row 1 reverts to SOURCE input (§2.1) and "
-                      + "plays as if unchained — NOT silence. Diag panel is the visual check "
-                      + "until the wiring UI exists.") {
+        Session(id: "T5", title: "muted-parent reroute",
+                expect: "Row 1 references row 0. MUTE row 0 (its parent): row 1 reverts to MIDI IN "
+                      + "(delta §1 reroute) and plays the SOURCE chord — NOT silence; unmute → back to "
+                      + "mirroring. Mute/unmute at speed while holding a chord: zero stuck notes "
+                      + "(acceptance 30 — the reroute hotspot).") {
             doc(baseColours(), scene { s in
-                var feeder = Cell(colourID: "gold", stack: true, buses: [])
-                feeder.muted = true
-                s.cells[0][0] = feeder
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)    // BYPASS identity: unfed → holds source
+                var parent = Cell(colourID: "gold", buses: [])
+                parent.muted = true
+                s.cells[0][0] = parent
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)   // references (muted) row 0
             })
         },
 
@@ -149,45 +155,50 @@ enum TestSessions {
             })
         },
 
-        // ---- step-4 groundwork: coverage for router paths that no T1–T8 fixture exercises ----
+        // ---- v3.0 graph routing: fan-out, cycles, backward taps (acceptance 29/30/32) ----
 
-        Session(id: "T9", title: "fed ARP (arp of arp)",
-                expect: "Arpeggiate the arpeggio (§1.1.3). Row 0 gold ARP at 1/8 feeds row 1 "
-                      + "(azure ARP, 1/16, 2 octaves) on bus A. For EACH note the upstream arp is "
-                      + "sounding, row 1 should ripple that note across 2 octaves at 1/16. Row 0 is "
-                      + "silent (no letter). NOTE: exercises the fed-ARP path, currently simplified "
-                      + "and untested — this is the fixture that proves or breaks it.") {
+        Session(id: "T9", title: "fan-out tree",
+                expect: "One engine, several treatments (acceptance 29/30). Row 0 gold ARP (no bus). "
+                      + "Row 1 references row 0 (azure ARP ×2oct) → bus A. Row 2 references row 0 "
+                      + "(identity) → bus B. Row 3 references row 1 (grandchild identity) → bus C. A & "
+                      + "B share melodic material from ONE arp under different processing; C follows "
+                      + "row 1. MUTE row 0 → all three revert to source-derived behaviour at once.") {
             var c = baseColours()
-            c[idx("gold")].paramsA.rate = .r1_8               // slow upstream: one note per 1/8
-            c[idx("azure")].paramsA.rate = .r1_16             // faster downstream
-            c[idx("azure")].paramsA.octaves = 2               // ripple each fed note over 2 octaves
+            c[idx("azure")].paramsA.octaves = 2
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // feeds, silent
-                s.cells[0][1] = Cell(colourID: "azure", buses: [.a])             // ARP fed by gold
+                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                  // parent arp
+                s.cells[0][1] = Cell(colourID: "azure", buses: [.a], inputRow: 0)                  // arp-of-arp → A
+                s.cells[0][2] = Cell(colourID: "cyan", buses: [.b], bypassed: true, inputRow: 0)   // mirror parent → B
+                s.cells[0][3] = Cell(colourID: "teal", buses: [.c], bypassed: true, inputRow: 1)   // grandchild of azure → C
             })
         },
 
-        Session(id: "T10", title: "transpose accumulates in chain",
-                expect: "§2.6: transpose accumulates down a chain. Row 0 gold (+5) feeds row 1 "
-                      + "cyan identity (+7); row 1 on bus A should sound +12 semitones above the "
-                      + "held notes (one octave up), NOT +7. Row 0 silent.") {
+        Session(id: "T10", title: "transpose accumulates",
+                expect: "§2.6: transpose accumulates along a reference. Row 0 gold (+5, no bus); row "
+                      + "1 cyan identity (+7) references row 0 → bus A sounds +12 semitones above the "
+                      + "held notes (one octave up), NOT +7.") {
             var c = baseColours()
             c[idx("gold")].transpose = 5
             c[idx("cyan")].transpose = 7
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])              // +5, feeds, silent
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true)         // +7, BYPASS identity → +12
+                s.cells[0][0] = Cell(colourID: "gold", buses: [])                                 // +5, no bus
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], bypassed: true, inputRow: 0)  // +7 → +12
             })
         },
 
-        Session(id: "T11", title: "mid-chain audible tap",
-                expect: "§2.3: ▾ and letters are independent — a cell can emit AND feed. Row 0 "
-                      + "gold ARP taps bus A (audible) AND feeds row 1 cyan identity, which mirrors "
-                      + "onto bus B. Both A and B sound the arp simultaneously; monitors A and B "
-                      + "show the same stream.") {
-            doc(baseColours(), scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [.a])            // tap A + feed down
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.b], bypassed: true)         // BYPASS identity: mirror onto B
+        Session(id: "T11", title: "cycle silence + backward tap",
+                expect: "Acceptance 32. COL 0 = BACKWARD tap: row 0 azure ARP references row 1 (BELOW "
+                      + "it); row 1 gold ARP hears MIDI IN. Row 0 arps row 1's current note — a "
+                      + "downward reference that WORKS (ARP derivation) → bus A. COL 1 = a 2-cell "
+                      + "CYCLE (row 0↔row 1 reference each other): nothing can enter → SILENT forever, "
+                      + "no hang, no stuck notes. So: arp in column 0, silence in column 1.") {
+            var c = baseColours()
+            c[idx("azure")].paramsA.octaves = 2
+            return doc(c, scene { s in
+                s.cells[0][0] = Cell(colourID: "azure", buses: [.a], inputRow: 1)   // references BELOW → arps row 1
+                s.cells[0][1] = Cell(colourID: "gold", buses: [])                   // MIDI IN source arp
+                s.cells[1][0] = Cell(colourID: "gold", buses: [.a], inputRow: 1)    // cycle: refs row 1…
+                s.cells[1][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)    // …which refs row 0 → silent
             })
         },
 
@@ -219,8 +230,8 @@ enum TestSessions {
             c[idx("cyan")].paramsA.passes = [true, false, true, false]     // open on pass 0 & 2
             return doc(c, scene { s in
                 for col in 0..<8 {
-                    s.cells[col][0] = Cell(colourID: "gold", stack: true, buses: [])   // arp, feeds, silent
-                    s.cells[col][1] = Cell(colourID: "cyan", buses: [.a])              // PASSGATE gates it per pass
+                    s.cells[col][0] = Cell(colourID: "gold", buses: [])                     // arp parent, no bus
+                    s.cells[col][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)      // PASSGATE references row 0
                 }
             })
         },
@@ -272,8 +283,8 @@ enum TestSessions {
             c[idx("cyan")].type = .chance
             c[idx("cyan")].paramsA.probability = 0.5
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", stack: true, buses: [])   // arp, feeds, silent
-                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a])              // CHANCE gates each arp note
+                s.cells[0][0] = Cell(colourID: "gold", buses: [])                    // arp parent, no bus
+                s.cells[0][1] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)     // CHANCE references row 0
             })
         },
     ]

@@ -147,12 +147,12 @@ struct PluginState: Codable, Equatable {
 
         var scene = SceneState.empty()
         scene.cells[0][0] = Cell(colourID: "gold")
-        scene.cells[2][0] = Cell(colourID: "vermilion", stack: true)
-        scene.cells[2][1] = Cell(colourID: "magenta", buses: [.b])
+        scene.cells[2][0] = Cell(colourID: "vermilion")
+        scene.cells[2][1] = Cell(colourID: "magenta", buses: [.b], inputRow: 0)   // references row 0 (§1)
         scene.cells[4][0] = Cell(colourID: "gold")
         scene.cells[6][0] = Cell(colourID: "cyan")
         var state = PluginState(colours: colours, scenes: [scene])
-        state.migrateLegacyRoutingIfNeeded()   // fill inputRow from the stack config → v3-consistent
+        state.formatVersion = 3   // built directly in the v3.0 graph model
         return state
     }
 }

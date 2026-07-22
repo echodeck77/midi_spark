@@ -24,8 +24,6 @@ enum Snap {
 
 struct SnapCell {
     var colourIndex: Int8 = -1
-    var stack = false          // ▾
-    var srcMix = false         // +SRC
     var alt = false
     var bypassed = false
     var muted = false
