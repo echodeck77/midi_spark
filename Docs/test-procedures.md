@@ -135,18 +135,22 @@ a muted PARENT reroutes its child to MIDI IN (§1 reroute rule), not silence. Ta
 COLUMN KEY → the whole column mutes/unmutes (key flags coral). Zero stuck notes on
 every mute/unmute.
 
-**P5 — audition (§6.4 / delta §5), v1 = ARP + RATCHET.** Transport **STOPPED**, hold a
-chord. Press-and-hold (~0.3s) an **ARP** cell → it **arpeggiates at host tempo against the
-held chord** on its lit buses, phase from the moment you pressed, ignoring its FROM wiring
-(source-forced), passgate all-open; the **raw chord passthrough stops** while held (you hear
-the processor ALONE). Release → arp stops, no stuck notes. Repeat on a **RATCHET** cell →
-re-strikes the chord. Hold a **HARMONIZE/CHANCE/STRUM/identity** cell → raw chord passthrough
-continues (chord-hold audition is v2, not silent). Press **play** while holding → audition
-auto-releases and sequencing takes over cleanly. Hold with **no keys down** → silence.
+**P5 — audition (§6.4 / delta §5), ALL types.** Transport **STOPPED**, hold a chord.
+Press-and-hold (~0.3s) a cell → its processor sounds **ALONE** against the held chord on its
+lit buses, ignoring its FROM wiring (source-forced), passgate all-open; the **raw chord
+passthrough stops** while held. Release → no stuck notes. By type:
+- **ARP** → arpeggiates at host tempo, phase from the press. **RATCHET** → re-strikes the chord.
+- **HARMONIZE** → the added voices sound (hear the chord it builds). **CHANCE** → the passed
+  subset sounds (deterministic — same notes for the whole hold). **PASSGATE/STRUM** → the chord
+  sustains (passgate all-open).
+- **Chord-hold types track the keys LIVE**: add a key while holding → it joins; release one →
+  it drops, the rest keep sounding (the "patch-and-listen" loop).
+Press **play** while holding → audition auto-releases, sequencing takes over. Hold with **no
+keys down** → silence.
 
-(DEFERRED — no procedure yet: chord-hold audition (harmonize/chance/strum live-tracked),
-APPLY latch, column audition, popover-live audition; and stutter/loop, isolate/solo — the
-lock features need the `lockLo/lockHi` engine override and are spec-pending.)
+(DEFERRED — no procedure yet: STRUM stagger in audition (currently a sustained chord), APPLY
+latch, column audition, popover-live audition; and stutter/loop, isolate/solo — the lock
+features need the `lockLo/lockHi` engine override and are spec-pending.)
 
 ## UI size checkpoints (GUI reconciliation gate)
 

@@ -214,6 +214,61 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    func testAuditionHarmonizeExpandsAndSustains() {
+        // Chord-hold audition (v2): HARMONIZE previews the added voices, and sustains — each note is
+        // struck ONCE and held (not re-articulated every window).
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]   // +4, +7, third off
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60]), target: 0, windows: 20, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "root + intervals")
+        XCTAssertEqual(e.ons.filter { $0.cable == 0 }.count, 3, "sustained — each note struck once, not per window")
+        assertNothingLeftSounding(e)
+    }
+
+    func testAuditionChancePassesAllAtOneAndNoneAtZero() {
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .chance
+        cs[gi].paramsA.probability = 1.0
+        let bAll = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let eAll = RecordingEmitter()
+        auditionRun(bAll, chord([60, 64, 67]), target: 0, windows: 12, into: eAll)
+        XCTAssertEqual(Set(eAll.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "p=1 sustains the whole chord")
+        assertNothingLeftSounding(eAll)
+
+        cs[gi].paramsA.probability = 0.0
+        let bNone = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let eNone = RecordingEmitter()
+        auditionRun(bNone, chord([60, 64, 67]), target: 0, windows: 12, into: eNone)
+        XCTAssertTrue(eNone.events.isEmpty, "p=0 auditions to silence (processor drops everything)")
+    }
+
+    func testAuditionChordHoldTracksHeldKeysLive() {
+        // The sustained preview must FOLLOW the keys: add one mid-hold → it sounds; release one → it
+        // stops, while the rest keep sounding. (passgate is forced all-open, so it's an identity hold.)
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let pool = NotePool(); let sr = 48_000.0; let frames: UInt32 = 2048
+        var ts = 0.0
+        func win() {
+            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        pool.noteOn(60, velocity: 100, channel: 0); win(); win()
+        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "held key sounds")
+        pool.noteOn(64, velocity: 100, channel: 0); win(); win()
+        XCTAssertTrue(e.ons.contains { $0.note == 64 }, "a key added mid-hold sounds")
+        pool.noteOff(60); win(); win()
+        XCTAssertTrue(e.offs.contains { $0.note == 60 }, "a key released mid-hold stops")
+        router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)   // release
+        assertNothingLeftSounding(e)
+    }
+
     func testStopEdgeFlushesEverySoundingVoice() {
         // Even with a slow ARP and a stop mid-window, the transport edge must leave nothing sounding.
         let b = box(colours: arpColours()) {

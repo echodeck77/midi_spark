@@ -58,6 +58,12 @@ final class Router {
     private var prevAudition = -1
     private var auditionStartSample: Int64 = 0
     private var auditionLastTick: Int64 = -1
+    // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
+    // treatment, vs. what is sounding now — reconciled each window so the sustained preview follows the
+    // keys live. Fixed 128-note bitsets + per-note velocity; reused every window, no hot-path allocation.
+    private var auditionDesired = [Bool](repeating: false, count: 128)
+    private var auditionCurrent = [Bool](repeating: false, count: 128)
+    private var auditionVel = [UInt8](repeating: 96, count: 128)
 
     @inline(__always)
     private func rcIndex(_ cable: UInt8, _ chan: UInt8, _ note: UInt8) -> Int {
@@ -772,7 +778,53 @@ final class Router {
                 }
             }
         default:
-            return   // chord-hold audition is v2 (needs live pool-tracking); passthrough covers it for now
+            // chord-hold types (passgate all-open / strum / chance / harmonize): sustain the treated
+            // chord, reconciled to the live held source each window (v2).
+            auditionChordHold(cell: cell, colour: colour, pool: pool, transpose: transpose, t: t,
+                              windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+        }
+    }
+
+    /// Sustain the held source chord through a chord-hold treatment (§6.4), tracking the keys LIVE:
+    /// build the note-set the source should sound through the treatment, then reconcile against what is
+    /// currently sounding — close departed notes, open new ones (sustained; released by allNotesOff on
+    /// hold-change / transport-start). passgate is forced all-open; chance seeds on the hold (beat 0) so
+    /// each note is deterministically in or out for the whole hold; harmonize expands to its voices.
+    private func auditionChordHold(cell: SnapCell, colour: SnapColour, pool: NotePool,
+                                   transpose: Int, t: Double, windowStart: Int64, windowEnd: Int64,
+                                   out: MIDIEmitter?, diag: inout KernelDiag) {
+        for i in 0..<128 { auditionDesired[i] = false }
+        let type = colour.a.type
+        let prob = (type == .chance) ? effectiveProbability(colour, t: t) : 1
+        let srcN = pool.srcCount(filter: cell.inputChannel)         // §7 source filter, forced source
+        for k in 0..<srcN {
+            let base = Int(pool.srcAscending(k, filter: cell.inputChannel)) + transpose
+            guard base >= 0 && base <= 127 else { continue }
+            switch type {
+            case .harmonize:
+                let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
+                          Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
+                          Int8(effectiveHarmInterval(colour, voice: 2, t: t)))
+                let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
+                                          vel: 96, velScale: effectiveHarmVelScale(colour, t: t), vels: &harmVels)
+                for j in 0..<cnt where harmNotes[j] >= 0 && harmNotes[j] <= 127 {
+                    auditionDesired[harmNotes[j]] = true; auditionVel[harmNotes[j]] = harmVels[j]
+                }
+            case .chance:
+                if chancePasses(beat: 0, note: base, probability: prob) { auditionDesired[base] = true; auditionVel[base] = 96 }
+            default:                                                 // passgate all-open / strum (sustained chord)
+                auditionDesired[base] = true; auditionVel[base] = 96
+            }
+        }
+        // Reconcile: close voices whose note left the set; open desired notes not already sounding.
+        for i in 0..<128 { auditionCurrent[i] = false }
+        for v in voices where v.active { auditionCurrent[Int(v.note)] = true }
+        for i in voices.indices where voices[i].active && !auditionDesired[Int(voices[i].note)] {
+            closeVoice(i, atSample: windowStart, out: out)
+        }
+        for n in 0..<128 where auditionDesired[n] && !auditionCurrent[n] {
+            emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: windowStart, offSample: .max,
+                      windowEnd: windowEnd, velocity: auditionVel[n], out: out, diag: &diag)
         }
     }
 

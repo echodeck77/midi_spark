@@ -89,11 +89,11 @@ final class Kernel {
         }
         diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
 
-        // Audition (stopped only) REPLACES raw note passthrough when the held cell is a patterned type
-        // (ARP/RATCHET, v1) — you hear the processor alone (§6.4). Other types / not auditioning → notes
-        // still pass for soundcheck. CC/PB/AT always pass. Computed once here so handleIncoming is cheap.
+        // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
+        // the processor alone (§6.4). Not auditioning / a cell that can't sound → notes still pass for
+        // soundcheck. CC/PB/AT always pass. Computed once here so handleIncoming is cheap.
         let audition = playing ? -1 : Int(auditionTarget)
-        suppressAuditionNotes = audition >= 0 && auditionCellIsPatterned(box, audition)
+        suppressAuditionNotes = audition >= 0 && auditionCellSounds(box, audition)
 
         // ---- event list: MIDI + parameter events ----
         var ev = events
@@ -128,16 +128,15 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, out: liveEmitter, diag: &diag)
     }
 
-    /// True when the audition target is an occupied, non-muted, non-bypassed cell whose active type is
-    /// ARP or RATCHET — the v1 audition types, which fully replace the raw note passthrough. Must agree
-    /// with Router.auditionRender's own type switch (both gate on the same condition).
-    private func auditionCellIsPatterned(_ box: SnapshotBox, _ target: Int) -> Bool {
+    /// True when the audition target is a cell that WILL sound (occupied, non-muted, non-bypassed, with
+    /// lit buses) — audition then fully replaces the raw note passthrough. Must agree with the guard in
+    /// Router.auditionRender (both gate on the same condition; a bypassed/empty/unlit cell keeps
+    /// passthrough so the held chord is still audible).
+    private func auditionCellSounds(_ box: SnapshotBox, _ target: Int) -> Bool {
         let col = target / Snap.rows, row = target % Snap.rows
         guard col >= 0, col < Snap.cols, row >= 0, row < Snap.rows else { return false }
         let cell = box.cells[col * Snap.rows + row]
-        guard cell.colourIndex >= 0, !cell.muted, !cell.bypassed else { return false }
-        let type = box.colours[Int(cell.colourIndex)].a.type
-        return type == .arp || type == .ratchet
+        return cell.colourIndex >= 0 && !cell.muted && !cell.bypassed && cell.busMask != 0
     }
 
     // MARK: - incoming MIDI (source pool + passthrough)
