@@ -174,6 +174,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func loadTestSession(_ session: TestSessions.Session) {
         dispatchPrecondition(condition: .onQueue(.main))
         document = session.make()
+        document.migrateLegacyRoutingIfNeeded()   // fill inputRow (dormant until the commit-3 router flip)
         loadedTestSession = session.id
 
         // Tree writes re-enter implementorValueObserver (each calling scheduleRebuild), so
@@ -211,7 +212,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         set {
             super.fullState = newValue
             if let data = newValue?[Self.stateKey] as? Data,
-               let doc = try? JSONDecoder().decode(PluginState.self, from: data) {
+               var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
+                doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
                 document = doc
                 scheduleRebuild()
             }

@@ -69,12 +69,17 @@ struct Colour: Codable, Equatable {
 
 struct Cell: Codable, Equatable {
     var colourID: String
-    var stack: Bool = false        // ▾
+    var stack: Bool = false        // v2 LEGACY (▾) — decode-only after commit 3; removed at commit 4
     var buses: Set<Bus> = [.a]     // sound leaves ONLY through a lit letter (§2.3)
-    var srcMix: Bool = false       // +SRC
+    var srcMix: Bool = false       // v2 LEGACY (+SRC) — no v3 equivalent; dropped on migration
     var alt: Bool = false
     var bypassed: Bool = false
     var muted: Bool = false
+    // v3.0 (delta §1/§2): the cell's single input reference. nil = MIDI IN; else the referenced row
+    // in the same column (any row; cycles legal-and-silent). Optional → old docs (no key) decode as
+    // nil and are filled by migrateLegacyRoutingIfNeeded(); the render path uses SnapCell's Int
+    // sentinel, not this. Router still reads `stack` until the commit-3 flip.
+    var inputRow: Int? = nil
 }
 
 // MARK: - Scene & document — §9
@@ -95,11 +100,37 @@ struct SceneState: Codable, Equatable {
 }
 
 struct PluginState: Codable, Equatable {
-    var formatVersion: Int = 2
+    var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing (§migration)
     var colours: [Colour]
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
     var activeScene: Int = 0
     var morphMaster: Double = 0    // §13.5 — parameter #35, reserved & functional now
+
+    /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
+    /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
+    /// test session). Mapping (migration-tree-routing.md §1): a cell fed under the old model — i.e.
+    /// the cell ABOVE is occupied and its `stack` is on — references that row (`inputRow = r-1`);
+    /// everything else is MIDI IN (nil). `srcMix` has no v3 equivalent and is dropped (logged).
+    /// The old fields are LEFT in place — the router still reads `stack` until the commit-3 flip.
+    mutating func migrateLegacyRoutingIfNeeded() {
+        guard formatVersion < 3 else { return }
+        var droppedSrcMix = 0
+        for si in scenes.indices {
+            for col in scenes[si].cells.indices {
+                for row in scenes[si].cells[col].indices {
+                    guard var cell = scenes[si].cells[col][row] else { continue }
+                    let aboveStacked = row > 0 && (scenes[si].cells[col][row - 1]?.stack ?? false)
+                    cell.inputRow = aboveStacked ? row - 1 : nil
+                    if cell.srcMix { droppedSrcMix += 1 }
+                    scenes[si].cells[col][row] = cell
+                }
+            }
+        }
+        if droppedSrcMix > 0 {
+            print("MidiSpark: migrated v2 document to graph routing; dropped +SRC on \(droppedSrcMix) cell(s) (no v3 equivalent).")
+        }
+        formatVersion = 3
+    }
 
     static func factory() -> PluginState {
         var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
@@ -120,6 +151,8 @@ struct PluginState: Codable, Equatable {
         scene.cells[2][1] = Cell(colourID: "magenta", buses: [.b])
         scene.cells[4][0] = Cell(colourID: "gold")
         scene.cells[6][0] = Cell(colourID: "cyan")
-        return PluginState(colours: colours, scenes: [scene])
+        var state = PluginState(colours: colours, scenes: [scene])
+        state.migrateLegacyRoutingIfNeeded()   // fill inputRow from the stack config → v3-consistent
+        return state
     }
 }
