@@ -39,16 +39,12 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 ///  · CC IN rising → raw CC arrives at the MIDI input (and is passed through on A).
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
-    @State private var d = KernelDiag()
-    @State private var treeMorphGold: Float = 0
-    @State private var treeSwing: Float = 50
+    @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
     @State private var loadedID = "—"
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
     @State private var selRow = -1
-    @State private var emitActive = false
-    @State private var lastEmitCount: UInt64 = 0
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var docColours: [Colour] = []
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
@@ -138,8 +134,8 @@ struct DiagView: View {
             ScrollView {
               VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("MIDISPARK — GRID + DIAGNOSTICS")
-                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(3)
+                    Text("MIDISPARK")
+                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
                         .foregroundColor(.white.opacity(0.85))
                     Spacer()
                     Text("build \(Self.buildStamp)")
@@ -151,7 +147,6 @@ struct DiagView: View {
                          selCol: selCol, selRow: selRow, onTap: tapCell,
                          onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                          onClear: clearCell, onCopyColour: copyColour)
-                BusLanesView(scene: scene, active: emitActive)
                 OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
                 PaletteView(brush: brush) { brush = $0 }
                 if let bc = brushColour {
@@ -160,36 +155,6 @@ struct DiagView: View {
                 }
                 Text("TAP cell → paint/recolour \(brush.uppercased()) · TAP header → FROM · TAP A–D → OUT · HOLD → clear/copy · palette selects the Colour to edit above")
                     .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
-
-                row("TRANSPORT", d.playing ? "PLAYING" : "stopped",
-                    String(format: "beat %.2f · %.1f bpm", d.beat, d.tempo))
-                row("RENDER", "\(d.renderCount) callbacks", "snapshot gen \(d.snapshotGen)")
-                row("COLUMN", "col \(d.effColumn) · pass \(d.pass)",
-                    d.activeCellRow >= 0
-                      ? "active cell row \(d.activeCellRow) · input \(d.activeCellParent < 0 ? "MIDI IN" : "row \(d.activeCellParent)")"
-                      : "empty (rest)")
-                row("VOICES", "\(d.activeVoiceCount) instances",
-                    "\(d.distinctSounding) distinct on wire\(d.activeVoiceCount > d.distinctSounding ? " · collision refcounted" : "")")
-                row("POOL", "\(d.poolCount) held notes", d.poolCount == 0 ? "→ hold a chord on the routed keyboard" : "")
-                row("PARAM EVENTS", "\(d.paramEventCount) received",
-                    d.lastParamAddr >= 0 ? String(format: "last: addr %d = %.3f", d.lastParamAddr, d.lastParamValue) : "none yet")
-                row("TREE VALUES", String(format: "morph gold %.3f", treeMorphGold),
-                    String(format: "swing %.1f", treeSwing))
-                row("EFFECTIVE", String(format: "morph %.3f → rate %.4f beats", d.effMorphGold, d.effRateBeats),
-                    String(format: "swing %.1f", d.effSwing))
-                row("CC IN", "\(d.ccCount) messages",
-                    d.ccCount > 0 ? String(format: "last: %02X %d %d (passed on A)", d.ccStatus, d.ccData1, d.ccData2) : "none yet")
-                row("EMIT", "\(d.emitCount) notes",
-                    d.emitCount > 0
-                      ? String(format: "last: note %d · bus ch %d (stamped)", d.lastEmitNote, d.lastEmitChan + 1)
-                      : "none yet")
-
-                Text("If PARAM EVENTS and TREE both sit still while you move a mapped control, the mapping isn't reaching this instance — check AUM's control target.")
-                    .font(.system(size: 8.5, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
-                    .padding(.top, 4)
-
                 Divider().background(Color.white.opacity(0.15)).padding(.vertical, 2)
 
                 row("TEST SESSION", loadedID, selected?.title ?? "none loaded")
@@ -213,7 +178,7 @@ struct DiagView: View {
                         .foregroundColor(.white.opacity(0.5))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("Loading a session REPLACES the document (host automation state included). Only ARP is implemented — every other type behaves as identity for now.")
+                Text("Loading a session REPLACES the document (host automation state included).")
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
               }
@@ -223,14 +188,10 @@ struct DiagView: View {
         }
         .onReceive(timer) { _ in
             guard let au else { return }
-            d = au.kernelDiagnostics()
-            emitActive = d.emitCount != lastEmitCount   // MIDI flowed since last poll → light the lanes
-            lastEmitCount = d.emitCount
+            d = au.kernelDiagnostics()          // grid needs effColumn / playing
             busChannels = au.uiBusChannels()
             docColours = au.uiColours()
             scene = au.uiScene()
-            treeMorphGold = au.parameterTree?.parameter(withAddress: 200)?.value ?? 0
-            treeSwing = au.parameterTree?.parameter(withAddress: 1)?.value ?? 50
         }
     }
 

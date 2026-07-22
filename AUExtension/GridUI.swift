@@ -258,38 +258,6 @@ struct GridView: View {
     }
 }
 
-/// The four output bus lanes (A–D). Shows, per column, which buses have an emitting cell — a
-/// truthful map of where sound leaves the plugin. A lane pulses when MIDI is flowing (global
-/// emit activity), the lightweight "current flows when MIDI flows" cue.
-struct BusLanesView: View {
-    let scene: SceneState
-    let active: Bool          // any emission happening right now (from the diag emit counter)
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, bus in
-                HStack(spacing: 3) {
-                    Text(bus.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5)).frame(width: 12)
-                    ForEach(0..<8, id: \.self) { col in
-                        let emits = columnEmits(col, to: bus)
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(emits ? (active ? Color(red: 0.15, green: 0.88, blue: 0.94)
-                                                  : Color(red: 0.15, green: 0.88, blue: 0.94).opacity(0.4))
-                                        : Color.white.opacity(0.05))
-                            .frame(height: 5)
-                    }
-                }
-            }
-        }
-    }
-
-    private func columnEmits(_ col: Int, to bus: Bus) -> Bool {
-        guard col < scene.cells.count else { return false }
-        return scene.cells[col].contains { $0?.buses.contains(bus) ?? false }
-    }
-}
-
 /// OUTPUTS panel (delta §7/§7b): the fixed cable identities + each bus's stamp channel. Tap a bus's
 /// channel to bump it (1…16 → wraps). Flags when two buses share a channel (their streams merge on
 /// the All cable — legal, never blocked).
