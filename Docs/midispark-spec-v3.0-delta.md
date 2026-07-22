@@ -155,7 +155,13 @@ fields · A/B tabs. (MORPH desk: parked — returns as its own design pass.)
 Desk boxes are three NAMED panels — COLOUR, PROCESSOR, EMITTERS — in that
 order in both orientations; only PROCESSOR may scroll (content-sized up to a
 ceiling); emitter select buttons are grid-pad-scale squares carrying their
-channel readouts. A **SCENE strip** runs full-width along the BOTTOM in both
+channel readouts. **STATIC FRAMES RULE (binding):** desk boxes have FIXED positions and sizes
+per orientation — they NEVER resize or move in response to content or
+selection (switching a Colour's TYPE must not move the EMITTERS pads a
+single point). The PROCESSOR frame is sized for the LARGEST field set;
+smaller types leave calm space; only content that exceeds the frame scrolls
+WITHIN it. The mockup's content-driven sizing is a simulation artifact.
+A **SCENE strip** runs full-width along the BOTTOM in both
 orientations: 8 slots, current highlighted (dev builds host the canned test
 sessions in these slots until scenes are implemented). RESERVED, details TBD:
 a MIDI-IN display ABOVE the COLOUR box. BACKLOG (log, don't invent):

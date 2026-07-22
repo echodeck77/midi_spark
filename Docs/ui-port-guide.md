@@ -61,7 +61,10 @@ the HTML's `T` constant.
    a ceiling); COLOUR and EMITTERS never. COLOUR = palette 4×4 + selected
    name·type readout. PROCESSOR = A/B tabs + the selected Colour's fields
    (TYPE, TRANSPOSE, PHASE, TIME/DENSITY, params — NO channel field;
-   channels are bus-owned). EMITTERS = four GRID-PAD-SCALE square buttons
+   channels are bus-owned; the frame is FIXED-SIZE per orientation, sized
+   for the largest type's field set — the STATIC FRAMES RULE, delta §6:
+   boxes never resize or move with content; use fixed frames in SwiftUI,
+   never intrinsic sizing, for all three boxes). EMITTERS = four GRID-PAD-SCALE square buttons
    each printing its letter + CH readout, selected = white ring; below them
    CABLE·CH edit control, ALL-cable note, shared-channel warning. MORPH desk:
    PARKED (own later pass); RESERVED above COLOUR: the MIDI-IN display
