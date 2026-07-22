@@ -5,26 +5,44 @@ happens to them."** An 8×8 grid sequences MIDI *processors* (arps, ratchets, ga
 time; held chords go in, four independent MIDI outputs (A–D) come out. Primary host: AUM.
 
 ## Authoritative documents (read before designing anything)
-- `docs/midispark-spec-v2.8.md` — THE spec (consolidated, self-contained: all 13 sections,
-  28 acceptance items). Behaviour changes require a spec revision first.
-- `docs/router-design.md` — the step-3 engineering plan: processing model (chains pass
-  time-varying POOLS, not event streams), derivation algorithm, voice/refcount design,
-  the testability-first rule (TestSessions before router code), commit plan. START HERE
-  for step 3.
-- `docs/test-procedures.md` — the device playbook: canned sessions T1–T8, bridge
+- `Docs/midispark-spec-v2.8.md` — the base spec (consolidated, self-contained) —
+  **read together with `Docs/midispark-spec-v3.0-delta.md`, which supersedes the
+  routing model (§2: receiver-picked references — any row, cycles legal-and-
+  silent, fan-out; ▾/+SRC/OUT CH/INHERIT removed; channels are filter-in/
+  stamp-out; outputs are ALL + A–D cables) and the perform visual language
+  (§5: four-row text cells, arrow playhead, one-clock rule) and the desk
+  (§6: responsive performance surface).** Where they conflict, the delta wins. Behaviour
+  changes still require a spec revision first.
+- `Docs/migration-tree-routing.md` — **THE CURRENT TASK**: the router exists and
+  works under the old chain model, and a first grid-UI slice exists built to an
+  earlier visual generation; this is the survey-first migration plan to the
+  v3.0 graph model (6 engine changes + GUI reconciliation, green-suite commits,
+  saved-session compatibility). Read it before touching ANY of
+  Router/Snapshot/TestSessions/the grid UI.
+- `Docs/router-design.md` — the engine reference (pools/sounding-sets model,
+  voice/refcount design, PHASE formulas, per-render flow). Its routing
+  derivation and commit plan are marked HISTORICAL (old model, as built);
+  use it for what the migration's guard-rail says not to touch.
+- `Docs/test-procedures.md` — the device playbook: canned sessions T1–T11, bridge
   regression B1–B4, milestone gates, and the reporting template. When asking the human
   to verify anything, quote the procedure by name.
-- `docs/ui-port-guide.md` — step 5: mockup→SwiftUI mapping, design tokens (the 16 Colour
-  hexes are canonical), gesture map, porting order.
-- `docs/midispark-architecture.mermaid`, `docs/midispark-domain-model.mermaid` — runtime + schema maps.
+- `Docs/ui-port-guide.md` — mockup→SwiftUI mapping, design tokens (the 16 Colour
+  hexes are canonical), gesture map, and the REVISED order of work (a grid
+  slice exists; reconcile, don't rebuild).
+- `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
-- `docs/midispark-preview-v26.html` — the GUI reference mockup (open in a browser); the
-  behavioural spec for the UI.
+- `Docs/midispark-preview-v53.html` — the GUI reference mockup (open in a browser);
+  the behavioural spec for the UI. v26–v49 are history; v50/v51 are BROKEN
+  (JSX bug) — never open as reference; v40 is the preserved abandoned fork
+  (module boxes / linear chains) — do not implement it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
+- **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
+- Product name candidate: **"8x8 State"** (display name only, undecided);
+  bundle IDs stay `com.paulbarrett.MidiSpark` FOREVER regardless.
 
 ## Architecture invariants (violating these = bug, regardless of tests passing)
 1. **The render thread reads ONLY `SnapshotBox`** (immutable, atomically published).
@@ -35,8 +53,9 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
    the param-override table are the sanctioned exceptions; see Kernel.swift comments).
 3. **No allocation / locks / ObjC dispatch on the render path.** Fixed-size storage only.
 4. **No stuck notes, ever:** every transition (transport edge, mute, edit, column change)
-   closes sounding notes; note-offs will be reference-counted per (bus, channel, note)
-   when the router lands (spec §7 collision policy).
+   closes sounding notes; note-offs are reference-counted per EMITTED
+   (cable, channel, note) — five cables once ALL lands (spec §7 collision
+   policy + delta §7b).
 5. **Parameter addresses are STABLE forever:** 0 stepRate · 1 swing · 100+i transpose ·
    200+i morph · 300 morphMaster. Add new addresses; never renumber or reuse.
 6. Host parameter changes arrive via TWO routes: tree setValue (observer → snapshot) and
@@ -53,24 +72,9 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - Extension bundle ID must be prefixed by the app's:
   app `com.paulbarrett.MidiSpark`, extension `com.paulbarrett.MidiSpark.AU` (explicit
   PRODUCT_BUNDLE_IDENTIFIER in the MidiSparkAU target).
-- Compile check from CLI: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-  xcodebuild -project MidiSpark.xcodeproj -scheme MidiSpark -destination
-  'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build` (prepend `xcodegen generate &&`
-  only after adding/removing files). The `DEVELOPER_DIR` prefix is REQUIRED here:
-  `xcode-select` points at CommandLineTools, whose older Swift can't parse the Xcode SDK.
-  `CODE_SIGNING_ALLOWED=NO` skips signing for a pure compile check; *device install*
-  happens in Xcode. The `MidiSpark` scheme is shared (project.yml `schemes:`); regenerate
-  never drops it.
-- Off-device unit tests cover the pure engine core (`AUExtension/Derivations.swift`: swing warp,
-  phase modes, arp patterns, cellMode dispatch, ratchet ramp, NotePool). Run them — no simulator,
-  ~seconds — with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test
-  -project MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS,arch=arm64'
-  -derivedDataPath build/DerivedData`. The `-derivedDataPath` is REQUIRED: the default DerivedData
-  intermittently serves a STALE test bundle (old test count, hidden failures) — a fixed path per
-  run avoids it. The macOS
-  `MidiSparkTests` target compiles the Foundation-only pure sources directly (no iOS/CoreAudio
-  link). Keep new pure logic in Derivations.swift so it stays testable; add a test when you add a
-  processor. Integration behaviour (chains, emission, refcount) is still device-verified via T1–T14.
+- Compile check from CLI: `xcodegen generate && xcodebuild -project MidiSpark.xcodeproj
+  -scheme MidiSpark -destination 'generic/platform=iOS' build` (signing may need the
+  user's team set; building for *device install* happens in Xcode).
 - Device testing is manual: the human runs from Xcode onto the iPad and verifies in AUM.
   You cannot hear anything. When behaviour needs verification, say exactly what to check
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
@@ -81,31 +85,23 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - DONE step 2 (snapshot bridge): kernel is snapshot-driven; morph/master/swing/stepRate
   live end-to-end; render-side param events handled; CC passthrough on cable A always;
   diagnostic UI in the extension.
-- DONE step 3 (the ROUTER) — tag `v0.3-router`. `Router.swift` (+ `NotePool`) owns grid
-  columns, sender-decides chain derivation (§2), the mirror model for identity cells
-  (identity re-articulates its feeder's ticks; unfed/+SRC holds the source chord), bus
-  fan-out, OUT CH / INHERIT stamping (§2.6), and the (bus, channel, note) collision
-  refcount (§7). Kernel keeps input + dispatch. Fed-ARP ("arpeggiate the arpeggio") is
-  real and window-independent (feederSoundingNote derives the feeder's current note).
-- IN PROGRESS step 4 (processors) — 5 of 6 done, each with a fixture + (where pure) unit
-  tests. DONE: ARP (all 5 patterns incl. AS-PLAYED, all 3 PHASE modes), RATCHET, PASSGATE,
-  STRUM, CHANCE. REMAINING: HARMONIZE. `cellMode()` (Derivations.swift) dispatches
-  arp/ratchet/strum/chance/identity/silent; bypass + not-yet-built types fall back to
-  identity, so adding HARMONIZE = one case there + a loop branch + params + a fixture.
-  `TestSessions.swift` now holds T1–T16 (load from the diag panel).
-- Engine feel-decisions NOT pinned by the spec (deliberate, confirmed by ear; flagged in
-  code): ratchet ramp = crescendo, stab gate 0.6 of a subdivision; strum spread = musical
-  beats, curve = frac^(2^curve), tilt linear, ALTERNATE flips per pass; CHANCE is a
-  deterministic position hash (loop-consistent), not a live RNG.
-- Pure core is unit-tested off-device: `Derivations.swift` + the effective-param functions
-  (`Snapshot.swift`, now Foundation-only — atomics live in `SnapshotStore.swift`) +
-  `SnapshotBuilder.swift`, all compiled into the macOS `MidiSparkTests` target (42 tests,
-  ~30 ms). The render loop itself (emission, voice table, refcount, chains) stays
-  device-verified via T1–T16.
-- THEN step 5: SwiftUI grid UI (port of preview v26) — but the COLOUR-panel layout pass in
-  the spec's pending list comes first.
-- Acceptance checklist: spec §11, 28 items. Tags: `v0.1-scaffold`, `v0.2-bridge`,
-  `v0.3-router` (T1–T8 + B1–B4 device-verified).
+- DONE step 3 (the ROUTER) — **under the OLD chain model** (▾/srcMix,
+  sender-decides, OUT CH). Works; tagged `v0.3-router`.
+- DONE step 4 (mostly): FIVE of six processors built (ARP/RATCHET/PASSGATE/
+  STRUM/CHANCE); **HARMONIZE outstanding** (identity until built).
+- DONE (partial) grid UI: a first SwiftUI grid slice exists, built to an
+  earlier visual generation.
+- Test assets: `TestSessions.swift` carries **T1–T16** (numbering authority —
+  see test-procedures preamble) and `Tests/` holds a **42-test macOS unit
+  suite** over the pure core (Derivations.swift). BOTH must stay green
+  through every commit; unit tests run off-device and come FIRST.
+- **NEXT: THE MIGRATION** (Docs/migration-tree-routing.md): engine commits 1–5
+  to the v3.0 graph model + outputs, THEN GUI reconciliation to preview v53.
+  Survey-first on everything. Old saved AUM sessions must load and convert.
+- THEN: HARMONIZE (the step-4 remainder) and the remaining UI passes per
+  ui-port-guide's revised order.
+- Acceptance checklist: spec §11, 28 items. Tag milestones (`v0.1-scaffold` exists;
+  tag `v0.2-bridge` once the bridge tests pass on device).
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).

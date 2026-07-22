@@ -7,6 +7,7 @@ land; when asking the human to test, quote the relevant procedure by name.
 ## Standing AUM setup
 
 - MidiSpark as a MIDI Processor; keyboard → MidiSpark input.
+- MidiSpark declares FIVE outputs once v0.5 lands: ALL + A–D (before that: four).
 - Four synth channels: MidiSpark A → Synth1, B → Synth2, C → Synth3, D → Synth4
   (any AUv3 instruments; distinct patches so buses are tellable apart).
 - **AUM MIDI monitor nodes** on MidiSpark's input and on output A (add B when
@@ -23,7 +24,15 @@ Hold a chord, transport playing:
 - B4 Sync torture: tempo change mid-hold, loop a bar, relocate — no drift,
   no stuck notes. Stop with keys held — no stuck notes.
 
-## Canned test sessions (T1–T8; loaded from the diagnostic panel)
+## Canned test sessions (loaded from the diagnostic panel)
+
+**NUMBERING AUTHORITY: the repo.** `TestSessions.swift` has grown to T1–T16
+(processor coverage beyond this document). The repo's numbering WINS — map
+the cases below by INTENT, not by number; where an old session covers the
+same intent under the old model, re-express it in place; where a case below
+is new (reference graphs, filter+stamp, ALL cable, cycles), APPEND with the
+next free number. First act of the migration survey: reconcile and update
+THIS document to the repo's final numbering. Numbers below are provisional.
 
 Each lists: the grid it builds → what correct behaviour sounds/reads like.
 
@@ -31,24 +40,34 @@ Each lists: the grid it builds → what correct behaviour sounds/reads like.
 → Ascending 1/16 arp on Synth1 only, only while column 0 is active (1 step in 8).
 Monitor A: clean on/off pairs, silence for the other 7 steps.
 
-**T2 — chain.** Col 0: gold ARP (row 0, ▾ on, no letters) → cyan cell (row 1, bus A).
-→ Sound leaves ONLY through row 1 (spec §2.3). Row 0 alone must be silent on
-every bus. With row 1 as identity/ARP, output reflects processing of the feed.
+**T2 — reference chain.** Col 0: gold ARP (row 0, no letters) → cyan cell
+(row 1, inputRow:0, bus A).
+→ Sound leaves ONLY through row 1. Row 0 alone must be silent on every bus.
+Output reflects processing of the parent's sounding set.
 
-**T3 — +SRC merge.** As T2 but row 1 has +SRC on.
-→ Row 1's input = feed ∪ source: audibly denser than T2 with the same chord.
+**T3 — sibling source tap** (replaces the old +SRC merge). As T2 plus a third
+cell (row 2, inputRow:null → MIDI IN, bus A).
+→ Bus A carries processed-feed AND source-derived streams together — the old
+"+SRC" musical intent expressed as siblings. Verify both streams well-paired
+on the monitor.
 
 **T4 — fan-out.** One ARP cell with buses A and B both lit.
 → Identical simultaneous streams on Synth1 and Synth2; monitors A and B show
 duplicate events, independently well-paired.
 
-**T5 — muted-feeder reroute.** As T2 but the feeder (row 0) muted.
-→ Row 1 reverts to SOURCE input (§2.1): plays as if unchained. Diag panel is the
-visual check until the wiring UI exists.
+**T5 — muted-parent reroute.** As T2 but the parent (row 0) muted.
+→ Row 1 reverts to MIDI IN (v3.0-delta §1 reroute rule): plays as if
+unreferenced; restores on unmute; zero stuck notes across both transitions.
+Visual checks: diag panel, and the cell's FROM header flare once the grid is
+reconciled.
 
-**T6 — OUT CH stamping.** Two cells: one Colour INHERIT, one OUT CH = 5, both bus A.
-→ Monitor A shows the first on the keyboard's original channel, the second on
-ch 5. (Synth1 set to omni to hear both.)
+**T6 — channel filter + stamp.** Two cells, both FROM MIDI: cell 1 filter
+IN CH 1, bus A (ch stamp 5); cell 2 filter IN CH 2, bus B (default stamp 2).
+Keyboard sending on ch 1, then ch 2, then both (split/layer if available).
+→ Ch-1 playing sounds only cell 1's stream, emitted stamped ch 5 on cable A;
+ch-2 only cell 2's on cable B ch 2; both = both. No origin channel survives
+anywhere. Change a stamp live: re-stamps with no stuck notes. Set cell 1 to
+OMNI: it now hears everything.
 
 **T7 — collision policy (§7).** A sustained identity cell and a same-pitch ARP,
 same bus + channel (build: identity type row 0 bus A; ARP row 1 bus A, pool
@@ -63,50 +82,43 @@ the run, no repeated/skipped indices; gap restarts at 0); FREE with pattern
 length coprime to the step (successive passes catch different slices; loop the
 host — slices stay consistent with the derivation, no drift).
 
-## Step-4 sessions (T9–T16) — full text lives in `AUExtension/TestSessions.swift`
+**T9 — fan-out tree.** One ARP parent (row 0, no letters); rows 1 and 2 both
+inputRow:0 with different treatments, buses A and B respectively; row 3
+inputRow:1 (a grandchild), bus C.
+→ Three simultaneous streams derived from ONE engine: A and B audibly share
+melodic material (same parent sounding set) under different processing; C
+processes row 1's output. Mute row 0: ALL THREE revert to source-derived
+behaviour at once. This is acceptance items 29 + 30.
 
-Each session's `expect` string in code is the authoritative description; summary here.
-Identity roles use BYPASSED cells (bypass = identity, robust to any processor).
+**T10 — the ALL cable.** Load T9 (fan-out, buses A/B/C, stamps 1/2/3).
+Host shows FIVE MidiSpark outputs. Patch synths to A, B, C individually AND
+one omni synth + monitor to ALL.
+→ Individual cables behave exactly as before. ALL carries all three streams
+simultaneously, distinguished by channels 1/2/3. Set two emitters to the
+SAME channel: their streams merge on ALL with correct off-pairing (no early
+cutoffs); the desk shows the shared-channel note; individual cables remain
+unaffected. Everything holds while patching channels live — no stuck notes
+on either the individual cables or ALL.
 
-**T9 — fed ARP (arp of arp, §1.1.3).** Gold ARP 1/8 feeds azure ARP 1/16 ×2oct →
-each upstream note rippled over 2 octaves. Proves the window-independent feeder derivation.
-
-**T10 — transpose accumulation (§2.6).** Gold +5 feeds bypass +7 → bus A sounds +12.
-
-**T11 — mid-chain tap (§2.3).** Gold taps bus A AND feeds a mirror onto bus B.
-
-**T12 — RATCHET.** count 4: whole chord re-struck 4×/column, staccato, velocity crescendo.
-
-**T13 — PASSGATE.** Arp gated per pass mod 4 (open,closed,open,closed): a full cycle of
-arp then a full cycle of silence, alternating. Panel EMIT rises only on even passes.
-
-**T14 — ARP patterns.** cols 0–4: UP · DOWN · UP-DN · RANDOM (loop-consistent) · AS-PLAYED
-(press-order — play notes non-ascending to hear it differ from UP).
-
-**T15 — STRUM.** Chord rolls in low→high over ~0.25 beat, held to boundary, velocity tilt.
-
-**T16 — CHANCE.** Gold ARP → CHANCE 0.5 → a thinned arp; DETERMINISTIC (loop the host, the
-same notes drop every pass). off follows on (no stuck offs).
-
-## Off-device unit tests (`MidiSparkTests`, macOS, ~30 ms)
-
-The pure engine core is covered without a device: swing warp + inverse, phase modes, arp
-patterns (incl. AS-PLAYED + RANDOM loop-consistency), cellMode/passgate dispatch, ratchet/
-strum/chance math, effective-param morph (§3.2 stepped-quantize + §13.5 MASTER), and the
-snapshot builder (sparse B, enum→index, LEGATO run-start, clamps). Run:
-`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project
-MidiSpark.xcodeproj -scheme MidiSparkTests -destination 'platform=macOS,arch=arm64'
--derivedDataPath build/DerivedData` (the pinned derived-data path avoids stale test bundles).
-The stateful render path (emission/voice table/refcount/chains) is NOT unit-tested — that
-stays device-verified.
+**T11 — cycles and backward taps.** (a) Two cells referencing each other
+(row 2 → row 4, row 4 → row 2), both with buses lit.
+→ TOTAL SILENCE on all cables while playing with keys held — a closed loop
+has no entry. No CPU spike, no stuck notes, diag voice count stays 0 for
+both. (b) Backward tap: row 1 ← MIDI IN (arp); row 0 references row 1,
+bus B. → Row 0 emits a processed version of row 1's stream (unit-delay
+sampling — musically indistinguishable). Repatch row 0 back to MIDI IN
+live: clean transition.
 
 ## Milestone gates
 
-- Router commits 1–6 map to T-cases per docs/router-design.md; run the bridge
-  regression at each.
-- `v0.3-router` tag requires: T1–T8 pass + B1–B4 pass + 10-minute soak
-  (chord held, tempo/loop changes, test-session switching mid-play) with zero
-  stuck notes and stable memory (Xcode gauge).
+- (HISTORICAL: `v0.3-router` shipped under the old chain model.)
+- Migration commits map to T-cases per Docs/migration-tree-routing.md
+  (post-reconciliation numbering); run the
+  bridge regression at each.
+- `v0.4-graph-routing` requires: T1–T5 + T7–T9 + T11 pass (T6 in its OLD form)
+  + B1–B4 + 10-minute soak (chord held, tempo/loop changes, test-session
+  switching mid-play) with zero stuck notes and stable memory (Xcode gauge).
+- `v0.5-outputs` requires: T6 (new form) + T10 green on top of the above.
 - Acceptance items (spec §11) formally close only when testable end-to-end;
   note partial coverage honestly (e.g. item 4 is "engine-verified via T2/T5,
   UI-verified at step 5").
@@ -116,87 +128,3 @@ stays device-verified.
 "T_n: PASS/FAIL — [what was heard] — monitor: [anything odd] — diag panel:
 [voices / refcounts / effColumn / emitted count]". Screenshots of the monitor
 beat transcription when timing is disputed.
-
-## Verification log (device-confirmed results; newest first)
-
-Record each device pass/fail here so the doc reflects what is actually proven,
-not just what the plan expects. Cases not listed have NOT been run yet.
-
-### 2026-07-20 — router commits 0–3
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| B1–B4 (bridge regression) | PASS | 4242982 | run after the alt-seam + test-session groundwork |
-| Panel: snapshot gen +1 per session load | PASS | 4242982 | rebuild coalescing intact (one publish per load) |
-| T1 (single ARP) | PASS | 98ce8a9 | arp on bus A only while column 0 active — 1 step in 8, silence elsewhere |
-| T6 (OUT CH), INHERIT half | PASS | ca1e359 | held on a non-default channel → arp emits on that channel; panel EMIT shows it |
-| B4 (sync torture / no stuck notes) | PASS | 98ce8a9 | re-run after the note-off rewrite: tempo/loop/relocate + stop-with-keys-held, zero stuck notes |
-
-### 2026-07-20 — router commits 4–5b (chains)
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T1 (single ARP) | PASS | 6942a76 | regression through the Router extraction + poly voice table |
-| T2 (chain, mirror) | PASS | 6942a76 | arp emitted from row 1; row 0 silent (feeds, no letter lit) |
-| T3 (+SRC merge) | PASS | 6942a76 | denser than T2: mirrored arp + held source chord, both bus A |
-| T5 (muted-feeder reroute) | PASS | 6942a76 | feeder muted → row 1 holds the SOURCE chord; feed dark |
-| T6 (OUT CH), full | PASS | 6942a76 | both halves now live: INHERIT on original ch + OUT CH on ch 5 |
-
-Note: T6's OUT CH = n half is now exercised (two unfed arps on bus A), upgrading
-the earlier INHERIT-only pass to a full T6.
-
-### 2026-07-20 — router commit 6 (fan-out + collision refcount)
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T4 (fan-out) | PASS | 8a70de1 | identical simultaneous streams on Synth1 + Synth2, each well-paired |
-| T7 (collision policy) | PASS | 8a70de1 | held note zero dropouts under same-pitch arp; one off after release; panel showed instances > distinct |
-| T1–T3, T5, T6 | PASS | 8a70de1 | regressions; T3's same-note glitch now gone |
-
-### 2026-07-20 — router commit 7 (PHASE modes) → v0.3-router
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T8 (PHASE modes) | PASS | 8e20b4f | RETRIG restarts per column; LEGATO run completes once; FREE loop-consistent |
-| T1–T7 (RETRIG re-listen) | PASS | 8e20b4f | phase fix: arps restart at index 0 on column entry (was drifting/FREE); still correct |
-
-**`v0.3-router` gate MET** (2026-07-20): T1–T8 pass, B1–B4 pass, device-confirmed.
-Tagged `v0.3-router` at the router-complete state. The router (spec §2/§7) is done;
-next is step 4 (full processors: ARP patterns, RATCHET, PASSGATE, STRUM, CHANCE,
-HARMONIZE — acceptance items 4–6) then step 5 (SwiftUI grid UI).
-
-### 2026-07-20 — step-4 groundwork (T9–T11)
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T9 (fed ARP / arp-of-arp) | PASS | 2740913 | after the derivation fix: each upstream 1/8 note rippled over 2 oct at 1/16 |
-| T10 (transpose accumulates) | PASS | 2740913 | chain summed +5 and +7 → +12 (one octave up) |
-| T11 (mid-chain tap) | PASS | 2740913 | one cell emits on A and feeds a mirror onto B |
-
-### 2026-07-20 — step 4: RATCHET (first real processor)
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T12 (RATCHET) | PASS | 86d4fd8 | 4 chord stabs/column with velocity crescendo; correct after the boundary fix |
-| Boundary-tick fix | PASS | 86d4fd8 | column-first note/stab no longer dropped (was ceil→floor on firstTick); ARP + RATCHET |
-| T1–T11 re-listen | PASS | 86d4fd8 | arps now sound each column's first note; no regressions |
-
-Chosen RATCHET defaults confirmed by ear: velocity ramp = crescendo; stab gate 0.6 of a subdivision.
-
-### 2026-07-20 — step 4: PASSGATE
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T13 (PASSGATE) | PASS | 7b3ac04 | arp gated per pass mod 4 (open,closed,open,closed); click-safe |
-
-### 2026-07-20 — step 4: patterns complete, iterateTicks refactor, STRUM
-
-| Case | Result | Commit | Notes |
-|---|---|---|---|
-| T14 (ARP patterns) | PASS | — | UP/DOWN/UP-DN/RANDOM + AS-PLAYED (press-order); RANDOM loop-consistent |
-| iterateTicks refactor | PASS | — | T1 (arp) + T12 (ratchet) unchanged after the shared-scaffold extraction |
-| T15 (STRUM) | PASS | — | chord rolls in low→high over the spread, held to boundary, velocity tilt |
-
-Off-device: `MidiSparkTests` — 26 pure-core unit tests green (swing, phase, arp patterns
-incl. AS-PLAYED, cellMode/passgate, ratchet + strum math). Run with the pinned
-`-derivedDataPath build/DerivedData` (default DerivedData serves stale test bundles).

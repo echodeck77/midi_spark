@@ -1,9 +1,13 @@
-# UI port guide — mockup v26 → SwiftUI (build-order step 5)
+# UI port guide — mockup v53 → SwiftUI
 
-The reference implementation is `docs/midispark-preview-v26.html` (React, runs in
-any browser). It is the *behavioural* spec for the UI: when this guide and the
-HTML disagree on look/feel/timing, open the HTML and match it. When either
-disagrees with the spec on semantics, the spec wins.
+The reference implementation is `Docs/midispark-preview-v53.html` (React, runs
+in any browser). A first grid slice EXISTS in the repo built to an earlier
+generation — reconciliation, not greenfield, is the task (see the migration
+doc's GUI section for sequencing). It is the *behavioural* spec for the UI: when this guide and
+the HTML disagree on look/feel/timing, open the HTML and match it. When either
+disagrees with the spec (v2.8 + v3.0-delta) on semantics, the spec wins.
+v26–v49 are historical; v50/v51 contain a JSX bug (do not open); v52 is the
+fixed base; v53 is canonical. v40 is the preserved abandoned fork.
 
 ## Design tokens
 
@@ -26,27 +30,43 @@ the HTML's `T` constant.
 
 ## Component inventory (top → bottom of the mockup)
 
-1. **Header:** transport, STEP rate selector, SWING slider+readout, mode toggle
-   (EDIT amber / PERFORM cyan), TAP action selector (perform), pass counter,
-   momentary indicators (ISOLATE / STUTTER / LOOP n–m / ROW ALT).
-2. **Grid 8×8** + side buttons (stack row on top, row column at right) + the
-   wiring visualisation layer (source rails/taps, chain cables + chevrons, out
-   rails, four bus lanes + lamps) + edit frame in the selected Colour.
-   Cell anatomy: colour fill, type glyph rendering the ACTIVE state, badges
-   (B top-left, M top-right, ∞ bottom-left, transpose bottom-right), LEGATO
-   left-edge link tick, breathing ring (full B), static morph ring (opacity =
-   effective morph), edit-mode spatial buttons (▸ left, A–D right, ▾ below).
-3. **Bottom panel** with COLOUR ⇄ MORPH toggle:
-   COLOUR view = palette (4×4 chips, type + →n badges, selection ring) + editor
-   (TYPE, OUT CH, TRANSPOSE, PHASE, TIME/DENSITY ÷2×2, A/B tabs, params with
-   HoldSeg selectors, MORPH fader).
-   MORPH view = 16 strips (cap/fader/readout/type/B-dot) + divider + MASTER,
-   SPRING toggle, hint line.
+1. **Header (slim):** transport, mode toggle (EDIT amber / PERFORM cyan),
+   TAP action selector (perform), PASS counter, momentary indicators
+   (ISOLATE / STUTTER / LOOP n–m / ROW ALT). STEP rate and SWING live in the
+   DESK, not the header (delta §6).
+2. **Playhead strip:** the master DOWN-ARROW sweeping above the grid —
+   continuous through each step, swing-stretched, loop-snapped.
+3. **Grid 8×8** + side buttons (stack/MUTE row on top, row column at right) +
+   edit frame in the selected Colour. NO wiring layer of any kind.
+   **Cell anatomy (four rows, spec v3.0-delta §4):**
+   ① INPUT HEADER "FROM MIDI" / "MIDI CHn" (filtered) / "FROM ROW n"
+   (dim=default, bright=patched, white flare=receiving; EDIT tap opens the
+   FROM POPOVER: any occupied row except self + the IN CH filter control
+   when MIDI IN is selected) ·
+   ② type GLYPH · ③ PARAMS text from EFFECTIVE state ("1/16", "1/8 ×3") ·
+   ④ A–D EMITTER strip (ring=on, recess=off, white flip+down-glow=firing;
+   EDIT tap opens the OUT POPOVER with four A–D toggles). Plus: badges (B/M/∞/transpose at row-2/3 corners),
+   LEGATO left tick, breathing ALT ring, falling MUTATION sweep on working
+   cells of the live column (faint when bypassed), row-number WATERMARK on
+   empty cells (perform).
+4. **Desk (a PERFORMANCE surface — delta §6):** placement is responsive —
+   right column beside the grid in landscape, band below it in portrait
+   ("the grid is square, screens are not"). Contents top→bottom: STEP + SWING
+   · COLOUR ⇄ MORPH toggle (defaults COLOUR) · palette 4×4 (26px chips) ·
+   OUTPUTS panel (A–D select, per-emitter channel, the ALL-cable note,
+   shared-channel warning) · the selected Colour's fields (TYPE, TRANSPOSE,
+   PHASE, TIME/DENSITY, params — NO channel field here; channels are
+   bus-owned) · A/B tabs + inline MORPH. MORPH view: 16 strips + MASTER +
+   SPRING; render strips as VERTICAL faders in the landscape column.
 
 ## Gesture map (the grammar, §0 — implement uniformly)
 
-- Cell tap: EDIT = paint/clear/repaint · PERFORM+playing = TAP action ·
-  PERFORM+stopped = audition hold semantics.
+- Cell tap: EDIT = apply selected colour on the body (mockup stand-in;
+  the real build is DRAG-AND-DROP from the palette + body-HOLD cell menu for
+  CLEAR/COPY, delta §5), open FROM popover (header), open OUT popover
+  (emitter strip) · PERFORM+playing = TAP action · PERFORM+stopped =
+  audition hold semantics. Sub-cell hit-zones exist only in EDIT; in PERFORM
+  the whole pad is one target. Sub-44pt zones are OPENERS, never actuators.
 - Cell hold 300 ms: isolate (perform+playing) / preview (audition).
 - Stack button: tap = SEL (edit) / mute, solo with S (perform) / APPLY (audition);
   hold = stutter, two+ = loop brace (perform+playing only).
@@ -62,31 +82,35 @@ the HTML's `T` constant.
   mutation calls the AU's existing `scheduleRebuild()` path. UI state that is
   NOT document state (selections, held sets, armed QUANT set, panel view) lives
   in view-local state and must never enter fullState.
-- The wiring layer wants `Canvas`/`TimelineView` (event-driven animation only:
-  current flows when MIDI flows — drive from a lightweight "activity" feed off
-  the diag/emission counters, not a timer pretending).
-- Playhead/pass for display: derive from the same host-beat maths as the engine
-  (poll the AU at 30–60 Hz for beat position); never run a UI timer clock.
+- Playheads (master arrow + falling cell lines) and header/emitter flares:
+  ALL are pure functions of the one derived beat fraction + emission activity
+  polled from the AU — the ONE-CLOCK RULE (v3.0-delta §4) is binding; no view
+  owns an animation clock. `TimelineView` reads, views render.
+- The mockup's per-step CSS animations are a simulation artifact — do NOT
+  port that mechanism; derive positions per frame.
 - Hold detection: `LongPressGesture(minimumDuration: 0.3)` composed with tap;
   replicate the suppress-trailing-tap rule exactly.
 - Multi-touch: stutter+brace and multi-fader require simultaneous gestures —
   test on hardware early; this is where SwiftUI defaults fight you.
-- Layout: iPad landscape first (mockup geometry); MORPH desk is ~17×44 pt strips
-  wide — portrait needs the active-colours-only collapse noted in the spec's
-  layout-pass task.
+- Layout: implement the delta §6 responsive rule (aspect-driven breakpoint,
+  not device-driven). Landscape desk column has height to spare; PORTRAIT is
+  the tight case — apply the height budget there, tuned on device.
 - Do NOT port: Babel/React scaffolding, the mockup's fake transport clock
   (the AU is the clock), mouse-event hold emulation.
 
-## Order of work
+## Order of work (revised — a grid slice already exists)
 
-1. Read-only grid bound to the document (cells, badges, playhead) — proves the
-   binding against the running engine.
-2. Edit mode (paint + spatial wiring buttons) — replaces TestSessions as the
-   authoring path; re-run T1–T8 authored by hand.
-3. Wiring visualisation (truthfulness against the MIDI monitor = acceptance 12).
-4. Perform tap layer → hold layer → panel (COLOUR view, after the layout pass) →
-   audition → MORPH desk → QUANT arming visuals.
+1. SURVEY the existing grid (migration doc GUI section): what it binds, which
+   visual generation it implements. List before editing.
+2. Rebind to the new schema (inputRow / inputChannel / busChannels) once the
+   engine migration lands — the grid must never write old fields.
+3. Reconcile visuals to v53: four-row cell, watermarks, playheads (one-clock
+   rule), header/emitter states. Acceptance 12 (rescoped): header names the
+   live parent; emitter strip matches actual emission — verify vs a monitor.
+4. Edit interactions: FROM/OUT popovers → then drag-and-drop + hold menu.
+5. Desk: responsive placement, OUTPUTS panel, fields, MORPH (vertical faders
+   in landscape) → perform layers → audition (incl. EDIT-stopped hold,
+   delta §5) → QUANT arming visuals.
 
-**Pending design task (spec 6.9):** the COLOUR-panel layout pass happens BEFORE
-porting the panel. Design conversations belong in the chat/design venue with the
-mockup; port the outcome.
+The §6.9 layout pass is CLOSED — delta §6 is its outcome; implement, don't
+re-design.
