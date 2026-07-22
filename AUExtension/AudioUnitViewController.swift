@@ -181,10 +181,22 @@ struct DiagView: View {
                     }
                     .padding(12)
                 } else {
-                    ScrollView {
-                        VStack(spacing: 8) { header; gridBlock(54); hint; desk; sceneStrip; devLoader }
-                            .padding(12)
+                    // Portrait (delta §6): grid on top, then the desk as a COMPACT BAND below —
+                    // COLOUR · PROCESSOR · EMITTERS left-to-right (not a vertical stack), then the
+                    // scene strip full-width. The band is fixed-height (only PROCESSOR scrolls,
+                    // within itself); the GRID absorbs the remaining height so the band + strip are
+                    // always visible without an outer scroll. Final sizing tuned on device.
+                    let bandH: CGFloat = 210
+                    let cellH = max(28, min(54, (geo.size.height - bandH - 210) / 8))
+                    VStack(spacing: 8) {
+                        header
+                        gridBlock(cellH)
+                        hint
+                        deskBand(geo.size.width - 24, bandH)   // 24 = the .padding(12) on both sides
+                        sceneStrip
+                        devLoader
                     }
+                    .padding(12)
                 }
             }
         }
@@ -228,7 +240,9 @@ struct DiagView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // The DESK — three named boxes in order: COLOUR · PROCESSOR · EMITTERS (delta §6).
+    // The DESK — three named boxes in order: COLOUR · PROCESSOR · EMITTERS (delta §6). Order is
+    // preserved in both orientations; only the AXIS flips with the leftover rectangle. LANDSCAPE
+    // (this VStack, in a right-hand column) stacks them top→bottom; PORTRAIT uses `deskBand` below.
     private var desk: some View {
         VStack(spacing: 8) {
             colourBox
@@ -236,10 +250,37 @@ struct DiagView: View {
                 ProcessorBox(colour: bc, colourIndex: brushIndex,
                              onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
             }
-            OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+            emittersBox
         }
+    }
+
+    // PORTRAIT desk (delta §6): a COMPACT BAND below the grid — the three named panels run
+    // LEFT-TO-RIGHT, COLOUR · PROCESSOR · EMITTERS. Only PROCESSOR scrolls, within its own fixed
+    // frame (§6: "only PROCESSOR may scroll, content-sized up to a ceiling"); COLOUR and EMITTERS
+    // sit at the top of their slots. PROCESSOR gets the widest share — it carries the 6-wide RATE
+    // row — matching the ~320pt it enjoys in the landscape column.
+    private func deskBand(_ width: CGFloat, _ height: CGFloat) -> some View {
+        let gap: CGFloat = 8
+        let avail = max(0, width - gap * 2)
+        return HStack(alignment: .top, spacing: gap) {
+            colourBox.frame(width: avail * 0.30)
+            Group {
+                if let bc = brushColour {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        ProcessorBox(colour: bc, colourIndex: brushIndex,
+                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
+                    }
+                }
+            }
+            .frame(width: avail * 0.44, height: height)
+            emittersBox.frame(width: avail * 0.26)
+        }
+    }
+
+    private var emittersBox: some View {
+        OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
     private var colourBox: some View {
