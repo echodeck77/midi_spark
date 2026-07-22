@@ -32,9 +32,17 @@ func colourColor(_ id: String) -> Color? {
 private let accentCyan = Color(red: 0.15, green: 0.88, blue: 0.94)   // playhead / PERFORM accent
 private let accentAmber = Color(red: 0.98, green: 0.72, blue: 0.12)  // selection / EDIT accent (§6.5)
 
-/// The 8×8 grid. `scene.cells` is [column][row]; rows lay top→bottom, columns left→right.
+// v56 theme tokens (mockup `T`): cell recess, edges, dim ink.
+private let cellBg = Color(hex: 0x0B0D11)
+private let cellEdge = Color(hex: 0x20242D)
+private let dimInk = Color(hex: 0x5C6472)
+
+/// The 8×8 grid — v56 FOUR-ROW cell (delta §4): input header · type+params body · emitter strip;
+/// empty cells show a row-number watermark. `scene.cells` is [column][row]. `colours` maps a cell's
+/// colourID → its type/params for the body text.
 struct GridView: View {
     let scene: SceneState
+    let colours: [Colour]
     let playColumn: Int
     let playing: Bool
     var selCol: Int = -1
@@ -43,11 +51,12 @@ struct GridView: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            HStack(spacing: 3) {                          // playhead bar
+            HStack(spacing: 3) {                          // master playhead bar (down-arrow strip, simple)
                 ForEach(0..<8, id: \.self) { col in
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(playing && col == playColumn ? accentCyan : Color.white.opacity(0.08))
-                        .frame(height: 3)
+                    Text(playing && col == playColumn ? "▼" : "")
+                        .font(.system(size: 8, weight: .heavy))
+                        .foregroundColor(accentCyan)
+                        .frame(maxWidth: .infinity).frame(height: 9)
                 }
             }
             ForEach(0..<8, id: \.self) { row in
@@ -62,72 +71,122 @@ struct GridView: View {
         let cell = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
-        let parent = parentOf(col, row)                           // resolved reference (−1 = MIDI IN), reroute applied
-        let fed = parent >= 0
-        let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false   // §1 reference-aware
+        let parent = parentOf(col, row)
+        let colour = cell.flatMap { c in colourColor(c.colourID) }
+        let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false
 
-        RoundedRectangle(cornerRadius: 4)
-            .fill(cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05))
-            .frame(maxWidth: .infinity)
-            .frame(height: 32)
-            // border: selection (amber) > no-destination warning (dashed red, §1) > active col > idle
-            .overlay {
-                if noDest && !isSel {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28),
-                                      style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
-                } else {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.85) : Color.white.opacity(0.10)),
-                                lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 0.5))
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(colour ?? cellBg)
+
+            if let cell {
+                VStack(spacing: 0) {
+                    inputHeader(cell, parent: parent, live: inActiveCol)
+                    Spacer(minLength: 0)
+                    bodyText(cell)
+                    Spacer(minLength: 0)
+                    emitterStrip(cell, firing: inActiveCol)
                 }
+            } else {
+                Text("\(row + 1)")                          // empty-cell watermark (§4)
+                    .font(.system(size: 20, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.08))
             }
-            // INPUT HEADER (delta §4): text naming the cell's input — top-left, small.
-            .overlay(alignment: .topLeading) {
-                if let cell {
-                    Text(inputLabel(cell, parent: parent))
-                        .font(.system(size: 7.5, weight: .bold, design: .monospaced))
-                        .foregroundColor(fed ? .black.opacity(0.7) : .black.opacity(0.45))
-                        .padding(.horizontal, 2).padding(.top, 1)
-                }
+        }
+        .frame(maxWidth: .infinity).frame(height: 54)
+        .overlay {                                          // border: no-dest > selection > active > idle
+            if noDest && !isSel {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSel ? accentAmber : (inActiveCol ? Color.white.opacity(0.7) : cellEdge),
+                            lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 1))
             }
-            // EMITTERS: lit bus letters, bottom-right (§4 emitter strip, compact form).
-            .overlay(alignment: .bottomTrailing) {
-                if let cell, let letters = busLetters(cell.buses) {
-                    Text(letters).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.black.opacity(0.65)).padding(2)
-                }
-            }
-            .opacity(cell == nil ? 0.6 : 1)
-            .contentShape(Rectangle())
-            .onTapGesture { onTap?(col, row) }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?(col, row) }
     }
 
-    // Routing derivation — mirrors the engine (SnapshotBuilder.resolvedParent + Router.parentRow),
-    // so the picture is truthful (delta §1, acceptance 12).
+    // ① INPUT HEADER — "FROM MIDI" / "MIDI CHn" / "FROM ROW n"; flares white on the live column.
+    private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
+        let midi = parent < 0
+        let label = midi ? (cell.inputChannel > 0 ? "MIDI CH\(cell.inputChannel)" : "FROM MIDI")
+                         : "FROM ROW \(parent + 1)"
+        return Text(label)
+            .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(live ? .black : (midi ? .white.opacity(0.7) : .white))
+            .frame(maxWidth: .infinity).frame(height: 13)
+            .background(live ? Color.white : Color.black.opacity(0.52))
+            .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
+    }
+
+    // ② BODY — type + effective-ish params (compact). Rendered over the colour fill.
+    private func bodyText(_ cell: Cell) -> some View {
+        let c = colours.first { $0.colourID == cell.colourID }
+        let dim = cell.bypassed || cell.muted
+        return VStack(spacing: 1) {
+            Text(typeLabel(c))
+                .font(.system(size: 8, weight: .black, design: .monospaced))
+            Text(paramText(c))
+                .font(.system(size: 6.5, weight: .bold, design: .monospaced))
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .foregroundColor(dim ? .white.opacity(0.3) : .black.opacity(0.6))
+        .padding(.horizontal, 2)
+    }
+
+    // ④ EMITTER STRIP — A B C D; lit = on, brighter (white) = firing this column.
+    private func emitterStrip(_ cell: Cell, firing: Bool) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Bus.allCases, id: \.self) { b in
+                let on = cell.buses.contains(b)
+                Text(b.rawValue)
+                    .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? (firing ? .black : .white) : .black.opacity(0.4))
+                    .frame(maxWidth: .infinity).frame(height: 11)
+                    .background(RoundedRectangle(cornerRadius: 3)
+                        .fill(on ? (firing ? Color.white : Color.black.opacity(0.62)) : Color.black.opacity(0.18)))
+            }
+        }
+        .padding(.horizontal, 2).padding(.bottom, 2)
+    }
+
+    // ---- routing derivation (mirrors engine resolvedParent/parentRow — truthful, delta §1) ----
     private func cellAt(_ col: Int, _ row: Int) -> Cell? {
         guard col >= 0, col < scene.cells.count, row >= 0, row < scene.cells[col].count else { return nil }
         return scene.cells[col][row]
     }
-    /// Resolved parent row: inputRow if that row is occupied, ≠ self, and NOT muted (reroute); else −1.
     private func parentOf(_ col: Int, _ row: Int) -> Int {
         guard let ir = cellAt(col, row)?.inputRow, ir != row, let p = cellAt(col, ir), !p.muted else { return -1 }
         return ir
     }
-    /// Does any OTHER cell in the column reference this row? (reference-aware no-destination, §1)
     private func isTapped(_ col: Int, _ row: Int) -> Bool {
         for r in 0..<8 where r != row && cellAt(col, r)?.inputRow == row { return true }
         return false
     }
-    private func inputLabel(_ cell: Cell, parent: Int) -> String {
-        if parent >= 0 { return "◄\(parent + 1)" }          // FROM ROW n (1-based)
-        if cell.inputChannel > 0 { return "CH\(cell.inputChannel)" }
-        return "IN"
+    private func typeLabel(_ c: Colour?) -> String {
+        switch c?.type {
+        case .arp: return "ARP"; case .ratchet: return "RTC"; case .passgate: return "PASS"
+        case .strum: return "STRM"; case .chance: return "CHNC"; case .harmonize: return "HARM"
+        case .none: return "—"
+        }
     }
-
-    private func busLetters(_ buses: Set<Bus>) -> String? {
-        let s = Bus.allCases.filter { buses.contains($0) }.map(\.rawValue).joined()
-        return s.isEmpty ? nil : s
+    private func paramText(_ c: Colour?) -> String {
+        guard let c else { return "" }
+        switch c.type {
+        case .arp:
+            var s = c.paramsA.rate?.rawValue ?? ""
+            if let o = c.paramsA.octaves, o > 1 { s += " \(o)OCT" }
+            return s
+        case .ratchet:  return "×\(c.paramsA.count ?? 3)"
+        case .passgate: return "GATE"
+        case .strum:    return "SPR \(Int((c.paramsA.spread ?? 0.1) * 100))"
+        case .chance:   return "\(Int((c.paramsA.probability ?? 1) * 100))%"
+        case .harmonize:
+            let iv = (c.paramsA.harmIntervals ?? [0,0,0]).filter { $0 != 0 }
+            return iv.isEmpty ? "UNISON" : iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: " ")
+        }
     }
 }
 

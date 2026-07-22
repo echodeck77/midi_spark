@@ -47,6 +47,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 
+    /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
+    func uiColours() -> [Colour] { document.colours }
+
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if suppressRebuild { return }

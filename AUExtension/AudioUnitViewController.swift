@@ -50,6 +50,7 @@ struct DiagView: View {
     @State private var emitActive = false
     @State private var lastEmitCount: UInt64 = 0
     @State private var busChannels: [Int] = [1, 2, 3, 4]
+    @State private var docColours: [Colour] = []
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     private var selectedCell: Cell? {
@@ -156,7 +157,7 @@ struct DiagView: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
 
-                GridView(scene: scene, playColumn: d.effColumn, playing: d.playing,
+                GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                          selCol: selCol, selRow: selRow, onTap: tapCell)
                 BusLanesView(scene: scene, active: emitActive)
                 OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
@@ -233,6 +234,7 @@ struct DiagView: View {
             emitActive = d.emitCount != lastEmitCount   // MIDI flowed since last poll → light the lanes
             lastEmitCount = d.emitCount
             busChannels = au.uiBusChannels()
+            docColours = au.uiColours()
             scene = au.uiScene()
             treeMorphGold = au.parameterTree?.parameter(withAddress: 200)?.value ?? 0
             treeSwing = au.parameterTree?.parameter(withAddress: 1)?.value ?? 50
