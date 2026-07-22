@@ -1,11 +1,10 @@
 //  GridUI.swift
-//  MidiSpark — the 8×8 grid view + edit controls (build-order step 5).
-//  Increment 1: read-only grid bound to the document. Increment 2: edit mode — a Colour palette
-//  (brush), tap-to-paint, and a per-cell editor strip for wiring (buses / ▾ stack / ▸ +SRC).
-//  Every edit goes through MidiSparkAudioUnit.editScene → scheduleRebuild. Design tokens per
-//  docs/ui-port-guide.md. NB: gesture model here is "tap paints an empty cell / selects an occupied
-//  one; clear + repaint are explicit in the strip" — safe & predictable; we align to the mockup's
-//  exact tap-to-clear/repaint when we match the HTML.
+//  MidiSpark — the 8×8 grid view (v56 four-row cell) + palette + OUTPUTS (build-order step 5).
+//  In-cell editing (delta §4/§5): tap a cell BODY paints/recolours it with the palette brush; tap the
+//  INPUT HEADER opens the FROM popover (MIDI IN / any other occupied row / IN CH filter); tap the
+//  EMITTER strip opens the OUT popover (A–D); body LONG-PRESS opens the cell menu (clear / copy
+//  colour). Every edit goes through MidiSparkAudioUnit.editScene → scheduleRebuild. Design tokens
+//  per docs/ui-port-guide.md; visual language per Docs/midispark-preview-v56.html.
 
 import SwiftUI
 
@@ -52,6 +51,8 @@ struct GridView: View {
     var onSetInput: ((Int, Int, Int?) -> Void)? = nil
     var onCycleInCh: ((Int, Int) -> Void)? = nil
     var onToggleBus: ((Int, Int, Bus) -> Void)? = nil
+    var onClear: ((Int, Int) -> Void)? = nil        // body long-press → clear
+    var onCopyColour: ((Int, Int) -> Void)? = nil   // body long-press → adopt colour as brush
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -115,7 +116,13 @@ struct GridView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { onTap?(col, row) }                  // body / empty → select / paint
+        .onTapGesture { onTap?(col, row) }                  // body / empty → paint / recolour
+        .contextMenu {                                      // body long-press → cell menu (delta §5)
+            if cell != nil {
+                Button(role: .destructive) { onClear?(col, row) } label: { Label("Clear", systemImage: "xmark") }
+                Button { onCopyColour?(col, row) } label: { Label("Copy colour", systemImage: "eyedropper") }
+            }
+        }
         .popover(isPresented: popBinding(col, row)) { popoverContent(col, row) }
     }
 
@@ -340,79 +347,5 @@ struct PaletteView: View {
                     .onTapGesture { onPick(id) }
             }
         }
-    }
-}
-
-/// Editor for the selected cell (v3.0 model): input reference (FROM) + IN CH filter + bus emitters +
-/// paint/clear. `occupiedRows` is the list of OTHER occupied rows in the selected column — the legal
-/// reference targets (delta §1). FROM cycles MIDI IN → each of those rows (a blind-build stand-in for
-/// the spec's FROM popover). IN CH cycles OMNI → 1…16 and shows only when the input is MIDI IN (§7).
-struct CellEditorStrip: View {
-    let cell: Cell?
-    let brush: String
-    let occupiedRows: [Int]            // other occupied rows in this column (reference targets)
-    let onPaint: () -> Void
-    let onClear: () -> Void
-    let onToggleBus: (Bus) -> Void
-    let onCycleFrom: () -> Void        // MIDI IN → next occupied row → … → MIDI IN
-    let onCycleInCh: () -> Void        // OMNI → 1 → … → 16 → OMNI
-
-    var body: some View {
-        HStack(spacing: 5) {
-            if let cell {
-                RoundedRectangle(cornerRadius: 3).fill(colourColor(cell.colourID) ?? .gray)
-                    .frame(width: 18, height: 18)
-                Text(cell.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7)).frame(width: 62, alignment: .leading)
-                // FROM: the input reference. "FROM IN" or "FROM R<n>" (1-based).
-                chip(fromLabel(cell), on: cell.inputRow != nil, disabled: occupiedRows.isEmpty) { onCycleFrom() }
-                // IN CH filter — only meaningful for a MIDI-IN cell.
-                if cell.inputRow == nil {
-                    chip(cell.inputChannel == 0 ? "CH OMNI" : "CH \(cell.inputChannel)",
-                         on: cell.inputChannel != 0) { onCycleInCh() }
-                }
-                Text("· OUT").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                ForEach(Bus.allCases, id: \.self) { b in
-                    chip(b.rawValue, on: cell.buses.contains(b)) { onToggleBus(b) }
-                }
-                chip("repaint", on: false) { onPaint() }
-                chip("✕", on: false, danger: true) { onClear() }
-            } else {
-                Text("empty cell — tap the grid to paint the \(brush.uppercased()) brush")
-                    .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                chip("paint", on: false) { onPaint() }
-            }
-            Spacer()
-        }
-    }
-
-    private func fromLabel(_ cell: Cell) -> String {
-        if let ir = cell.inputRow { return "FROM R\(ir + 1)" }
-        return "FROM IN"
-    }
-
-    private func chip(_ label: String, on: Bool, danger: Bool = false, disabled: Bool = false,
-                      _ action: @escaping () -> Void) -> some View {
-        Text(label)
-            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(disabled ? .white.opacity(0.25) : (on ? .black : .white.opacity(0.75)))
-            .padding(.vertical, 4).padding(.horizontal, 7)
-            .background(RoundedRectangle(cornerRadius: 4)
-                .fill(on && !disabled ? accentCyan : (danger ? Color(red: 0.8, green: 0.25, blue: 0.3).opacity(0.5)
-                                                  : Color.white.opacity(0.10))))
-            .contentShape(Rectangle())
-            .onTapGesture { if !disabled { action() } }
-    }
-
-    private func chip(_ label: String, on: Bool, danger: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Text(label)
-            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.75))
-            .padding(.vertical, 4).padding(.horizontal, 7)
-            .background(RoundedRectangle(cornerRadius: 4)
-                .fill(on ? accentCyan : (danger ? Color(red: 0.8, green: 0.25, blue: 0.3).opacity(0.5)
-                                                  : Color.white.opacity(0.10))))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
     }
 }

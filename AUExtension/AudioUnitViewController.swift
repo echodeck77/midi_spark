@@ -53,63 +53,29 @@ struct DiagView: View {
     @State private var docColours: [Colour] = []
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
-    private var selectedCell: Cell? {
-        guard selCol >= 0, selCol < scene.cells.count, selRow >= 0, selRow < scene.cells[selCol].count
-        else { return nil }
-        return scene.cells[selCol][selRow]
-    }
-
-    // Tap: paint an empty cell with the brush, or select an occupied one for wiring. Clear/repaint
-    // are explicit in the editor strip.
+    // Tap a cell BODY: paint an empty cell with the brush, or RECOLOUR an occupied one to the brush
+    // (delta §5: tap body = apply the selected Colour — the mockup's stand-in for palette drag-drop).
+    // FROM/OUT are the header/emitter popovers; CLEAR/COPY are the long-press cell menu.
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
-        let empty = scene.cells[col][row] == nil
-        if empty { au.editScene { $0.cells[col][row] = Cell(colourID: brush) } }   // default {A, ▾ off, +SRC off}
+        au.editScene { s in
+            if var c = s.cells[col][row] { c.colourID = brush; s.cells[col][row] = c }   // recolour
+            else { s.cells[col][row] = Cell(colourID: brush) }                            // paint
+        }
         selCol = col; selRow = row
         scene = au.uiScene()
     }
 
-    private func editSelected(_ f: @escaping (inout Cell) -> Void) {
-        guard let au, selCol >= 0 else { return }
-        au.editScene { s in if var c = s.cells[selCol][selRow] { f(&c); s.cells[selCol][selRow] = c } }
+    private func clearCell(_ col: Int, _ row: Int) {
+        guard let au else { return }
+        au.editScene { $0.cells[col][row] = nil }
+        if selCol == col && selRow == row { selCol = -1; selRow = -1 }
         scene = au.uiScene()
     }
 
-    private func paintSelected() {
-        guard let au, selCol >= 0 else { return }
-        au.editScene { s in
-            if var c = s.cells[selCol][selRow] { c.colourID = brush; s.cells[selCol][selRow] = c }
-            else { s.cells[selCol][selRow] = Cell(colourID: brush) }
-        }
-        scene = au.uiScene()
-    }
-
-    private func clearSelected() {
-        guard let au, selCol >= 0 else { return }
-        au.editScene { $0.cells[selCol][selRow] = nil }
-        scene = au.uiScene()
-    }
-
-    /// Other occupied rows in the selected column — the legal reference targets (delta §1).
-    private var occupiedRows: [Int] {
-        guard selCol >= 0, selCol < scene.cells.count else { return [] }
-        return (0..<8).filter { $0 != selRow && scene.cells[selCol][$0] != nil }
-    }
-
-    // FROM cycles: MIDI IN → each occupied row in order → back to MIDI IN.
-    private func cycleFrom() {
-        let targets = occupiedRows
-        editSelected { c in
-            if c.inputRow == nil { c.inputRow = targets.first }
-            else if let cur = c.inputRow, let i = targets.firstIndex(of: cur), i + 1 < targets.count {
-                c.inputRow = targets[i + 1]
-            } else { c.inputRow = nil }
-        }
-    }
-
-    // IN CH cycles: OMNI(0) → 1 → … → 16 → OMNI.
-    private func cycleInCh() {
-        editSelected { c in c.inputChannel = (c.inputChannel + 1) % 17 }
+    // COPY = eyedropper: adopt this cell's Colour as the current brush.
+    private func copyColour(_ col: Int, _ row: Int) {
+        if let id = scene.cells[col][row]?.colourID { brush = id }
     }
 
     // ---- in-cell popover edits (target a specific col,row, not the selection) ----
@@ -171,15 +137,13 @@ struct DiagView: View {
 
                 GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                          selCol: selCol, selRow: selRow, onTap: tapCell,
-                         onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt)
+                         onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
+                         onClear: clearCell, onCopyColour: copyColour)
                 BusLanesView(scene: scene, active: emitActive)
                 OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
                 PaletteView(brush: brush) { brush = $0 }
-                CellEditorStrip(cell: selectedCell, brush: brush, occupiedRows: occupiedRows,
-                                onPaint: paintSelected, onClear: clearSelected,
-                                onToggleBus: { b in editSelected { c in
-                                    if c.buses.contains(b) { c.buses.remove(b) } else { c.buses.insert(b) } } },
-                                onCycleFrom: cycleFrom, onCycleInCh: cycleInCh)
+                Text("TAP cell → paint/recolour with the \(brush.uppercased()) brush · TAP header → FROM · TAP A–D → OUT · HOLD → clear/copy")
+                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                 Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
 
                 row("TRANSPORT", d.playing ? "PLAYING" : "stopped",
