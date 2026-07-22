@@ -414,7 +414,8 @@ struct ProcessorBox: View {
             Spacer(minLength: 0)
         }
         .padding(8)
-        .frame(height: 168, alignment: .top)   // fixed: sized for the largest (ARP) field set
+        .frame(height: 268, alignment: .top)   // fixed: sized for the largest (ARP) field set; smaller
+        .clipped()                             // types leave calm space, overflow scrolls within, never bleeds
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
