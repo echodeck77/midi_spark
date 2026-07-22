@@ -109,15 +109,18 @@ enum TestSessions {
             })
         },
 
-        Session(id: "T6", title: "OUT CH stamping",
-                expect: "Monitor A shows the gold cell on the keyboard's ORIGINAL channel "
-                      + "(INHERIT) and the magenta cell on ch 5 (§2.6). Set Synth1 to omni to "
-                      + "hear both. Neither is an input filter — both hear the same source.") {
+        Session(id: "T6", title: "channels: filter in / stamp out",
+                expect: "delta §7. Two arps. Col 0 gold hears MIDI IN OMNI → bus A → stamped ch 1 "
+                      + "(busChannels default). Col 1 azure hears MIDI IN filtered to CHANNEL 2 → "
+                      + "bus B → stamped ch 2. Play the keyboard on ch 1: only col 0 sounds. Switch "
+                      + "the keyboard to ch 2: col 1 joins. No origin channel survives — every emitted "
+                      + "note carries its BUS's channel (A=1, B=2), on both its cable and All.") {
             var c = baseColours()
-            c[idx("magenta")].outChannel = 5
             return doc(c, scene { s in
-                s.cells[0][0] = Cell(colourID: "gold", buses: [.a])        // INHERIT
-                s.cells[0][1] = Cell(colourID: "magenta", buses: [.a])     // stamped ch 5
+                s.cells[0][0] = Cell(colourID: "gold", buses: [.a])                       // OMNI in → bus A (ch 1)
+                var azure = Cell(colourID: "azure", buses: [.b])
+                azure.inputChannel = 2                                                     // filter: only ch-2 input
+                s.cells[1][0] = azure
             })
         },
 

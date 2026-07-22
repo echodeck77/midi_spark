@@ -143,6 +143,45 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: NotePool()).base, -1)
     }
 
+    // MARK: input-channel filter (delta §7)
+
+    private func mixedPool() -> NotePool {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0)   // ch 1 (wire 0)
+        p.noteOn(64, velocity: 100, channel: 1)   // ch 2 (wire 1)
+        p.noteOn(67, velocity: 100, channel: 0)   // ch 1
+        p.rebuildSorted()
+        return p
+    }
+
+    func testSrcCountFilter() {
+        let p = mixedPool()
+        XCTAssertEqual(p.srcCount(filter: 0), 3)   // OMNI = all
+        XCTAssertEqual(p.srcCount(filter: 1), 2)   // ch 1 → 60, 67
+        XCTAssertEqual(p.srcCount(filter: 2), 1)   // ch 2 → 64
+        XCTAssertEqual(p.srcCount(filter: 5), 0)   // nothing on ch 5
+    }
+
+    func testSrcAscendingFilter() {
+        let p = mixedPool()
+        XCTAssertEqual(p.srcAscending(0, filter: 1), 60)   // ch-1 notes ascending: 60, 67
+        XCTAssertEqual(p.srcAscending(1, filter: 1), 67)
+        XCTAssertEqual(p.srcAscending(0, filter: 2), 64)   // ch-2: 64
+    }
+
+    func testArpPickSourceHonoursFilter() {
+        let p = mixedPool()
+        let up = UInt8(ArpPattern.allCases.firstIndex(of: .up)!)
+        // filter ch 1: the arp cycles only 60 and 67
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 1).base, 60)
+        XCTAssertEqual(arpPickSource(phaseIndex: 1, octaves: 1, pattern: up, pool: p, filter: 1).base, 67)
+        XCTAssertEqual(arpPickSource(phaseIndex: 2, octaves: 1, pattern: up, pool: p, filter: 1).base, 60)  // wraps (span 2)
+        // filter ch 5: empty → base −1
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p, filter: 5).base, -1)
+        // OMNI default unchanged from pre-filter behaviour
+        XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p).base, 60)
+    }
+
     // MARK: NotePool (§2.5)
 
     func testPoolSortsAndCounts() {

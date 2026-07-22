@@ -29,8 +29,7 @@ struct KernelDiag {
     var effSwing: Double = 50
     var emitCount: UInt64 = 0
     var lastEmitNote: UInt8 = 0
-    var lastEmitChan: UInt8 = 0        // 0-based wire channel; panel shows +1 (human numbering)
-    var lastEmitInherit = true         // stamped from source channel (INHERIT) vs Colour OUT CH
+    var lastEmitChan: UInt8 = 0        // 0-based wire channel (bus stamp); panel shows +1 (human)
     var effColumn = 0                  // active grid column (0…7), derived (§7)
     var pass: Int = 0                  // how many full 8-column cycles elapsed
     var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty

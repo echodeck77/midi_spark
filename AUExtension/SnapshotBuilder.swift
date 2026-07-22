@@ -14,7 +14,6 @@ enum SnapshotBuilder {
         var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
         for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
             var sc = SnapColour()
-            sc.outChannel = UInt8(max(0, min(16, colour.outChannel)))
             sc.transpose = Int8(max(-24, min(24, colour.transpose)))
             sc.morph = max(0, min(1, colour.morph))
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)

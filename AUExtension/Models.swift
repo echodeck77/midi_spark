@@ -58,7 +58,8 @@ struct ColourParams: Codable, Equatable {
 struct Colour: Codable, Equatable {
     var colourID: String
     var type: ProcessorType
-    var outChannel: Int = 0        // 0 = INHERIT, 1–16 stamped (§2.6)
+    // v3.0 (delta §7): per-Colour OUT CH is REMOVED — channel is a property of the WIRE (busChannels),
+    // not the treatment. Old docs carrying an `outChannel` key decode fine (Codable ignores unknown keys).
     var transpose: Int = 0         // −24…+24, accumulates in chains, clamped
     var morph: Double = 0          // §3.2 — this IS the per-colour macro AUParameter
     var paramsA: ColourParams = ColourParams()
@@ -147,7 +148,6 @@ struct PluginState: Codable, Equatable {
         colours[idx("cyan")].paramsB.count = 8
         colours[idx("vermilion")].type = .passgate
         colours[idx("magenta")].transpose = 12
-        colours[idx("magenta")].outChannel = 2
 
         var scene = SceneState.empty()
         scene.cells[0][0] = Cell(colourID: "gold")

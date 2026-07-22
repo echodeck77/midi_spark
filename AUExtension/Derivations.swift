@@ -67,6 +67,44 @@ final class NotePool {
     @inline(__always) func channel(of note: Int) -> UInt8 { chan[note] }
     @inline(__always) func played(at index: Int) -> UInt8 { order[index] }   // AS-PLAYED lookup
 
+    // MARK: - input-channel filter (delta §7): a MIDI-IN cell hears only its channel. `filter` is
+    // 0 = OMNI (all held notes) or 1–16 (only notes arriving on that channel; wire channel = filter−1).
+    // OMNI paths return the existing OMNI views in O(1); a real filter scans (≤128, source reads only).
+
+    @inline(__always) private func matches(_ note: UInt8, _ filter: UInt8) -> Bool {
+        filter == 0 || chan[Int(note)] == filter - 1
+    }
+
+    /// Count of held notes passing the filter.
+    func srcCount(filter: UInt8) -> Int {
+        if filter == 0 { return count }
+        var n = 0
+        for i in 0..<count where matches(sorted[i], filter) { n += 1 }
+        return n
+    }
+
+    /// The k-th ascending held note passing the filter (k in 0..<srcCount). 255 if out of range.
+    func srcAscending(_ k: Int, filter: UInt8) -> UInt8 {
+        if filter == 0 { return k < count ? sorted[k] : 255 }
+        var seen = 0
+        for i in 0..<count where matches(sorted[i], filter) {
+            if seen == k { return sorted[i] }
+            seen += 1
+        }
+        return 255
+    }
+
+    /// The k-th press-order held note passing the filter (k in 0..<srcCount). 255 if out of range.
+    func srcPlayed(_ k: Int, filter: UInt8) -> UInt8 {
+        if filter == 0 { return k < playedCount ? order[k] : 255 }
+        var seen = 0
+        for i in 0..<playedCount where matches(order[i], filter) {
+            if seen == k { return order[i] }
+            seen += 1
+        }
+        return 255
+    }
+
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental
     /// count, matching the pre-split behaviour).
     func rebuildSorted() {
@@ -126,12 +164,12 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 // MARK: - ARP pattern selection (§3)
 
 /// The base note (pre-this-cell-transpose) + provenance channel a source-reading ARP picks at
-/// pattern index `phaseIndex`, for the given PATTERN over `octaves`. All patterns are pure functions
-/// of position (loop-consistent — RANDOM lands the same note on the same tick every pass). Chord
-/// changes never reset the index. Returns base -1 for an empty pool.
+/// pattern index `phaseIndex`, for the given PATTERN over `octaves`. `filter` (delta §7) restricts the
+/// source pool to one input channel (0 = OMNI). All patterns are pure functions of position
+/// (loop-consistent). Chord changes never reset the index. Returns base -1 for an empty (filtered) pool.
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-                   pool: NotePool) -> (base: Int, chan: UInt8) {
-    let count = pool.count
+                   pool: NotePool, filter: UInt8 = 0) -> (base: Int, chan: UInt8) {
+    let count = pool.srcCount(filter: filter)
     guard count > 0 else { return (-1, 0) }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
@@ -159,9 +197,9 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         pos = asc   // ascending through the press sequence (below), not the sorted set
     }
 
-    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list.
-    let note = (pat == .asPlayed) ? Int(pool.played(at: pos % count))
-                                  : Int(pool.sorted[pos % count])
+    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered.
+    let note = (pat == .asPlayed) ? Int(pool.srcPlayed(pos % count, filter: filter))
+                                  : Int(pool.srcAscending(pos % count, filter: filter))
     return (note + 12 * (pos / count), pool.channel(of: note))
 }
 

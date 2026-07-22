@@ -55,7 +55,6 @@ struct SnapParams {
 }
 
 struct SnapColour {
-    var outChannel: UInt8 = 0        // 0 = INHERIT (§2.6)
     var transpose: Int8 = 0
     var morph: Double = 0
     var a = SnapParams()

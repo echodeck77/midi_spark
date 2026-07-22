@@ -38,13 +38,11 @@ final class SnapshotBuilderTests: XCTestCase {
             $0.paramsA.pattern = .down
             $0.paramsA.octaves = 9       // illegal → clamps to 4
             $0.transpose = 100           // → clamps to 24
-            $0.outChannel = 99           // → clamps to 16
         }
         let sc = box(cs) { _ in }.colours[0]
         XCTAssertEqual(sc.a.patternIndex, UInt8(ArpPattern.allCases.firstIndex(of: .down)!))
         XCTAssertEqual(sc.a.octaves, 4)
         XCTAssertEqual(sc.transpose, 24)
-        XCTAssertEqual(sc.outChannel, 16)
     }
 
     func testRunStartColumnForContiguousRun() {
@@ -103,6 +101,16 @@ final class SnapshotBuilderTests: XCTestCase {
             s.cells[0][2] = Cell(colourID: "gold")
         }
         XCTAssertEqual(b.cells[0 * Snap.rows + 0].resolvedParent, 2)        // downward refs are legal
+    }
+
+    func testBusChannelsAndInputChannel() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputChannel = 3; return c }()
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [s])
+        d.busChannels = [5, 2, 99, 0]   // 99 and 0 are out of range → clamp to 16 / 1
+        let b = SnapshotBuilder.build(from: d)
+        XCTAssertEqual(b.busChannels, [5, 2, 16, 1])
+        XCTAssertEqual(b.cells[0].inputChannel, 3)
     }
 
     func testIsTappedFlag() {

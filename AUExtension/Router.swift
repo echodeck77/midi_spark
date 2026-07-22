@@ -240,8 +240,8 @@ final class Router {
     /// notes have no channel until this exit); each bus emits TWICE — its own cable (bus+1) and the
     /// ALL cable (0), both on busChannels[bus] (§7b). Every (cable,channel,note) is an independent
     /// voice under the refcount, so the ALL duplicate and any shared-channel merge off-pair correctly.
-    /// `provenanceChan`/`outChannel` are vestigial (INHERIT/OUT CH removed) — ignored; dropped in 5b.
-    private func emitArtic(note: UInt8, provenanceChan: UInt8, outChannel: UInt8, busMask: UInt8,
+    /// Channel comes ONLY from the bus stamp now (INHERIT/OUT CH removed, delta §7).
+    private func emitArtic(note: UInt8, busMask: UInt8,
                            onSample: AUEventSampleTime, offSample: AUEventSampleTime,
                            windowEnd: AUEventSampleTime, velocity: UInt8 = 96,
                            out: AUMIDIOutputEventBlock?, diag: inout KernelDiag) {
@@ -264,7 +264,6 @@ final class Router {
         diag.emitCount &+= 1
         diag.lastEmitNote = note
         diag.lastEmitChan = lastCh
-        diag.lastEmitInherit = false
     }
 
     /// HOLD content, emitted ONCE per column at the transition: an identity cell that is unfed (or
@@ -297,13 +296,13 @@ final class Router {
             let prob = (mode == .chance) ? effectiveProbability(colour, t: effectiveT(colourMorph: over(18 + ci, colour.morph),
                                                                                       master: over(34, box.morphMaster),
                                                                                       alt: cell.alt)) : 1
-            for k in 0..<pool.count {
-                let base = Int(pool.sorted[k])
+            let srcN = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
+            for k in 0..<srcN {
+                let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
-                emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
-                          outChannel: colour.outChannel, busMask: cell.busMask,
+                emitArtic(note: UInt8(n), busMask: cell.busMask,
                           onSample: onSample, offSample: offSample, windowEnd: windowEnd,
                           out: out, diag: &diag)
             }
@@ -353,8 +352,8 @@ final class Router {
                 let oct = Int64(max(1, octaves))
                 return (up.note + 12 * Int(((pIdx % oct) + oct) % oct) + transpose, up.chan)
             }
-            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                  pattern: colour.a.patternIndex, pool: pool)   // MIDI IN → source
+            let p = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                                  pool: pool, filter: cell.inputChannel)   // MIDI IN → filtered source (§7)
             return p.base >= 0 ? (p.base + transpose, p.chan) : nil
         }
         if fed {
@@ -532,7 +531,8 @@ final class Router {
                         prov = f.chan
                     } else {
                         let pick = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                                 pattern: colour.a.patternIndex, pool: pool)
+                                                 pattern: colour.a.patternIndex, pool: pool,
+                                                 filter: cell.inputChannel)   // §7 source filter
                         guard pick.base >= 0 else { return }
                         base = pick.base; prov = pick.chan
                     }
@@ -541,8 +541,7 @@ final class Router {
 
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), chan: prov, beat: mTickBeat)
                     if emits {
-                        emitArtic(note: UInt8(noteValue), provenanceChan: prov,
-                                  outChannel: colour.outChannel, busMask: cell.busMask,
+                        emitArtic(note: UInt8(noteValue), busMask: cell.busMask,
                                   onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                   out: out, diag: &diag)
                     }
@@ -571,20 +570,20 @@ final class Router {
                         guard n >= 0 && n <= 127 else { return }
                         storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: f.chan, beat: mTickBeat)
                         if emits {
-                            emitArtic(note: UInt8(n), provenanceChan: f.chan, outChannel: colour.outChannel,
-                                      busMask: cell.busMask, onSample: onTime, offSample: offTime,
+                            emitArtic(note: UInt8(n), busMask: cell.busMask,
+                                      onSample: onTime, offSample: offTime,
                                       windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                         }
                     } else {
-                        // re-strike every held note (the source chord)
-                        for k in 0..<pool.count {
-                            let base = Int(pool.sorted[k])
+                        // re-strike every held note passing the input-channel filter (§7)
+                        let srcN = pool.srcCount(filter: cell.inputChannel)
+                        for k in 0..<srcN {
+                            let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
                             let n = base + transpose
                             guard n >= 0 && n <= 127 else { continue }
                             storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), chan: pool.channel(of: base), beat: mTickBeat)
                             if emits {
-                                emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: base),
-                                          outChannel: colour.outChannel, busMask: cell.busMask,
+                                emitArtic(note: UInt8(n), busMask: cell.busMask,
                                           onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                                           velocity: vel, out: out, diag: &diag)
                             }
@@ -597,7 +596,7 @@ final class Router {
                 // (strumProgress counter, reset per column) — boundary-safe, each note fires once.
                 let spread = effectiveSpread(colour, t: t)
                 let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
-                let count = pool.count
+                let count = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
                 if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
 
                 if count > 0 {
@@ -613,15 +612,14 @@ final class Router {
                         strumProgress[r] += 1
 
                         let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-                        let baseNote = Int(pool.sorted[sortedIdx])
+                        let baseNote = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel))
                         let n = baseNote + transpose
                         guard n >= 0 && n <= 127 else { continue }
                         let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
                         let onT = max(onsetSample, windowStart)
                         storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), chan: pool.channel(of: baseNote), beat: onsetMusical)
                         if emits {
-                            emitArtic(note: UInt8(n), provenanceChan: pool.channel(of: baseNote),
-                                      outChannel: colour.outChannel, busMask: cell.busMask,
+                            emitArtic(note: UInt8(n), busMask: cell.busMask,
                                       onSample: onT, offSample: offSample, windowEnd: windowEnd,
                                       velocity: vel, out: out, diag: &diag)
                         }
@@ -642,8 +640,7 @@ final class Router {
                     if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
                     storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), chan: src.chan, beat: src.beat)
                     if emits {
-                        emitArtic(note: UInt8(n), provenanceChan: src.chan,
-                                  outChannel: colour.outChannel, busMask: cell.busMask,
+                        emitArtic(note: UInt8(n), busMask: cell.busMask,
                                   onSample: src.onSample, offSample: src.offSample,
                                   windowEnd: windowEnd, out: out, diag: &diag)
                     }
