@@ -33,6 +33,17 @@ column transitions, snapshot acquire/publish mechanics, parameter routes,
 diag plumbing. If a migration edit seems to require touching these, stop and
 re-read the delta — it almost certainly doesn't.
 
+## Standing seam rules during ALL migration work (Docs/standalone-plan.md)
+
+1. AU-framework imports live ONLY in MidiSparkAudioUnit.swift and
+   AudioUnitViewController.swift; Kernel/Router/Derivations/Snapshot*/Models/
+   TestSessions/GridUI stay Foundation/SwiftUI-only. Survey lists violations;
+   fix each in a commit already touching that file.
+2. The kernel's derived transport/context stays built in ONE function from
+   the host blocks — do not smear host-block reads into new code.
+3. Nothing upstream of the emission boundary may mention cables; the
+   (bus)→(cable, channel) mapping added in commit 5 lands AT the boundary.
+
 ## Verification order (cheapest first, always)
 
 1. **Unit tests** (Tests/, macOS, off-device): the pure core is where
