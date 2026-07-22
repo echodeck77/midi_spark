@@ -132,15 +132,17 @@ live: clean transition.
 | `v0.4-graph-routing` | MET | `v0.4-graph-routing` | T1–T5, T7–T9, T11 + B1–B4 device-verified; receiver-picked inputRow references replace ▾/+SRC; old sessions migrate on load |
 | `v0.5-outputs` | MET | `v0.5-outputs` | T6 (new filter-in/stamp-out form) + regressions verified; 5 cables (All + Emit A–D), busChannels stamp, OUT CH/INHERIT removed |
 | UI rebind (6a/6b) | device-confirmed | — | grid authors the v3 model: FROM references, IN CH filter, bus emitters, OUTPUTS busChannels editing |
+| HARMONIZE (T17) | device-confirmed | — | 6th processor; major triad from a held note, arp→harmonize octave-double; roster complete |
+| **Full manual suite T1–T17 + B1–B4** | **ALL PASS** | — | complete device pass; engine feature-complete (graph routing + channels + all 6 §3 processors); zero stuck notes |
 
-Off-device: `MidiSparkTests` — **55 pure-core unit tests** green (swing, phase, arp
-patterns, cellMode, processor math, effective-param morph, snapshot builder,
-loader migration, resolvedParent/isTapped, input-channel filter). Run with the
-pinned `-derivedDataPath build/DerivedData`.
+Off-device: `MidiSparkTests` — **58 pure-core unit tests** green (swing, phase, arp
+patterns, cellMode, processor math incl. harmonize, effective-param morph, snapshot
+builder, loader migration, resolvedParent/isTapped, input-channel filter). Run with
+the pinned `-derivedDataPath build/DerivedData`.
 
-Not yet done: HARMONIZE (6th processor, identity until built); the full v56 visual
-port (four-row cells / FROM+emitter popovers / one-clock playheads — current UI is
-a functional stand-in).
+Engine: FEATURE-COMPLETE and fully device-verified. Remaining work is the v56 visual
+port (four-row cells / FROM+emitter popovers / one-clock playheads — current UI is a
+functional stand-in, not a visual-language port).
 
 ## Reporting template (what the human sends back)
 

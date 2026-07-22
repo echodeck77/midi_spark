@@ -99,9 +99,9 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   events, diagnostic UI.
 - DONE step 3 (the ROUTER) — shipped under the OLD chain model, tagged
   `v0.3-router` (HISTORICAL).
-- DONE step 4 (mostly): FIVE of six processors built (ARP incl. all 5 patterns +
-  3 PHASE modes / RATCHET / PASSGATE / STRUM / CHANCE); **HARMONIZE outstanding**
-  (falls back to identity until built).
+- DONE step 4 — ALL SIX processors built (ARP incl. all 5 patterns + 3 PHASE modes /
+  RATCHET / PASSGATE / STRUM / CHANCE / HARMONIZE). cellMode has no identity-fallback
+  default left; the roster is complete.
 - **DONE — THE MIGRATION to v3.0 graph routing** (Docs/migration-tree-routing.md),
   engine complete:
   - `v0.4-graph-routing` (tag): receiver-picked `inputRow` references replace
@@ -116,15 +116,18 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   Truthful wiring viz (source/reference-aware). This is a FUNCTIONAL stand-in —
   the full v56 visual language (four-row cells, FROM/emitter popovers, one-clock
   playheads) is NOT ported yet; cycling chips stand in for popovers.
-- Test assets: `TestSessions.swift` carries **T1–T16** (numbering authority —
-  see test-procedures preamble) and `Tests/` holds a **55-test macOS unit
+- **ENGINE FEATURE-COMPLETE and fully device-verified** — the full manual suite
+  (T1–T17 + B1–B4) passes on device; graph routing + channels/outputs + all six
+  processors, zero stuck notes.
+- Test assets: `TestSessions.swift` carries **T1–T17** (numbering authority —
+  see test-procedures preamble) and `Tests/` holds a **58-test macOS unit
   suite** over the pure core (Derivations.swift + Snapshot/Builder + loader
   migration). BOTH must stay green through every commit; unit tests run
   off-device and come FIRST.
-- **NEXT:** HARMONIZE (the step-4 remainder — engine, unit-testable), and the v56
-  visual reconcile per ui-port-guide (survey-first; the grid EXISTS — reconcile,
-  don't rebuild). busChannels/FROM/IN-CH editing already works; the visual port
-  is polish + the popover/four-row-cell language.
+- **NEXT:** the v56 visual reconcile per ui-port-guide (survey-first; the grid
+  EXISTS — reconcile, don't rebuild). The v3 model is already fully authorable
+  (FROM / IN CH / bus emitters / OUTPUTS busChannels); this is the visual-language
+  port — four-row cells, FROM/emitter popovers, one-clock playheads, watermarks.
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
   `v0.5-outputs`.
