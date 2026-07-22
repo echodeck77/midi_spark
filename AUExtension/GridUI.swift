@@ -299,8 +299,9 @@ struct OutputsView: View {
 
 /// PROCESSOR box (delta §6): edits the SELECTED Colour (= the palette brush). Fixed height (static-
 /// frames rule — sized for the largest field set; smaller types leave calm space). Type + transpose +
-/// per-type params + morph. A-state only for now; B-state tab is a follow-up. Transpose/morph are
-/// AUParameters (own callbacks); the rest go through editColour.
+/// per-type params + morph, with an A/B state tab (§3.1). The B tab exposes ONLY the B-overridable
+/// fields (§3 table); MORPH fades A→B. Transpose/morph are AUParameters (own callbacks); the rest go
+/// through editColour, writing paramsA or paramsB per the active tab.
 struct ProcessorBox: View {
     let colour: Colour
     let colourIndex: Int
@@ -308,24 +309,55 @@ struct ProcessorBox: View {
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
 
+    enum ABTab: Hashable { case a, b }
+    @State private var tab: ABTab = .a
+
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
+
+    /// Display params for the current tab: A directly, or B merged over A (unset B fields show A).
+    private var dp: ColourParams {
+        guard tab == .b else { return colour.paramsA }
+        var m = colour.paramsA
+        let b = colour.paramsB
+        if let v = b.rate { m.rate = v }; if let v = b.octaves { m.octaves = v }
+        if let v = b.count { m.count = v }; if let v = b.passes { m.passes = v }
+        if let v = b.spread { m.spread = v }; if let v = b.probability { m.probability = v }
+        if let v = b.harmIntervals { m.harmIntervals = v }
+        return m
+    }
+    /// Route a param edit to paramsA or paramsB per the active tab.
+    private func setParam(_ f: @escaping (inout ColourParams) -> Void) {
+        onEdit { c in if tab == .b { f(&c.paramsB) } else { f(&c.paramsA) } }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
                 Text("PROCESSOR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 Text(colour.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                Spacer()
+                ForEach([ABTab.a, ABTab.b], id: \.self) { t in       // A/B state tabs (§3.1)
+                    Text(t == .a ? "A" : "B").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(tab == t ? .black : .white.opacity(0.6))
+                        .frame(width: 22, height: 16)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(tab == t ? accent : Color.white.opacity(0.1)))
+                        .onTapGesture { tab = t }
+                }
             }
-            seg(ProcessorType.allCases.map { typeShort($0) },
-                sel: typeShort(colour.type)) { i in onEdit { $0.type = ProcessorType.allCases[i] } }
-
-            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
-                stepper(colour.transpose, -24, 24) { onTranspose($0) }
+            if tab == .a {
+                seg(ProcessorType.allCases.map { typeShort($0) },
+                    sel: typeShort(colour.type)) { i in onEdit { $0.type = ProcessorType.allCases[i] } }
+                field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
+                    stepper(colour.transpose, -24, 24) { onTranspose($0) }
+                }
+            } else {
+                Text("B-STATE — the morph target · overridable fields only")
+                    .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             }
 
-            typeParams()
+            typeParams(bTab: tab == .b)
 
-            field("MORPH \(Int(colour.morph * 100))%") {
+            field("MORPH \(Int(colour.morph * 100))%  A→B") {
                 Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
             }
             Spacer(minLength: 0)
@@ -335,54 +367,70 @@ struct ProcessorBox: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    @ViewBuilder private func typeParams() -> some View {
+    // Reads `dp` (display value for the current tab), writes via `setParam` (A or B). In the B tab
+    // only the §3 B-overridable fields render (rate/octaves · count · passes · spread · probability ·
+    // intervals); non-overridable fields (pattern/phase/gate/ramp/dir/tilt) are A-only.
+    @ViewBuilder private func typeParams(bTab: Bool) -> some View {
+        let p = dp
         switch colour.type {
         case .arp:
-            field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: colour.paramsA.pattern?.rawValue ?? "UP") { i in
-                onEdit { $0.paramsA.pattern = ArpPattern.allCases[i] } } }
-            field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: colour.paramsA.rate?.rawValue ?? "1/16") { i in
-                onEdit { $0.paramsA.rate = ArpRate.allCases[i] } } }
-            HStack(spacing: 8) {
-                field("OCT") { seg(["1","2","3","4"], sel: "\(colour.paramsA.octaves ?? 1)") { i in
-                    onEdit { $0.paramsA.octaves = i + 1 } } }
-                field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: colour.paramsA.phase?.rawValue ?? "RETRIG") { i in
-                    onEdit { $0.paramsA.phase = ArpPhase.allCases[i] } } }
+            if !bTab {
+                field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
+                    setParam { $0.pattern = ArpPattern.allCases[i] } } }
             }
-            field("GATE \(Int((colour.paramsA.gate ?? 0.6) * 100))%") {
-                Slider(value: bind(colour.paramsA.gate ?? 0.6) { v in onEdit { $0.paramsA.gate = v } }, in: 0.05...1).tint(accent)
+            field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
+                setParam { $0.rate = ArpRate.allCases[i] } } }
+            HStack(spacing: 8) {
+                field("OCT") { seg(["1","2","3","4"], sel: "\(p.octaves ?? 1)") { i in
+                    setParam { $0.octaves = i + 1 } } }
+                if !bTab {
+                    field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
+                        setParam { $0.phase = ArpPhase.allCases[i] } } }
+                }
+            }
+            if !bTab {
+                field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
+                    Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
+                }
             }
         case .ratchet:
-            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(colour.paramsA.count ?? 3)") { i in
-                onEdit { $0.paramsA.count = [2,3,4,6,8][i] } } }
-            field("RAMP \(Int((colour.paramsA.ramp ?? 0.5) * 100))%") {
-                Slider(value: bind(colour.paramsA.ramp ?? 0.5) { v in onEdit { $0.paramsA.ramp = v } }, in: 0...1).tint(accent)
+            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
+                setParam { $0.count = [2,3,4,6,8][i] } } }
+            if !bTab {
+                field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
+                    Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
+                }
             }
         case .passgate:
             field("PASSES") { HStack(spacing: 4) {
                 ForEach(0..<4, id: \.self) { i in
-                    let on = (colour.paramsA.passes ?? [true,true,true,true])[i]
+                    let on = (p.passes ?? [true,true,true,true])[i]
                     Text("\(i+1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.6))
                         .frame(maxWidth: .infinity).frame(height: 22)
                         .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.1)))
-                        .onTapGesture { onEdit { var p = $0.paramsA.passes ?? [true,true,true,true]; p[i].toggle(); $0.paramsA.passes = p } }
+                        .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; pp[i].toggle(); $0.passes = pp } }
                 }
             } }
         case .strum:
-            field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (colour.paramsA.strumDir ?? .up).rawValue) { i in
-                onEdit { $0.paramsA.strumDir = StrumDir.allCases[i] } } }
-            field("SPREAD \(Int((colour.paramsA.spread ?? 0.1) * 100))") {
-                Slider(value: bind(colour.paramsA.spread ?? 0.1) { v in onEdit { $0.paramsA.spread = v } }, in: 0...1).tint(accent) }
-            field("TILT \(Int((colour.paramsA.velTilt ?? 0) * 100))") {
-                Slider(value: bind((colour.paramsA.velTilt ?? 0) / 2 + 0.5) { v in onEdit { $0.paramsA.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            if !bTab {
+                field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
+                    setParam { $0.strumDir = StrumDir.allCases[i] } } }
+            }
+            field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
+                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+            if !bTab {
+                field("TILT \(Int((p.velTilt ?? 0) * 100))") {
+                    Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            }
         case .chance:
-            field("PROBABILITY \(Int((colour.paramsA.probability ?? 1) * 100))%") {
-                Slider(value: bind(colour.paramsA.probability ?? 1) { v in onEdit { $0.paramsA.probability = v } }, in: 0...1).tint(accent) }
+            field("PROBABILITY \(Int((p.probability ?? 1) * 100))%") {
+                Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
         case .harmonize:
-            let iv = colour.paramsA.harmIntervals ?? [0,0,0]
+            let iv = p.harmIntervals ?? [0,0,0]
             ForEach(0..<3, id: \.self) { k in
                 field("VOICE \(k+1) \(iv[k] == 0 ? "off" : (iv[k] > 0 ? "+\(iv[k])" : "\(iv[k])"))") {
-                    stepper(iv[k], -24, 24) { v in onEdit { var a = $0.paramsA.harmIntervals ?? [0,0,0]; a[k] = v; $0.paramsA.harmIntervals = a } }
+                    stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; a[k] = v; $0.harmIntervals = a } }
                 }
             }
         }
