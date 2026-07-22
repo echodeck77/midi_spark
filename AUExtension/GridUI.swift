@@ -44,6 +44,9 @@ struct GridView: View {
     let colours: [Colour]
     let playColumn: Int
     let playing: Bool
+    var beat: Double = 0        // host beat position, polled ~4 Hz; extrapolated per-frame below
+    var tempo: Double = 120
+    var stepBeats: Double = 2   // beats per grid step (from the global STEP rate)
     var selCol: Int = -1
     var selRow: Int = -1
     var onTap: ((Int, Int) -> Void)? = nil
@@ -57,17 +60,18 @@ struct GridView: View {
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
+    @State private var lastBeat: Double = 0
+    @State private var lastBeatAt = Date()
+
+    /// The beat position NOW, extrapolated from the last poll (one-clock rule, §4): the UI polls at
+    /// ~4 Hz; between polls we advance the last value by elapsed·tempo so the playhead glides.
+    private func liveBeat(_ now: Date) -> Double {
+        playing ? lastBeat + now.timeIntervalSince(lastBeatAt) * tempo / 60.0 : lastBeat
+    }
 
     var body: some View {
         VStack(spacing: 3) {
-            HStack(spacing: 3) {                          // master playhead bar (down-arrow strip, simple)
-                ForEach(0..<8, id: \.self) { col in
-                    Text(playing && col == playColumn ? "▼" : "")
-                        .font(.system(size: 8, weight: .heavy))
-                        .foregroundColor(accentCyan)
-                        .frame(maxWidth: .infinity).frame(height: 9)
-                }
-            }
+            masterPlayhead                               // sweeping down-arrow (one-clock)
             ForEach(0..<8, id: \.self) { row in
                 HStack(spacing: 3) {
                     ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
@@ -75,6 +79,26 @@ struct GridView: View {
             }
         }
         .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
+        .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
+    }
+
+    // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
+    // one cycle, snapping at the loop. Pure function of the extrapolated beat — no view owns a clock.
+    private var masterPlayhead: some View {
+        GeometryReader { geo in
+            let cycle = max(0.001, stepBeats * Double(Snap.cols))
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+                let b = liveBeat(tl.date)
+                let frac = (b.truncatingRemainder(dividingBy: cycle) / cycle + 1).truncatingRemainder(dividingBy: 1)
+                Text("▼")
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundColor(accentCyan)
+                    .shadow(color: accentCyan.opacity(0.8), radius: 3)
+                    .position(x: geo.size.width * frac, y: 6)
+                    .opacity(playing ? 0.95 : 0)
+            }
+        }
+        .frame(height: 12)
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {

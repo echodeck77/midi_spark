@@ -147,6 +147,7 @@ struct DiagView: View {
                            onSwing: { au?.setSwing($0); refreshTiming() })
 
                 GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+                         beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
                          selCol: selCol, selRow: selRow, onTap: tapCell,
                          onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                          onClear: clearCell, onCopyColour: copyColour)
