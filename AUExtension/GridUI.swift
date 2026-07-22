@@ -48,6 +48,7 @@ struct GridView: View {
     var tempo: Double = 120
     var stepBeats: Double = 2   // beats per grid step (from the global STEP rate)
     var cellHeight: CGFloat = 54   // set by the parent to fit the available height (landscape)
+    var editing: Bool = true    // EDIT: sub-cell zones (FROM/OUT popovers, paint). PERFORM: whole pad = one tap.
     var selCol: Int = -1
     var selRow: Int = -1
     var onTap: ((Int, Int) -> Void)? = nil
@@ -57,6 +58,7 @@ struct GridView: View {
     var onToggleBus: ((Int, Int, Bus) -> Void)? = nil
     var onClear: ((Int, Int) -> Void)? = nil        // body long-press → clear
     var onCopyColour: ((Int, Int) -> Void)? = nil   // body long-press → adopt colour as brush
+    var onColumnTap: ((Int) -> Void)? = nil         // PERFORM: tap a column key → mute the column
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -95,15 +97,26 @@ struct GridView: View {
         HStack(spacing: Self.vGap) {
             ForEach(0..<8, id: \.self) { col in
                 let active = playing && col == playColumn
+                let muted = columnMuted(col)                 // all occupied cells in the column muted
                 Text("\(col + 1)")
                     .font(.system(size: 15, weight: .heavy, design: .monospaced))
-                    .foregroundColor(active ? .black : .white.opacity(0.45))
+                    .foregroundColor(active ? .black : (muted ? Color(red: 1, green: 0.42, blue: 0.3) : .white.opacity(0.45)))
                     .frame(maxWidth: .infinity).frame(height: Self.headH)
                     .background(RoundedRectangle(cornerRadius: 6)
                         .fill(active ? accentCyan : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .stroke(muted ? Color(red: 1, green: 0.42, blue: 0.3).opacity(0.8) : .clear, lineWidth: 1.5))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onColumnTap?(col) }      // PERFORM: mute the column (no-op in EDIT)
             }
         }
         .overlay { masterArrow }
+    }
+
+    // A column is "muted" for the key indicator when it has cells and all occupied ones are muted.
+    private func columnMuted(_ col: Int) -> Bool {
+        let occ = (0..<8).compactMap { cellAt(col, $0) }
+        return !occ.isEmpty && occ.allSatisfy { $0.muted }
     }
 
     // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
@@ -167,13 +180,14 @@ struct GridView: View {
                 VStack(spacing: 0) {
                     inputHeader(cell, parent: parent, live: inActiveCol)
                         .contentShape(Rectangle())
-                        .onTapGesture { pop = (col, row, .from) }        // header → FROM popover
+                        // EDIT: header → FROM popover. PERFORM: whole pad is one target → the cell tap.
+                        .onTapGesture { editing ? (pop = (col, row, .from)) : onTap?(col, row) }
                     Spacer(minLength: 0)
                     bodyText(cell)
                     Spacer(minLength: 0)
                     emitterStrip(cell, firing: inActiveCol)
                         .contentShape(Rectangle())
-                        .onTapGesture { pop = (col, row, .out) }         // emitter strip → OUT popover
+                        .onTapGesture { editing ? (pop = (col, row, .out)) : onTap?(col, row) }
                 }
             } else {
                 Text("\(row + 1)")                          // empty-cell watermark (§4)
@@ -202,8 +216,8 @@ struct GridView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap?(col, row) }                  // body / empty → paint / recolour
-        .contextMenu {                                      // body long-press → cell menu (delta §5)
-            if cell != nil {
+        .contextMenu {                                      // EDIT only: body long-press → cell menu (§5)
+            if cell != nil && editing {
                 Button(role: .destructive) { onClear?(col, row) } label: { Label("Clear", systemImage: "xmark") }
                 Button { onCopyColour?(col, row) } label: { Label("Copy colour", systemImage: "eyedropper") }
             }
@@ -395,16 +409,39 @@ struct HeaderView: View {
     let beat: Double
     let tempo: Double
     let build: String
+    let editing: Bool           // EDIT vs PERFORM mode
+    let tapAction: TapAction    // PERFORM: what a cell tap does
     let onStep: (Int) -> Void
     let onSwing: (Int) -> Void
+    let onToggleMode: () -> Void
+    let onCycleTap: () -> Void
 
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
-    private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
+    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)          // EDIT
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Text("MIDISPARK").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
                 .foregroundColor(.white.opacity(0.85))
+
+            // EDIT / PERFORM mode (§6.1/6.2)
+            HStack(spacing: 2) {
+                modeChip("EDIT", on: editing, hue: amber)
+                modeChip("PERFORM", on: !editing, hue: accent)
+            }
+            .onTapGesture { onToggleMode() }
+
+            // TAP action selector — PERFORM only (what a cell tap does)
+            if !editing {
+                HStack(spacing: 3) {
+                    Text("TAP").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    Text(tapAction.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.black).padding(.vertical, 3).padding(.horizontal, 8)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(accent))
+                        .onTapGesture { onCycleTap() }
+                }
+            }
 
             // STEP rate selector
             HStack(spacing: 3) {
@@ -433,6 +470,13 @@ struct HeaderView: View {
                 .foregroundColor(playing ? accent : .white.opacity(0.4))
             Text("build \(build)").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
         }
+    }
+
+    private func modeChip(_ label: String, on: Bool, hue: Color) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .padding(.vertical, 3).padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue : Color.white.opacity(0.08)))
     }
 }
 

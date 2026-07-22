@@ -30,7 +30,12 @@ enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D
     var cable: UInt8 { UInt8(Bus.allCases.firstIndex(of: self)!) }
 }
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
-enum TapAction: String, Codable { case alt = "ALT", byp = "BYP", mute = "MUTE" }
+enum TapAction: String, Codable, CaseIterable {
+    case alt = "ALT", byp = "BYP", mute = "MUTE"
+    static func cycle(_ a: TapAction) -> TapAction {
+        let all = allCases; return all[(all.firstIndex(of: a)! + 1) % all.count]
+    }
+}
 enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",

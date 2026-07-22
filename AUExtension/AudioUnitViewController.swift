@@ -49,18 +49,43 @@ struct DiagView: View {
     @State private var docColours: [Colour] = []
     @State private var stepIndex = 2
     @State private var swing = 50
+    @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
+    @State private var tapAction: TapAction = .alt
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
-    // Tap a cell BODY: paint an empty cell with the brush, or RECOLOUR an occupied one to the brush
-    // (delta §5: tap body = apply the selected Colour — the mockup's stand-in for palette drag-drop).
-    // FROM/OUT are the header/emitter popovers; CLEAR/COPY are the long-press cell menu.
+    // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
+    // PERFORM: apply the TAP action to an occupied cell — ALT flip / BYP toggle / MUTE toggle (all
+    // engine-backed per-cell flags). Empty cells ignore perform taps.
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
-        au.editScene { s in
-            if var c = s.cells[col][row] { c.colourID = brush; s.cells[col][row] = c }   // recolour
-            else { s.cells[col][row] = Cell(colourID: brush) }                            // paint
+        if editing {
+            au.editScene { s in
+                if var c = s.cells[col][row] { c.colourID = brush; s.cells[col][row] = c }
+                else { s.cells[col][row] = Cell(colourID: brush) }
+            }
+            selCol = col; selRow = row
+        } else {
+            au.editScene { s in
+                guard var c = s.cells[col][row] else { return }
+                switch tapAction {
+                case .alt:  c.alt.toggle()
+                case .byp:  c.bypassed.toggle()
+                case .mute: c.muted.toggle()
+                }
+                s.cells[col][row] = c
+            }
         }
-        selCol = col; selRow = row
+        scene = au.uiScene()
+    }
+
+    // PERFORM: tap a column key → toggle mute on ALL occupied cells in the column.
+    private func muteColumn(_ col: Int) {
+        guard let au, !editing else { return }
+        au.editScene { s in
+            let occ = (0..<8).compactMap { s.cells[col][$0] }
+            let allMuted = !occ.isEmpty && occ.allSatisfy { $0.muted }
+            for r in 0..<8 { if var c = s.cells[col][r] { c.muted = !allMuted; s.cells[col][r] = c } }
+        }
         scene = au.uiScene()
     }
 
@@ -179,21 +204,26 @@ struct DiagView: View {
     private var header: some View {
         HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
                    beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
+                   editing: editing, tapAction: tapAction,
                    onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                   onSwing: { au?.setSwing($0); refreshTiming() })
+                   onSwing: { au?.setSwing($0); refreshTiming() },
+                   onToggleMode: { editing.toggle() },
+                   onCycleTap: { tapAction = TapAction.cycle(tapAction) })
     }
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
-                 cellHeight: cellHeight,
+                 cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
-                 onClear: clearCell, onCopyColour: copyColour)
+                 onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn)
     }
 
     private var hint: some View {
-        Text("TAP cell → paint/recolour \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → clear/copy")
+        Text(editing
+             ? "EDIT · TAP cell → paint/recolour \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → clear/copy"
+             : "PERFORM · TAP cell → \(tapAction.rawValue) · TAP column key → mute column · (stutter/isolate: soon)")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
