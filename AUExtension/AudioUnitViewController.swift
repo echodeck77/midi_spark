@@ -112,6 +112,18 @@ struct DiagView: View {
         editSelected { c in c.inputChannel = (c.inputChannel + 1) % 17 }
     }
 
+    // ---- in-cell popover edits (target a specific col,row, not the selection) ----
+    private func editCell(_ col: Int, _ row: Int, _ f: @escaping (inout Cell) -> Void) {
+        guard let au else { return }
+        au.editScene { s in if var c = s.cells[col][row] { f(&c); s.cells[col][row] = c } }
+        scene = au.uiScene()
+    }
+    private func setInput(_ col: Int, _ row: Int, _ inputRow: Int?) { editCell(col, row) { $0.inputRow = inputRow } }
+    private func cycleInChAt(_ col: Int, _ row: Int) { editCell(col, row) { $0.inputChannel = ($0.inputChannel + 1) % 17 } }
+    private func toggleBusAt(_ col: Int, _ row: Int, _ b: Bus) {
+        editCell(col, row) { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
+    }
+
     // OUTPUTS: bump bus i's stamp channel 1…16 → wraps to 1.
     private func bumpBusChannel(_ i: Int) {
         guard let au else { return }
@@ -158,7 +170,8 @@ struct DiagView: View {
                 }
 
                 GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                         selCol: selCol, selRow: selRow, onTap: tapCell)
+                         selCol: selCol, selRow: selRow, onTap: tapCell,
+                         onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt)
                 BusLanesView(scene: scene, active: emitActive)
                 OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
                 PaletteView(brush: brush) { brush = $0 }
