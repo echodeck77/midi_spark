@@ -47,6 +47,8 @@ struct DiagView: View {
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var docColours: [Colour] = []
+    @State private var stepIndex = 2
+    @State private var swing = 50
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // Tap a cell BODY: paint an empty cell with the brush, or RECOLOUR an occupied one to the brush
@@ -85,6 +87,7 @@ struct DiagView: View {
     }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
+    private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
 
     // ---- in-cell popover edits (target a specific col,row, not the selection) ----
     private func editCell(_ col: Int, _ row: Int, _ f: @escaping (inout Cell) -> Void) {
@@ -133,15 +136,10 @@ struct DiagView: View {
             Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
             ScrollView {
               VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("MIDISPARK")
-                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
-                        .foregroundColor(.white.opacity(0.85))
-                    Spacer()
-                    Text("build \(Self.buildStamp)")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
-                }
+                HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
+                           beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
+                           onStep: { au?.setStepRateIndex($0); refreshTiming() },
+                           onSwing: { au?.setSwing($0); refreshTiming() })
 
                 GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                          selCol: selCol, selRow: selRow, onTap: tapCell,
@@ -192,6 +190,8 @@ struct DiagView: View {
             busChannels = au.uiBusChannels()
             docColours = au.uiColours()
             scene = au.uiScene()
+            stepIndex = au.uiStepRateIndex()
+            swing = au.uiSwing()
         }
     }
 

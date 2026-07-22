@@ -297,6 +297,57 @@ struct OutputsView: View {
     }
 }
 
+/// HEADER (delta §6): logotype · STEP rate · SWING · PASS/transport readout. STEP/SWING are the
+/// scene-level timing controls (AUParameters 0/1) — the only in-plugin way to set them.
+struct HeaderView: View {
+    let stepIndex: Int          // into StepRate.allCases
+    let swing: Int              // 50…75
+    let playing: Bool
+    let pass: Int
+    let beat: Double
+    let tempo: Double
+    let build: String
+    let onStep: (Int) -> Void
+    let onSwing: (Int) -> Void
+
+    private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
+    private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("MIDISPARK").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
+                .foregroundColor(.white.opacity(0.85))
+
+            // STEP rate selector
+            HStack(spacing: 3) {
+                Text("STEP").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                ForEach(Array(stepLabels.enumerated()), id: \.offset) { i, s in
+                    Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(i == stepIndex ? .black : .white.opacity(0.6))
+                        .padding(.vertical, 3).padding(.horizontal, 5)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(i == stepIndex ? accent : Color.white.opacity(0.08)))
+                        .onTapGesture { onStep(i) }
+                }
+            }
+
+            // SWING
+            HStack(spacing: 4) {
+                Text("SWING \(swing)").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.4)).frame(width: 62, alignment: .leading)
+                Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(accent)
+                    .frame(width: 90)
+            }
+
+            Spacer()
+
+            Text(playing ? String(format: "PASS %d · %.1f bpm", pass + 1, tempo) : "stopped")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(playing ? accent : .white.opacity(0.4))
+            Text("build \(build)").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+        }
+    }
+}
+
 /// PROCESSOR box (delta §6): edits the SELECTED Colour (= the palette brush). Fixed height (static-
 /// frames rule — sized for the largest field set; smaller types leave calm space). Type + transpose +
 /// per-type params + morph, with an A/B state tab (§3.1). The B tab exposes ONLY the B-overridable

@@ -70,6 +70,17 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
     }
 
+    /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
+    /// the tree so host automation stays in sync (§4). Read-back for the header display.
+    func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.scenes[document.activeScene].stepRate) ?? 2 }
+    func uiSwing() -> Int { document.scenes[document.activeScene].swing }
+    func setStepRateIndex(_ i: Int) {
+        _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value = AUValue(max(0, min(StepRate.allCases.count - 1, i)))
+    }
+    func setSwing(_ v: Int) {
+        _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(max(50, min(75, v)))
+    }
+
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
     private func scheduleRebuild() {
         if suppressRebuild { return }
