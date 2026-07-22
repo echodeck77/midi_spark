@@ -88,6 +88,28 @@ struct DiagView: View {
         scene = au.uiScene()
     }
 
+    /// Other occupied rows in the selected column — the legal reference targets (delta §1).
+    private var occupiedRows: [Int] {
+        guard selCol >= 0, selCol < scene.cells.count else { return [] }
+        return (0..<8).filter { $0 != selRow && scene.cells[selCol][$0] != nil }
+    }
+
+    // FROM cycles: MIDI IN → each occupied row in order → back to MIDI IN.
+    private func cycleFrom() {
+        let targets = occupiedRows
+        editSelected { c in
+            if c.inputRow == nil { c.inputRow = targets.first }
+            else if let cur = c.inputRow, let i = targets.firstIndex(of: cur), i + 1 < targets.count {
+                c.inputRow = targets[i + 1]
+            } else { c.inputRow = nil }
+        }
+    }
+
+    // IN CH cycles: OMNI(0) → 1 → … → 16 → OMNI.
+    private func cycleInCh() {
+        editSelected { c in c.inputChannel = (c.inputChannel + 1) % 17 }
+    }
+
     private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
 
     private func load(_ s: TestSessions.Session) {
@@ -127,12 +149,11 @@ struct DiagView: View {
                          selCol: selCol, selRow: selRow, onTap: tapCell)
                 BusLanesView(scene: scene, active: emitActive)
                 PaletteView(brush: brush) { brush = $0 }
-                CellEditorStrip(cell: selectedCell, brush: brush,
+                CellEditorStrip(cell: selectedCell, brush: brush, occupiedRows: occupiedRows,
                                 onPaint: paintSelected, onClear: clearSelected,
                                 onToggleBus: { b in editSelected { c in
                                     if c.buses.contains(b) { c.buses.remove(b) } else { c.buses.insert(b) } } },
-                                onToggleStack: { editSelected { $0.stack.toggle() } },
-                                onToggleSrcMix: { editSelected { $0.srcMix.toggle() } })
+                                onCycleFrom: cycleFrom, onCycleInCh: cycleInCh)
                 Divider().background(Color.white.opacity(0.12)).padding(.vertical, 2)
 
                 row("TRANSPORT", d.playing ? "PLAYING" : "stopped",

@@ -62,15 +62,15 @@ struct GridView: View {
         let cell = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
-        let fed = isFed(col, row)                                  // hears its feeder, not source (§2.1)
-        let feedsLive = cell.map { $0.stack && !$0.muted && belowOccupied(col, row) } ?? false
-        let noDest = cell.map { $0.buses.isEmpty && !($0.stack && belowOccupied(col, row)) } ?? false
+        let parent = parentOf(col, row)                           // resolved reference (−1 = MIDI IN), reroute applied
+        let fed = parent >= 0
+        let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false   // §1 reference-aware
 
         RoundedRectangle(cornerRadius: 4)
             .fill(cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05))
             .frame(maxWidth: .infinity)
-            .frame(height: 30)
-            // border: selection (amber) > no-destination warning (dashed red, §2.4) > active col > idle
+            .frame(height: 32)
+            // border: selection (amber) > no-destination warning (dashed red, §1) > active col > idle
             .overlay {
                 if noDest && !isSel {
                     RoundedRectangle(cornerRadius: 4)
@@ -82,27 +82,20 @@ struct GridView: View {
                                 lineWidth: isSel ? 2 : (inActiveCol ? 1.5 : 0.5))
                 }
             }
-            // source tap: a lit left edge when this cell hears the SOURCE (unfed), per §2.1/§2.2
-            .overlay(alignment: .leading) {
-                if cell != nil && !fed {
-                    Rectangle().fill(accentCyan.opacity(0.9)).frame(width: 2.5).padding(.vertical, 5)
-                }
-            }
+            // INPUT HEADER (delta §4): text naming the cell's input — top-left, small.
             .overlay(alignment: .topLeading) {
-                if let cell, cell.stack {                          // ▾ feed: bright when live, dim when dead
-                    Text("▾").font(.system(size: 9, weight: .bold))
-                        .foregroundColor(feedsLive ? .black.opacity(0.75) : .black.opacity(0.3)).padding(2)
+                if let cell {
+                    Text(inputLabel(cell, parent: parent))
+                        .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(fed ? .black.opacity(0.7) : .black.opacity(0.45))
+                        .padding(.horizontal, 2).padding(.top, 1)
                 }
             }
+            // EMITTERS: lit bus letters, bottom-right (§4 emitter strip, compact form).
             .overlay(alignment: .bottomTrailing) {
                 if let cell, let letters = busLetters(cell.buses) {
                     Text(letters).font(.system(size: 8, weight: .heavy, design: .monospaced))
                         .foregroundColor(.black.opacity(0.65)).padding(2)
-                }
-            }
-            .overlay(alignment: .bottomLeading) {                  // +SRC on a fed cell (feed ∪ source)
-                if let cell, fed, cell.srcMix {
-                    Text("▸").font(.system(size: 9, weight: .bold)).foregroundColor(accentCyan).padding(2)
                 }
             }
             .opacity(cell == nil ? 0.6 : 1)
@@ -110,16 +103,27 @@ struct GridView: View {
             .onTapGesture { onTap?(col, row) }
     }
 
-    // Routing derivation — mirrors the engine (Router.isFed) so the picture is truthful (§2.1).
+    // Routing derivation — mirrors the engine (SnapshotBuilder.resolvedParent + Router.parentRow),
+    // so the picture is truthful (delta §1, acceptance 12).
     private func cellAt(_ col: Int, _ row: Int) -> Cell? {
         guard col >= 0, col < scene.cells.count, row >= 0, row < scene.cells[col].count else { return nil }
         return scene.cells[col][row]
     }
-    private func isFed(_ col: Int, _ row: Int) -> Bool {
-        guard row > 0, let above = cellAt(col, row - 1) else { return false }
-        return above.stack && !above.muted
+    /// Resolved parent row: inputRow if that row is occupied, ≠ self, and NOT muted (reroute); else −1.
+    private func parentOf(_ col: Int, _ row: Int) -> Int {
+        guard let ir = cellAt(col, row)?.inputRow, ir != row, let p = cellAt(col, ir), !p.muted else { return -1 }
+        return ir
     }
-    private func belowOccupied(_ col: Int, _ row: Int) -> Bool { cellAt(col, row + 1) != nil }
+    /// Does any OTHER cell in the column reference this row? (reference-aware no-destination, §1)
+    private func isTapped(_ col: Int, _ row: Int) -> Bool {
+        for r in 0..<8 where r != row && cellAt(col, r)?.inputRow == row { return true }
+        return false
+    }
+    private func inputLabel(_ cell: Cell, parent: Int) -> String {
+        if parent >= 0 { return "◄\(parent + 1)" }          // FROM ROW n (1-based)
+        if cell.inputChannel > 0 { return "CH\(cell.inputChannel)" }
+        return "IN"
+    }
 
     private func busLetters(_ buses: Set<Bus>) -> String? {
         let s = Bus.allCases.filter { buses.contains($0) }.map(\.rawValue).joined()
@@ -180,15 +184,19 @@ struct PaletteView: View {
     }
 }
 
-/// Editor for the selected cell: paint/clear + wiring toggles. Empty selection shows a paint prompt.
+/// Editor for the selected cell (v3.0 model): input reference (FROM) + IN CH filter + bus emitters +
+/// paint/clear. `occupiedRows` is the list of OTHER occupied rows in the selected column — the legal
+/// reference targets (delta §1). FROM cycles MIDI IN → each of those rows (a blind-build stand-in for
+/// the spec's FROM popover). IN CH cycles OMNI → 1…16 and shows only when the input is MIDI IN (§7).
 struct CellEditorStrip: View {
     let cell: Cell?
     let brush: String
-    let onPaint: () -> Void            // paint / repaint with the current brush
+    let occupiedRows: [Int]            // other occupied rows in this column (reference targets)
+    let onPaint: () -> Void
     let onClear: () -> Void
     let onToggleBus: (Bus) -> Void
-    let onToggleStack: () -> Void
-    let onToggleSrcMix: () -> Void
+    let onCycleFrom: () -> Void        // MIDI IN → next occupied row → … → MIDI IN
+    let onCycleInCh: () -> Void        // OMNI → 1 → … → 16 → OMNI
 
     var body: some View {
         HStack(spacing: 5) {
@@ -196,12 +204,18 @@ struct CellEditorStrip: View {
                 RoundedRectangle(cornerRadius: 3).fill(colourColor(cell.colourID) ?? .gray)
                     .frame(width: 18, height: 18)
                 Text(cell.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7)).frame(width: 72, alignment: .leading)
+                    .foregroundColor(.white.opacity(0.7)).frame(width: 62, alignment: .leading)
+                // FROM: the input reference. "FROM IN" or "FROM R<n>" (1-based).
+                chip(fromLabel(cell), on: cell.inputRow != nil, disabled: occupiedRows.isEmpty) { onCycleFrom() }
+                // IN CH filter — only meaningful for a MIDI-IN cell.
+                if cell.inputRow == nil {
+                    chip(cell.inputChannel == 0 ? "CH OMNI" : "CH \(cell.inputChannel)",
+                         on: cell.inputChannel != 0) { onCycleInCh() }
+                }
+                Text("· OUT").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                 ForEach(Bus.allCases, id: \.self) { b in
                     chip(b.rawValue, on: cell.buses.contains(b)) { onToggleBus(b) }
                 }
-                chip("▾", on: cell.stack) { onToggleStack() }        // stack: feed the cell below
-                chip("▸", on: cell.srcMix) { onToggleSrcMix() }      // +SRC: union feed with source
                 chip("repaint", on: false) { onPaint() }
                 chip("✕", on: false, danger: true) { onClear() }
             } else {
@@ -211,6 +225,24 @@ struct CellEditorStrip: View {
             }
             Spacer()
         }
+    }
+
+    private func fromLabel(_ cell: Cell) -> String {
+        if let ir = cell.inputRow { return "FROM R\(ir + 1)" }
+        return "FROM IN"
+    }
+
+    private func chip(_ label: String, on: Bool, danger: Bool = false, disabled: Bool = false,
+                      _ action: @escaping () -> Void) -> some View {
+        Text(label)
+            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(disabled ? .white.opacity(0.25) : (on ? .black : .white.opacity(0.75)))
+            .padding(.vertical, 4).padding(.horizontal, 7)
+            .background(RoundedRectangle(cornerRadius: 4)
+                .fill(on && !disabled ? accentCyan : (danger ? Color(red: 0.8, green: 0.25, blue: 0.3).opacity(0.5)
+                                                  : Color.white.opacity(0.10))))
+            .contentShape(Rectangle())
+            .onTapGesture { if !disabled { action() } }
     }
 
     private func chip(_ label: String, on: Bool, danger: Bool = false, _ action: @escaping () -> Void) -> some View {
