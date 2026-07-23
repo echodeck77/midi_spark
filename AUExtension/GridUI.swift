@@ -377,6 +377,8 @@ struct OutputsView: View {
     let busEnabled: [Bool]        // 4 flags (short/empty ⇒ enabled)
     let busChannels: [Int]        // 4 values, 1–16
     let editing: Bool
+    var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
+    var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
     let onToggle: (Int) -> Void           // pad body → toggle emitter i (both modes)
     let onSetChannel: (Int, Int) -> Void  // EDIT popover → set emitter i's stamp channel
 
@@ -416,9 +418,32 @@ struct OutputsView: View {
         }
         .frame(maxWidth: .infinity).frame(height: 46)
         .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? cyan : Color.white.opacity(0.05)))
+        .overlay { if enabled { meter(i) } }        // §6a velocity meter (disabled emitters never meter)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? .clear : Color.white.opacity(0.12), lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { onToggle(i) }        // BODY = enable/disable toggle (both modes)
+    }
+
+    /// §6a metering (EVENT-driven, UI owns the decay): a velocity glow-flash + a thin bottom level bar
+    /// (peak-hold, ~150ms linear decay) driven by the latched peak. Post-transform velocity, always.
+    private func meter(_ i: Int) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            let level = decayed(i, now: tl.date)
+            ZStack(alignment: .bottom) {
+                Color.white.opacity(level * 0.4)                                    // velocity glow-flash
+                GeometryReader { g in
+                    Rectangle().fill(Color.white.opacity(0.85))                     // thin peak-hold level bar
+                        .frame(width: g.size.width * CGFloat(level), height: 2)
+                        .position(x: g.size.width * CGFloat(level) / 2, y: g.size.height - 1)
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .allowsHitTesting(false)
+    }
+    private func decayed(_ i: Int, now: Date) -> Double {
+        guard i < emitPeak.count, i < emitPeakAt.count else { return 0 }
+        return max(0, emitPeak[i] * (1 - now.timeIntervalSince(emitPeakAt[i]) / 0.15))   // ~150ms peak-hold decay
     }
 
     private func channelGrid(_ i: Int) -> some View {

@@ -49,6 +49,9 @@ final class Kernel {
     private var laneMask: UInt8 = 0
     func setLaneMask(_ mask: UInt8) { laneMask = mask }
 
+    // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
+    func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
+
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)

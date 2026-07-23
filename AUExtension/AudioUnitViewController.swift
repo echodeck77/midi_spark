@@ -47,6 +47,8 @@ struct DiagView: View {
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
+    @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
+    @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
     @State private var stepIndex = 2
     @State private var swing = 50
@@ -230,6 +232,11 @@ struct DiagView: View {
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
+            // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
+            let act = au.pollEmitterActivity()
+            for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
+                emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date()
+            }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let ns = au.uiScene();         if ns != scene { scene = ns }
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
@@ -308,6 +315,7 @@ struct DiagView: View {
 
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

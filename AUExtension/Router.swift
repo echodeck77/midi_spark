@@ -54,6 +54,10 @@ final class Router {
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
     private var prevBusEnabledMask: UInt8 = 0b1111   // edge: a bus going enabled→disabled closes its notes
+    // delta §6a metering feed (EVENT-driven, not beat-derived): per-emitter peak velocity + event count
+    // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
+    private var meterPeakVel = [UInt8](repeating: 0, count: 4)
+    private var meterEvents = [UInt32](repeating: 0, count: 4)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
@@ -100,6 +104,7 @@ final class Router {
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
+        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -183,6 +188,15 @@ final class Router {
         voices[slot].bus = bus
         voices[slot].offSample = offSample
         return slot
+    }
+
+    /// delta §6a metering: read-and-clear the per-emitter peak velocity + event count since the last
+    /// call. UI-poll side (main thread) vs render-side accumulation — the race is benign (a dropped
+    /// meter tick at worst), consistent with the diag being display-only.
+    func drainMeters() -> (peak: [UInt8], events: [UInt32]) {
+        let r = (meterPeakVel, meterEvents)
+        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
+        return r
     }
 
     /// delta §6a: close every sounding voice that ORIGINATED from emitter `bus` — its own cable AND its
@@ -281,6 +295,8 @@ final class Router {
             // delta §6a: a DISABLED emitter produces nothing — not on its own cable, not on All. So
             // All is exactly the sum of ENABLED emitters, and re-enable resumes at the next articulation.
             guard busEnabledMask & (1 << UInt8(bus)) != 0 else { continue }
+            if velocity > meterPeakVel[bus] { meterPeakVel[bus] = velocity }   // §6a metering (post-transform vel)
+            meterEvents[bus] &+= 1
             let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
             lastCh = ch
             // own cable (bus+1) and the ALL cable (0) — both channel-stamped identically (no array

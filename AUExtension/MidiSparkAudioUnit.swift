@@ -54,6 +54,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
 
+    /// §6a metering: per-emitter peak velocity (0–127) + event count since the last poll (read-and-clear).
+    func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
+
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 

@@ -365,6 +365,37 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    func testMeteringFeedReportsPerEmitterPeakAndEventsThenClears() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }   // bus A only
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<12 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let m = router.drainMeters()
+        XCTAssertGreaterThan(m.events[0], 0, "emitter A metered events")
+        XCTAssertGreaterThan(m.peak[0], 0, "emitter A metered a peak velocity")
+        XCTAssertEqual([m.events[1], m.events[2], m.events[3]], [0, 0, 0], "silent emitters meter nothing")
+        XCTAssertEqual(router.drainMeters().events[0], 0, "drain read-and-clears")
+    }
+
+    func testDisabledEmitterNeverMeters() {
+        let b = box(colours: arpColours(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<12 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertEqual(router.drainMeters().events[0], 0, "a disabled emitter never meters")
+    }
+
     // MARK: - COLUMN-SUBSET LAP (§5b) — the held set warps which column is effective
 
     func testLapStutterLocksPlaybackToTheHeldColumn() {
