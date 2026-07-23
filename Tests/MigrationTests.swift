@@ -58,6 +58,38 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(f.scenes[0].cells[0][0]?.inputRow)          // an unfed top cell
     }
 
+    func testNewOptionalFieldsRoundTripThroughJSON() throws {
+        // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 3
+        d.busEnabled = [true, false, true, false]
+        d.colours[0].transposeByType = [1, 2, 3, 4, 5, 6]
+        d.colours[0].morphByType = [0, 0.25, 0.5, 0.75, 1, 0]
+        let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
+        XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
+        XCTAssertEqual(reloaded.colours[0].transposeByType, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(reloaded.colours[0].morphByType, [0, 0.25, 0.5, 0.75, 1, 0])
+    }
+
+    func testOldSchemaDocDecodesDefaultsNewFieldsAndIgnoresRemovedKeys() throws {
+        // Forward-compat guard for the refactor: an OLD save lacks busEnabled and still carries the
+        // now-removed rowBypass/stackMute/stackSolo scene keys — it must decode without error, default
+        // busEnabled to nil (⇒ all enabled), and simply ignore the dead keys.
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 3; d.busEnabled = [false, true, true, true]
+        var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
+        root.removeValue(forKey: "busEnabled")                       // old docs never had it
+        var scene = (root["scenes"] as! [[String: Any]])[0]
+        scene["rowBypass"] = [false, false, false]                   // dead keys an old doc still carries
+        scene["stackMute"] = [true]; scene["stackSolo"] = [false]
+        root["scenes"] = [scene]
+        let mutated = try JSONSerialization.data(withJSONObject: root)
+        let reloaded = try JSONDecoder().decode(PluginState.self, from: mutated)   // must NOT throw
+        XCTAssertNil(reloaded.busEnabled, "missing busEnabled → nil")
+        XCTAssertEqual(reloaded.busEnabledResolved, [true, true, true, true], "nil ⇒ all enabled")
+        XCTAssertEqual(reloaded.formatVersion, 3)                    // decoded despite the removed legacy keys
+    }
+
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
             s.cells[0][0] = Cell(colourID: "gold", stack: true)

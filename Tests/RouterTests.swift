@@ -396,6 +396,30 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.drainMeters().events[0], 0, "a disabled emitter never meters")
     }
 
+    func testAuditionRespectsDisabledEmitter() {
+        // Cross-feature: audition a cell routed to a DISABLED emitter (B) → silent (the §6a gate is at
+        // the emission boundary, so audition respects it too).
+        let b = box(colours: arpColours(), busEnabled: [true, false, true, true]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.b])
+        }
+        let e = RecordingEmitter()
+        auditionRun(b, chord([60]), target: 0, windows: 12, into: e)
+        XCTAssertTrue(e.events.isEmpty, "audition of a cell routed to a disabled emitter is silent")
+    }
+
+    func testPassgateGatesByPassInThePlayingPath() {
+        // A PASSGATE at MIDI IN, open every 2nd pass. Over two full cycles column 0 is entered on pass 0
+        // (open → the chord sounds) and pass 1 (closed → silent): the held chord sounds exactly ONCE.
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, false, true, false]; cs[gi].paramsA.gate = 1.0
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 20, into: e)   // through pass 0 (open) + pass 1 (closed), before pass 2
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67])
+        XCTAssertEqual(e.ons.filter { $0.cable == 0 }.count, 3, "sounds on pass 0 only — closed pass 1 stays silent")
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: - COLUMN-SUBSET LAP (§5b) — the held set warps which column is effective
 
     func testLapStutterLocksPlaybackToTheHeldColumn() {

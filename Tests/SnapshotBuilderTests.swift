@@ -17,6 +17,18 @@ final class SnapshotBuilderTests: XCTestCase {
         return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
     }
 
+    func testBusEnabledMaskFromDocument() {
+        func mask(_ e: [Bool]?) -> UInt8 {
+            var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+            st.busEnabled = e
+            return SnapshotBuilder.build(from: st).busEnabledMask
+        }
+        XCTAssertEqual(mask(nil), 0b1111, "nil ⇒ all enabled (loader default)")
+        XCTAssertEqual(mask([true, false, true, true]), 0b1101, "B disabled")
+        XCTAssertEqual(mask([false, false, false, false]), 0b0000, "all disabled")
+        XCTAssertEqual(mask([true, false]), 0b1101, "short array ⇒ missing entries enabled")
+    }
+
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
         // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE
         // type's own value, not a stash left over from a different type. (The render reads SnapColour

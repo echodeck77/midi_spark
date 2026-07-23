@@ -122,9 +122,8 @@ struct Cell: Codable, Equatable {
 
 struct SceneState: Codable, Equatable {
     var cells: [[Cell?]]           // [column][row], 8×8
-    var rowBypass: [Bool] = Array(repeating: false, count: 8)
-    var stackMute: [Bool] = Array(repeating: false, count: 8)
-    var stackSolo: [Bool] = Array(repeating: false, count: 8)
+    // (removed 2026-07: rowBypass/stackMute/stackSolo — dead since v3, never read by any engine path;
+    //  old docs that still carry those keys decode fine, Codable just ignores them.)
     var stepRate: StepRate = .r1_2
     var swing: Int = 50            // 50 straight … 75 (§4 v2.3)
     var tapAction: TapAction = .alt
