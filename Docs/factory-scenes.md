@@ -276,3 +276,6 @@ this is the demo, the tutorial's diploma, and track one.
 - Ear-verify every LISTEN line with the STANDING RIG patched as described;
   scenes are content, and content ships tested.
 - Strip = SIXTEEN slots (delta §6; the 8-slot mockup strip predates this).
+- Scene LISTEN lines that invoke column MUTE (6, 8) assume mute's
+  reintroduction via the perform-v2/TOUCH pass (removed at `3e816ee`);
+  they are release-content instructions, not current-build ones.

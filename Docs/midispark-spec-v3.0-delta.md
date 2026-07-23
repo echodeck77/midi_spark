@@ -176,8 +176,9 @@ Final dimension tuning happens on device.
 
 **Gesture:** in PERFORM, HOLD one or more COLUMN KEYS. While held, the lap
 consists of exactly the held columns; on full release, playback is back at
-the true position instantly. (Tap remains column mute/unmute — the existing
-hold-vs-tap threshold distinguishes.)
+the true position instantly. (Column-key TAP is currently UNASSIGNED — tap-to-mute was removed at
+`3e816ee` pending the revised perform spec, so the hold gesture has the
+keys to itself; mute's return route is the TOUCH design pass.)
 
 **The rule (pure derivation — the whole feature is one line):**
 `effColumn = S[absoluteStep mod k]` where S = held columns sorted
@@ -211,6 +212,23 @@ unpredictable under sweaty fingers; sorted wins.]
   are ARRANGEMENT-level time-warps; the per-Colour behaviours are
   VOICE-level. They compose; neither replaces the other.
 
+### 6b. COLOUR-chip activity playheads (DEFINITE requirement, 2026-07)
+
+Palette chips indicate when their Colour is WORKING on the grid, using the
+established mutation-line effect at chip scale:
+- A chip sweeps a **horizontal line TOP→BOTTOM** while ≥1 instance of its
+  Colour is working in the live column (mirror the cell mutation-line
+  condition, including the faint-when-only-bypassed nuance; multiple
+  instances = ONE sweep, never stacked).
+- If the sounding instance(s) are in their **ALT face**, the sweep runs
+  **LEFT→RIGHT** (a vertical line sweeping horizontally) — orientation
+  encodes the face. Mixed main+alt instances in the same column: MAIN wins
+  (top→bottom); left→right means alt-only.
+- Model-agnostic: "alt face" = B-state today, the partner Colour under the
+  colour-pair model (item 5) — the rule survives ratification either way.
+- ONE-CLOCK RULE binding as everywhere: the sweep is a pure function of the
+  derived beat fraction; chips own no animation clocks.
+
 ### 6a. The EMITTERS panel — behaviour per mode (supersedes panel-as-selector)
 
 The four grid-pad-scale pads ARE the emitters (letter + CH readout + firing
@@ -242,6 +260,20 @@ flash when notes leave).
   declaration change. The shared-channel merge note remains a gentle
   warning, both modes. Static frames: toggling and the popover never resize
   the panel.
+- **MIDI-activity metering (DEFINITE requirement, 2026-07):**
+  (a) In PERFORM, each CELL's emitter letters flash on that cell's emission
+  events per bus (ratifies the v59 "white flip + down-glow = firing"
+  language as required behaviour, per-event).
+  (b) The EMITTER PANEL pads meter activity **with VELOCITY**: flash/glow
+  intensity tracks emitted velocity, plus a thin per-pad level bar
+  (peak-hold with ~150ms decay). Purpose: live feedback for the future
+  per-emitter velocity faders (§9 item 4) — the meter shows POST-transform
+  velocity, always. Disabled emitters (toggled off) never meter.
+  Engineering: activity metering is EVENT-driven, not beat-derived — it
+  rides the existing emission-activity poll (extend the feed with
+  per-emitter peak-velocity-since-last-poll + event count; UI owns only the
+  decay envelope). The one-clock rule governs playheads, not meters; meters
+  are the sanctioned event-driven visual class.
 
 **Sizing across devices and host windows:** all UI dimensions and type sizes
 are TOKENS derived from the resolved cell size, with a legibility floor —
@@ -336,8 +368,28 @@ every answer at once.
   needs nothing.
 - RECORDED, UNDESIGNED (2026-07 — the user will expand these in a future
   design pass; log, do NOT design, implement, or let them shape other work):
-  1. **Per-cell behaviour setting** — a cell-level setting influencing how
-     the cell behaves (scope/values unspecified).
+  1. **TOUCH (per-Colour touch behaviours) — DESIGN SKETCH ON RECORD
+     (2026-07; converging, not yet spec).** Desk order becomes COLOUR →
+     TOUCH → PROCESSOR → EMITTERS. The TOUCH box is COMPACT: three rows
+     (TAP · HOLD · COL-HOLD) showing the selected Colour's assignments
+     (DOUBLE-TAP considered and REJECTED 2026-07: the disambiguation delay
+     taxes single-tap on an instrument) — each row an OPENER (sub-44 law) for a popover with THREE
+     pickers, the 3-AXIS GRAMMAR: **WHAT** (behaviour) × **WHEN** (NOW /
+     NEXT STEP / NEXT PASS / NEXT LAP — pass≠lap under §5b holds, deliberately)
+     × **HOW LONG** (while-held / until-tapped-again / one pass / one lap).
+     "Play one pass" = UNMUTE · next-pass · one-pass — durations are an axis,
+     not behaviours. COL-HOLD slot = "while my column is held in the §5b
+     lap" (a Colour can auto-ALT under stutter) — NOT a new column-key
+     gesture; keys keep tap=mute, hold=lap. Candidate behaviours (ship ~10):
+     State ALT/BYP/MUTE-UNMUTE · Structure SOLO-EMITTERS/ISOLATE/FILL ·
+     Time SLICE-CYCLE/FREEZE/REVERSE/HALF-DOUBLE · Sound OCT±12/ACCENT/
+     GATE/COMMIT-STARVE · Material REPLAY (v1 = live replay, SHIPPED
+     decision)/DICE. LAWS already decided: unassigned slots inherit a GLOBAL DEFAULT action
+     (currently ALT — the header TAP selector and MUTE/BYP were removed at
+     `3e816ee`; TOUCH is the intended vehicle for reintroducing the richer
+     action set, engine fields retained); armed
+     (quantized-pending) behaviours show the v2.8 QUANT blink. Open: final
+     behaviour shortlist; portrait four-box fit.
   2. **Recorded input bar / per-cell capture — DESIGN SKETCH ON RECORD
      (2026-07, refined; still a future item).** DECIDED: TOUCH v1 SHIPS with
      live-replay only (audition's in-time sibling, fully derived). The v2
@@ -359,6 +411,302 @@ every answer at once.
      TOUCH-box design pass.
   3. **Row solo** — soloing at row granularity (relationship to column
      mute/solo and the perform layer unspecified).
+  4. **EMITTER performance layer — DESIGN SKETCH ON RECORD (2026-07; future
+     version).** Every feature here is a transform AT THE EMISSION BOUNDARY
+     (seam rule 3) — no engine-upstream changes, ever:
+     - **Velocity faders per emitter** (the mixer; do FIRST): pure scale at
+       emission, new stable param addresses (400+bus per invariant 5) ⇒
+       host-automatable free. New note-ons only (MIDI can't re-velocity);
+       fader-zero floors at vel 1 — suppression stays §6a's job. Best-effort
+       on velocity-deaf synths (same category as BLEND).
+     - **Note exclusivity with emitter priority** (OFF by default): a pitch
+       sounding on a higher-priority emitter is SUPPRESSED on lower ones —
+       and the generative reading is the point: lower-priority emitters are
+       SPILLOVER channels (the lead claims, the pad gets the residue; with
+       CHANCE upstream, B receives the gamble's rejects). Suppress, never
+       defer (no retroactive sounding — §6a doctrine). First inter-emitter
+       coupling: needs a priority-order control + a withheld-note tell in
+       the UI. 
+     - **HOCKET mode**: grouped emitters distribute successive notes
+       round-robin (rotation index DERIVED from tick derivation, no state) —
+       one arp shattered across synths; the 808 State homage made technical.
+     - Also logged: velocity-SPLIT routing (soft/hard note ranges per
+       emitter), live emitter SWAP (A↔B permutation), TOUCH slots on the
+       emitter pads themselves (hold = momentary solo-emitters first).
+     Do not implement ahead of a spec pass; the boundary placement is the
+     binding constraint.
+  5. **COLOUR-PAIR MORPH MODEL — DESIGN SKETCH ON RECORD (2026-07, rev 2;
+     supersedes the per-Colour A/B model AND the parked morph-desk direction
+     if ratified).** Pairing is PER-COLOUR: beside the palette sits a small
+     **ALT box** — empty = this Colour has no second self; tap it to target,
+     then pick/drag any Colour in (the partner swatch lives there
+     persistently). Cells keep only their alt FLAG; what they flip TO is the
+     Colour's pairing. Per-Colour A/B states, A/B tabs, and B-over-A resolve
+     are DELETED — Colours are single treatments; the second personality is
+     the PARTNER.
+     - **Morph is CAPABILITY-TIERED:** FULL (same type — all params glide,
+       §3.2 stepped quantize) · SWAP (nothing shared — clean flip, NO fader:
+       the fader never lies) · PARTIAL (future, gated on LISTENING TESTS
+       per pair): shared CHANNELS glide (TIME: arp/ratchet rate, strum
+       spread · DENSITY: ratchet count, chance %, arp octaves · LENGTH:
+       gate · TRANSPOSE always, semitone-quantized) while type identity
+       flips at midpoint, arriving in-groove. Candidate PARTIAL pairs by
+       expected grace: ARP↔RATCHET (showcase), PASSGATE↔CHANCE
+       (structure↔dice), STRUM↔ARP, HARMONIZE↔* (marginal). SHIP FULL+SWAP
+       FIRST; a fader that sounds broken at 0.3 poisons the ones that work.
+     - **RESCUED by colour-level pairing:** morph position is per-Colour →
+       param addresses 200+i STAY LIVE (automation surface intact; only the
+       address *meaning* updates: morph toward the partner); the 16-strip
+       MORPH DESK is structurally viable again (16 Colour-morphs = 16
+       strips — un-parks WITH this model); migration softens (old B-state ≈
+       partner Colour; scenes 14/16 re-author near-mechanically; loader
+       maps empty-alt + log).
+     - **UI:** cell ring = the Colour's partner hue (see what it becomes);
+       compatible pairs show the MORPH slider in the desk (colour-level →
+       it lives with the Colour, not in cell popovers); cell BODY blends
+       the two hexes at morph position (interpolation shown, not
+       indicated). **Audition-before-commit is FREE**: audition runs on
+       effective params, morph is in the resolve — hold-to-audition at 0.4
+       hears 0.4.
+     - **MORPH-SCRUB joins the TOUCH menu** (HOLD slot): hold a cell + drag
+       vertically = scrub its COLOUR's morph (one finger bends every cell
+       of that Colour); release springs home or latches (the SPRING
+       semantic as a per-assignment option).
+     - Schema: Colour gains altColour(0..15|none) + morph(0..1); cell keeps
+       alt flag only. NOT ratified — awaiting the user's call after a UI
+       mockup (the ratification test: does a grid of ringed pairs READ?).
+  6. **FUTURE PROCESSORS — CHANCE family extensions (2026-07; sketches, one
+     AMBIGUITY awaiting the user's call).** All are pure derived-dice
+     processors (tick/pass → slice index → seeded deterministic roll, the
+     existing CHANCE discipline) — engine cost is a cellMode case each; the
+     design cost is UI.
+     - **NOTE-CHANCE** (chance by musical note). Two candidate forms, decide
+       at the design pass: (a) per-POOL-POSITION as BASE + TILT (probability
+       a function of sorted chord position; two params; bottom-heavy = bass
+       certain, top sparkles — the v1 lean) or (b) per-PITCH-CLASS (12
+       weights; scale-tone weighting, maximal control, heavy panel).
+     - **STEP-MASK — CONFIRMED as the request (user, 2026-07-23):** the
+       cell's active step divides into 4|8 slices, each with probability
+       0–100, rolled per tick by slice (seeded deterministic dice). At 0/100
+       extremes = a drawable trance-gate/rhythm mask inside the step
+       (user's example: 0,0,0,0,100,100,100,100 → only the second half of
+       the step sounds); between = probabilistic groove. UI: 4/8 draggable
+       mini-bars — the instrument's first DRAWABLE control; introduce the
+       species once, reuse it.
+     - PASS-MASK (probabilities per pass-slot; generalizes PASSGATE):
+       INCIDENTAL suggestion that emerged from the ambiguity — unrequested;
+       logged only, cut at leisure.
+     - **PICK (requested 2026-07-23) — the voice-splitting primitive:**
+       filters the input pool to ONE note. Params collapse to TWO controls:
+       FROM {BOTTOM|TOP} + N {1..8} ("lowest"=bottom-1, "highest"=top-1,
+       "3rd from top"=top-3 — no special cases). Chord-hold family: sustains
+       its selection through the step, reconciles LIVE as held keys change
+       (audition-chord-hold machinery); engine = sort pool, index — pure
+       one-liner, cheapest processor on the roster. HEADLINE USE: sibling
+       PICK cells fan-out one chord engine into monophonic PARTS across
+       emitters (voice splitting); also bass extract (bottom-1 → B), sub
+       doubler (+ T−12 Colour), topline extract, PICK→RATCHET ratcheted
+       bass, PICK→ARP rhythmic pedal. Complements emitter-HOCKET (register-
+       stable assignment vs round-robin-in-time). OPEN micro-question:
+       out-of-range (N > pool size) = STRICT (silence — voice-splitting
+       honest; chord SIZE becomes a performance control: add a 4th note,
+       the 4th instrument enters) vs CLAMP (nearest — bass never drops).
+       Lean STRICT; decide by ear at the design pass.
+     - **CURATED WIDER ROSTER (2026-07-23, rev 2 — merged brainstorms; all
+       pure/derived unless noted; champions ★):**
+       Pitch/voicing — ★TRANSPOSE-SEQ (per-pass/step transpose pattern: one
+       chord becomes a PROGRESSION — the pass dimension's best friend; does
+       scene 4 in one cell) · ★ROTATE/INVERT (cycle inversions per
+       tick/step/pass — harmony-in-motion, the roster's biggest gap) ·
+       VOICING/SPREAD (open/close, drop-2/3) · MIRROR (invert around axis;
+       ideal ALT partner). **SCALE — TWO POSITIONS ON RECORD, user to
+       adjudicate:** PRO: wrong-note-proofs pitch-ADDING processors
+       (HARMONIZE's +7 can leave the key; SCALE after it legitimizes) —
+       coherent as a CORRECTIVE. CON: as a general input-override it fights
+       the constitution (the held chord IS the truth). Possible resolution:
+       scope it explicitly as post-pitch-adder correction.
+       Time/feel — BURST (one-shot accel/decel roll at step entry; the
+       CURVE distinguishes it from RATCHET) · DRONE (sample pool at entry,
+       sustain to boundary — the pad-maker) · CASCADE (pool membership
+       revealed incrementally across the step; STRUM's additive cousin) ·
+       SHIFT (tick-offset articulation) · HUMANIZE (seeded jitter,
+       replay-safe — the deterministic human). EUCLID = a K-of-N GENERATOR
+       BUTTON inside STEP-MASK, not a type (both brainstorms converged).
+       Dynamics — VELOCITY-CURVE/RAMP (shape across the step; pairs with
+       §6a metering) · VELOCITY-MAP (in→out transfer) · ACCENT = STEP-MASK's
+       drawable bars writing VELOCITY (one widget species, two modes —
+       design them together).
+       **PITCH BEND — four coherent roles (2026-07-23; the mismatch is
+       real: PB is channel-wide + continuous, the engine is per-note +
+       discrete — it never goes "through" a processor):**
+       (1) PASSTHROUGH = the player's hand (v1; = the CLAUDE.md OPEN
+       DECISION on channel-wide message mirroring). (2) CONTROL SOURCE:
+       incoming wheel → morphMaster / a Colour's morph / velocity faders —
+       cheapest big win; a sprung pitch wheel IS morph-scrub with hardware
+       spring physics. Kernel/param territory, not a processor. (3)
+       **GENERATED bend — a BEND processor**: emits bend curves DERIVED
+       from beat (one-clock-pure, replay-safe): vibrato (ensemble vibrato
+       on chords is legitimate — channel-wide moves all notes together) ·
+       dive · rise · seeded drift. LAW: uniform gestures fine; per-note-
+       different bends impossible without MPE (far door, standalone
+       scope). Killer chain: **PICK → GLIDE** — on a monophonic stream,
+       render slides as note+bend-ramp = acid slide lines on ANY synth
+       incl. poly (complements the tail-rule overlap-slide: that one asks
+       the synth to glide, this one performs it; assumes bend range, ±2
+       default, a range setting solves). (4) WILDCARD: received PB as a
+       SELECTOR (wheel = ribbon over the held pool) — performance toy,
+       logged as such.
+       DOCTRINE-FIGHTERS, flagged: MONO/last-note needs event-order memory
+       (capture-state class; the only impure idea — last or never). OUT OF
+       SCOPE: CC/LFO generators (Kernel/standalone territory, not
+       processors).
+     - **THE TAIL RULE — design brief (2026-07-23; the cross-step
+       amendment, answered ONCE for all customers incl. EXTERNAL tails).**
+       Voices MAY outlive their column. Customers, in value order:
+       (1) GATE >100% ⇒ inter-step overlap ⇒ SLIDE/LEGATO on mono synths
+       (303-style glide is impossible under strict truncation — plausibly
+       outranks ECHO for the AUM audience); (2) overlapping pads/washes
+       (DRONE at 150–200%); (3) gestures longer than a step (slow STRUM
+       spread, BURST deceleration, HUMANIZE's late final tick no longer
+       clipped at the edge); (4) performance RING-OUTS (lap release /
+       column mute may ring remaining gate instead of chopping — same
+       machinery, different trigger; chop-vs-ring becomes a choice);
+       (5) ECHO repeats across steps.
+       MACHINERY (mostly exists): tails keep their birth cell's
+       colour/buses/stamps (voice table already per-cell; the change is
+       "don't force-close at column exit"); collisions with later columns
+       are ordinary emitted-tuple refcount cases; BOUNDS = the fixed voice
+       table (steal-oldest) + a TTL so nothing rings forever; closures
+       that ALWAYS apply: transport stop, §6a disable, scene switch.
+       **THE FORK the amendment must decide (not inherit by accident):
+       are tails REFERENCEABLE** (in the sounding set — children can
+       process the echo: ratchet chews repeats, CHANCE gambles on ghosts)
+       **or emission-only ghosts** (simpler, no downstream surprises)?
+       Decide by ear at the design pass; either answer is fine, an
+       accidental answer is not.
+  7. **MPE / MIDI 2.0 posture (decided 2026-07-23).**
+     - MIDI 2.0 TRANSPORT (UMP / MIDIEventList): hygiene, do SOON — verify
+       the Kernel accepts both legacy and eventList input and emits via the
+       eventList block (the original scaffold TODO'd this; confirm status),
+       translating to MIDI 1.0 semantics internally. Not a feature; a
+       compatibility floor that hosts are trending toward requiring.
+     - MIDI 2.0 SEMANTICS (16-bit velocity, 32-bit CC, per-note
+       controllers): NOT NOW — negligible ecosystem consumption; pools stay
+       7-bit; revisit when target synths consume it.
+     - **MPE INPUT — a trap is armed:** per-cell channel filters read
+       channels as separate controllers; an MPE controller sprays one
+       performance across ch2–16 and would be misread as fifteen keyboards.
+       NEAR-TERM insurance: an MPE-INPUT MERGE mode (detect-or-toggle,
+       fold member channels into one source, strip per-note expression).
+       One toggle, one class of confused-user reports prevented.
+     - MPE FULL (expression through the engine; MPE OUTPUT): far-future —
+       output-side it is the third wave of pitch continuity (dissolves the
+       BEND processor's channel-wide limit: per-note vibrato, poly slides)
+       AFTER tail-rule slide and PICK→GLIDE prove themselves. FORECLOSURE
+       CHECK DONE: nothing blocks it — MPE output = dynamic channel
+       allocation at the emission boundary; refcount keys on emitted
+       tuples; Emission.swift isolation means it lands later as a
+       per-emitter mode at one seam.
+  9. **RECORD processor (in-grid MIDI clip capture) — USER'S DESIGN, rev 2
+     (2026-07-23; supersedes the rev-1 sketch's arming model; file import
+     explicitly NOT wanted — clips persist in the document like presets).**
+     - **THE GRID IS THE RECORD BUTTON.** RECORD is a processor type. Paint
+       a cell of that Colour; it starts ARMED. Its input channel (the
+       SHIPPED per-cell filter, e.g. ⇐MIDI ch2) is the record SOURCE — the
+       performer holds the main chord on ch1 and plays the part on ch2.
+       While armed, notes on the source channel are captured tick-timed
+       DURING the cell's active window as the playhead crosses; at window
+       exit the cell flips ARMED → PLAY automatically (one-pass punch-in).
+       Doctrine note (user's correction, accepted): multi-channel input
+       already made the instrument multi-performer — recorded playback is
+       a third hand, not a constitutional break.
+     - **Clips live ON THE COLOUR like its params** → document/fullState
+       persistence (save/load survives; NO file I/O). Painting the Colour
+       to many cells = looper behaviour with ORCHESTRATION DECIDED IN
+       ADVANCE by placement.
+     - Capture infra: render-side bounded buffer during the window; ONE
+       main-thread document commit at WINDOW EXIT (a defined moment);
+       shared with item 2's capture infra — build once.
+     - **LENGTH is a Colour PARAM (1–8 steps; user 2026-07-23):** the
+       window opens at the cell's column entry and spans LENGTH steps
+       regardless of what occupies those columns (leaving them free for
+       other cells — including other recorders). Supersedes the
+       run-painting lean.
+     - **RECORD MODE: ONE-SHOT vs OVERDUB (always-listening; user
+       2026-07-23).** OVERDUB never flips to play-only: every pass the
+       window plays back AND captures, each window-exit committing that
+       pass's additions as a discrete batch ⇒ UNDO-LAST-LAYER is nearly
+       free (pop the last batch). Capacity policy when the bounded clip
+       buffer fills: lean STOP-ADDING (predictable); steal-oldest ("the
+       forgetting looper") logged as a deliberate variant, not a default.
+     - **OVERLAPPING WINDOWS: YES — capture is READ-ONLY FAN-OUT** (any
+       number of open windows transcribe the same source simultaneously,
+       own window-relative timestamps). RULE: overlapping recorders must
+       be DIFFERENT Record Colours; ONE open window per Colour at a time
+       (first crossing wins; other placements of that Colour play back).
+       Musical bonus on record: a long window + a short window over the
+       same take = sampled-fragment orchestration / automatic canon (the
+       same performance quoted at offsets).
+     - **UNLOCKS (2026-07-23 — consequences, not new machinery):**
+       (1) **RESAMPLING**: a RECORD cell with ⇐Rn records ANOTHER CELL'S
+       OUTPUT (capture records what the cell hears; do NOT restrict
+       RECORD's input to MIDI-only — the feature is one absent restriction).
+       ⇒ the dice types become PRINTABLE ("print the take": CHANCE's
+       perfect pass becomes a clip; mute the chain, the keeper plays);
+       chains bounce to phrases; and with the colour-pair model, a
+       generative Colour ALT-paired with its own printed RECORD Colour =
+       TAP flips a part between GENERATIVE and COMMITTED, live.
+       (2) Factory scenes may ship riffs (SceneFactory authors clips in
+       code — no file I/O involved).
+       (3) TAKES: the overdub batch structure supports a small pop-able
+       layer stack beyond single undo — growth, not v1.
+       (4) RULE: record windows follow the TRUE timeline, never the §5b
+       lap's effective column (recording during a stutter captures real
+       bar-time — PASSGATE's side of the line).
+       (5) CONSOLIDATION: parked item 2 (recorded input bar / TOUCH-replay
+       capture) = a CONFIGURATION of this machinery (always-listening,
+       length-8, EPHEMERAL) — one infrastructure, two lifecycles; design
+       and build ONCE when the pass opens.
+     - **OPEN QUESTIONS (remaining):** re-arm/clear UX — REC + CLEAR on
+       the Colour panel; the ARMED cell state needs a visual (record-red
+       ring; the one new cell state this adds); OVERDUB's undo depth
+       (one layer or a small stack).
+     - Playback: v1 = ABS (a captured performance plays as performed;
+       input dormant in play mode). ROOT-FOLLOW / DEGREE-FOLLOW demote to
+       optional per-Colour PLAYBACK MODES later (the riff-machine case).
+       PHASE applies to playback: RETRIG one-shot per column · LEGATO
+       across runs · FREE = the clip loops against absolute beat, cells
+       are windows onto it. Clip-vs-window length: truncate at exit
+       (tail-rule customer later).
+     - Graph citizenship stands: RECORD cells feed processors (RATCHET
+       chews the phrase, CHANCE gambles on it, PICK extracts its bass);
+       colour-pair morph gives clip↔clip ALT pairs.
+  8. **HARDWARE GRID SURFACES (Launchpad / Push) — plan on record
+     (2026-07-23; supersedes v2.8 §10's TBD, which worried about the
+     routing model — irrelevant: the surface speaks only the perform
+     layer, which is model-agnostic).**
+     - **GATING SPIKE (do first, an afternoon):** direct CoreMIDI from the
+       AU EXTENSION on-device — attach a Launchpad, echo presses, light
+       pads. Direct-attach is the architecture (bidirectional, no host
+       routing, no wasted emitter, presses never pollute the source pool);
+       allowed on iOS and shipped by other AUv3 sequencers, but verify on
+       OUR extension. Fallback if it fails: controller-channel convention
+       via host routing (uglier) and/or standalone-first.
+     - BUILD: (1) device-profile layer, **Launchpad X/Mk3 FIRST** (SysEx
+       RGB shows the ACTUAL sixteen Colour hexes); (2) state→LED renderer =
+       grid snapshot + live-column lift + firing flashes — the §6a
+       activity-metering feed REUSED; (3) input translator calls the SAME
+       functions GUI touches call (tap = TAP/TOUCH, hold = HOLD slot;
+       **top-row buttons = column keys — §5b's multi-hold lap was born for
+       physical buttons**; side buttons = scene slots, 8 paged to 16);
+       (4) settings: enable + auto-detect by device name.
+     - SCOPE: **PERFORM-only v1** (EDIT stays on glass; painting needs the
+       palette). Push = later pads-only profile (the display needs a USB
+       bulk driver — never on iPad; encoders→selected-Colour params =
+       unlabeled stretch goal, honestly capped).
+     - SEQUENCE: after multi-scene + perform v2 land (the lap is the
+       hardware showcase); standalone helps but is NOT a prerequisite if
+       the spike passes.
 - EXTERNAL processor type (hosted 3rd-party MIDI AUv3s): decided direction,
   standalone-only by platform law, fully deferred — see
   Docs/standalone-plan.md. Do not design or implement ahead of it; DO honour

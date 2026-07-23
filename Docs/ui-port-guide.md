@@ -35,9 +35,10 @@ the HTML's `T` constant.
 
 1. **Header:** "8×8 STATE" logotype (the DECIDED public name — display-only;
    code identity stays MidiSpark, see CLAUDE.md vocabulary), mode toggle (EDIT amber /
-   PERFORM cyan), TAP action selector (perform), STEP rate, SWING, PASS
-   counter, transport, momentary indicators (ISOLATE / STUTTER / LOOP n–m /
-   ROW ALT). (v54 decision: STEP/SWING live HERE, not the desk.)
+   PERFORM cyan), STEP rate, SWING, PASS counter, transport, momentary
+   indicators. (v54 decision: STEP/SWING live HERE, not the desk. The TAP
+   action selector was REMOVED at `3e816ee` with MUTE/BYP — PERFORM tap is
+   ALT-flip only pending the TOUCH design pass; engine fields retained.)
 2. **Playhead strip:** the master DOWN-ARROW sweeping above the grid —
    continuous through each step, swing-stretched, loop-snapped.
 3. **Grid 8×8** + side buttons (stack/MUTE row on top, row column at right) +
@@ -82,8 +83,10 @@ the HTML's `T` constant.
 - Cell tap: EDIT = apply selected colour on the body (mockup stand-in;
   the real build is DRAG-AND-DROP from the palette + body-HOLD cell menu for
   CLEAR/COPY, delta §5), open FROM popover (header), open OUT popover
-  (emitter strip) · PERFORM+playing = TAP action · PERFORM+stopped =
-  audition hold semantics. Sub-cell hit-zones exist only in EDIT; in PERFORM
+  (emitter strip) · PERFORM+playing = ALT flip (the tap-action set reduced
+  at `3e816ee`; richer actions return via TOUCH) · PERFORM+stopped =
+  audition hold semantics. Column keys: tap currently unassigned
+  (tap-to-mute removed); HOLD = the §5b lap (UI gesture pending). Sub-cell hit-zones exist only in EDIT; in PERFORM
   the whole pad is one target. Sub-44pt zones are OPENERS, never actuators.
 - Cell hold 300 ms: isolate (perform+playing) / preview (audition).
 - Stack button: tap = SEL (edit) / mute, solo with S (perform) / APPLY (audition);

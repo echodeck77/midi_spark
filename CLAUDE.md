@@ -212,6 +212,15 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (All = sum of ENABLED emitters; cells keep deriving), pad body toggles in
   BOTH modes, CH caption = channel-popover opener in EDIT; RouterTests +
   T-intent per test-procedures; reference preview v60.
+  (a3) COLOUR-chip activity playheads — delta §6b (DEFINITE): palette chips
+  run the mutation-line sweep top→bottom while their Colour works in the
+  live column, left→right when the alt face sounds (main wins mixed);
+  one-clock rule, TimelineView same as the cell lines.
+  (a4) MIDI-activity metering — delta §6a metering block (DEFINITE): cell
+  emitter letters flash per emission event in PERFORM; emitter-panel pads
+  meter VELOCITY (glow intensity + thin level bar, peak-hold ~150ms decay,
+  post-transform). Extend the emission-activity poll feed with per-emitter
+  peak velocity + event count; UI owns the decay envelope only.
   (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.
