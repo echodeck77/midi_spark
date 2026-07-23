@@ -143,11 +143,12 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **78-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds an **88-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
-  §7b two-cable / channel-stamp / muted-silence / AUDITION, off-device, since Router went
-  Foundation-only). BOTH stay green every commit; unit tests run off-device, come FIRST.
+  §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
+  derivation, muted-parent reroute, silent cycles) / playing-HARMONIZE, off-device, since
+  Router went Foundation-only). BOTH stay green every commit; unit tests run off-device, FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
   FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell

@@ -17,6 +17,19 @@ final class SnapshotBuilderTests: XCTestCase {
         return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
     }
 
+    func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
+        // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE
+        // type's own value, not a stash left over from a different type. (The render reads SnapColour
+        // .transpose, so this is what the arp path actually adds to each note.)
+        var cs = colours(customizing: 0) { $0.transpose = 5 }   // arp, transpose +5
+        cs[0].switchType(to: .harmonize)                        // harmonize keeps its OWN transpose (0)
+        let sc = box(cs) { _ in }.colours[0]
+        XCTAssertEqual(sc.a.type, .harmonize)
+        XCTAssertEqual(sc.transpose, 0, "snapshot uses HARMONIZE's transpose (0), not the stashed ARP +5")
+        cs[0].switchType(to: .arp)                              // back to arp restores +5
+        XCTAssertEqual(box(cs) { _ in }.colours[0].transpose, 5)
+    }
+
     func testSparseBInheritsAButSetFieldsOverride() {
         // The whole point of the B-state: a field left NIL in B inherits A; a field set in B overrides.
         let cs = colours(customizing: 0) {

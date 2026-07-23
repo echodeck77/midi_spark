@@ -269,6 +269,65 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - graph routing (delta §1) — reference derivation, reroute, cycles
+
+    func testFedArpArpeggiatesTheParentsSoundingNote() {
+        // Parent ARP (row 0 →A); child ARP references row 0 (row 1 →B). The child arpeggiates the
+        // parent's CURRENT sounding note by derivation (window-independent) — with a single held note
+        // and 1 octave, that note IS the parent's note.
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = Cell(colourID: "gold")                              // parent, MIDI IN →A
+            $0.cells[0][1] = Cell(colourID: "azure", buses: [.b], inputRow: 0)   // child ⇐R0 →B
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        let childNotes = Set(e.ons.filter { $0.cable == 2 }.map { $0.note })     // bus B = cable 2
+        XCTAssertFalse(childNotes.isEmpty, "the fed child should sound")
+        XCTAssertEqual(childNotes, [60], "child mirrors the parent's sounding note")
+        assertNothingLeftSounding(e)
+    }
+
+    func testMutedParentReroutesChildToSource() {
+        // Muted parent → child reverts to MIDI IN (delta §1 reroute), so it arps the WHOLE source
+        // chord — not a silent mirror. Proven with a chord: the rerouted child sounds all three notes.
+        var parent = Cell(colourID: "gold"); parent.muted = true
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = parent
+            $0.cells[0][1] = Cell(colourID: "azure", buses: [.b], inputRow: 0)
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "muted parent emits nothing on A")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67],
+                       "child rerouted to MIDI IN arps the full source chord (not a nil mirror)")
+        assertNothingLeftSounding(e)
+    }
+
+    func testReferenceCycleIsTotallySilent() {
+        // Two cells referencing each other (row 2 ⇐ row 4, row 4 ⇐ row 2), both lit → a closed loop
+        // has no entry → TOTAL SILENCE (delta §1, broken by the depth guard).
+        let b = box(colours: arpColours()) {
+            $0.cells[0][2] = Cell(colourID: "gold",  buses: [.a], inputRow: 4)
+            $0.cells[0][4] = Cell(colourID: "azure", buses: [.b], inputRow: 2)
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.events.isEmpty, "a reference cycle sounds nothing on any cable")
+    }
+
+    func testPlayingHarmonizeAtMidiInSoundsTheExpandedChord() {
+        // The PLAYING chord-hold path (emitColumnHolds), distinct from audition: a HARMONIZE cell at
+        // MIDI IN sounds root + its interval voices.
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67],
+                       "playing HARMONIZE expands the held note to its voices")
+        assertNothingLeftSounding(e)
+    }
+
     func testStopEdgeFlushesEverySoundingVoice() {
         // Even with a slow ARP and a stop mid-window, the transport edge must leave nothing sounding.
         let b = box(colours: arpColours()) {
