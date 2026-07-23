@@ -7,6 +7,7 @@
 //  per docs/ui-port-guide.md; visual language per Docs/midispark-preview-v56.html.
 
 import SwiftUI
+import UIKit   // ColumnHoldOverlay: multi-touch column-key holds (§5b) need a UIView, not a SwiftUI gesture
 
 extension Color {
     /// 0xRRGGBB → Color. Used for the 16 canonical Colour hexes (do not "harmonise" them, §ui-guide).
@@ -62,6 +63,8 @@ struct GridView: View {
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil
     var onAuditionEnd: (() -> Void)? = nil
+    var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
+    var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -100,15 +103,20 @@ struct GridView: View {
         HStack(spacing: Self.vGap) {
             ForEach(0..<8, id: \.self) { col in
                 let active = playing && col == playColumn
+                let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held set
                 Text("\(col + 1)")
                     .font(.system(size: 15, weight: .heavy, design: .monospaced))
-                    .foregroundColor(active ? .black : .white.opacity(0.45))
+                    .foregroundColor(active ? .black : (held ? accentCyan : .white.opacity(0.45)))
                     .frame(maxWidth: .infinity).frame(height: Self.headH)
                     .background(RoundedRectangle(cornerRadius: 6)
                         .fill(active ? accentCyan : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
+                        .stroke(held ? accentCyan : .clear, lineWidth: 2).padding(1))
             }
         }
         .overlay { masterArrow }
+        // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP).
+        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, onChange: cb) } }
     }
 
     // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
@@ -398,6 +406,46 @@ struct OutputsView: View {
 
 /// HEADER (delta §6): logotype · STEP rate · SWING · PASS/transport readout. STEP/SWING are the
 /// scene-level timing controls (AUParameters 0/1) — the only in-plugin way to set them.
+/// §5b COLUMN-SUBSET LAP — the multi-column HOLD gesture. A `UIView` (not a SwiftUI gesture) because
+/// SwiftUI can't reliably track SIMULTANEOUS touches across the sibling column keys; this one view
+/// receives every touch, maps each to a column, and reports the held-column BITMASK. Being UIKit, it
+/// SURVIVES SwiftUI re-renders — so the 4 Hz poll can never tear a hold down mid-gesture. Only mounted
+/// in PERFORM; unmounting (mode switch) cancels its touches → the parent gets mask 0.
+private struct ColumnHoldOverlay: UIViewRepresentable {
+    let gap: CGFloat
+    let onChange: (UInt8) -> Void
+
+    func makeUIView(context: Context) -> TouchRow { let v = TouchRow(); v.gap = gap; v.onChange = onChange; return v }
+    func updateUIView(_ v: TouchRow, context: Context) { v.gap = gap; v.onChange = onChange }
+
+    final class TouchRow: UIView {
+        var gap: CGFloat = 3
+        var onChange: ((UInt8) -> Void)?
+        private var active: Set<UITouch> = []
+
+        override init(frame: CGRect) { super.init(frame: frame); isMultipleTouchEnabled = true; backgroundColor = .clear }
+        required init?(coder: NSCoder) { fatalError("no coder") }
+
+        private func column(_ t: UITouch) -> Int? {
+            let w = bounds.width; guard w > 0 else { return nil }
+            let stride = (w + gap) / 8            // per-key stride: 8 keys + 7 inter-key gaps ⇒ (w+gap)/8
+            let c = Int((t.location(in: self).x / stride).rounded(.down))
+            return (c >= 0 && c < 8) ? c : nil
+        }
+        private func report() {
+            var mask: UInt8 = 0
+            for t in active where t.phase != .ended && t.phase != .cancelled {
+                if let c = column(t) { mask |= 1 << UInt8(c) }
+            }
+            onChange?(mask)
+        }
+        override func touchesBegan(_ ts: Set<UITouch>, with e: UIEvent?)     { active.formUnion(ts); report() }
+        override func touchesMoved(_ ts: Set<UITouch>, with e: UIEvent?)     { report() }
+        override func touchesEnded(_ ts: Set<UITouch>, with e: UIEvent?)     { active.subtract(ts); report() }
+        override func touchesCancelled(_ ts: Set<UITouch>, with e: UIEvent?) { active.subtract(ts); report() }
+    }
+}
+
 struct HeaderView: View {
     let stepIndex: Int          // into StepRate.allCases
     let swing: Int              // 50…75

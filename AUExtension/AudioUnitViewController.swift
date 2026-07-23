@@ -50,7 +50,16 @@ struct DiagView: View {
     @State private var stepIndex = 2
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
+    @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
+    // the engine (ephemeral, never persisted) and keep a copy for the key LOOP highlight. Cleared to 0
+    // on release (the overlay reports empty) and on the EDIT switch (see the mode toggle).
+    private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
+
+    // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
+    private func toggleMode() { editing.toggle(); if editing { setLane(0) } }
 
     // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
     // PERFORM: flip an occupied cell to/from its ALT (B) state (engine-backed `alt`). Empty cells
@@ -228,7 +237,7 @@ struct DiagView: View {
                    editing: editing,
                    onStep: { au?.setStepRateIndex($0); refreshTiming() },
                    onSwing: { au?.setSwing($0); refreshTiming() },
-                   onToggleMode: { editing.toggle() })
+                   onToggleMode: toggleMode)
     }
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
@@ -238,13 +247,14 @@ struct DiagView: View {
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                  onClear: clearCell, onCopyColour: copyColour,
-                 onAuditionStart: startAudition, onAuditionEnd: endAudition)
+                 onAuditionStart: startAudition, onAuditionEnd: endAudition,
+                 laneMask: laneMask, onLaneMask: setLane)
     }
 
     private var hint: some View {
         Text(editing
              ? "EDIT · TAP → paint \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → audition (stopped) / menu"
-             : "PERFORM · TAP cell → ALT flip · HOLD → audition (stopped)")
+             : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
