@@ -50,12 +50,11 @@ struct DiagView: View {
     @State private var stepIndex = 2
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
-    @State private var tapAction: TapAction = .alt
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
-    // PERFORM: apply the TAP action to an occupied cell — ALT flip / BYP toggle / MUTE toggle (all
-    // engine-backed per-cell flags). Empty cells ignore perform taps.
+    // PERFORM: flip an occupied cell to/from its ALT (B) state (engine-backed `alt`). Empty cells
+    // ignore perform taps. (MUTE/BYP and the tap-action selector were removed pending the perform spec.)
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
@@ -67,11 +66,7 @@ struct DiagView: View {
         } else {
             au.editScene { s in
                 guard var c = s.cells[col][row] else { return }
-                switch tapAction {
-                case .alt:  c.alt.toggle()
-                case .byp:  c.bypassed.toggle()
-                case .mute: c.muted.toggle()
-                }
+                c.alt.toggle()
                 s.cells[col][row] = c
             }
         }
@@ -95,17 +90,6 @@ struct DiagView: View {
         guard au != nil, abox.target != nil else { return }
         abox.target = nil
         au?.clearAudition()
-    }
-
-    // PERFORM: tap a column key → toggle mute on ALL occupied cells in the column.
-    private func muteColumn(_ col: Int) {
-        guard let au, !editing else { return }
-        au.editScene { s in
-            let occ = (0..<8).compactMap { s.cells[col][$0] }
-            let allMuted = !occ.isEmpty && occ.allSatisfy { $0.muted }
-            for r in 0..<8 { if var c = s.cells[col][r] { c.muted = !allMuted; s.cells[col][r] = c } }
-        }
-        scene = au.uiScene()
     }
 
     private func clearCell(_ col: Int, _ row: Int) {
@@ -241,11 +225,10 @@ struct DiagView: View {
     private var header: some View {
         HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
                    beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
-                   editing: editing, tapAction: tapAction,
+                   editing: editing,
                    onStep: { au?.setStepRateIndex($0); refreshTiming() },
                    onSwing: { au?.setSwing($0); refreshTiming() },
-                   onToggleMode: { editing.toggle() },
-                   onCycleTap: { tapAction = TapAction.cycle(tapAction) })
+                   onToggleMode: { editing.toggle() })
     }
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
@@ -254,14 +237,14 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
-                 onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn,
+                 onClear: clearCell, onCopyColour: copyColour,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition)
     }
 
     private var hint: some View {
         Text(editing
              ? "EDIT · TAP → paint \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → audition (stopped) / menu"
-             : "PERFORM · TAP → \(tapAction.rawValue) · column key → mute · HOLD → audition (stopped) · (stutter/isolate: soon)")
+             : "PERFORM · TAP cell → ALT flip · HOLD → audition (stopped)")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
