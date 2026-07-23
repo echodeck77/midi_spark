@@ -500,6 +500,7 @@ struct ProcessorBox: View {
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
+    var onSetType: ((ProcessorType) -> Void)? = nil   // type switch isolates transpose/morph per type
 
     enum ABTab: Hashable { case a, b }
     @State private var tab: ABTab = .a
@@ -538,7 +539,7 @@ struct ProcessorBox: View {
             }
             if tab == .a {
                 seg(ProcessorType.allCases.map { typeShort($0) },
-                    sel: typeShort(colour.type)) { i in onEdit { $0.type = ProcessorType.allCases[i] } }
+                    sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
                 field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
                     stepper(colour.transpose, -24, 24) { onTranspose($0) }
                 }

@@ -58,6 +58,13 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
+- **Per-type transpose/morph (spec revision, applied):** switching a Colour's processor type must
+  never leak a parameter between types — only the selected type's properties reach the MIDI, and
+  A→B→A restores A's. Type-specific params already isolate (pattern vs harmIntervals … are distinct
+  `ColourParams` fields); the only shared scalars were `transpose`/`morph`, now stashed PER TYPE
+  (`Colour.transposeByType`/`morphByType`, optional → v2 docs decode as nil). `Colour.switchType(to:)`
+  does the stash-swap; the type selector routes through `AU.setColourType` (NOT a generic type edit),
+  which syncs the restored transpose/morph AUParameters. Proof: `Tests/ColourTypeSwitchTests.swift`.
 - Public/product name: **"8x8 State"** — DECIDED and APPLIED (display-only). It is the
   app `CFBundleDisplayName`, the extension `CFBundleDisplayName`, the AudioComponents
   `name` ("8x8 State: 8x8 State" → AUM shows "8x8 State"), and the in-plugin/app
@@ -136,7 +143,7 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **78-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds an **83-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION, off-device, since Router went

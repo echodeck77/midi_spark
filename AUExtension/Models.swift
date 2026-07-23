@@ -69,10 +69,33 @@ struct Colour: Codable, Equatable {
     var type: ProcessorType
     // v3.0 (delta §7): per-Colour OUT CH is REMOVED — channel is a property of the WIRE (busChannels),
     // not the treatment. Old docs carrying an `outChannel` key decode fine (Codable ignores unknown keys).
-    var transpose: Int = 0         // −24…+24, accumulates in chains, clamped
-    var morph: Double = 0          // §3.2 — this IS the per-colour macro AUParameter
+    var transpose: Int = 0         // −24…+24, accumulates in chains, clamped — the ACTIVE type's transpose
+    var morph: Double = 0          // §3.2 — the per-colour macro AUParameter — the ACTIVE type's morph
     var paramsA: ColourParams = ColourParams()
     var paramsB: ColourParams = ColourParams()   // sparse in spirit: unset fields inherit from A at merge time
+    // Per-TYPE stash of transpose/morph (spec revision): each processor type keeps its OWN transpose and
+    // morph, so switching type never leaks a pitch/macro from another type, and A→B→A restores A's.
+    // Type-specific PARAMS already isolate (pattern vs harmIntervals … live in distinct ColourParams
+    // fields); transpose+morph were the only shared scalars. Optional → v2 docs decode as nil (all-zero).
+    var transposeByType: [Int]? = nil
+    var morphByType: [Double]? = nil
+
+    /// Switch the processor type, giving each type its own transpose/morph. Stash the ACTIVE values under
+    /// the old type, restore the new type's. Idempotent for a no-op switch. `transpose`/`morph` remain the
+    /// live (AUParameter- and snapshot-facing) values for whatever type is currently selected.
+    mutating func switchType(to newType: ProcessorType) {
+        guard newType != type else { return }
+        let n = ProcessorType.allCases.count
+        func sized(_ a: [Int]?) -> [Int] { var v = a ?? []; if v.count < n { v += Array(repeating: 0, count: n - v.count) }; return v }
+        func sizedD(_ a: [Double]?) -> [Double] { var v = a ?? []; if v.count < n { v += Array(repeating: 0, count: n - v.count) }; return v }
+        var tStash = sized(transposeByType), mStash = sizedD(morphByType)
+        let oldIdx = ProcessorType.allCases.firstIndex(of: type) ?? 0
+        let newIdx = ProcessorType.allCases.firstIndex(of: newType) ?? 0
+        tStash[oldIdx] = transpose; mStash[oldIdx] = morph      // save the active values under the old type
+        transpose = tStash[newIdx]; morph = mStash[newIdx]      // restore the new type's own values
+        type = newType
+        transposeByType = tStash; morphByType = mStash
+    }
 }
 
 // MARK: - Cell (the patch point) — §1.1: cells share nothing.

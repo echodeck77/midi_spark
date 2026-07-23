@@ -64,6 +64,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
+    /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with
+    /// the observer's rebuild suppressed, like the load paths) so host/UI reflect the new type's values.
+    func setColourType(_ index: Int, _ newType: ProcessorType) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard index >= 0, index < document.colours.count, document.colours[index].type != newType else { return }
+        document.colours[index].switchType(to: newType)
+        suppressRebuild = true
+        _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.colours[index].transpose)
+        _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(document.colours[index].morph)
+        suppressRebuild = false
+        scheduleRebuild()
+    }
+
     /// Transpose (AUParameter 100+i) — set via the tree so the observer writes the document and host
     /// automation reflects it.
     func setColourTranspose(_ index: Int, _ value: Int) {

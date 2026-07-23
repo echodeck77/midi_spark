@@ -127,6 +127,7 @@ struct DiagView: View {
     }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
+    private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
     private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
 
     // ---- in-cell popover edits (target a specific col,row, not the selection) ----
@@ -264,7 +265,8 @@ struct DiagView: View {
             colourBox
             if let bc = brushColour {
                 ProcessorBox(colour: bc, colourIndex: brushIndex,
-                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
+                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                             onSetType: setBrushType)
             }
             emittersBox
         }
