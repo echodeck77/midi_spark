@@ -127,6 +127,7 @@ struct DiagView: View {
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
     private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
+    private var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 
     // ---- in-cell popover edits (target a specific col,row, not the selection) ----
     private func editCell(_ col: Int, _ row: Int, _ f: @escaping (inout Cell) -> Void) {
@@ -249,7 +250,7 @@ struct DiagView: View {
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                 beat: d.beat, tempo: d.tempo, stepBeats: StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats,
+                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats,
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
@@ -319,7 +320,8 @@ struct DiagView: View {
                 if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
                 Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
             }
-            PaletteView(brush: brush) { brush = $0 }
+            PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
+                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats) { brush = $0 }
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

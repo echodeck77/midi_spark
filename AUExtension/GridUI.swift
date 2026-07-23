@@ -731,7 +731,38 @@ struct ProcessorBox: View {
 struct PaletteView: View {
     let brush: String
     var columns: Int = 4        // 4×4 in the desk (delta §6); callers may widen for a band
+    // delta §6b — COLOUR-chip ACTIVITY PLAYHEADS: a chip sweeps while its Colour works in the live
+    // column (mirrors the cell mutation-line condition + faint-when-only-bypassed). Orientation encodes
+    // the face: TOP→BOTTOM for main, LEFT→RIGHT for alt-only (main wins mixed). One-clock: the sweep is
+    // a pure function of the derived beat fraction (same TimelineView + liveBeat as the cell lines).
+    var scene: SceneState = .empty()
+    var playColumn: Int = -1
+    var playing: Bool = false
+    var beat: Double = 0
+    var tempo: Double = 120
+    var stepBeats: Double = 2
     let onPick: (String) -> Void
+
+    @State private var lastBeat: Double = 0
+    @State private var lastBeatAt = Date()
+    private func liveBeat(_ now: Date) -> Double { playing ? lastBeat + now.timeIntervalSince(lastBeatAt) * tempo / 60.0 : lastBeat }
+    private func withinStep(_ b: Double) -> Double {
+        ((b / max(0.001, stepBeats)).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
+    }
+
+    /// Is this Colour working in the live column? → (faint = all working instances bypassed, alt = no
+    /// main instance i.e. alt-only). nil = not working. ONE sweep per Colour regardless of instance count.
+    private func activity(_ id: String) -> (faint: Bool, alt: Bool)? {
+        guard playing, playColumn >= 0, playColumn < scene.cells.count else { return nil }
+        var working = false, hasMain = false, hasBright = false
+        for r in 0..<8 where r < scene.cells[playColumn].count {
+            guard let c = scene.cells[playColumn][r], c.colourID == id, !c.muted else { continue }
+            working = true
+            if !c.alt { hasMain = true }
+            if !c.bypassed { hasBright = true }
+        }
+        return working ? (faint: !hasBright, alt: !hasMain) : nil
+    }
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
@@ -739,6 +770,7 @@ struct PaletteView: View {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color(hex: colourHexes[i]))
                     .frame(height: 22)
+                    .overlay { if let a = activity(id) { chipSweep(a) } }   // §6b activity playhead
                     .overlay(RoundedRectangle(cornerRadius: 3)
                         .stroke(id == brush ? Color.white : Color.white.opacity(0.12),
                                 lineWidth: id == brush ? 2 : 0.5))
@@ -746,5 +778,22 @@ struct PaletteView: View {
                     .onTapGesture { onPick(id) }
             }
         }
+        .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
+    }
+
+    private func chipSweep(_ a: (faint: Bool, alt: Bool)) -> some View {
+        GeometryReader { g in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+                let f = CGFloat(withinStep(liveBeat(tl.date)))
+                Rectangle()
+                    .fill(Color.white.opacity(a.faint ? 0.35 : 0.9))
+                    .shadow(color: a.faint ? .clear : Color.white.opacity(0.7), radius: a.faint ? 0 : 2)
+                    .frame(width: a.alt ? 2 : g.size.width, height: a.alt ? g.size.height : 2)
+                    .position(x: a.alt ? f * g.size.width : g.size.width / 2,      // alt: LEFT→RIGHT
+                              y: a.alt ? g.size.height / 2 : f * g.size.height)     // main: TOP→BOTTOM
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .allowsHitTesting(false)
     }
 }
