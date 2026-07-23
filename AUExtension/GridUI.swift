@@ -63,6 +63,7 @@ struct GridView: View {
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil
     var onAuditionEnd: (() -> Void)? = nil
+    var onPress: ((Bool) -> Void)? = nil   // press-down/up (before the 0.3s) → parent pauses its poll
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -223,8 +224,9 @@ struct GridView: View {
         .onLongPressGesture(minimumDuration: 0.3, maximumDistance: .infinity) {
             onAuditionStart?(col, row)                      // fires ONCE at ~0.3s while holding → audition
         } onPressingChanged: { pressing in
-            if !pressing { onAuditionEnd?() }               // release/cancel → stop. No mid-hold flicker, so a
-        }                                                   // SUSTAINED chord-hold preview is never cut short.
+            onPress?(pressing)                              // press-down pauses the poll so the gesture survives
+            if !pressing { onAuditionEnd?() }               // release/cancel → stop (poll resumes)
+        }
         .contextMenu {                                      // EDIT only: body long-press → cell menu (§5)
             if cell != nil && editing {
                 Button(role: .destructive) { onClear?(col, row) } label: { Label("Clear", systemImage: "xmark") }

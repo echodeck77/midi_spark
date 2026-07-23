@@ -78,18 +78,24 @@ struct DiagView: View {
         scene = au.uiScene()
     }
 
-    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The gesture
-    // fires .onChanged repeatedly while held, so dedup on the target; only occupied cells audition.
-    @State private var auditionCR: (col: Int, row: Int)? = nil
+    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. All press
+    // transient state lives in a REFERENCE box mutated SILENTLY (never @State) — because a SwiftUI
+    // re-render mid-press tears down the long-press gesture (its release event is then lost, leaving a
+    // held audition and, for STRUM, a stale roll clock → it plays a chord). Combined with pausing the
+    // 4 Hz poll while `pressed` (below), the whole press lifecycle causes zero grid re-renders.
+    final class AuditionBox { var target: (col: Int, row: Int)? = nil; var pressed = false }
+    @State private var abox = AuditionBox()
+
+    private func pressChanged(_ down: Bool) { abox.pressed = down }   // silent → pauses/resumes the poll
     private func startAudition(_ col: Int, _ row: Int) {
         guard let au, scene.cells[col][row] != nil else { return }
-        if auditionCR?.col == col && auditionCR?.row == row { return }
-        auditionCR = (col, row)
-        au.setAudition(col: col, row: row)
+        if abox.target?.col == col && abox.target?.row == row { return }
+        abox.target = (col, row)
+        au.setAudition(col: col, row: row)                           // kernel only — no @State, no re-render
     }
     private func endAudition() {
-        guard au != nil, auditionCR != nil else { return }
-        auditionCR = nil
+        guard au != nil, abox.target != nil else { return }
+        abox.target = nil
         au?.clearAudition()
     }
 
@@ -217,7 +223,7 @@ struct DiagView: View {
             }
         }
         .onReceive(timer) { _ in
-            guard let au else { return }
+            guard let au, !abox.pressed else { return }   // don't re-render the grid mid-press (see AuditionBox)
             d = au.kernelDiagnostics()          // grid needs effColumn / playing
             busChannels = au.uiBusChannels()
             docColours = au.uiColours()
@@ -246,7 +252,7 @@ struct DiagView: View {
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                  onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn,
-                 onAuditionStart: startAudition, onAuditionEnd: endAudition)
+                 onAuditionStart: startAudition, onAuditionEnd: endAudition, onPress: pressChanged)
     }
 
     private var hint: some View {
@@ -286,7 +292,8 @@ struct DiagView: View {
                 if let bc = brushColour {
                     ScrollView(.vertical, showsIndicators: false) {
                         ProcessorBox(colour: bc, colourIndex: brushIndex,
-                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph)
+                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                                     onSetType: setBrushType)
                     }
                 }
             }
