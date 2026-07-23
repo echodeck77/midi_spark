@@ -201,12 +201,14 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
 - **OPEN DECISION (not blocked, needs a call):** CC/PB/AT + stopped-note passthrough go out on
   cable 0 "All" only, not Emit A (§2.6 ↔ delta §7b conflict) — a host reading only Emit A gets no
   CC / silence when stopped. Pick the intended behaviour, then it's a small `Kernel` fix.
-- **Architecture debt (log, tackle opportunistically):** the 4 Hz poll re-renders the whole grid
-  (worked around for the audition gesture via `AuditionBox`; the clean fix isolates the playhead
-  overlay from the cells); dead legacy fields (`Cell.stack`/`srcMix`, `SceneState.rowBypass/
-  stackMute/stackSolo`) still in the model; the now-defensive `guard playing` in Router.process;
-  the `TODO(spec §7)` param route writes the document then rebuilds rather than routing into the
-  snapshot directly.
+- **Architecture debt (log, tackle opportunistically):** the 4 Hz poll is now DEDUPED — it writes
+  `@State` only when a DISPLAYED value changed, so a stopped/idle grid never re-renders (this
+  replaced the `AuditionBox` poll-pause workaround and is what keeps press-hold gestures alive; the
+  audition target still lives in a silent reference box). Remaining: dead legacy fields (`Cell.stack`/
+  `srcMix`, `SceneState.rowBypass/stackMute/stackSolo`) still in the model; the now-defensive `guard
+  playing` in Router.process; the `TODO(spec §7)` param route writes the document then rebuilds rather
+  than routing into the snapshot directly. (A fuller isolation — pads Equatable so they don't re-render
+  even while PLAYING — is possible but unneeded: audition is stopped-only, and the pads are cheap.)
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
   `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 + audition +

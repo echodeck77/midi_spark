@@ -78,15 +78,13 @@ struct DiagView: View {
         scene = au.uiScene()
     }
 
-    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. All press
-    // transient state lives in a REFERENCE box mutated SILENTLY (never @State) — because a SwiftUI
-    // re-render mid-press tears down the long-press gesture (its release event is then lost, leaving a
-    // held audition and, for STRUM, a stale roll clock → it plays a chord). Combined with pausing the
-    // 4 Hz poll while `pressed` (below), the whole press lifecycle causes zero grid re-renders.
-    final class AuditionBox { var target: (col: Int, row: Int)? = nil; var pressed = false }
+    // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
+    // target lives in a REFERENCE box mutated SILENTLY (never @State) so starting/stopping an audition
+    // never re-renders the grid mid-press (which would tear down the long-press gesture). The deduped
+    // poll above does the rest — when stopped the grid is quiescent, so the gesture is never disturbed.
+    final class AuditionBox { var target: (col: Int, row: Int)? = nil }
     @State private var abox = AuditionBox()
 
-    private func pressChanged(_ down: Bool) { abox.pressed = down }   // silent → pauses/resumes the poll
     private func startAudition(_ col: Int, _ row: Int) {
         guard let au, scene.cells[col][row] != nil else { return }
         if abox.target?.col == col && abox.target?.row == row { return }
@@ -223,13 +221,18 @@ struct DiagView: View {
             }
         }
         .onReceive(timer) { _ in
-            guard let au, !abox.pressed else { return }   // don't re-render the grid mid-press (see AuditionBox)
-            d = au.kernelDiagnostics()          // grid needs effColumn / playing
-            busChannels = au.uiBusChannels()
-            docColours = au.uiColours()
-            scene = au.uiScene()
-            stepIndex = au.uiStepRateIndex()
-            swing = au.uiSwing()
+            guard let au else { return }
+            // Write @State ONLY when a DISPLAYED value changed — an unconditional write re-renders the
+            // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
+            // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
+            let nd = au.kernelDiagnostics()
+            if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
+                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
+            let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
+            let nc = au.uiColours();       if nc != docColours { docColours = nc }
+            let ns = au.uiScene();         if ns != scene { scene = ns }
+            let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
+            let sw = au.uiSwing();         if sw != swing { swing = sw }
         }
     }
 
@@ -252,7 +255,7 @@ struct DiagView: View {
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                  onClear: clearCell, onCopyColour: copyColour, onColumnTap: muteColumn,
-                 onAuditionStart: startAudition, onAuditionEnd: endAudition, onPress: pressChanged)
+                 onAuditionStart: startAudition, onAuditionEnd: endAudition)
     }
 
     private var hint: some View {
