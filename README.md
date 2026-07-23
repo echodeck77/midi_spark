@@ -2,19 +2,21 @@
 
 Container app + AUv3 MIDI-processor extension (`aumi`) for iPadOS. An 8×8 grid
 sequences MIDI *processors* (arps, ratchets, gates) over time; held chords go
-in, bus outputs come out (currently four cables A–D; becomes five — ALL + A–D —
-with the v0.5 outputs work). Primary host: AUM.
+in, five MIDI outputs come out — ALL + A–D (delta §7b cables). Primary host: AUM.
+Public name **"8x8 State"** (display-only; the code/bundle identity stays MidiSpark).
 
 **Spec:** `Docs/midispark-spec-v2.8.md` read together with
 `Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
-**Live status and the current plan:** `CLAUDE.md` → `Docs/migration-tree-routing.md`.
-**UI reference:** `Docs/midispark-preview-v56.html` (open in a browser).
+**Live status and the current plan:** `CLAUDE.md`.
+**UI reference:** the built plugin is now the living reference (GUI reconcile done);
+the latest openable mockup is `Docs/midispark-preview-v58.html`. (Docs reference a
+"v59" design target — scene strip etc., now built in-app — but no v59 HTML was exported.)
 
-> Status in one line: router complete under the OLD chain model
-> (tag `v0.3-router`), five of six processors built, a first SwiftUI grid
-> slice exists — the current task is the survey-first migration to the v3.0
-> graph-routing model, then GUI reconciliation. See CLAUDE.md; do not code
-> from this README.
+> Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
+> channels/outputs, graph routing, the full GUI reconcile, the perform layer, and
+> audition (all types) are built and DEVICE-VERIFIED, with an 89-test off-device suite
+> covering the render engine itself. Next is PERFORM v2 (stutter/isolate — engine-blocked
+> + spec-pending). See CLAUDE.md; do not code from this README.
 
 ## Setup — Path A (recommended): XcodeGen
 
@@ -34,8 +36,9 @@ open MidiSpark.xcodeproj
 
 ## Signing on a free account
 
-The component name is "MidiSpark: MidiSpark" (Manufacturer: Product). Personal
-Team works: 7-day provisioning, re-deploy weekly. First run on device:
+The component name is "8x8 State: 8x8 State" (Manufacturer: Product; the aumi
+codes stay `MSpk`/`MSPK`). Personal Team works: 7-day provisioning, re-deploy
+weekly. First run on device:
 Settings → General → VPN & Device Management → trust your certificate.
 
 ## Verify in AUM
@@ -44,8 +47,9 @@ Smoke test (scaffold-era acceptance 1–3 still apply): instantiate under MIDI
 Processors, route outputs to synths and a keyboard to the input, passthrough
 when stopped, host-locked playing behaviour with zero drift across tempo
 changes / loops / relocations, no stuck notes on stop. Full device
-verification lives in `Docs/test-procedures.md` (canned sessions loaded from
-the diagnostic panel; the repo's T-numbering is authoritative).
+verification lives in `Docs/test-procedures.md` (canned sessions loaded from the
+DEV LOADER in the portrait plugin UI — the in-plugin diagnostics panel was removed;
+the AUM MIDI monitor is the source of truth; the repo's T-numbering is authoritative).
 
 If the plugin doesn't appear in AUM: reboot the iPad once (AU registration
 cache), confirm the extension's Info.plist made it into the build, and that
@@ -55,36 +59,42 @@ cache), confirm the extension's Info.plist made it into the build, and that
 
 ```
 project.yml                          XcodeGen definition (targets, embed, signing, test target)
-App/                                 Container app (registers the extension; instructions screen)
-GridUI/                              SwiftUI grid slice (work-in-progress; reconciliation target = preview v56)
+App/                                 Container app (registers the extension; instructions screen; AppIcon)
 AUExtension/
   Info.plist                         aumi declaration: type/subtype/manufacturer, MIDI tag
-  MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames, 35-parameter tree (STABLE
+  MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames (ALL + A–D), 35-parameter tree (STABLE
                                      addresses: 0 stepRate, 1 swing, 100+i transpose, 200+i morph,
-                                     300 morphMaster), fullState = host Preset (§1)
-  Kernel.swift                       INPUT side: transport/context derivation, incoming MIDI
-                                     (source pool + passthrough + CC), param events → Router
-  Router.swift                       OUTPUT side (§2/§7): grid columns, routing derivation, per-cell
-                                     processors, fan-out, the voice table + collision refcount
-                                     (chain model as built — migrating per Docs/migration-tree-routing.md)
+                                     300 morphMaster), fullState = host Preset (§1); setColourType
+  Kernel.swift                       INPUT side + render boundary: transport/context derivation, incoming
+                                     MIDI (source pool + passthrough + CC), param events, audition
+                                     suppression → Router; hosts LiveMIDIEmitter (the one AudioToolbox user)
+  Router.swift                       OUTPUT side (§2/§7), Foundation-only: grid columns, v3.0 GRAPH routing
+                                     (receiver-picked references, reroute, cycles), all six processors,
+                                     fan-out, the voice table + 5-cable collision refcount, AUDITION
+  Emission.swift                     The MIDIEmitter seam (delta §7b): Router emits through this, not
+                                     AudioToolbox → the whole engine unit-tests off-device
   Derivations.swift                  PURE core (Foundation-only, unit-tested): NotePool, swing warp,
                                      phase indexing, arp patterns, cellMode dispatch, processor math
   Snapshot.swift                     Flat snapshot schema + effective-param morph (§3.2/§13.5), pure
   SnapshotStore.swift                Atomic publish/acquire bridge (the one swift-atomics user)
   SnapshotBuilder.swift              document → SnapshotBox: B-over-A resolve, enum→index, run-starts
+  Diag.swift                         KernelDiag (pure) — render-side counters threaded through the pass
   Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
-  TestSessions.swift                 T1–T16 canned patches, loaded from the diagnostic panel
-  AudioUnitViewController.swift      Extension UI host + the live diagnostic panel (4 Hz)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, 42 tests —
-                                     first line of verification; keep green through every commit)
-Docs/                                Specs, migration plan, test playbook, UI guide, preview mockups
+  GridUI.swift                       The 8×8 grid + palette + PROCESSOR box + OUTPUTS (SwiftUI-only)
+  SceneFactory.swift                 The sixteen factory scenes (Foundation-only; Docs/factory-scenes.md)
+  TestSessions.swift                 T1–T17 canned patches, loaded from the DEV LOADER (portrait UI)
+  AudioUnitViewController.swift      Extension UI host: the grid / responsive DESK / scene strip (4 Hz
+                                     poll drives the playheads; no diagnostics panel)
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, 89 tests over the
+                                     pure core AND the render engine — first line of verification; green
+                                     through every commit)
+Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups
 ```
 
 ## Where the plan lives (this section intentionally does not duplicate it)
 
 The build order that used to sit here described the pre-v3.0 model and is
-retired. The single source of truth for what to do next is **CLAUDE.md**
-(status + doc index) and **Docs/migration-tree-routing.md** (the sequenced
-plan: engine migration commits, then GUI reconciliation to preview v56).
-Behaviour questions go to the spec + delta; device verification goes to
-Docs/test-procedures.md.
+retired; the v3.0 graph-routing migration and GUI reconciliation (to preview
+v59) are both DONE. The single source of truth for what to do next is
+**CLAUDE.md** (status + doc index). Behaviour questions go to the spec + delta;
+device verification goes to Docs/test-procedures.md.

@@ -2,7 +2,7 @@
 
 AUv3 MIDI processor (`aumi`) for iPadOS. One line: **"Don't sequence notes. Sequence what
 happens to them."** An 8×8 grid sequences MIDI *processors* (arps, ratchets, gates) over
-time; held chords go in, four independent MIDI outputs (A–D) come out. Primary host: AUM.
+time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b). Primary host: AUM.
 
 ## Authoritative documents (read before designing anything)
 - `Docs/midispark-spec-v2.8.md` — the base spec (consolidated, self-contained) —
@@ -14,9 +14,9 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   (§6: responsive performance surface).** Where they conflict, the delta wins. Behaviour
   changes still require a spec revision first.
 - `Docs/migration-tree-routing.md` — the survey-first plan for the v3.0 graph-routing
-  migration. Its ENGINE commits (1–5) are DONE and tagged (see status); its GUI
-  reconciliation section is the live task. Read it before touching Router/Snapshot/
-  TestSessions/the grid UI.
+  migration. Now HISTORICAL: its engine commits AND the GUI reconciliation are both DONE
+  and device-verified. Read it for the rationale behind Router/Snapshot/graph-routing shape,
+  not for "what's next" (that's the status section below).
 - `Docs/standalone-plan.md` — DEFERRED milestone (standalone app = a second HOST of
   the same AUv3), but its THREE SEAM RULES are enforced NOW: (1) import hygiene —
   only `MidiSparkAudioUnit.swift` / `AudioUnitViewController.swift` / `Kernel.swift`
@@ -52,13 +52,15 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   slice exists; reconcile, don't rebuild).
 - `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
-- `Docs/midispark-preview-v59.html` — the GUI reference mockup (open in a browser);
-  the behavioural spec for the UI. v57 added PROMINENT COLUMN KEYS (40px,
-  number-primary, state as hue+sublabel); v58 the STATIC FRAMES rule made
-  visible; v59 the SIXTEEN-slot scene strip. v26–v58 are history; v50/v51 are
-  BROKEN (JSX bug) — never open as reference; v40 is the preserved abandoned
-  fork (module boxes / linear chains) — do not implement it. The mockup's
-  AUTO/WIDE/TALL toggle is a browser preview affordance — never port it.
+- GUI mockups — **the built plugin is now the living reference** (the reconcile is done +
+  device-verified). The latest OPENABLE mockup file is `Docs/midispark-preview-v58.html`;
+  the docs also name a **"v59" design target** (the SIXTEEN-slot scene strip on top of v58) that
+  was built in-app but never exported as HTML — so `preview-v59.html` does NOT exist (dangling
+  ref in the delta + migration doc; harmless now the UI is built). Mockup lineage: v57 added
+  PROMINENT COLUMN KEYS; v58 made the STATIC FRAMES rule visible; v59 = + scene strip. v26–v58
+  are history; v50/v51 are BROKEN (JSX bug) — never open; v40 is the preserved abandoned fork
+  (module boxes / linear chains) — do not implement it. The mockup's AUTO/WIDE/TALL toggle is a
+  browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
@@ -169,33 +171,47 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   reads — alt/bypassed/muted), and a column-key tap mutes/unmutes the whole column
   (coral indicator). EDIT keeps painting + popovers + long-press menu. User: "it
   feels good. There are issues we can come back to with a revised spec."
-- **AUDITION — DONE, ALL types (ARP v1 device-verified; chord-hold v2 needs verify)** (§6.4 /
-  delta §5). Press-hold a cell while the transport is STOPPED → its processor sounds ALONE
-  against the held source (phase zeroed, input source-forced, all-open passgate, host tempo);
-  release or transport-start ends it. Time-varying types (ARP/RATCHET) run a free phase clock
-  (`Router.auditionRender/auditionTicks`); chord-hold types (HARMONIZE/CHANCE/passgate) sustain
-  the treated chord, reconciled to the held keys LIVE each window (`auditionChordHold` — a
-  128-note desired/current bitset diff via `reconcileAuditionVoices`); STRUM ROLLS the chord in
-  over its spread from the hold then sustains (`auditionStrum`, same reconcile). All
-  Foundation-only + unit-tested (`RouterTests` audition cases). `Kernel` suppresses raw note
+- **AUDITION — DONE, all six types, DEVICE-VERIFIED** (§6.4 / delta §5). Press-hold a cell while
+  the transport is STOPPED → its processor sounds ALONE against the held source (phase zeroed,
+  input source-forced, all-open passgate, host tempo); release or transport-start ends it.
+  Time-varying types (ARP/RATCHET) run a free phase clock (`Router.auditionRender/auditionTicks`);
+  chord-hold types (HARMONIZE/CHANCE/passgate) sustain the treated chord, reconciled to the held
+  keys LIVE each window (`auditionChordHold` — a 128-note desired/current bitset diff via
+  `reconcileAuditionVoices`); STRUM ROLLS the chord in over its spread then sustains
+  (`auditionStrum`). All Foundation-only + unit-tested (`RouterTests`). `Kernel` suppresses raw note
   passthrough whenever the audition cell will sound (`auditionCellSounds`); target set via
-  `MidiSparkAudioUnit.setAudition/clearAudition` (ephemeral, never persisted); UI gesture is a
-  `simultaneousGesture` press-hold on the cell body. Closes acceptance #6-audition / #10.
-- **NEXT:** (a) GATE — the UI-size checkpoints in test-procedures (screenshot-verify
-  1024×768 / 11" / 13" both orientations + a small panel; static frames hold,
-  nothing truncates) — the formal layout lockdown, not yet run. (a2) `SceneFactory`
-  RECONCILED to the revised Docs/factory-scenes.md — code done (8 scenes changed
-  mechanically: 3/8/15 transpose, 5/10 vermilion→D, 7 wine AS-PLAYED+T−12, 9 teal/wine
-  ⇐R1, 11 gold⇐R1→B & teal→C+T+12); 83 tests green — **ear-verify the changed scenes
-  on the STANDING RIG still pending**. (b) PERFORM v2 —
-  stutter/loop (hold column key), isolate/solo, hold-to-stutter — all **engine-
-  blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in
-  Router as `effColumn == trueColumn`) AND **spec-pending** (user flagged perform
-  issues for a revised spec). (c) MORPH desk (16 faders) — parked per delta.
+  `MidiSparkAudioUnit.setAudition/clearAudition` (ephemeral, never persisted). GESTURE: an
+  `onLongPressGesture` (0.3s) whose press transient state lives in a SILENT reference box
+  (`AuditionBox`) and which PAUSES the 4 Hz poll while pressed — so no grid re-render tears down the
+  gesture mid-press (that was the cause of intermittent audition + strum-plays-a-chord). Closes
+  acceptance #6-audition / #10.
+- **DEVICE-VERIFIED since v0.6** (all confirmed on-device by the user): the full GUI reconcile;
+  perform layer v1; audition (all six types, incl. strum roll); the per-type transpose/morph
+  isolation (`Colour.switchType`/`AU.setColourType` — each type keeps its own transpose+morph,
+  no cross-type leak, A→B→A restores); the portrait DESK band (COLOUR·PROCESSOR·EMITTERS L→R);
+  `SceneFactory` reconciled to the revised Docs/factory-scenes.md (8 scenes) + ear-verified on the
+  STANDING RIG; the audition-gesture reliability fix; **the UI-size-checkpoint GATE PASSED**.
+  → **`v0.7-gui` is ready to tag** (user tags manually).
+- **NEXT:** (a) PERFORM v2 — stutter/loop (hold column key), isolate/solo, hold-to-stutter — all
+  **engine-blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in Router as
+  `effColumn == trueColumn`; `SnapshotBox` carries no lockLo/lockHi/rowPush) AND **spec-pending**
+  (user flagged perform issues for a revised spec). (b) MORPH desk (16 faders) — parked per delta.
+  (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
+  is never assigned; the strip REPLACES the document rather than switching a live scene.
+- **OPEN DECISION (not blocked, needs a call):** CC/PB/AT + stopped-note passthrough go out on
+  cable 0 "All" only, not Emit A (§2.6 ↔ delta §7b conflict) — a host reading only Emit A gets no
+  CC / silence when stopped. Pick the intended behaviour, then it's a small `Kernel` fix.
+- **Architecture debt (log, tackle opportunistically):** the 4 Hz poll re-renders the whole grid
+  (worked around for the audition gesture via `AuditionBox`; the clean fix isolates the playhead
+  overlay from the cells); dead legacy fields (`Cell.stack`/`srcMix`, `SceneState.rowBypass/
+  stackMute/stackSolo`) still in the model; the now-defensive `guard playing` in Router.process;
+  the `TODO(spec §7)` param route writes the document then rebuilds rather than routing into the
+  snapshot directly.
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
-  `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 are on
-  main **untagged** (next tag candidate `v0.7-gui`, pending the size-checkpoint gate).
+  `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 + audition +
+  per-type params + the scene-factory reconcile are all on main **untagged and device-verified**;
+  the size-checkpoint gate has PASSED, so **`v0.7-gui` is ready to tag**.
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).
