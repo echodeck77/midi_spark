@@ -57,6 +57,18 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 
+    /// delta §6a: the four emitter enable flags (nil/old docs ⇒ all-enabled), and the setter (persisted).
+    func uiBusEnabled() -> [Bool] { document.busEnabledResolved }
+    func setBusEnabled(_ i: Int, _ on: Bool) {
+        guard i >= 0, i < 4 else { return }
+        editDocument { d in
+            var e = d.busEnabled ?? [true, true, true, true]
+            while e.count < 4 { e.append(true) }
+            e[i] = on
+            d.busEnabled = e
+        }
+    }
+
     /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
     func uiColours() -> [Colour] { document.colours }
 

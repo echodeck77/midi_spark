@@ -37,7 +37,8 @@ final class Router {
         var note: UInt8 = 0
         var chan: UInt8 = 0
         var cable: UInt8 = 0
-        var offSample: Int64 = .max
+        var bus: UInt8 = 0           // delta §6a: originating emitter (0–3), so an emitter-disable can
+        var offSample: Int64 = .max  // close exactly its notes (own cable + its All copy).
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -51,6 +52,8 @@ final class Router {
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
     private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
+    private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
+    private var prevBusEnabledMask: UInt8 = 0b1111   // edge: a bus going enabled→disabled closes its notes
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
@@ -96,6 +99,7 @@ final class Router {
         wasPlaying = false
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
+        prevBusEnabledMask = 0b1111
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -157,7 +161,7 @@ final class Router {
     /// Emit a note-on and register a voice with its scheduled gate-off. Returns the slot, or -1 if
     /// the table is full (the on still sounded; we just can't track its off — capacity is 128).
     @discardableResult
-    private func openVoice(note: UInt8, chan: UInt8, cable: UInt8,
+    private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
                            velocity: UInt8 = 96, out: MIDIEmitter?) -> Int {
         guard let out else { return -1 }
@@ -176,8 +180,16 @@ final class Router {
         voices[slot].note = note
         voices[slot].chan = chan
         voices[slot].cable = cable
+        voices[slot].bus = bus
         voices[slot].offSample = offSample
         return slot
+    }
+
+    /// delta §6a: close every sounding voice that ORIGINATED from emitter `bus` — its own cable AND its
+    /// copy on All. The refcount keeps a shared-channel note alive on All if another (enabled) emitter
+    /// still owns it (its All voice, from a different bus, is untouched).
+    private func closeBus(_ bus: UInt8, atSample time: Int64, out: MIDIEmitter?) {
+        for i in voices.indices where voices[i].active && voices[i].bus == bus { closeVoice(i, atSample: time, out: out) }
     }
 
     private func closeVoice(_ i: Int, atSample time: Int64, out: MIDIEmitter?) {
@@ -266,14 +278,17 @@ final class Router {
         while mask != 0 {
             let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
             mask &= mask - 1
+            // delta §6a: a DISABLED emitter produces nothing — not on its own cable, not on All. So
+            // All is exactly the sum of ENABLED emitters, and re-enable resumes at the next articulation.
+            guard busEnabledMask & (1 << UInt8(bus)) != 0 else { continue }
             let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
             lastCh = ch
             // own cable (bus+1) and the ALL cable (0) — both channel-stamped identically (no array
-            // literal on the hot path). Unrolled to avoid allocation.
-            let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1),
+            // literal on the hot path). Unrolled to avoid allocation. Both tagged with the origin bus.
+            let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
                                 onSample: onSample, offSample: offSample, velocity: velocity, out: out)
             if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
-            let all = openVoice(note: note, chan: ch, cable: 0,
+            let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
                                 onSample: onSample, offSample: offSample, velocity: velocity, out: out)
             if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
         }
@@ -469,10 +484,19 @@ final class Router {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
+        busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
         let windowEnd = windowStart + Int64(frameCount)
+
+        // delta §6a: an emitter that just went enabled→disabled closes its sounding notes IMMEDIATELY
+        // (own cable + its All copy; a shared-channel note survives on All via another enabled owner).
+        if busEnabledMask != prevBusEnabledMask {
+            let turnedOff = prevBusEnabledMask & ~busEnabledMask
+            for bus: UInt8 in 0..<4 where turnedOff & (1 << bus) != 0 { closeBus(bus, atSample: windowStart, out: out) }
+            prevBusEnabledMask = busEnabledMask
+        }
         let beatsPerSample = tempo / 60.0 / sampleRate
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0

@@ -46,6 +46,7 @@ struct DiagView: View {
     @State private var selCol = -1
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
+    @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var docColours: [Colour] = []
     @State private var stepIndex = 2
     @State private var swing = 50
@@ -139,12 +140,17 @@ struct DiagView: View {
         editCell(col, row) { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
     }
 
-    // OUTPUTS: bump bus i's stamp channel 1…16 → wraps to 1.
-    private func bumpBusChannel(_ i: Int) {
+    // EMITTERS (delta §6a): toggle emitter i on/off; set its stamp channel (from the EDIT popover).
+    private func toggleEmitter(_ i: Int) {
+        guard let au else { return }
+        au.setBusEnabled(i, !(i < busEnabled.count ? busEnabled[i] : true))
+        busEnabled = au.uiBusEnabled()
+    }
+    private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
             while d.busChannels.count < 4 { d.busChannels.append(d.busChannels.count + 1) }
-            d.busChannels[i] = d.busChannels[i] % 16 + 1
+            d.busChannels[i] = max(1, min(16, ch))
         }
         busChannels = au.uiBusChannels()
     }
@@ -222,6 +228,7 @@ struct DiagView: View {
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
+            let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let ns = au.uiScene();         if ns != scene { scene = ns }
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
@@ -299,7 +306,8 @@ struct DiagView: View {
     }
 
     private var emittersBox: some View {
-        OutputsView(busChannels: busChannels, onBump: bumpBusChannel)
+        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
+                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

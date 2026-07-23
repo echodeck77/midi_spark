@@ -81,6 +81,9 @@ enum SnapshotBuilder {
             let v = i < doc.busChannels.count ? doc.busChannels[i] : (i + 1)
             busCh[i] = UInt8(max(1, min(16, v)))
         }
+        // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
+        var busEnabledMask: UInt8 = 0
+        for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -88,7 +91,8 @@ enum SnapshotBuilder {
                            morphMaster: max(0, min(1, doc.morphMaster)),
                            colours: colours,
                            cells: cells,
-                           busChannels: busCh)
+                           busChannels: busCh,
+                           busEnabledMask: busEnabledMask)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

@@ -299,6 +299,72 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - EMITTER TOGGLES (§6a) — busEnabled gate at the emission boundary
+
+    /// Build a box with a per-emitter enable array (nil ⇒ all enabled).
+    private func box(colours cs: [Colour], busEnabled: [Bool]?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        var st = PluginState(colours: cs, scenes: [s]); st.busEnabled = busEnabled
+        return SnapshotBuilder.build(from: st)
+    }
+
+    func testDisabledEmitterIsSilentOnItsCableAndAll() {
+        // Cell → bus B only, with B disabled: nothing on cable 2 (B) or cable 0 (All).
+        let b = box(colours: arpColours(), busEnabled: [true, false, true, true]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(e.events.isEmpty, "a disabled emitter produces nothing on its own cable OR All")
+    }
+
+    func testAllIsTheSumOfEnabledEmitters() {
+        // Fan-out to A and B; disable A → A silent, B sounds, All carries only B's stream.
+        let b = box(colours: arpColours(), busEnabled: [false, true, true, true]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "A disabled → nothing on cable 1")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "B still sounds on cable 2")
+        let onAll = e.ons.filter { $0.cable == 0 }.count
+        XCTAssertEqual(onAll, e.ons.filter { $0.cable == 2 }.count, "All carries exactly the enabled (B) stream")
+        assertNothingLeftSounding(e)
+    }
+
+    func testDisablingMidStreamClosesThatEmittersNotes() {
+        // Play A a while, then disable it live; its cable-1 notes close and nothing is stuck.
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold") }   // bus A
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        let wb = Double(frames) * 120 / 60 / sr
+        var beat = 0.0, ts = 0.0
+        let boxOff = box(colours: arpColours(), busEnabled: [false, true, true, true]) { $0.cells[0][0] = Cell(colourID: "gold") }
+        for i in 0..<24 {   // first 8 windows A enabled, then disabled
+            router.process(box: i < 8 ? b : boxOff, pool: pool, playing: true, beatPos: beat, tempo: 120,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: boxOff, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "A sounded before it was disabled")
+        assertNothingLeftSounding(e)
+    }
+
+    func testSharedChannelSurvivesOnAllWhenOneOwnerDisabled() {
+        // A and B on the SAME stamp channel, fanned from one cell; disable A → All keeps the note (B owns it).
+        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b]); return s }()])
+        st.busChannels = [3, 3, 3, 4]              // A and B both stamp channel 3
+        st.busEnabled = [false, true, true, true]  // A disabled
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 0 && $0.chan == 2 }.count, 0,
+                             "All still carries the shared-channel note via B (wire ch 2 = stamp 3)")
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: - COLUMN-SUBSET LAP (§5b) — the held set warps which column is effective
 
     func testLapStutterLocksPlaybackToTheHeldColumn() {

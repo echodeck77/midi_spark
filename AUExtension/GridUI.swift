@@ -368,39 +368,74 @@ struct GridView: View {
 /// OUTPUTS panel (delta §7/§7b): the fixed cable identities + each bus's stamp channel. Tap a bus's
 /// channel to bump it (1…16 → wraps). Flags when two buses share a channel (their streams merge on
 /// the All cable — legal, never blocked).
+/// EMITTERS panel (delta §6a): the four pads ARE the emitters. Pad BODY = enable/disable TOGGLE in BOTH
+/// modes (the per-output performance mute). In EDIT the CH caption is an OPENER for the channel popover
+/// (1–16); in PERFORM CH is display-only. Disabled = recessed/dark. (Firing-flash animation deferred —
+/// it needs a per-bus emit signal from the engine.)
 struct OutputsView: View {
+    let busEnabled: [Bool]        // 4 flags (short/empty ⇒ enabled)
     let busChannels: [Int]        // 4 values, 1–16
-    let onBump: (Int) -> Void     // bump bus i's channel
+    let editing: Bool
+    let onToggle: (Int) -> Void           // pad body → toggle emitter i (both modes)
+    let onSetChannel: (Int, Int) -> Void  // EDIT popover → set emitter i's stamp channel
+
+    @State private var chOpen: Int? = nil
+    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let letters = ["A", "B", "C", "D"]
+
+    private func on(_ i: Int) -> Bool { i < busEnabled.count ? busEnabled[i] : true }
+    private func ch(_ i: Int) -> Int { i < busChannels.count ? busChannels[i] : i + 1 }
+    private func sharedWithEnabled(_ i: Int) -> Bool {
+        on(i) && (0..<4).contains { $0 != i && on($0) && ch($0) == ch(i) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.45))
-                Text("All = everything, by channel").font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("All = enabled emitters, by channel").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
             }
-            HStack(spacing: 5) {
-                ForEach(0..<4, id: \.self) { i in
-                    let ch = i < busChannels.count ? busChannels[i] : i + 1
-                    let shared = busChannels.filter { $0 == ch }.count > 1
-                    HStack(spacing: 3) {
-                        Text("\(["A","B","C","D"][i])").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.55))
-                        Text("ch \(ch)")
-                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(.black)
-                            .padding(.vertical, 3).padding(.horizontal, 6)
-                            .background(RoundedRectangle(cornerRadius: 4)
-                                .fill(shared ? Color(red: 0.98, green: 0.72, blue: 0.12)   // amber: shared-channel flag
-                                             : Color(red: 0.15, green: 0.88, blue: 0.94)))
-                            .contentShape(Rectangle())
-                            .onTapGesture { onBump(i) }
+            HStack(spacing: 5) { ForEach(0..<4, id: \.self) { emitterPad($0) } }
+        }
+    }
+
+    private func emitterPad(_ i: Int) -> some View {
+        let enabled = on(i)
+        return VStack(spacing: 3) {
+            Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? .black : .white.opacity(0.35))
+            Text("ch \(ch(i))").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? (sharedWithEnabled(i) ? amber : .black.opacity(0.7)) : .white.opacity(0.25))
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(editing && enabled ? Color.black.opacity(0.12) : .clear))
+                .contentShape(Rectangle())
+                .onTapGesture { editing ? (chOpen = i) : onToggle(i) }   // EDIT: opener · PERFORM: toggle like the body
+                .popover(isPresented: Binding(get: { chOpen == i }, set: { if !$0 { chOpen = nil } })) { channelGrid(i) }
+        }
+        .frame(maxWidth: .infinity).frame(height: 46)
+        .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? cyan : Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle(i) }        // BODY = enable/disable toggle (both modes)
+    }
+
+    private func channelGrid(_ i: Int) -> some View {
+        VStack(spacing: 5) {
+            Text("EMIT \(letters[i]) → CHANNEL").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            ForEach(0..<4, id: \.self) { r in
+                HStack(spacing: 4) {
+                    ForEach(1...4, id: \.self) { c in
+                        let n = r * 4 + c
+                        Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                            .foregroundColor(n == ch(i) ? .black : .white.opacity(0.8))
+                            .frame(width: 34, height: 30)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(n == ch(i) ? cyan : Color.white.opacity(0.1)))
+                            .onTapGesture { onSetChannel(i, n); chOpen = nil }
                     }
                 }
-                Spacer()
             }
-        }
+        }.padding(12)
     }
 }
 

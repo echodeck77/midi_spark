@@ -142,6 +142,14 @@ struct PluginState: Codable, Equatable {
     var activeScene: Int = 0
     var morphMaster: Double = 0    // §13.5 — parameter #35, reserved & functional now
     var busChannels: [Int] = [1, 2, 3, 4]   // v3.0 (delta §7): each bus A–D stamps this channel on exit
+    // delta §6a: per-emitter enable (the per-output performance mute). Optional so v2/old docs decode as
+    // nil → all-enabled (the loader default); the gate lives ONLY at the emission boundary (seam rule 3).
+    var busEnabled: [Bool]? = nil
+    /// The four enable flags, nil/short-array safe (missing ⇒ enabled). Non-persisting read helper.
+    var busEnabledResolved: [Bool] {
+        let e = busEnabled ?? []
+        return (0..<4).map { $0 < e.count ? e[$0] : true }
+    }
 
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
