@@ -351,4 +351,42 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(harmonize(120, (24, 0, 0)).notes, [120])      // 120+24=144 > 127 → dropped
         XCTAssertEqual(harmonize(5, (-24, 0, 0)).notes, [5])         // 5-24 < 0 → dropped
     }
+
+    // MARK: - COLUMN-SUBSET LAP (§5b)
+
+    func testLapPassthroughWhenNothingHeld() {
+        for step in 0..<16 { XCTAssertEqual(lapColumn(laneMask: 0, absoluteStep: step, trueColumn: step % 8), step % 8) }
+    }
+
+    func testLapStutterK1LocksToTheHeldColumn() {
+        let mask: UInt8 = 1 << 2                                   // hold column 2 only
+        for step in 0..<20 { XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: step, trueColumn: step % 8), 2) }
+    }
+
+    func testLapContiguousK2Alternates() {
+        let mask: UInt8 = (1 << 3) | (1 << 4)                     // hold columns 3,4 (loop brace)
+        let got = (0..<6).map { lapColumn(laneMask: mask, absoluteStep: $0, trueColumn: $0 % 8) }
+        XCTAssertEqual(got, [3, 4, 3, 4, 3, 4])
+    }
+
+    func testLapK3RotatesAsPolymeterAgainstTheEightStep() {
+        // Hold three columns {1,3,5}: the 3-cycle phases against the 8-step timeline and is NEVER reset
+        // at the pass boundary (step 8 continues the rotation, landing off-phase vs the grid).
+        let mask: UInt8 = (1 << 1) | (1 << 3) | (1 << 5)
+        let got = (0..<9).map { lapColumn(laneMask: mask, absoluteStep: $0, trueColumn: $0 % 8) }
+        XCTAssertEqual(got, [1, 3, 5, 1, 3, 5, 1, 3, 5])          // step 8 → index 2 → col 5, not reset to col 1
+    }
+
+    func testLapSortsHeldColumnsLeftToRight() {
+        // The mask bit order IS left→right regardless of the "order pressed" — sorted wins (spec).
+        let mask: UInt8 = (1 << 6) | (1 << 0)                     // columns 0 and 6
+        XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: 0, trueColumn: 0), 0)   // leftmost first
+        XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: 1, trueColumn: 1), 6)
+    }
+
+    func testLapNegativeStepIsSafe() {
+        let mask: UInt8 = (1 << 2) | (1 << 4)
+        XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: -1, trueColumn: 0), 4)  // (-1 mod 2) → index 1
+        XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: -2, trueColumn: 0), 2)
+    }
 }

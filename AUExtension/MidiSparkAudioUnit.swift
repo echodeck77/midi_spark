@@ -49,6 +49,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
     func clearAudition() { kernel.setAudition(-1) }
 
+    /// §5b COLUMN-SUBSET LAP: the held column keys as a bitmask (bit i = column i). Ephemeral, never
+    /// persisted; the PERFORM UI sets it while column keys are held and clears it (0) on release /
+    /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
+    func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
+
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 

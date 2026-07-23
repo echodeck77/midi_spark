@@ -134,6 +134,25 @@ func realOf(_ musicalBeat: Double, stepBeats S: Double, a: Double) -> Double {
     return base + u
 }
 
+/// COLUMN-SUBSET LAP (delta §5b) — the whole perform-v2 feature in one function. With `laneMask` the
+/// held columns (bit i set ⇒ column i is held), the EFFECTIVE column at global step `absoluteStep` is
+/// the (absoluteStep mod k)-th held column, ordered left→right (k = held count). Only column SELECTION
+/// is warped; the true timeline is untouched (pass/passgate/swing all run off it). `laneMask == 0`
+/// (nothing held) passes `trueColumn` through unchanged. k∤8 gives the INTENDED polymeter rotation —
+/// the mapping is never reset at pass boundaries, so a k-cycle phases against the 8-step timeline.
+func lapColumn(laneMask: UInt8, absoluteStep: Int, trueColumn: Int) -> Int {
+    let k = laneMask.nonzeroBitCount
+    guard k > 0 else { return trueColumn }
+    let idx = ((absoluteStep % k) + k) % k          // 0..<k, negative-safe
+    var m = laneMask, seen = 0
+    while m != 0 {
+        let col = Int(m.trailingZeroBitCount)       // lowest set bit = leftmost held column
+        if seen == idx { return col }
+        seen += 1; m &= m - 1
+    }
+    return trueColumn                               // unreachable (idx < k)
+}
+
 // MARK: - ARP phase (§3.5): pattern index at a tick, per phase mode
 
 /// The pattern index at this tick per PHASE mode. All pure functions of position — derived, never

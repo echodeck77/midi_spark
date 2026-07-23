@@ -44,6 +44,11 @@ final class Kernel {
     private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
     func setAudition(_ target: Int) { auditionTarget = Int32(target) }
 
+    // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
+    // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
+    private var laneMask: UInt8 = 0
+    func setLaneMask(_ mask: UInt8) { laneMask = mask }
+
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
@@ -125,7 +130,8 @@ final class Kernel {
                         playing: playing, beatPos: beatPos, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, audition: audition, out: liveEmitter, diag: &diag)
+                        frameCount: frameCount, audition: audition, laneMask: laneMask,
+                        out: liveEmitter, diag: &diag)
     }
 
     /// True when the audition target is a cell that WILL sound (occupied, non-muted, non-bypassed, with

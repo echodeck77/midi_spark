@@ -39,6 +39,7 @@ final class RouterTests: XCTestCase {
     /// Drive the render engine across `beats` musical beats of PLAYING windows, then one STOP window
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
     private func run(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
+                     laneMask: UInt8 = 0, releaseAtEnd: Bool = true,
                      tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
         let router = Router()
         var diag = KernelDiag()
@@ -46,7 +47,12 @@ final class RouterTests: XCTestCase {
         var beat = 0.0, ts = 0.0
         while beat < beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: emitter, diag: &diag)
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask, out: emitter, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        if releaseAtEnd {   // release the lap (laneMask 0) then stop — must return to the true timeline, no stuck notes
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
@@ -290,6 +296,44 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "all notes have rolled in")
         router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
                        timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: - COLUMN-SUBSET LAP (§5b) — the held set warps which column is effective
+
+    func testLapStutterLocksPlaybackToTheHeldColumn() {
+        // Hold column 2 only (k=1): column 2 plays CONTINUOUSLY (every step), column 5 never becomes
+        // effective — vs. the normal 1-step-in-8 for each.
+        let b = box(colours: arpColours()) {
+            $0.cells[2][0] = Cell(colourID: "gold")                  // column 2 → A
+            $0.cells[5][0] = Cell(colourID: "azure", buses: [.b])    // column 5 → B
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e, laneMask: 1 << 2)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "column 2 plays continuously under the lap")
+        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "column 5 never becomes effective")
+        assertNothingLeftSounding(e)
+    }
+
+    func testLapAlternatesBetweenTwoHeldColumns() {
+        // Hold columns 1 and 3 (k=2): both play, on alternating steps.
+        let b = box(colours: arpColours()) {
+            $0.cells[1][0] = Cell(colourID: "gold")                  // column 1 → A
+            $0.cells[3][0] = Cell(colourID: "azure", buses: [.b])    // column 3 → B
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e, laneMask: (1 << 1) | (1 << 3))
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "column 1 plays on its lap steps")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "column 3 plays on its lap steps")
+        assertNothingLeftSounding(e)
+    }
+
+    func testLapPolymeterRotationLeavesNothingStuckThroughRelease() {
+        // Hold three columns (k=3 polymeter) over a held chord, then release + stop (run() does this).
+        let b = box(colours: arpColours()) { for c in [1, 3, 5] { $0.cells[c][0] = Cell(colourID: "gold") } }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 20, into: e, laneMask: (1 << 1) | (1 << 3) | (1 << 5))
+        XCTAssertGreaterThan(e.ons.count, 0)
         assertNothingLeftSounding(e)
     }
 

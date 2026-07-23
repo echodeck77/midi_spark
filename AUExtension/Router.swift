@@ -49,6 +49,8 @@ final class Router {
     private var distinctSounding = 0   // number of (cable,ch,note) with refcount > 0 (diag; kept incrementally)
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
+    private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
+                                         // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
@@ -431,8 +433,12 @@ final class Router {
 
         for tick in firstTick...lastT {
             let mTickBeat = Double(tick) * sub
-            let tickCol = ((Int((mTickBeat / S).rounded(.down)) % Snap.cols) + Snap.cols) % Snap.cols
-            if tickCol != effColumn { continue }         // handled in that column's own window
+            // Which column is EFFECTIVE at this tick's step (lap-aware, §5b) — so a held column's ticks
+            // fire during the current window even though the tick's TRUE column differs. With no lap,
+            // lapColumn returns the tick's true column and this is the original `tickCol == effColumn`.
+            let tickStep = Int((mTickBeat / S).rounded(.down))
+            let tickTrueCol = ((tickStep % Snap.cols) + Snap.cols) % Snap.cols
+            if lapColumn(laneMask: heldColumns, absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
             if tick == lastTick[row] { continue }
             lastTick[row] = tick
 
@@ -457,10 +463,12 @@ final class Router {
                  timestampSample: Double,
                  frameCount: UInt32,
                  audition: Int = -1,
+                 laneMask: UInt8 = 0,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
+        heldColumns = laneMask                      // §5b lap: held column keys, this render
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
@@ -503,13 +511,16 @@ final class Router {
         prevAudition = -1   // playing ⇒ any audition was auto-released by the transport-start edge
 
         // ---- derived column (§7). Musical space, so swing warps the beat→column map consistently
-        //      with the arp ticks below. Locks are stubbed until step 6: effColumn == trueColumn. ----
+        //      with the arp ticks below. The COLUMN-SUBSET LAP (§5b) warps WHICH column is effective
+        //      (held keys); the TRUE timeline — pass, passgate, swing — is unwarped (all off mNow). ----
         let mNow = musicalOf(beatPos, stepBeats: S, a: a)
         let cycleBeats = Double(Snap.cols) * S
         let posInCycle = mNow - (mNow / cycleBeats).rounded(.down) * cycleBeats
-        let effColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
+        let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
+        let absoluteStep = Int((mNow / S).rounded(.down))          // global step counter (derived)
+        let effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
         diag.effColumn = effColumn
-        diag.pass = Int((mNow / cycleBeats).rounded(.down))
+        diag.pass = Int((mNow / cycleBeats).rounded(.down))        // TRUE pass — never remapped (§5b)
 
         let active = topCell(in: effColumn, box)
         diag.activeCellRow = active?.row ?? -1
