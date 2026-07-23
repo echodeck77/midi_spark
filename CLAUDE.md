@@ -145,13 +145,14 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **98-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **102-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
   derivation, muted-parent reroute, silent cycles) / playing-HARMONIZE / the §5b LAP
-  (column-subset mapping incl. k=3 polymeter + stutter-lock), off-device, since Router
-  went Foundation-only). BOTH stay green every commit; unit tests run off-device, FIRST.
+  (column-subset mapping incl. k=3 polymeter + stutter-lock) / §6a EMITTER TOGGLES
+  (disabled-silent, All = enabled sum, disable-close, shared-channel survives), off-device,
+  since Router went Foundation-only). BOTH stay green every commit; unit tests off-device, FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
   FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell
@@ -201,17 +202,16 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   never reset at pass boundaries); Router routes `effColumn` through it and `iterateTicks`'s column
   gate is lap-aware; the `lockLo/lockHi` stub is gone; the column-transition machinery gives
   invariant 4 for free. Ephemeral `laneMask` bitmask (Kernel + `AU.setLaneMask`, audition's category).
-  Tests: 6 pure `lapColumn` + 3 Router integration. **STILL TODO: the multi-column-HOLD UI gesture**
-  on the column keys (PERFORM) → `setLaneMask`, live-recomputed as fingers join/leave, cleared on
-  release/stop/EDIT; must coexist with… nothing now (tap-to-mute was removed). Held keys show LOOP
-  state; playhead already follows `effColumn`. FLAGGED for device: k=1 with a chord-hold cell
-  SUSTAINS (constant effColumn) rather than re-striking per step — literal spec reading; revisit
-  if the stutter feel is wrong. (Cell-hold ISOLATE remains provisional pending the TOUCH design pass.)
-  (a2) EMITTER TOGGLES — **delta §6a**: `busEnabled[4]`
-  (default true, persisted, loader-defaulted), emission-boundary gate only
-  (All = sum of ENABLED emitters; cells keep deriving), pad body toggles in
-  BOTH modes, CH caption = channel-popover opener in EDIT; RouterTests +
-  T-intent per test-procedures; reference preview v60.
+  Tests: 6 pure `lapColumn` + 3 Router integration. **UI GESTURE DONE + DEVICE-VERIFIED** (`6f28e88`):
+  `ColumnHoldOverlay` (a multi-touch `UIView`, since SwiftUI can't track simultaneous key touches;
+  survives re-renders) → `setLaneMask`, live as fingers join/leave, cleared on release/stop/EDIT; held
+  keys show the LOOP ring. The k=1-chord-hold-sustain and touch-mapping were both confirmed good on
+  device. (Cell-hold ISOLATE remains provisional pending the TOUCH design pass.)
+  (a2) EMITTER TOGGLES — **delta §6a — DONE** (`a3227fa`, engine test-first + UI). `busEnabled[4]`
+  (optional → old docs all-enabled), gated ONLY at the emission boundary (Voice carries origin bus;
+  disabled emitter → no own-cable + no All; All = enabled sum; disable-close via `closeBus`; shared-
+  channel survives via refcount). Pad body toggles in BOTH modes; EDIT CH caption opens the 1–16
+  channel popover. 4 RouterTests. (The firing-flash / velocity metering is item **a4** below.)
   (a3) COLOUR-chip activity playheads — delta §6b (DEFINITE): palette chips
   run the mutation-line sweep top→bottom while their Colour works in the
   live column, left→right when the alt face sounds (main wins mixed);
