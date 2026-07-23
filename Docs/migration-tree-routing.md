@@ -40,10 +40,11 @@ re-read the delta — it almost certainly doesn't.
 
 ## Standing seam rules during ALL migration work (Docs/standalone-plan.md)
 
-1. AU-framework imports live ONLY in MidiSparkAudioUnit.swift and
-   AudioUnitViewController.swift; Kernel/Router/Derivations/Snapshot*/Models/
-   TestSessions/GridUI stay Foundation/SwiftUI-only. Survey lists violations;
-   fix each in a commit already touching that file.
+1. AU-framework imports live ONLY in MidiSparkAudioUnit.swift,
+   AudioUnitViewController.swift, and Kernel.swift (the render boundary —
+   as-built decision, see standalone-plan rule 1); Router/Derivations/
+   Snapshot*/Models/Emission/TestSessions/GridUI stay Foundation/SwiftUI-only
+   (Router via the `MIDIEmitter` protocol in Emission.swift).
 2. The kernel's derived transport/context stays built in ONE function from
    the host blocks — do not smear host-block reads into new code.
 3. Nothing upstream of the emission boundary may mention cables; the

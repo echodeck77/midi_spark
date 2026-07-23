@@ -37,9 +37,16 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   T1–T17; the doc details T1–T11 + reconciled intents), bridge regression B1–B4,
   the UI-size-checkpoint gate, milestone gates, and the reporting template. When
   asking the human to verify anything, quote the procedure by name.
-- `Docs/factory-scenes.md` — the SIXTEEN factory scenes for the scene strip (a
-  curriculum, slot 1 → 16; slot 15's cycle/backward-tap are INTENTIONAL; every
-  LISTEN line ships ear-tested). Distinct from TestSessions T1–T17 — never merge.
+- `Docs/factory-scenes.md` — the SIXTEEN factory scenes for the scene strip: a
+  curriculum disguised as a record (Part I no routing → Part II vertical →
+  Part III the graph), with a STANDING RIG (recommended sounds on emitters A–D)
+  and PLAY/LISTEN lines per scene. Slot 15's cycle/backward-tap are INTENTIONAL;
+  every LISTEN line ships ear-tested with the rig as described. Distinct from
+  TestSessions T1–T17 — never merge. **REVISED AFTER SceneFactory landed: the
+  doc is authoritative — scenes 9 and 11 changed mechanically (9: the wine toll
+  now taps ⇐R1, not ⇐MIDI; 11: gold RETRIG line now ⇐R1 →B, teal moved to
+  C5–C8 R2) plus new SOUNDS/PLAY guidance throughout. Reconcile SceneFactory +
+  its tests to the doc, then re-ear-verify the changed scenes.**
 - `Docs/ui-port-guide.md` — mockup→SwiftUI mapping, design tokens (the 16 Colour
   hexes are canonical), gesture map, and the REVISED order of work (a grid
   slice exists; reconcile, don't rebuild).
@@ -58,13 +65,6 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
-- **Per-type transpose/morph (spec revision, applied):** switching a Colour's processor type must
-  never leak a parameter between types — only the selected type's properties reach the MIDI, and
-  A→B→A restores A's. Type-specific params already isolate (pattern vs harmIntervals … are distinct
-  `ColourParams` fields); the only shared scalars were `transpose`/`morph`, now stashed PER TYPE
-  (`Colour.transposeByType`/`morphByType`, optional → v2 docs decode as nil). `Colour.switchType(to:)`
-  does the stash-swap; the type selector routes through `AU.setColourType` (NOT a generic type edit),
-  which syncs the restored transpose/morph AUParameters. Proof: `Tests/ColourTypeSwitchTests.swift`.
 - Public/product name: **"8x8 State"** — DECIDED and APPLIED (display-only). It is the
   app `CFBundleDisplayName`, the extension `CFBundleDisplayName`, the AudioComponents
   `name` ("8x8 State: 8x8 State" → AUM shows "8x8 State"), and the in-plugin/app
@@ -143,7 +143,7 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds an **83-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **78-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION, off-device, since Router went
@@ -181,7 +181,9 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   `simultaneousGesture` press-hold on the cell body. Closes acceptance #6-audition / #10.
 - **NEXT:** (a) GATE — the UI-size checkpoints in test-procedures (screenshot-verify
   1024×768 / 11" / 13" both orientations + a small panel; static frames hold,
-  nothing truncates) — the formal layout lockdown, not yet run. (b) PERFORM v2 —
+  nothing truncates) — the formal layout lockdown, not yet run. (a2) reconcile
+  `SceneFactory` to the REVISED Docs/factory-scenes.md (scenes 9/11 mechanical
+  changes + rig notes; ear-verify per doc). (b) PERFORM v2 —
   stutter/loop (hold column key), isolate/solo, hold-to-stutter — all **engine-
   blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in
   Router as `effColumn == trueColumn`) AND **spec-pending** (user flagged perform

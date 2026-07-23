@@ -29,25 +29,16 @@ session, files/document browser for Presets.
 ## The three seam rules (ENFORCED DURING THE MIGRATION — they are the entire
 ## "early support" cost, and they are nearly free while everything is open)
 
-1. **Import hygiene.** Only `MidiSparkAudioUnit.swift`, `AudioUnitViewController.swift`,
-   and `Kernel.swift` may import AudioToolbox / AU-specific frameworks. Router,
-   Derivations, Snapshot*, Models, Emission, Diag, TestSessions, and EVERYTHING in
-   GridUI stay Foundation/SwiftUI-only. (GridUI will be shared by both targets; an
-   AU import there is a future build error.)
-   - **Kernel is the render boundary, and keeps AudioToolbox on purpose**: it reads
-     the host transport/musical-context blocks and the `AURenderEvent`/`AudioTimeStamp`
-     render types. Rule 2 is exactly what lets standalone swap the SOURCE of those
-     reads later; only then does Kernel shed the import. Kernel also hosts
-     `LiveMIDIEmitter` — the one adapter onto `AUMIDIOutputEventBlock`.
-   - **Router is now clean** (was a violation through v0.6). It emits through the
-     Foundation-only `MIDIEmitter` protocol (`Emission.swift`) and names sample times
-     as plain `Int64`; the AU integer typedefs it used (`AUEventSampleTime`=Int64,
-     `AUAudioFrameCount`=UInt32, `AUParameterAddress`=UInt64) were only aliases. Payoff:
-     the entire render engine — tick generation, graph derivation, the 5-cable refcount
-     — now compiles into the macOS unit-test target (`RouterTests.swift`, a recording
-     `MIDIEmitter` double asserts no-stuck-notes / §7b two-cable / channel stamp).
-   During the migration survey, list any current violations; fix them in the
-   commit that touches the offending file anyway.
+1. **Import hygiene (as built, post-v0.6).** `MidiSparkAudioUnit.swift`,
+   `AudioUnitViewController.swift`, and `Kernel.swift` may import
+   AudioToolbox — Kernel IS the render boundary (host transport/context
+   blocks + render-event types; it hosts the `LiveMIDIEmitter` adapter and
+   sheds the import only when the standalone swap replaces those host reads
+   per rule 2). Router/Derivations/Snapshot*/Models/Emission/Diag/
+   TestSessions and EVERYTHING in GridUI stay Foundation/SwiftUI-only —
+   Router was made Foundation-only against the `MIDIEmitter` protocol
+   (`Emission.swift`, which REALISES rule 3) and now unit-tests off-device
+   (`RouterTests.swift`).
 2. **The beat seam has ONE name.** The kernel consumes a single derived
    transport/context value built in one function from the host blocks. Keep
    it that way and keep it named: standalone swaps the SOURCE of that one
@@ -80,8 +71,25 @@ in a way that blocks it:
   relationship to any cell is "articulate input in, track sounding voices
   out" — NEVER "call a pure function". Five of six current processors happen
   to be pure; the dispatch and data flow must not assume purity.
-- **Logged design questions (do not solve early)**: instance-per-Colour vs
-  per-cell (economics vs same-Colour-same-column collisions); plugin
+- **PHASE modes for EXTERNAL = HOSTING POLICIES (designed 2026-07; best-effort
+  by nature).** We control each instance's musical context and its input:
+  - FREE: report the TRUE beat (identity) — the plugin free-runs; zero work.
+  - RETRIG: at column entry, relocate the instance's VIRTUAL beat to 0 (reads
+    to the plugin as an ordinary host loop-point) AND re-articulate the input
+    (off/on — restarts key-synced pattern state).
+  - LEGATO: hold input across the run, virtual clock continuous from the
+    run's start — the SAME runStartColumn derivation as internal LEGATO.
+  Best-effort: sample-time free-runners ignore the virtual clock (RETRIG
+  degrades toward FREE); plugins with their own sync settings may fight ours.
+  Never promise more; surface a small ⓘ in the UI eventually.
+- **Instance boundary = the PHRASE boundary (decides the old economics
+  question): instantiate PER RUN**, not per cell (breaks LEGATO at column
+  swaps — opaque state can't be transplanted) and not per Colour (same-column
+  sibling runs collide). All cells of a contiguous run share one instance;
+  phase mode is the within-run boundary policy. Runs are already
+  snapshot-precomputed. Instantiation is slow/async: (re)build instances at
+  EDIT time via the snapshot-rebuild pipeline, NEVER on the render path.
+- **Remaining logged design questions (do not solve early)**: plugin
   fullState blob stored on the Colour; A/B for external = two plugin states?
   (morphing an opaque plugin: almost certainly never — resist); latency
   reporting; UI for plugin pick + view hosting.
