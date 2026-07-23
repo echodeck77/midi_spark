@@ -269,6 +269,30 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    func testAuditionStrumRollsTheChordInThenSustains() {
+        // STRUM audition ROLLS the chord in over `spread` (not all at once), then sustains.
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .strum; cs[gi].paramsA.spread = 0.4   // wide roll → spans several windows
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold") }
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var ts = 0.0
+        func win() {
+            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, audition: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        win()
+        XCTAssertLessThan(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }).count, 3,
+                          "the chord rolls in — not every note sounds on the first window")
+        for _ in 0..<30 { win() }
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 0 }.map { $0.note }), [60, 64, 67], "all notes have rolled in")
+        router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, audition: -1, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: - graph routing (delta §1) — reference derivation, reroute, cycles
 
     func testFedArpArpeggiatesTheParentsSoundingNote() {

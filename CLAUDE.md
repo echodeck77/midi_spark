@@ -143,7 +143,7 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds an **88-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds an **89-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
@@ -173,9 +173,10 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   delta §5). Press-hold a cell while the transport is STOPPED → its processor sounds ALONE
   against the held source (phase zeroed, input source-forced, all-open passgate, host tempo);
   release or transport-start ends it. Time-varying types (ARP/RATCHET) run a free phase clock
-  (`Router.auditionRender/auditionTicks`); chord-hold types (HARMONIZE/CHANCE/STRUM/passgate)
-  sustain the treated chord, reconciled to the held keys LIVE each window (`auditionChordHold`
-  — a 128-note desired/current bitset diff; STRUM stagger not yet, sustains as a chord). All
+  (`Router.auditionRender/auditionTicks`); chord-hold types (HARMONIZE/CHANCE/passgate) sustain
+  the treated chord, reconciled to the held keys LIVE each window (`auditionChordHold` — a
+  128-note desired/current bitset diff via `reconcileAuditionVoices`); STRUM ROLLS the chord in
+  over its spread from the hold then sustains (`auditionStrum`, same reconcile). All
   Foundation-only + unit-tested (`RouterTests` audition cases). `Kernel` suppresses raw note
   passthrough whenever the audition cell will sound (`auditionCellSounds`); target set via
   `MidiSparkAudioUnit.setAudition/clearAudition` (ephemeral, never persisted); UI gesture is a

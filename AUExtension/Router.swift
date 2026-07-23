@@ -777,9 +777,14 @@ final class Router {
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
             }
+        case .strum:
+            // STRUM: roll the held chord in over `spread` beats from the hold (its own onset per note),
+            // then sustain — the audition clock drives the roll; reconcile tracks live key changes.
+            auditionStrum(cell: cell, colour: colour, pool: pool, transpose: transpose, t: t,
+                          auditionBeat: auditionBeat, windowEnd: windowEnd, out: out, diag: &diag)
         default:
-            // chord-hold types (passgate all-open / strum / chance / harmonize): sustain the treated
-            // chord, reconciled to the live held source each window (v2).
+            // chord-hold types (passgate all-open / chance / harmonize): sustain the treated chord,
+            // reconciled to the live held source each window (v2).
             auditionChordHold(cell: cell, colour: colour, pool: pool, transpose: transpose, t: t,
                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
@@ -812,20 +817,46 @@ final class Router {
                 }
             case .chance:
                 if chancePasses(beat: 0, note: base, probability: prob) { auditionDesired[base] = true; auditionVel[base] = 96 }
-            default:                                                 // passgate all-open / strum (sustained chord)
+            default:                                                 // passgate all-open (sustain the chord)
                 auditionDesired[base] = true; auditionVel[base] = 96
             }
         }
-        // Reconcile: close voices whose note left the set; open desired notes not already sounding.
+        reconcileAuditionVoices(busMask: cell.busMask, windowEnd: windowEnd, out: out, diag: &diag)
+    }
+
+    /// STRUM audition: the held chord ROLLS in — each note has its own onset (`strumOffset`) measured
+    /// from the hold; a note joins the sustained set once the audition clock passes its onset. So the
+    /// first hold rolls the chord; thereafter it sustains and reconcile tracks live key changes. No
+    /// columns here, so direction uses pass 0 and notes never auto-release (offSample .max).
+    private func auditionStrum(cell: SnapCell, colour: SnapColour, pool: NotePool,
+                               transpose: Int, t: Double, auditionBeat: Double,
+                               windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
+        for i in 0..<128 { auditionDesired[i] = false }
+        let spread = effectiveSpread(colour, t: t)
+        let count = pool.srcCount(filter: cell.inputChannel)
+        for j in 0..<count {
+            guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve)
+            else { continue }                                   // this note's onset hasn't arrived yet
+            let sortedIdx = strumSortedIndex(position: j, count: count, direction: colour.a.strumDir, pass: 0)
+            let n = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel)) + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            auditionDesired[n] = true
+            auditionVel[n] = strumVelocity(index: j, count: count, tilt: colour.a.velTilt, base: 96)
+        }
+        reconcileAuditionVoices(busMask: cell.busMask, windowEnd: windowEnd, out: out, diag: &diag)
+    }
+
+    /// Drive the sustained audition voices toward `auditionDesired`/`auditionVel`: close any sounding
+    /// note no longer wanted, open any wanted note not yet sounding — IMMEDIATE ("sound now"), never
+    /// auto-closing (offSample .max); reconcile / release ends them. Shared by chord-hold and strum.
+    private func reconcileAuditionVoices(busMask: UInt8, windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionCurrent[i] = false }
         for v in voices where v.active { auditionCurrent[Int(v.note)] = true }
         for i in voices.indices where voices[i].active && !auditionDesired[Int(voices[i].note)] {
             closeVoice(i, atSample: renderSampleImmediate, out: out)
         }
-        // Sustained preview notes have no rhythm — emit them IMMEDIATELY ("sound now") rather than at the
-        // buffer boundary, and never auto-close (offSample .max); reconcile / release ends them.
         for n in 0..<128 where auditionDesired[n] && !auditionCurrent[n] {
-            emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: renderSampleImmediate, offSample: .max,
+            emitArtic(note: UInt8(n), busMask: busMask, onSample: renderSampleImmediate, offSample: .max,
                       windowEnd: windowEnd, velocity: auditionVel[n], out: out, diag: &diag)
         }
     }

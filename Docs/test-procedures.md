@@ -141,15 +141,16 @@ lit buses, ignoring its FROM wiring (source-forced), passgate all-open; the **ra
 passthrough stops** while held. Release → no stuck notes. By type:
 - **ARP** → arpeggiates at host tempo, phase from the press. **RATCHET** → re-strikes the chord.
 - **HARMONIZE** → the added voices sound (hear the chord it builds). **CHANCE** → the passed
-  subset sounds (deterministic — same notes for the whole hold). **PASSGATE/STRUM** → the chord
-  sustains (passgate all-open).
-- **Chord-hold types track the keys LIVE**: add a key while holding → it joins; release one →
+  subset sounds (deterministic — same notes for the whole hold). **PASSGATE** → the chord
+  sustains (all-open). **STRUM** → the chord **rolls in** over the spread, then sustains (hold a
+  wide voicing to hear the roll clearly).
+- **Chord-hold + strum track the keys LIVE**: add a key while holding → it joins; release one →
   it drops, the rest keep sounding (the "patch-and-listen" loop).
 Press **play** while holding → audition auto-releases, sequencing takes over. Hold with **no
 keys down** → silence.
 
-(DEFERRED — no procedure yet: STRUM stagger in audition (currently a sustained chord), APPLY
-latch, column audition, popover-live audition; and stutter/loop, isolate/solo — the lock
+(DEFERRED — no procedure yet: APPLY latch, column audition, popover-live audition; and
+stutter/loop, isolate/solo — the lock
 features need the `lockLo/lockHi` engine override and are spec-pending.)
 
 ## UI size checkpoints (GUI reconciliation gate)
