@@ -122,19 +122,83 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   concerns.)
 - Tapping the EMITTER STRIP opens the matching OUT popover: four A–D
   toggles. One popover open at a time.
-- COLOUR ASSIGNMENT is drag-and-drop: drag a palette chip onto a cell's
-  BODY (the middle sections). The mockup stands this in with
-  select-chip-then-tap-body; the SwiftUI build implements true drag.
-  Clearing/copying cells: body HOLD opens a cell menu (CLEAR / COPY) — the
-  hold-layer slot freed by drag replacing paint-tap. (Menu is not in the
-  mockup; implement at step 5.)
-- AUDITION integration: the §6 audition layer (perform + stopped) is
-  unchanged and remains the primary listening surface. Additionally, in
-  EDIT + stopped, the same hold-to-preview applies on the cell BODY when no
-  drag is in progress: hold ≈300ms auditions the cell (its true routing and
-  buses); holding a column's top MUTE/stack button auditions the whole
-  column. Popovers keep a live audition running — selecting an input or
-  toggling a bus while holding is the intended patch-and-listen loop.
+- **THE CELL EDITOR (user spec 2026-07-23 rev 2 — supersedes the same-day
+  drag-only spec AND the shipped tap-paint AND the separate FROM/OUT
+  popovers AND the hold menu, all of which dissolve into ONE surface):**
+  in EDIT, **tap ANY cell (occupied or empty) → the CELL EDITOR pop-up**,
+  the cell's entire definition on one card: COLOUR picker (4×4 palette) ·
+  INPUT (MIDI IN + occupied-rows list, IN CH filter when MIDI IN) ·
+  EMITTERS (four A–D toggles) · a CLEAR / COPY / PASTE-COLOUR /
+  PASTE-ROUTING row (split-paste rules unchanged: clipboard holds both
+  halves; paste-colour on empty creates with defaults ⇐MIDI →A;
+  paste-routing needs a populated target; pasted self-refs harmless by the
+  derivation guard). Tap-away dismisses; one editor at a time.
+- **INSPECTOR, not modal (the serial-editing law):** picking a colour does
+  NOT dismiss; **tapping another cell RETARGETS the open editor** — bulk
+  painting = tap-cell, tap-gold, tap-cell, tap-cell, faster than dragging.
+- **THE SESSION TEMPLATE (user spec 2026-07-23 — empty-cell defaults):**
+  the editor keeps a session-scoped TEMPLATE = the LAST-COMMITTED cell's
+  full configuration (colour + input + IN CH + emitters); bootstrap before
+  any commit = the desk-selected Colour + simple routing (⇐MIDI, →A).
+  On an EMPTY cell the editor opens PRE-FILLED with the template as a
+  PENDING (ghosted) state — **the cell commits on FIRST INTERACTION, never
+  on open** (tap-away untouched creates nothing; inspecting empties is
+  free). Routing-first works as intended: toggle an emitter on an empty
+  cell and it commits with the template colour + that change. Committing
+  via the editor ALSO selects that Colour in the desk (one "current
+  colour" concept; rules 1 and 2 agree by construction thereafter).
+  Serial identical authoring = tap cell → tap the pre-highlighted chip to
+  confirm → next cell (two taps each; drag remains the one-gesture path).
+  The template is EPHEMERAL (session only, never persisted).
+- **CLIPBOARD = TEMPLATE — one STAMP object (user spec 2026-07-23):**
+  written by (a) committing a cell via the editor and (b) COPY — even
+  without pasting, COPY loads that cell's full configuration as the
+  going-forward default. Read by the split-paste actions and the
+  empty-cell pre-fill. One concept, two writers, two readers.
+- **STAMP MODE — "COPY TO CELLS…" (user spec 2026-07-23 rev; the stamp
+  made VISIBLE):** the editor's action row splits COPY into: **COPY**
+  (quiet — loads the stamp for split-paste + pre-fill) and **COPY TO
+  CELLS…** (enters STAMP MODE: a persistent banner "STAMPING — tap cells
+  to apply · DONE"; all cells render visibly receptive; **occupied cells
+  carry an OVERWRITE tint** — amber ring — empties glow neutral; each tap
+  applies the FULL stamped configuration directly, one tap per cell, no
+  editor; DONE or the banner exits back to tap-opens-editor law). Modes
+  are acceptable exactly when unmissable — the banner is non-negotiable.
+  Safety = the overwrite tint at the perception layer + UNDO below at the
+  recovery layer.
+- **UNDO / REDO — DECIDED YES (2026-07-23):** every edit already funnels
+  through the one choke point (main-thread document mutation → snapshot
+  republish) and the document is a small Codable value — undo is a bounded
+  stack of document values (or UndoManager, which brings the system
+  three-finger gestures free): push-before-mutate, cap ~50, redo stack,
+  clear-redo-on-new-edit. An undo is just another mutation; the engine
+  never knows. RULES: continuous gestures (sliders, morph drags) COALESCE
+  into one step; SCOPE lean — undo covers EDIT-mode mutations only
+  (PERFORM flips excluded: undoing mid-performance is surprising in the
+  bad way; log as the one open scope question). UNIFICATION: RECORD's
+  overdub undo-last-layer = each pass's batch commit is one document
+  mutation, so global undo pops a layer with zero dedicated machinery.
+- **INVALID ⇐ROW references — the fallback stays at the DERIVATION layer,
+  never the data (reaffirming §1's reroute rule against field mutation):**
+  an unresolvable reference (empty/muted parent slot, incl. via paste or
+  template stamping) BEHAVES as FROM MIDI live while the stored field is
+  untouched — so references SURVIVE parent round-trips (clear a parent by
+  accident, repaint it, the whole tree resumes), and authoring order is
+  free (stamp ⇐R1 children FIRST, paint parents LAST, watch the tree
+  light up — build branches before the trunk). DISPLAY rule: the editor
+  and the cell header show the stored intent + live status — "FROM ROW n"
+  dimmed/warn while unresolved, brightening when the parent exists.
+  [Field-mutation-to-MIDI-IN considered and REJECTED: an accidental clear
+  would silently sever trees irrecoverably.]
+- **Consequences:** the whole pad is ONE target in BOTH modes (the
+  sub-44 openers law RETIRES for cells — no sub-zones remain); the FROM
+  and OUT popovers retire as separate mechanisms (their contents live in
+  the editor); **body-hold frees up, so AUDITION RETURNS to EDIT+stopped**
+  (hold to hear, tap to edit, adjust, hold again — the patch-and-listen
+  loop restored; the old collision dissolves rather than relocates).
+  DRAG-from-palette SURVIVES as an accelerator (deliberate, never
+  accidental; the desk palette exists regardless for PROCESSOR targeting
+  + §6b chip playheads).
 
 ## 6. Desk (closes the §6.9 layout-pass task)
 
@@ -238,11 +302,20 @@ flash when notes leave).
   entirely — the per-output performance mute. Disabled = recessed/dark, CH
   dimmed, no firing flash. CH is display-only in PERFORM.
 - **EDIT: the toggle is RETAINED on the pad body** (body = toggle in both
-  modes — an invariant; one muscle memory). The channel becomes editable:
-  the pad's CH caption is an OPENER (sub-44 law) for the CHANNEL POPOVER
-  (1–16, one-popover grammar, tap-away dismisses). [Considered and REJECTED:
-  a persistent selector row — it would force EDIT taps to mean select-not-
-  toggle, breaking the cross-mode body invariant.]
+  modes — an invariant; one muscle memory). **Below each toggle sits a
+  DEDICATED per-emitter MIDI-channel selector** (user spec 2026-07-23 —
+  supersedes the CH-caption-popover design; visible value, one control per
+  emitter, NO selection state anywhere). [The earlier rejection stands
+  against what it rejected: a SHARED selector row with tap-to-select;
+  four dedicated selectors have no selection concept and keep the body
+  invariant.] Structural symmetry with the PERFORM face: BOTH faces =
+  toggle on top, mode-specific column below (EDIT: CH selector ·
+  PERFORM: slider/meter + CLAIM).
+- **VISUAL KINSHIP LAW (user spec 2026-07-23):** the panel's A–D toggles
+  (both modes) share the CELLS' emitter-indicator vocabulary — same
+  letterforms, same lit/dim states, same flash-on-emission language,
+  scaled up. The panel reads as "the cells' emitter strips, summed"; a
+  player who learns one has learned both.
 - **Disable semantics (each clause follows an existing law):** disabling X
   immediately closes X's sounding notes (invariant 4), on X's own cable AND
   X's contribution to All — **All = the sum of ENABLED emitters.** Shared-
@@ -260,6 +333,33 @@ flash when notes leave).
   declaration change. The shared-channel merge note remains a gentle
   warning, both modes. Static frames: toggling and the popover never resize
   the panel.
+- **THE PERFORM FACE — the channel-strip mixer (user spec 2026-07-23;
+  DEFINITE — promotes the parked velocity + exclusivity ideas):** in
+  PERFORM the panel shows FOUR CHANNEL STRIPS, one per emitter, top to
+  bottom:
+  1. the TOGGLE pad (on/off = the §6a emitter mute; flashes per emission
+     event — the metering flash and the toggle are ONE element);
+  2. the VELOCITY SLIDER + LED LADDER (mixing-desk green-meter idiom:
+     segmented, peak-hold ~150ms decay, always POST-transform — while
+     overriding, the meter honestly shows the flat bar being imposed).
+     **Slider = MOMENTARY ABSOLUTE OVERRIDE**: greyed when idle; while
+     touched, every new note-on emits at EXACTLY the slider value
+     (flattens dynamics to a chosen level — whisper a bus, slam a bus);
+     release = grey + natural velocity resumes (the SPRING semantic;
+     new note-ons only, established rule). EPHEMERAL state — audition's
+     category, never persisted. [The parked PERSISTENT scale-fader
+     (automatable mix) remains parked as a separate future variant.]
+  3. the **CLAIM button** (promotes the parked exclusivity/spillover
+     design): the claiming emitter takes EXCLUSIVE rights to incoming
+     notes; others receive the residue. **RADIO — one claimant at a
+     time** (claiming B releases A; deletes all priority-ordering
+     questions; multi-claim with left→right priority = logged future
+     variant). Suppress, never defer (released notes don't retroactively
+     sound elsewhere — §6a doctrine). CLAIM IS PERSISTED (it shapes the
+     arrangement; the touch-override is not).
+  The frame is MODE-AWARE within the static-frames rule: same box, same
+  size; EDIT shows the toggle + CH-popover face above; PERFORM shows the
+  strips.
 - **MIDI-activity metering (DEFINITE requirement, 2026-07):**
   (a) In PERFORM, each CELL's emitter letters flash on that cell's emission
   events per bus (ratifies the v59 "white flip + down-glow = firing"
@@ -475,6 +575,22 @@ every answer at once.
      - Schema: Colour gains altColour(0..15|none) + morph(0..1); cell keeps
        alt flag only. NOT ratified — awaiting the user's call after a UI
        mockup (the ratification test: does a grid of ringed pairs READ?).
+     - **PER-CELL OVERRIDES — "grid p-locks" (considered 2026-07-23;
+       DECISION: colour-level ships as the base; overrides = a designed
+       LATER layer, schema-shaped-for now, built on demand).** Pure
+       per-cell ALT/TOUCH was REJECTED: it breaks the core legibility
+       contract (look same, act same — unmarked divergence makes the grid
+       lie) and re-kills the colour-level rescues (morph desk, 200+i
+       addresses). The sanctioned future form is the Elektron p-lock
+       pattern: Colour defines; a cell MAY override ALT-partner and TOUCH
+       (NOT morph position — the fader surface stays honest; overridden
+       pairs get flip + TOUCH-scrub only); **overriding cells wear a
+       visible deviation marker** (corner notch — the contract amends to
+       "look same, act same, unless marked"); the cell editor hosts the
+       override rows showing inherited values; the STAMP carries
+       overrides; resolve = cell ?? colour. Shape the schema (optional
+       per-cell fields) and the editor for this WITHOUT building it;
+       promote only if users ask the question it answers.
   6. **FUTURE PROCESSORS — CHANCE family extensions (2026-07; sketches, one
      AMBIGUITY awaiting the user's call).** All are pure derived-dice
      processors (tick/pass → slice index → seeded deterministic roll, the
@@ -512,6 +628,20 @@ every answer at once.
        honest; chord SIZE becomes a performance control: add a 4th note,
        the 4th instrument enters) vs CLAMP (nearest — bass never drops).
        Lean STRICT; decide by ear at the design pass.
+     - **CYCLES + SPILL — cross-cutting params (user-requested
+       2026-07-23):** CYCLES ∈ {∞ (default = today), 1, 2, 3, 4}: the
+       pattern plays N full cycles then SILENCE for the step's remainder —
+       a pure tick-index comparison, implementable BEFORE any tail work.
+       Turns arps into GESTURES (state the figure, rest); STRUM ×N =
+       double/triple strums; RATCHET's ×N is already cycles-of-one
+       (harmonized, unchanged); RECORD's LOOP/ONE-SHOT param COLLAPSES into
+       this (one concept roster-wide). PHASE rule: CYCLES counts from the
+       phase origin — RETRIG per column entry, LEGATO per RUN (a 4-column
+       run playing exactly 2 cycles = phrase-length control), FREE excludes
+       CYCLES (no start to count from; always ∞). SPILL (bool): a finite
+       gesture may COMPLETE past its column boundary — see the tail brief,
+       customer 6; only expressible when finite (CYCLES≠∞ or fixed-length
+       types), so runaway generation is unexpressible by construction.
      - **CURATED WIDER ROSTER (2026-07-23, rev 2 — merged brainstorms; all
        pure/derived unless noted; champions ★):**
        Pitch/voicing — ★TRANSPOSE-SEQ (per-pass/step transpose pattern: one
@@ -571,7 +701,15 @@ every answer at once.
        clipped at the edge); (4) performance RING-OUTS (lap release /
        column mute may ring remaining gate instead of chopping — same
        machinery, different trigger; chop-vs-ring becomes a choice);
-       (5) ECHO repeats across steps.
+       (5) ECHO repeats across steps; (6) **SPILL — GENERATION tails**
+       (user 2026-07-23): a finite gesture (CYCLES≠∞, STRUM/BURST) keeps
+       EMITTING past its column until it completes (a 12-tick figure in an
+       8-tick step finishes in the neighbour's time; strums bloom across
+       the barline). Stronger than sustain-tails — the derivation evaluates
+       "completing" cells past their column — but inherently bounded (only
+       finite gestures can spill). Same-row overlap (col 3 completing while
+       col 4 begins) = per-cell voice-table territory; the referenceable
+       fork applies identically.
        MACHINERY (mostly exists): tails keep their birth cell's
        colour/buses/stamps (voice table already per-cell; the change is
        "don't force-close at column exit"); collisions with later columns

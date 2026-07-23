@@ -10,7 +10,9 @@ Public name **"8x8 State"** (display-only; the code/bundle identity stays MidiSp
 **Live status and the current plan:** `CLAUDE.md`.
 **UI reference:** the built plugin is the living reference for shipped features;
 `Docs/midispark-preview-v60.html` (now exported, with v59) is the behavioural
-spec for unbuilt ones — currently the §6a emitter toggles and the §5b lap visuals.
+spec for unbuilt ones — currently the §5 rev 2 CELL EDITOR, the §6a
+channel-strip perform face, and undo/redo (CLAUDE.md a5–a7; v60 predates
+these revs — the delta wins).
 
 > Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
 > channels/outputs, graph routing, the full GUI reconcile, the perform layer, and

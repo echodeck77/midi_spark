@@ -161,8 +161,10 @@ Re-enable B → its stream returns at the next articulation, not mid-note.
 Shared-channel case: set two emitters to the SAME channel, disable one → All
 keeps the survivor's notes with no early offs. Hammer all four toggles
 rapidly during play → zero stuck notes anywhere, All always equals the
-enabled sum. EDIT mode: pad body still toggles; the CH caption opens the
-channel popover; changing a channel live re-stamps cleanly (T6 semantics).
+enabled sum. EDIT mode: pad body still toggles; the DEDICATED per-emitter CH selector
+below each toggle edits the channel (delta §6a rev — the as-built caption
+popover passes until a7 lands); changing a channel live re-stamps cleanly
+(T6 semantics).
 
 **T-intent — column-subset lap (§5b; number per repo authority).** A scene
 with distinct material in every column (scene 4 STAIRCASE is ideal). Playing,

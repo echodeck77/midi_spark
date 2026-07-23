@@ -223,6 +223,29 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (glow-flash + thin peak-hold level bar, ~150ms decay, `OutputsView.meter`; UI owns the decay).
   2 RouterTests. (a) per-cell emitter-letter firing = the existing v59 white-flip (in the active
   column); a strictly per-cell-per-event flash would need a per-CELL feed — DEFERRED.
+  (a5) EDIT rework — delta §5 rev 2 (user spec 2026-07-23): the unified
+  CELL EDITOR — tap any cell in EDIT → one pop-up (colour picker + input
+  rows/IN CH + emitter toggles + CLEAR/COPY/PASTE-COLOUR/PASTE-ROUTING).
+  Inspector behaviour (picks persist; cell-taps retarget); the SESSION
+  TEMPLATE (= clipboard, one stamp object: last-committed config pre-fills
+  empties; commit on FIRST interaction, never on open); STAMP MODE ("COPY
+  TO CELLS…" banner + amber overwrite tint); invalid ⇐ROW stays
+  derivation-fallback with dimmed display. RETIRES: tap-to-paint (as
+  built), the separate FROM/OUT popovers, the hold menu. AUDITION returns
+  to EDIT+stopped (hold freed). Drag survives as accelerator.
+  (a6) UNDO/REDO — delta §5 (DECIDED): document-value stack at the
+  mutation choke point (UndoManager; three-finger gestures free); coalesce
+  continuous gestures; scope lean EDIT-only (open question); RECORD's
+  future undo-last-layer unifies. Implement with (a5).
+  (a7) EMITTER PANEL v2 — delta §6a revs (user spec 2026-07-23): the
+  PERFORM face = four channel strips (toggle w/ event flash · velocity
+  slider + green LED ladder, MOMENTARY ABSOLUTE override, greyed idle,
+  spring-back, ephemeral · CLAIM radio — persisted, suppress-never-defer);
+  the EDIT face = DEDICATED per-emitter CH selector below each toggle
+  (SUPERSEDES the as-built caption-popover from a2); VISUAL KINSHIP law
+  (panel toggles = the cells' emitter-letter vocabulary, scaled). Mode-
+  aware within one static frame. New ephemeral override value via the
+  audition-style path; CLAIM = document field + emission-boundary check.
   (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.

@@ -65,12 +65,17 @@ the HTML's `T` constant.
    channels are bus-owned; the frame is FIXED-SIZE per orientation, sized
    for the largest type's field set — the STATIC FRAMES RULE, delta §6:
    boxes never resize or move with content; use fixed frames in SwiftUI,
-   never intrinsic sizing, for all three boxes). EMITTERS = four GRID-PAD-SCALE
-   square TOGGLE pads (§6a): body toggles the emitter in BOTH modes
-   (perform = per-output mute; disabled = recessed, no firing flash); in
-   EDIT the CH caption on each pad OPENS the channel popover (no separate
-   selector row, no selection state); All-cable note + shared-channel
-   warning remain. MORPH desk:
+   never intrinsic sizing, for all three boxes). EMITTERS = four channel
+   strips (§6a revs, mode-aware in ONE static frame; the as-built
+   caption-popover is superseded — see CLAUDE.md a7). BOTH modes: toggle
+   pad on top (per-output mute; disabled = recessed, no flash; flashes per
+   emission when live). EDIT face: a DEDICATED per-emitter CH selector
+   below each toggle (visible value; no popover, no selection state).
+   PERFORM face: velocity slider + green LED ladder (momentary ABSOLUTE
+   override — greyed idle, spring-back, post-transform metering) + CLAIM
+   radio per strip. KINSHIP LAW: toggles share the CELLS' emitter-letter
+   vocabulary, scaled — the panel reads as the cells' strips, summed.
+   All-cable note + shared-channel warning remain. MORPH desk:
    PARKED (own later pass); RESERVED above COLOUR: the MIDI-IN display
    (details TBD).
 5. **SCENE strip:** full-width along the bottom in both orientations —
@@ -80,17 +85,19 @@ the HTML's `T` constant.
 
 ## Gesture map (the grammar, §0 — implement uniformly)
 
-- Cell tap: EDIT = apply selected colour on the body (mockup stand-in;
-  the real build is DRAG-AND-DROP from the palette + body-HOLD cell menu for
-  CLEAR/COPY, delta §5), open FROM popover (header), open OUT popover
-  (emitter strip) · PERFORM+playing = ALT flip (the tap-action set reduced
-  at `3e816ee`; richer actions return via TOUCH) · PERFORM+stopped =
-  audition hold semantics. Column keys: tap currently unassigned
-  (tap-to-mute removed); HOLD = the §5b lap (UI gesture pending). Sub-cell hit-zones exist only in EDIT; in PERFORM
-  the whole pad is one target. Sub-44pt zones are OPENERS, never actuators.
-- Cell hold 300 ms: isolate (perform+playing) / preview (audition).
-- Stack button: tap = SEL (edit) / mute, solo with S (perform) / APPLY (audition);
-  hold = stutter, two+ = loop brace (perform+playing only).
+- Cell tap: EDIT = the unified CELL EDITOR pop-up (delta §5 rev 2: colour
+  picker + input rows/IN CH + emitter toggles + CLEAR/COPY/PASTE-COLOUR/
+  PASTE-ROUTING; inspector behaviour — picks persist, cell-taps retarget;
+  SESSION TEMPLATE pre-fills empties, commit on first interaction; STAMP
+  MODE via "COPY TO CELLS…" with banner + overwrite tint) · PERFORM+playing
+  = ALT flip (richer actions return via TOUCH) · stopped+hold (BOTH modes)
+  = audition (delta §5 rev 2 restored EDIT+stopped). Column keys: tap
+  unassigned; HOLD = the §5b lap (SHIPPED, ColumnHoldOverlay). The whole
+  pad is ONE target in BOTH modes — no sub-cell zones remain (the sub-44
+  openers law retires for cells; FROM/OUT popovers dissolved into the
+  editor). Drag-from-palette survives as a paint accelerator.
+- Cell hold 300 ms: audition (stopped, both modes); isolate
+  (perform+playing) remains provisional pending TOUCH.
 - Row button: tap = SEL (edit) / row bypass (perform); hold = row ALT push.
 - Panel selectors: tap sets, hold borrows (white glow), EXCEPT the PHASE selector
   (plain). Faders: drag sets; double-tap zeroes; SPRING makes release glide home.
