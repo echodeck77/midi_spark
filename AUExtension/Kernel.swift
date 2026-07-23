@@ -166,13 +166,17 @@ final class Kernel {
             diag.ccData1 = length > 1 ? bytes[1] : 0
             diag.ccData2 = length > 2 ? bytes[2] : 0
         }
-        // §2.6: CC/PB/AT pass through on cable A always; notes pass only when stopped AND not being
-        // replaced by an audition (§6.4 — the held processor sounds alone instead of the raw chord).
-        let shouldForward = isNote ? (!playing && !suppressAuditionNotes) : true
-        if shouldForward, let out = midiOut {
+        // §2.6 (reconciled to §7b): CC/PB/AT + stopped-note passthrough go out on All (0) + Emit A (1).
+        let mask = passthroughCableMask(isNote: isNote, playing: playing, auditionSuppressing: suppressAuditionNotes)
+        if mask != 0, let out = midiOut {
+            let n = min(length, 3)
             var copy: [UInt8] = [0, 0, 0]
-            for i in 0..<min(length, 3) { copy[i] = bytes[i] }
-            _ = out(sampleTime, 0, min(length, 3), &copy)
+            for i in 0..<n { copy[i] = bytes[i] }
+            var m = mask
+            while m != 0 {                                  // forward on each cable in the mask (0 = All, 1 = Emit A)
+                let cable = UInt8(m.trailingZeroBitCount); m &= m - 1
+                _ = out(sampleTime, cable, n, &copy)
+            }
         }
     }
 }

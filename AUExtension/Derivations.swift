@@ -134,6 +134,16 @@ func realOf(_ musicalBeat: Double, stepBeats S: Double, a: Double) -> Double {
     return base + u
 }
 
+/// PASSTHROUGH routing (§2.6 reconciled to the §7b 5-cable model). The raw CC/PB/AT stream and the
+/// stopped-transport NOTE passthrough go out on **All (cable 0) + Emit A (cable 1)** — bit i set ⇒
+/// forward on cable i. CC/PB/AT always forward; notes forward ONLY when stopped and not being replaced
+/// by an audition (§6.4). Returns 0 = drop. Two cables so a synth patched to either "All" or "Emit A"
+/// receives controllers + soundcheck; the §6a emitter toggle governs NOTE emission, not this raw stream.
+func passthroughCableMask(isNote: Bool, playing: Bool, auditionSuppressing: Bool) -> UInt8 {
+    let forward = isNote ? (!playing && !auditionSuppressing) : true
+    return forward ? 0b0000_0011 : 0        // cable 0 (All) + cable 1 (Emit A)
+}
+
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
 /// mutation-line playhead (grid cells AND §6b Colour chips). SWING-AWARE: swing stretches/compresses
 /// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map

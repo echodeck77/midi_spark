@@ -390,6 +390,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: -2, trueColumn: 0), 2)
     }
 
+    // MARK: - passthrough routing (§2.6 / §7b)
+
+    func testPassthroughGoesToAllAndEmitA() {
+        let allAndA: UInt8 = 0b11   // cable 0 (All) + cable 1 (Emit A)
+        // CC/PB/AT (non-note) ALWAYS forward, both transport states.
+        XCTAssertEqual(passthroughCableMask(isNote: false, playing: true,  auditionSuppressing: false), allAndA)
+        XCTAssertEqual(passthroughCableMask(isNote: false, playing: false, auditionSuppressing: true),  allAndA)
+        // Notes forward ONLY when stopped and not audition-suppressed.
+        XCTAssertEqual(passthroughCableMask(isNote: true, playing: false, auditionSuppressing: false), allAndA)
+        XCTAssertEqual(passthroughCableMask(isNote: true, playing: true,  auditionSuppressing: false), 0, "playing → sequencer owns notes")
+        XCTAssertEqual(passthroughCableMask(isNote: true, playing: false, auditionSuppressing: true),  0, "audition replaces the raw chord")
+    }
+
     // MARK: - column sweep fraction (mutation-line / §6b chip playhead)
 
     func testColumnSweepFractionSwingAwareSpansTheRealColumn() {
