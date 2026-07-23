@@ -145,12 +145,13 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds an **89-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **98-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
-  derivation, muted-parent reroute, silent cycles) / playing-HARMONIZE, off-device, since
-  Router went Foundation-only). BOTH stay green every commit; unit tests run off-device, FIRST.
+  derivation, muted-parent reroute, silent cycles) / playing-HARMONIZE / the §5b LAP
+  (column-subset mapping incl. k=3 polymeter + stutter-lock), off-device, since Router
+  went Foundation-only). BOTH stay green every commit; unit tests run off-device, FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
   FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell
@@ -161,16 +162,18 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   breathing ALT ring; the one-clock playheads (master sweep + per-cell MUTATION
   LINES via TimelineView beat extrapolation between the 4 Hz polls); the delta §6
   three-box responsive DESK (COLOUR·PROCESSOR·EMITTERS, landscape column / portrait
-  band); the PROMINENT COLUMN KEYS (v57, tappable); the SIXTEEN-slot SCENE strip
-  (dev builds wire session slots, release wires `SceneFactory`). The debug
+  band); the PROMINENT COLUMN KEYS (v57; the numbered keys stay for the playhead + the
+  future §5b lap holds — the tap-to-mute was removed, see PERFORM below); the SIXTEEN-slot
+  SCENE strip (dev builds wire session slots, release wires `SceneFactory`). The debug
   diagnostics + wiring lanes are REMOVED. The instrument is fully authorable
   in-plugin — no host automation needed for any control.
-- **PERFORM LAYER v1 — DONE, device-verified** (`53d3591`, §6.1/6.2). EDIT/PERFORM
-  mode toggle; TAP action selector (ALT/BYP/MUTE); in PERFORM the whole pad is one
-  tap target (applies the TAP action via the engine-backed cell flags the router
-  reads — alt/bypassed/muted), and a column-key tap mutes/unmutes the whole column
-  (coral indicator). EDIT keeps painting + popovers + long-press menu. User: "it
-  feels good. There are issues we can come back to with a revised spec."
+- **PERFORM LAYER — EDIT/PERFORM mode + ALT flip** (§6.1/6.2). The EDIT/PERFORM mode toggle
+  stays; in PERFORM a cell TAP flips it to/from its B-state (engine-backed `alt`). EDIT keeps
+  painting + popovers + long-press menu. **MUTE/BYP, the ALT/BYP/MUTE tap-action selector, and
+  the column-key mute were REMOVED** (`3e816ee`) — the user is undecided on that feature; the
+  engine fields (`Cell.muted`/`bypassed`, `SceneState.tapAction`) stay in the model (harmless,
+  defaulted) so re-adding is trivial. (Perform v1 with the full tap-action set was device-verified
+  before removal; user: "it feels good, issues to revisit with a revised spec.")
 - **AUDITION — DONE, all six types, DEVICE-VERIFIED** (§6.4 / delta §5). Press-hold a cell while
   the transport is STOPPED → its processor sounds ALONE against the held source (phase zeroed,
   input source-forced, all-open passgate, host tempo); release or transport-start ends it.
@@ -181,10 +184,10 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (`auditionStrum`). All Foundation-only + unit-tested (`RouterTests`). `Kernel` suppresses raw note
   passthrough whenever the audition cell will sound (`auditionCellSounds`); target set via
   `MidiSparkAudioUnit.setAudition/clearAudition` (ephemeral, never persisted). GESTURE: an
-  `onLongPressGesture` (0.3s) whose press transient state lives in a SILENT reference box
-  (`AuditionBox`) and which PAUSES the 4 Hz poll while pressed — so no grid re-render tears down the
-  gesture mid-press (that was the cause of intermittent audition + strum-plays-a-chord). Closes
-  acceptance #6-audition / #10.
+  `onLongPressGesture` (0.3s) whose held target lives in a SILENT reference box (`AuditionBox`, never
+  @State). Reliability comes from the DEDUPED 4 Hz poll (see architecture debt) — a stopped/idle grid
+  never re-renders, so no re-render tears down the gesture mid-press (that had caused intermittent
+  audition + strum-plays-a-chord). Closes acceptance #6-audition / #10.
 - **DEVICE-VERIFIED since v0.6** (all confirmed on-device by the user): the full GUI reconcile;
   perform layer v1; audition (all six types, incl. strum roll); the per-type transpose/morph
   isolation (`Colour.switchType`/`AU.setColourType` — each type keeps its own transpose+morph,
@@ -192,15 +195,19 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   `SceneFactory` reconciled to the revised Docs/factory-scenes.md (8 scenes) + ear-verified on the
   STANDING RIG; the audition-gesture reliability fix; **the UI-size-checkpoint GATE PASSED**.
   → **`v0.7-gui` is ready to tag** (user tags manually).
-- **NEXT:** (a) PERFORM v2 — **SPEC DELIVERED: delta §5b, the COLUMN-SUBSET LAP**
-  (hold any set of column keys = the lap is exactly the held set;
-  `effColumn = S[absoluteStep mod k]`, S sorted; k∤8 polymeter is INTENDED —
-  never reset the mapping at pass boundaries; subsumes stutter + loop brace,
-  two-finger brace gesture removed). Engine: replace the `lockLo/lockHi` stub
-  with a held-column BITMASK + the mapping; unit-test the mapping (incl. the
-  k=3 rotation) in RouterTests FIRST, then the on-device T-intent. Ephemeral
-  state, audition's category. (Cell-hold ISOLATE remains provisional pending
-  the TOUCH design pass.) (a2) EMITTER TOGGLES — **delta §6a**: `busEnabled[4]`
+- **NEXT:** (a) PERFORM v2 — the COLUMN-SUBSET LAP (delta §5b): **ENGINE DONE + unit-tested**
+  (`f30b006`, test-first). `Derivations.lapColumn(laneMask:absoluteStep:trueColumn:)` is the whole
+  rule (`effColumn = S[absoluteStep mod k]`, S = held columns sorted; k∤8 = intended polymeter,
+  never reset at pass boundaries); Router routes `effColumn` through it and `iterateTicks`'s column
+  gate is lap-aware; the `lockLo/lockHi` stub is gone; the column-transition machinery gives
+  invariant 4 for free. Ephemeral `laneMask` bitmask (Kernel + `AU.setLaneMask`, audition's category).
+  Tests: 6 pure `lapColumn` + 3 Router integration. **STILL TODO: the multi-column-HOLD UI gesture**
+  on the column keys (PERFORM) → `setLaneMask`, live-recomputed as fingers join/leave, cleared on
+  release/stop/EDIT; must coexist with… nothing now (tap-to-mute was removed). Held keys show LOOP
+  state; playhead already follows `effColumn`. FLAGGED for device: k=1 with a chord-hold cell
+  SUSTAINS (constant effColumn) rather than re-striking per step — literal spec reading; revisit
+  if the stutter feel is wrong. (Cell-hold ISOLATE remains provisional pending the TOUCH design pass.)
+  (a2) EMITTER TOGGLES — **delta §6a**: `busEnabled[4]`
   (default true, persisted, loader-defaulted), emission-boundary gate only
   (All = sum of ENABLED emitters; cells keep deriving), pad body toggles in
   BOTH modes, CH caption = channel-popover opener in EDIT; RouterTests +

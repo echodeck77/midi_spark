@@ -115,25 +115,23 @@ live: clean transition.
 ## Perform layer (P-series) — §6.1/6.2, mode + live tap
 
 Interaction tests, not canned grids — build on any occupied scene (scene 14 ALT
-EGO is designed for P2). Header carries the EDIT·PERFORM toggle; PERFORM shows the
-TAP action selector (ALT / BYP / MUTE, tap to cycle).
+EGO is designed for P2). Header carries the EDIT·PERFORM toggle; in PERFORM a cell
+TAP flips it to/from its B-state (ALT). (The ALT/BYP/MUTE tap-action selector and
+column-key mute were REMOVED pending the perform spec — see P3/P4.)
 
 **P1 — mode gating.** In EDIT: tapping a cell body paints/recolours, FROM/OUT
 headers open popovers, long-press opens the clear/copy menu. Toggle to PERFORM
 (chip goes cyan): the whole pad is ONE tap target — no popovers, no menu. Toggle
 back: EDIT behaviours return intact.
 
-**P2 — live ALT flip.** Load scene 14, chord held, transport playing, TAP:ALT.
+**P2 — live ALT flip.** Load scene 14, chord held, transport playing, mode PERFORM.
 Tap a cell → it flips to its B-state (breathing ring activates) and the sound
 changes (e.g. gold B rate). Tap again → back to A. No stuck notes across flips.
 
-**P3 — live BYP.** TAP:BYP, tap a mid-chain cell → it becomes identity (passes its
-input through unprocessed); downstream still sounds. Untap → processing returns.
-
-**P4 — live MUTE + column mute.** TAP:MUTE, tap a cell → it drops silent (dims);
-a muted PARENT reroutes its child to MIDI IN (§1 reroute rule), not silence. Tap a
-COLUMN KEY → the whole column mutes/unmutes (key flags coral). Zero stuck notes on
-every mute/unmute.
+**P3 / P4 — REMOVED from the UI.** Live BYP, live MUTE, and column-key mute were
+taken out (`3e816ee`) while the perform feature is undecided. The engine still reads
+`Cell.bypassed`/`muted` (and `SceneState.tapAction`), so these procedures return
+verbatim if the controls are re-added — do not re-number around them.
 
 **P5 — audition (§6.4 / delta §5), ALL types.** Transport **STOPPED**, hold a chord.
 Press-and-hold (~0.3s) a cell → its processor sounds **ALONE** against the held chord on its
