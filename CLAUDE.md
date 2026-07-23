@@ -145,7 +145,7 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **102-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **105-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
@@ -216,11 +216,13 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   chips sweep top→bottom while ≥1 non-muted instance of their Colour works in the live column
   (`PaletteView.activity`, follows the LAP via effColumn), left→right when alt-only (main wins
   mixed), faint when all-bypassed; one-clock (same TimelineView + liveBeat as the cell lines).
-  (a4) MIDI-activity metering — delta §6a metering block (DEFINITE): cell
-  emitter letters flash per emission event in PERFORM; emitter-panel pads
-  meter VELOCITY (glow intensity + thin level bar, peak-hold ~150ms decay,
-  post-transform). Extend the emission-activity poll feed with per-emitter
-  peak velocity + event count; UI owns the decay envelope only.
+  (a4) MIDI-activity metering — delta §6a metering block — **DONE** (`43c6cf5`). New EVENT-driven
+  feed: Router accumulates per-emitter peak velocity (post-transform) + event count in `emitArtic`
+  (after the enable gate → disabled emitters never meter), `drainMeters()` read-and-clears →
+  `Kernel.drainEmitterActivity` → `AU.pollEmitterActivity`. (b) emitter-panel pads meter VELOCITY
+  (glow-flash + thin peak-hold level bar, ~150ms decay, `OutputsView.meter`; UI owns the decay).
+  2 RouterTests. (a) per-cell emitter-letter firing = the existing v59 white-flip (in the active
+  column); a strictly per-cell-per-event flash would need a per-CELL feed — DEFERRED.
   (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.

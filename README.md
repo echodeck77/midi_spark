@@ -14,7 +14,7 @@ spec for unbuilt ones — currently the §6a emitter toggles and the §5b lap vi
 
 > Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
 > channels/outputs, graph routing, the full GUI reconcile, the perform layer, and
-> audition (all types) are built and DEVICE-VERIFIED, with a 102-test off-device suite
+> audition (all types) are built and DEVICE-VERIFIED, with a 105-test off-device suite
 > covering the render engine itself. PERFORM v2 is landing: the §5b column-subset LAP
 > (device-verified) and the §6a emitter toggles are both done. See CLAUDE.md; do not code
 > from this README.
@@ -86,7 +86,7 @@ AUExtension/
   TestSessions.swift                 T1–T17 canned patches, loaded from the DEV LOADER (portrait UI)
   AudioUnitViewController.swift      Extension UI host: the grid / responsive DESK / scene strip (4 Hz
                                      poll drives the playheads; no diagnostics panel)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, 102 tests over the
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, 105 tests over the
                                      pure core AND the render engine — first line of verification; green
                                      through every commit)
 Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups
