@@ -212,10 +212,10 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   disabled emitter → no own-cable + no All; All = enabled sum; disable-close via `closeBus`; shared-
   channel survives via refcount). Pad body toggles in BOTH modes; EDIT CH caption opens the 1–16
   channel popover. 4 RouterTests. (The firing-flash / velocity metering is item **a4** below.)
-  (a3) COLOUR-chip activity playheads — delta §6b (DEFINITE): palette chips
-  run the mutation-line sweep top→bottom while their Colour works in the
-  live column, left→right when the alt face sounds (main wins mixed);
-  one-clock rule, TimelineView same as the cell lines.
+  (a3) COLOUR-chip activity playheads — delta §6b — **DONE** (`b3d2445`, UI-only). Palette
+  chips sweep top→bottom while ≥1 non-muted instance of their Colour works in the live column
+  (`PaletteView.activity`, follows the LAP via effColumn), left→right when alt-only (main wins
+  mixed), faint when all-bypassed; one-clock (same TimelineView + liveBeat as the cell lines).
   (a4) MIDI-activity metering — delta §6a metering block (DEFINITE): cell
   emitter letters flash per emission event in PERFORM; emitter-panel pads
   meter VELOCITY (glow intensity + thin level bar, peak-hold ~150ms decay,
