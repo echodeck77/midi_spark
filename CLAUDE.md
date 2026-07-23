@@ -181,9 +181,11 @@ time; held chords go in, four independent MIDI outputs (A–D) come out. Primary
   `simultaneousGesture` press-hold on the cell body. Closes acceptance #6-audition / #10.
 - **NEXT:** (a) GATE — the UI-size checkpoints in test-procedures (screenshot-verify
   1024×768 / 11" / 13" both orientations + a small panel; static frames hold,
-  nothing truncates) — the formal layout lockdown, not yet run. (a2) reconcile
-  `SceneFactory` to the REVISED Docs/factory-scenes.md (scenes 9/11 mechanical
-  changes + rig notes; ear-verify per doc). (b) PERFORM v2 —
+  nothing truncates) — the formal layout lockdown, not yet run. (a2) `SceneFactory`
+  RECONCILED to the revised Docs/factory-scenes.md — code done (8 scenes changed
+  mechanically: 3/8/15 transpose, 5/10 vermilion→D, 7 wine AS-PLAYED+T−12, 9 teal/wine
+  ⇐R1, 11 gold⇐R1→B & teal→C+T+12); 83 tests green — **ear-verify the changed scenes
+  on the STANDING RIG still pending**. (b) PERFORM v2 —
   stutter/loop (hold column key), isolate/solo, hold-to-stutter — all **engine-
   blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in
   Router as `effColumn == trueColumn`) AND **spec-pending** (user flagged perform

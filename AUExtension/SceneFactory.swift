@@ -98,7 +98,7 @@ enum SceneFactory {
 
         Scene(name: "CALL AND ANSWER") {
             let b = B(); b.global()
-            b.arp("gold", .up, .r1_16); b.arp("azure", .down, .r1_16)
+            b.arp("gold", .up, .r1_16); b.arp("azure", .down, .r1_16, t: -12)
             for col in 1...4 { b.put(col, 1, "gold", to: [.a]) }
             for col in 5...8 { b.put(col, 1, "azure", to: [.b]) }
             return b.build()
@@ -119,7 +119,7 @@ enum SceneFactory {
             let b = B(); b.global(swing: 62)
             b.arp("gold", .up, .r1_16); b.ratchet("vermilion", count: 3)
             for col in [1, 3, 5, 7] { b.put(col, 1, "gold", to: [.a]) }
-            for col in [2, 4, 6, 8] { b.put(col, 1, "vermilion", to: [.a]) }
+            for col in [2, 4, 6, 8] { b.put(col, 1, "vermilion", to: [.d]) }   // ratchet = pulse (rig D)
             return b.build()
         },
 
@@ -135,7 +135,7 @@ enum SceneFactory {
 
         Scene(name: "TWO HANDS") {
             let b = B(); b.global()
-            b.arp("gold", .up, .r1_16); b.arp("wine", .down, .r1_4, oct: 1, gate: 0.9)
+            b.arp("gold", .up, .r1_16); b.arp("wine", .asPlayed, .r1_4, oct: 1, gate: 0.9, t: -12)
             for col in 1...8 {
                 b.put(col, 1, "gold", ch: 1, to: [.a])    // right hand, ch1
                 b.put(col, 2, "wine", ch: 2, to: [.b])    // left hand, ch2
@@ -146,7 +146,7 @@ enum SceneFactory {
         Scene(name: "THE FAN") {
             let b = B(); b.global()
             b.arp("violet", .asPlayed, .r1_8, oct: 2); b.ratchet("vermilion", count: 3)
-            b.chance("magenta", 0.65); b.arp("azure", .up, .r1_16)
+            b.chance("magenta", 0.65); b.arp("azure", .up, .r1_16, t: 12)
             for col in 1...8 {
                 b.put(col, 1, "violet", to: [])
                 b.put(col, 2, "vermilion", from: 1, to: [.a])
@@ -162,8 +162,8 @@ enum SceneFactory {
             b.pass("teal", [true, false, true, false])                       // every 2nd
             b.pass("wine", [true, false, false, false], gate: 1.0, t: -12)   // every 4th
             for col in 1...8 { b.put(col, 1, "gold", to: [.a]) }
-            for col in [1, 5] { b.put(col, 2, "teal", to: [.b]) }
-            b.put(1, 3, "wine", to: [.c])
+            for col in [1, 5] { b.put(col, 2, "teal", from: 1, to: [.b]) }   // teal taps the ARP (⇐R1)
+            b.put(1, 3, "wine", from: 1, to: [.c])                           // wine tolls the ARP an 8ve down
             return b.build()
         },
 
@@ -176,18 +176,18 @@ enum SceneFactory {
                 b.put(col, 2, "magenta", from: 1, to: [.a])
             }
             for col in [2, 4, 6, 8] { b.put(col, 3, "blush", from: 1, to: [.b]) }
-            for col in [4, 8] { b.put(col, 4, "vermilion", from: 2, to: [.a]) }
+            for col in [4, 8] { b.put(col, 4, "vermilion", from: 2, to: [.d]) }   // ratchet = pulse (rig D)
             return b.build()
         },
 
         Scene(name: "LONG WALK") {
             let b = B(); b.global()
             b.arp("violet", .up, .r1_16, oct: 2, phase: .legato)
-            b.arp("teal", .upDown, .r1_8t, oct: 1, phase: .free)
+            b.arp("teal", .upDown, .r1_8t, oct: 1, phase: .free, t: 12)
             b.arp("gold", .up, .r1_16, phase: .retrig)
-            for col in 1...4 { b.put(col, 1, "violet", to: [.a]) }   // 4-column LEGATO run
-            for col in 5...8 { b.put(col, 2, "teal", to: [.b]) }
-            for col in 5...8 { b.put(col, 1, "gold", to: [.a]) }
+            for col in 1...4 { b.put(col, 1, "violet", to: [.a]) }          // 4-column LEGATO run
+            for col in 1...4 { b.put(col, 2, "gold", from: 1, to: [.b]) }   // RETRIG re-arps the LEGATO line (⇐R1)
+            for col in 5...8 { b.put(col, 2, "teal", to: [.c]) }            // FREE triplets drift in
             return b.build()
         },
 
@@ -233,7 +233,7 @@ enum SceneFactory {
 
         Scene(name: "THE LOOP THAT ISN'T") {
             let b = B(); b.global()
-            b.arp("gold", .up, .r1_16); b.arp("azure", .down, .r1_8)
+            b.arp("gold", .up, .r1_16); b.arp("azure", .down, .r1_8, t: -12)
             b.ratchet("purple", count: 3); b.pass("teal")
             for col in 1...4 {
                 b.put(col, 2, "gold", to: [.a])
