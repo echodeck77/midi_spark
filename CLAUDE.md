@@ -145,7 +145,7 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **105-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **106-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
@@ -226,9 +226,9 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.
-- **OPEN DECISION (not blocked, needs a call):** CC/PB/AT + stopped-note passthrough go out on
-  cable 0 "All" only, not Emit A (§2.6 ↔ delta §7b conflict) — a host reading only Emit A gets no
-  CC / silence when stopped. Pick the intended behaviour, then it's a small `Kernel` fix.
+- **RESOLVED (`e4bfa30`):** CC/PB/AT + stopped-note passthrough now go out on **All (0) + Emit A (1)**
+  (§2.6 reconciled to §7b — option 3). Pure `Derivations.passthroughCableMask` (unit-tested); the §6a
+  emitter toggle governs NOTE emission, not this raw stream. No open decisions remain.
 - **Architecture debt (log, tackle opportunistically):** the 4 Hz poll is now DEDUPED — it writes
   `@State` only when a DISPLAYED value changed, so a stopped/idle grid never re-renders (this
   replaced the `AuditionBox` poll-pause workaround and is what keeps press-hold gestures alive; the
