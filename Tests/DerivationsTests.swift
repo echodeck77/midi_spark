@@ -389,4 +389,25 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: -1, trueColumn: 0), 4)  // (-1 mod 2) → index 1
         XCTAssertEqual(lapColumn(laneMask: mask, absoluteStep: -2, trueColumn: 0), 2)
     }
+
+    // MARK: - column sweep fraction (mutation-line / §6b chip playhead)
+
+    func testColumnSweepFractionSwingAwareSpansTheRealColumn() {
+        let S = 1.0
+        // swing 50: identity — the raw fraction.
+        XCTAssertEqual(columnSweepFraction(realBeat: 0.0, stepBeats: S, swing: 50), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(columnSweepFraction(realBeat: 0.5, stepBeats: S, swing: 50), 0.5, accuracy: 1e-9)
+
+        // swing 62 stretches the FIRST column to realOf(S) > S raw beats. The raw fraction would WRAP to
+        // 0 at real beat 1.0 (the bug); the swing-aware fraction is still mid-sweep there and only wraps
+        // at the true (swung) column end.
+        let colEnd = realOf(1.0, stepBeats: S, a: 62.0 / 50.0)         // ≈ 1.24
+        XCTAssertGreaterThan(colEnd, 1.0, "swing stretches the first column past 1 raw beat")
+        let fAtRawWrap = columnSweepFraction(realBeat: 1.0, stepBeats: S, swing: 62)
+        XCTAssertGreaterThan(fAtRawWrap, 0.5, "still sweeping at real 1.0 — NOT wrapped early")
+        XCTAssertLessThan(fAtRawWrap, 1.0)
+        XCTAssertEqual(columnSweepFraction(realBeat: 0.0, stepBeats: S, swing: 62), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(columnSweepFraction(realBeat: colEnd - 1e-4, stepBeats: S, swing: 62), 1.0, accuracy: 1e-3)
+        XCTAssertEqual(columnSweepFraction(realBeat: colEnd, stepBeats: S, swing: 62), 0.0, accuracy: 1e-9)  // wraps AT the column end
+    }
 }

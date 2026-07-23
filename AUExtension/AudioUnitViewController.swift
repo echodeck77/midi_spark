@@ -250,7 +250,7 @@ struct DiagView: View {
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats,
+                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
@@ -321,7 +321,7 @@ struct DiagView: View {
                 Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
-                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats) { brush = $0 }
+                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing) { brush = $0 }
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

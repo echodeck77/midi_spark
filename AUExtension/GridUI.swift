@@ -48,6 +48,7 @@ struct GridView: View {
     var beat: Double = 0        // host beat position, polled ~4 Hz; extrapolated per-frame below
     var tempo: Double = 120
     var stepBeats: Double = 2   // beats per grid step (from the global STEP rate)
+    var swing: Int = 50         // 50…75 — warps the sweep so it spans the real (swung) column window
     var cellHeight: CGFloat = 54   // set by the parent to fit the available height (landscape)
     var editing: Bool = true    // EDIT: sub-cell zones (FROM/OUT popovers, paint). PERFORM: whole pad = one tap.
     var selCol: Int = -1
@@ -147,9 +148,9 @@ struct GridView: View {
             let cellW = (geo.size.width - 7 * Self.vGap) / 8
             let colX = CGFloat(playColumn) * (cellW + Self.vGap) + cellW / 2
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
-                // within-STEP fraction (0 at column entry → 1 at exit)
-                let f = ((liveBeat(tl.date) / max(0.001, stepBeats)).truncatingRemainder(dividingBy: 1) + 1)
-                    .truncatingRemainder(dividingBy: 1)
+                // within-column fraction (0 at column entry → 1 at exit), swing-aware so it spans the
+                // real (swung) column window rather than finishing early and wrapping.
+                let f = columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing)
                 ForEach(0..<8, id: \.self) { r in
                     if playing, let c = cellAt(playColumn, r), !c.muted {
                         let faint = c.bypassed
@@ -741,14 +742,12 @@ struct PaletteView: View {
     var beat: Double = 0
     var tempo: Double = 120
     var stepBeats: Double = 2
+    var swing: Int = 50
     let onPick: (String) -> Void
 
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
     private func liveBeat(_ now: Date) -> Double { playing ? lastBeat + now.timeIntervalSince(lastBeatAt) * tempo / 60.0 : lastBeat }
-    private func withinStep(_ b: Double) -> Double {
-        ((b / max(0.001, stepBeats)).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
-    }
 
     /// Is this Colour working in the live column? → (faint = all working instances bypassed, alt = no
     /// main instance i.e. alt-only). nil = not working. ONE sweep per Colour regardless of instance count.
@@ -784,7 +783,7 @@ struct PaletteView: View {
     private func chipSweep(_ a: (faint: Bool, alt: Bool)) -> some View {
         GeometryReader { g in
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
-                let f = CGFloat(withinStep(liveBeat(tl.date)))
+                let f = CGFloat(columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing))
                 Rectangle()
                     .fill(Color.white.opacity(a.faint ? 0.35 : 0.9))
                     .shadow(color: a.faint ? .clear : Color.white.opacity(0.7), radius: a.faint ? 0 : 2)

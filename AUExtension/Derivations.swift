@@ -134,6 +134,18 @@ func realOf(_ musicalBeat: Double, stepBeats S: Double, a: Double) -> Double {
     return base + u
 }
 
+/// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
+/// mutation-line playhead (grid cells AND §6b Colour chips). SWING-AWARE: swing stretches/compresses
+/// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map
+/// beats→columns, else it finishes early and wraps mid-column. At swing 50 (a = 1) `musicalOf` is the
+/// identity, so this is the raw (realBeat/step) fraction. One-clock: a pure function of the beat.
+func columnSweepFraction(realBeat: Double, stepBeats: Double, swing: Int) -> Double {
+    let a = Double(min(75, max(50, swing))) / 50.0
+    let S = max(0.001, stepBeats)
+    let m = musicalOf(realBeat, stepBeats: S, a: a)
+    return ((m / S).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
+}
+
 /// COLUMN-SUBSET LAP (delta §5b) — the whole perform-v2 feature in one function. With `laneMask` the
 /// held columns (bit i set ⇒ column i is held), the EFFECTIVE column at global step `absoluteStep` is
 /// the (absoluteStep mod k)-th held column, ordered left→right (k = held count). Only column SELECTION
