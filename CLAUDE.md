@@ -145,7 +145,7 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **106-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **111-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
@@ -232,11 +232,12 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
 - **Architecture debt (log, tackle opportunistically):** the 4 Hz poll is now DEDUPED — it writes
   `@State` only when a DISPLAYED value changed, so a stopped/idle grid never re-renders (this
   replaced the `AuditionBox` poll-pause workaround and is what keeps press-hold gestures alive; the
-  audition target still lives in a silent reference box). Remaining: dead legacy fields (`Cell.stack`/
-  `srcMix`, `SceneState.rowBypass/stackMute/stackSolo`) still in the model; the now-defensive `guard
-  playing` in Router.process; the `TODO(spec §7)` param route writes the document then rebuilds rather
-  than routing into the snapshot directly. (A fuller isolation — pads Equatable so they don't re-render
-  even while PLAYING — is possible but unneeded: audition is stopped-only, and the pads are cheap.)
+  audition target still lives in a silent reference box). CLEANED UP (`c28d0c4`): the dead `guard
+  playing` and the dead `SceneState.rowBypass/stackMute/stackSolo` are removed (old saves still decode
+  — Codable ignores the keys; guarded by a test). Remaining: `Cell.stack`/`srcMix` stay (load-bearing
+  for the v2→v3 migration); the `TODO(spec §7)` param route writes the document then rebuilds rather
+  than routing into the snapshot directly. (A fuller UI isolation — pads Equatable so they don't
+  re-render even while PLAYING — is possible but unneeded: audition is stopped-only, the pads are cheap.)
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
   `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 + audition +
