@@ -1,4 +1,4 @@
-# MidiSpark — working title "8x8 State"
+# MidiSpark — shipping as "8x8 State"
 
 Container app + AUv3 MIDI-processor extension (`aumi`) for iPadOS. An 8×8 grid
 sequences MIDI *processors* (arps, ratchets, gates) over time; held chords go
@@ -8,9 +8,9 @@ Public name **"8x8 State"** (display-only; the code/bundle identity stays MidiSp
 **Spec:** `Docs/midispark-spec-v2.8.md` read together with
 `Docs/midispark-spec-v3.0-delta.md` (the delta wins conflicts).
 **Live status and the current plan:** `CLAUDE.md`.
-**UI reference:** the built plugin is now the living reference (GUI reconcile done);
-the latest openable mockup is `Docs/midispark-preview-v58.html`. (Docs reference a
-"v59" design target — scene strip etc., now built in-app — but no v59 HTML was exported.)
+**UI reference:** the built plugin is the living reference for shipped features;
+`Docs/midispark-preview-v60.html` (now exported, with v59) is the behavioural
+spec for unbuilt ones — currently the §6a emitter toggles and the §5b lap visuals.
 
 > Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
 > channels/outputs, graph routing, the full GUI reconcile, the perform layer, and

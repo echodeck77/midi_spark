@@ -61,8 +61,8 @@ duplicate events, independently well-paired.
 **T5 — muted-parent reroute.** As T2 but the parent (row 0) muted.
 → Row 1 reverts to MIDI IN (v3.0-delta §1 reroute rule): plays as if
 unreferenced; restores on unmute; zero stuck notes across both transitions.
-Visual checks: diag panel, and the cell's FROM header flare once the grid is
-reconciled.
+Visual checks: the AUM monitor, and the cell's FROM header flare (the
+in-plugin diag panel is gone).
 
 **T6 — channel filter + stamp.** Two cells, both FROM MIDI: cell 1 filter
 IN CH 1, bus A (ch stamp 5); cell 2 filter IN CH 2, bus B (default stamp 2).
@@ -149,9 +149,36 @@ passthrough stops** while held. Release → no stuck notes. By type:
 Press **play** while holding → audition auto-releases, sequencing takes over. Hold with **no
 keys down** → silence.
 
-(DEFERRED — no procedure yet: APPLY latch, column audition, popover-live audition; and
-stutter/loop, isolate/solo — the lock
-features need the `lockLo/lockHi` engine override and are spec-pending.)
+(DEFERRED — no procedure yet: APPLY latch, column audition, popover-live
+audition; cell-hold isolate/solo — provisional pending the TOUCH design pass.
+Stutter/loop is now SPEC'D as the delta §5b column-subset lap — its T-intent
+is below; engine work per CLAUDE.md NEXT.)
+
+**T-intent — emitter toggles (§6a; number per repo authority).** Load the T10
+setup (three streams, stamps 1/2/3, synths on Emit A/B/C + omni monitor on
+All). While a chord is held and playing: disable B.
+→ Cable B silent IMMEDIATELY (clean offs); All loses exactly B's stream; A/C
+untouched; B's cells still derive (children routed elsewhere still sound).
+Re-enable B → its stream returns at the next articulation, not mid-note.
+Shared-channel case: set two emitters to the SAME channel, disable one → All
+keeps the survivor's notes with no early offs. Hammer all four toggles
+rapidly during play → zero stuck notes anywhere, All always equals the
+enabled sum. EDIT mode: pad body still toggles; the CH caption opens the
+channel popover; changing a channel live re-stamps cleanly (T6 semantics).
+
+**T-intent — column-subset lap (§5b; number per repo authority).** A scene
+with distinct material in every column (scene 4 STAIRCASE is ideal). Playing,
+chord held:
+(a) hold key 3 → column 3 repeats at step rate; release → the pattern is
+exactly where it would have been (verify against a counting loop in AUM).
+(b) hold 1+4 → strict alternation; add 6 mid-hold → 1,4,6 rotating (k=3
+against 8: the downbeat column CHANGES each pass — the intended polymeter;
+verify it rotates rather than resetting).
+(c) hold a contiguous 5–8 → the old loop-brace behaviour.
+(d) with a PASSGATE scene (9): during any hold, the every-2nd/4th-pass cells
+keep their TRUE schedule.
+(e) hammer holds on/off across bar lines → zero stuck notes, arrow always on
+the sounding column.
 
 ## UI size checkpoints (GUI reconciliation gate)
 

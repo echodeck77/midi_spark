@@ -4,10 +4,10 @@ STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
 (colours/cells/presets, processors, morph/ALT, swing, QUANT, performance layers,
 engine snapshot architecture, collision policy, parameters, MORPH desk).
-Reference implementation of the UI: `Docs/midispark-preview-v59.html`
+Reference implementation of the UI: `Docs/midispark-preview-v60.html`
 (v50/v51 contain a JSX bug — do not use; v52 fixed base → v54 three-box
 layout → v56 scene strip → v57 column keys → v58 static frames → v59
-sixteen-slot strip = canonical).
+sixteen-slot strip → v60 emitter toggles (§6a) = canonical).
 The abandoned alternative (linear chains + module boxes) is preserved as
 `midispark-preview-v40.html` for the record; do not implement it.
 
@@ -63,6 +63,7 @@ The abandoned alternative (linear chains + module boxes) is preserved as
 
 ```json
 cell: { "presetID": int, "inputRow": int|null, "inputChannel": 0|1..16, "buses": [0..4 of "A".."D"], "alt": bool }
+document additionally: busChannels[4] (1..16 each) · busEnabled[4] (bool, default true — §6a)
 ```
 `stack` and `srcMix` are gone. Migration from v2.x documents: fed cell
 (above.stack was true) → inputRow = row−1; srcMix has no equivalent (drop it;
@@ -170,6 +171,78 @@ a MIDI-IN display ABOVE the COLOUR box. BACKLOG (log, don't invent):
 collapsible/scalable desk sections for tucking away unused panels.
 Final dimension tuning happens on device.
 
+### 5b. PERFORM v2 — the COLUMN-SUBSET LAP (supersedes v2.8 §6.2 stutter +
+### loop brace; this is the revised hold-layer spec)
+
+**Gesture:** in PERFORM, HOLD one or more COLUMN KEYS. While held, the lap
+consists of exactly the held columns; on full release, playback is back at
+the true position instantly. (Tap remains column mute/unmute — the existing
+hold-vs-tap threshold distinguishes.)
+
+**The rule (pure derivation — the whole feature is one line):**
+`effColumn = S[absoluteStep mod k]` where S = held columns sorted
+left-to-right, k = |S|, absoluteStep = the derived global step counter. The
+TRUE timeline never stops and never remaps; only column selection is warped.
+Release ⇒ effColumn = trueColumn — nothing snaps because nothing drifted.
+[Considered and REJECTED: order-of-press ordering for S — expressive but
+unpredictable under sweaty fingers; sorted wins.]
+
+- **Subsumes the old family:** k=1 = stutter; contiguous S = loop brace
+  (the two-finger brace gesture is REMOVED); non-contiguous S = new.
+- **INTENDED polymeter:** when k does not divide 8, the lap rotates against
+  the pass (hold 3 columns: the 3-cycle phases around the 8-step timeline).
+  This is a feature, not an artifact — do not "correct" it by resetting the
+  mapping at pass boundaries.
+- Time itself is unwarped: PASS count, PASSGATE, per-pass behaviours, and
+  swing all follow the TRUE timeline. A held-but-muted column contributes
+  its silence honestly. Fingers joining/leaving mid-hold recompute S live.
+- **State:** the held set is EPHEMERAL engine-visible state (audition's
+  category — never persisted, cleared on transport stop and on mode switch
+  to EDIT).
+- **Engine shape:** replaces the `lockLo/lockHi` contiguous-range stub with
+  a held-column BITMASK + the mapping above; transitions in/out of/within a
+  hold close/reopen notes per invariant 4 (a column change is a column
+  change, whatever caused it).
+- **Visuals:** held keys show the LOOP state (v57 key vocabulary); the
+  playhead arrow follows the EFFECTIVE column (one-clock rule — it is a pure
+  function of effColumn). A ghost indicator of the true position is
+  DEFERRED to a later visual pass (log, don't invent).
+- Relationship to the parked per-Colour tap/hold item (§9): column-key holds
+  are ARRANGEMENT-level time-warps; the per-Colour behaviours are
+  VOICE-level. They compose; neither replaces the other.
+
+### 6a. The EMITTERS panel — behaviour per mode (supersedes panel-as-selector)
+
+The four grid-pad-scale pads ARE the emitters (letter + CH readout + firing
+flash when notes leave).
+
+- **PERFORM: pad body = TOGGLE.** Enables/disables that emitter's output
+  entirely — the per-output performance mute. Disabled = recessed/dark, CH
+  dimmed, no firing flash. CH is display-only in PERFORM.
+- **EDIT: the toggle is RETAINED on the pad body** (body = toggle in both
+  modes — an invariant; one muscle memory). The channel becomes editable:
+  the pad's CH caption is an OPENER (sub-44 law) for the CHANNEL POPOVER
+  (1–16, one-popover grammar, tap-away dismisses). [Considered and REJECTED:
+  a persistent selector row — it would force EDIT taps to mean select-not-
+  toggle, breaking the cross-mode body invariant.]
+- **Disable semantics (each clause follows an existing law):** disabling X
+  immediately closes X's sounding notes (invariant 4), on X's own cable AND
+  X's contribution to All — **All = the sum of ENABLED emitters.** Shared-
+  channel merges survive correctly: notes co-owned by an enabled emitter
+  keep sounding on All; the emitted-tuple refcount reaches zero only when
+  all owners are gone. Re-enable resumes from the NEXT articulation — never
+  retroactive re-sounding of mid-flight notes.
+- **Cells are untouched:** a disabled emitter's cells still derive; children
+  still hear parents. The gate lives at the emission boundary EXCLUSIVELY
+  (seam rule 3). Bus-disable is not cell-mute.
+- **State:** document-level `busEnabled[4]`, default all true, persisted
+  (scenes/Presets); loader defaults old documents to all-true. Factory
+  scenes ship all-enabled.
+- The AU always declares five outputs; disable is emission-gating, never a
+  declaration change. The shared-channel merge note remains a gentle
+  warning, both modes. Static frames: toggling and the popover never resize
+  the panel.
+
 **Sizing across devices and host windows:** all UI dimensions and type sizes
 are TOKENS derived from the resolved cell size, with a legibility floor —
 no hardcoded literals survive the port. Screens (1024×768 floor → 13") need
@@ -234,6 +307,14 @@ every answer at once.
   processed streams derived from the same sounding set (test T9).
 - ADD item 30: reroute — muting a referenced parent reverts children to
   MIDI IN within one derivation, restoring on unmute, with no stuck notes.
+- ADD item 34: the column-subset lap (§5b) — arbitrary held sets map per the
+  formula; release is seamless (true position, zero drift); k∤8 polymeter
+  rotates as specified; PASSGATE follows true time throughout; zero stuck
+  notes across hold enter/leave/membership changes (new T-intent).
+- ADD item 33: emitter toggles (§6a) — disable = instant silence of that
+  cable AND removal from All with correct off-pairing incl. shared-channel
+  merges; cells keep deriving; re-enable resumes at next articulation; zero
+  stuck notes under toggle-hammering (new T-intent, test-procedures).
 - ADD item 32: cycles are silent, backward taps work (test T11).
 - ADD item 31: the ALL cable — carries every emitter's stream
   channel-distinguished, correctly off-paired even when two emitters share a
@@ -253,6 +334,31 @@ every answer at once.
 - Cross-column references: FORBIDDEN, now and later. Reference graphs are per-column.
 - The dead-loop (cycle) indicator: DEFERRED — visual design later; engine
   needs nothing.
+- RECORDED, UNDESIGNED (2026-07 — the user will expand these in a future
+  design pass; log, do NOT design, implement, or let them shape other work):
+  1. **Per-cell behaviour setting** — a cell-level setting influencing how
+     the cell behaves (scope/values unspecified).
+  2. **Recorded input bar / per-cell capture — DESIGN SKETCH ON RECORD
+     (2026-07, refined; still a future item).** DECIDED: TOUCH v1 SHIPS with
+     live-replay only (audition's in-time sibling, fully derived). The v2
+     direction is PER-CELL CAPTURE, user-refined to resolve the earlier
+     objections: every time the playhead passes an active cell, record its
+     INPUT — "the pool as sampled at the cell's tick times during its most
+     recent activation" (referenced cells therefore capture the TRANSFORMED
+     stream, correctly). CLEARED ON TRANSPORT STOP — the memory is of THIS
+     run (persistence dilemma dissolved; staleness ≤ ~one pass while
+     playing, patchwork dissolved). Replay runs the capture through CURRENT
+     params. Memory: bounded static ~64–256KB total (≤32 ticks × 16 notes ×
+     64 cells, preallocated) — negligible. Ownership: router writes at
+     derivation, reads at replay — render-thread single-writer, no atomics.
+     COSTS THAT REMAIN when implemented: a two-sentence invariant-2
+     amendment (third sanctioned accumulator: fixed-size, single-writer,
+     cleared on stop); CHANCE-upstream captures replay that pass's exact
+     dice (feature, document it). The SHARED bar idea demotes to a display
+     candidate for the reserved MIDI-IN slot. Do not implement ahead of the
+     TOUCH-box design pass.
+  3. **Row solo** — soloing at row granularity (relationship to column
+     mute/solo and the perform layer unspecified).
 - EXTERNAL processor type (hosted 3rd-party MIDI AUv3s): decided direction,
   standalone-only by platform law, fully deferred — see
   Docs/standalone-plan.md. Do not design or implement ahead of it; DO honour

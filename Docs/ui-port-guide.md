@@ -1,13 +1,13 @@
-# UI port guide — mockup v56 → SwiftUI
+# UI port guide — mockup v60 → SwiftUI
 
-The reference implementation is `Docs/midispark-preview-v56.html` (React, runs
-in any browser). A first grid slice EXISTS in the repo built to an earlier
+The reference implementation is `Docs/midispark-preview-v60.html` (React, runs
+in any browser; v60 adds the §6a emitter-toggle panel behaviour). A first grid slice EXISTS in the repo built to an earlier
 generation — reconciliation, not greenfield, is the task (see the migration
 doc's GUI section for sequencing). It is the *behavioural* spec for the UI: when this guide and
 the HTML disagree on look/feel/timing, open the HTML and match it. When either
 disagrees with the spec (v2.8 + v3.0-delta) on semantics, the spec wins.
-v26–v49 are historical; v50/v51 contain a JSX bug (do not open); v52–v55 are
-intermediates; v56 is canonical. v40 is the preserved abandoned fork.
+v26–v49 are historical; v50/v51 contain a JSX bug (do not open); v52–v58 are
+intermediates; v59 is canonical. v40 is the preserved abandoned fork.
 MOCKUP-ONLY AFFORDANCE — DO NOT PORT: the header's AUTO/WIDE/TALL layout
 toggle exists so both orientations can be previewed in a browser; the real
 app derives orientation from size classes, never a user toggle.
@@ -33,8 +33,8 @@ the HTML's `T` constant.
 
 ## Component inventory (top → bottom of the mockup)
 
-1. **Header:** "8×8 STATE" logotype (candidate branding — product strings
-   stay MidiSpark until the name is decided), mode toggle (EDIT amber /
+1. **Header:** "8×8 STATE" logotype (the DECIDED public name — display-only;
+   code identity stays MidiSpark, see CLAUDE.md vocabulary), mode toggle (EDIT amber /
    PERFORM cyan), TAP action selector (perform), STEP rate, SWING, PASS
    counter, transport, momentary indicators (ISOLATE / STUTTER / LOOP n–m /
    ROW ALT). (v54 decision: STEP/SWING live HERE, not the desk.)
@@ -64,14 +64,18 @@ the HTML's `T` constant.
    channels are bus-owned; the frame is FIXED-SIZE per orientation, sized
    for the largest type's field set — the STATIC FRAMES RULE, delta §6:
    boxes never resize or move with content; use fixed frames in SwiftUI,
-   never intrinsic sizing, for all three boxes). EMITTERS = four GRID-PAD-SCALE square buttons
-   each printing its letter + CH readout, selected = white ring; below them
-   CABLE·CH edit control, ALL-cable note, shared-channel warning. MORPH desk:
+   never intrinsic sizing, for all three boxes). EMITTERS = four GRID-PAD-SCALE
+   square TOGGLE pads (§6a): body toggles the emitter in BOTH modes
+   (perform = per-output mute; disabled = recessed, no firing flash); in
+   EDIT the CH caption on each pad OPENS the channel popover (no separate
+   selector row, no selection state); All-cable note + shared-channel
+   warning remain. MORPH desk:
    PARKED (own later pass); RESERVED above COLOUR: the MIDI-IN display
    (details TBD).
 5. **SCENE strip:** full-width along the bottom in both orientations —
-   8 grid-idiom slots, current ringed; dev builds host the canned test
-   sessions in these slots until scenes are implemented.
+   SIXTEEN grid-idiom slots, current ringed. Release builds wire
+   `SceneFactory` (Docs/factory-scenes.md); dev builds host the canned test
+   sessions via the DEV LOADER (as built: portrait plugin UI only).
 
 ## Gesture map (the grammar, §0 — implement uniformly)
 
@@ -112,13 +116,15 @@ the HTML's `T` constant.
 - Do NOT port: Babel/React scaffolding, the mockup's fake transport clock
   (the AU is the clock), mouse-event hold emulation.
 
-## Order of work (revised — a grid slice already exists)
+## Order of work — STATUS: steps 1–5 DONE (the reconcile shipped; see
+## CLAUDE.md). Remaining UI work lives in CLAUDE.md NEXT (§5b lap visuals,
+## §6a toggles, size gate). Kept for the record:
 
 1. SURVEY the existing grid (migration doc GUI section): what it binds, which
    visual generation it implements. List before editing.
 2. Rebind to the new schema (inputRow / inputChannel / busChannels) once the
    engine migration lands — the grid must never write old fields.
-3. Reconcile visuals to v56: four-row cell, watermarks, playheads (one-clock
+3. Reconcile visuals to v59/v60: four-row cell, watermarks, playheads (one-clock
    rule), header/emitter states. Acceptance 12 (rescoped): header names the
    live parent; emitter strip matches actual emission — verify vs a monitor.
 4. Edit interactions: FROM/OUT popovers → then drag-and-drop + hold menu.

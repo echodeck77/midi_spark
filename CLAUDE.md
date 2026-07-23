@@ -52,15 +52,15 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   slice exists; reconcile, don't rebuild).
 - `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
-- GUI mockups — **the built plugin is now the living reference** (the reconcile is done +
-  device-verified). The latest OPENABLE mockup file is `Docs/midispark-preview-v58.html`;
-  the docs also name a **"v59" design target** (the SIXTEEN-slot scene strip on top of v58) that
-  was built in-app but never exported as HTML — so `preview-v59.html` does NOT exist (dangling
-  ref in the delta + migration doc; harmless now the UI is built). Mockup lineage: v57 added
-  PROMINENT COLUMN KEYS; v58 made the STATIC FRAMES rule visible; v59 = + scene strip. v26–v58
-  are history; v50/v51 are BROKEN (JSX bug) — never open; v40 is the preserved abandoned fork
-  (module boxes / linear chains) — do not implement it. The mockup's AUTO/WIDE/TALL toggle is a
-  browser preview affordance — never port it.
+- GUI mockups — **the built plugin is the living reference for SHIPPED features**;
+  mockups are the behavioural spec for UNBUILT ones. `Docs/midispark-preview-v59.html`
+  and `-v60.html` NOW EXIST (exported 2026-07-23; the earlier dangling-v59 note is
+  resolved). v60 = canonical, and is the reference for the §6a EMITTER TOGGLES
+  (pads toggle in both modes; CH caption = opener in EDIT; selectedBus concept
+  DEAD). Lineage: v57 column keys · v58 static frames · v59 sixteen-slot strip ·
+  v60 emitter toggles. v26–v59 are history; v50/v51 are BROKEN (JSX bug) — never
+  open; v40 is the preserved abandoned fork — do not implement it. The AUTO/WIDE/
+  TALL toggle is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
 - **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
@@ -192,10 +192,20 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   `SceneFactory` reconciled to the revised Docs/factory-scenes.md (8 scenes) + ear-verified on the
   STANDING RIG; the audition-gesture reliability fix; **the UI-size-checkpoint GATE PASSED**.
   → **`v0.7-gui` is ready to tag** (user tags manually).
-- **NEXT:** (a) PERFORM v2 — stutter/loop (hold column key), isolate/solo, hold-to-stutter — all
-  **engine-blocked** on the lock/effColumn override (`lockLo/lockHi` currently STUBBED in Router as
-  `effColumn == trueColumn`; `SnapshotBox` carries no lockLo/lockHi/rowPush) AND **spec-pending**
-  (user flagged perform issues for a revised spec). (b) MORPH desk (16 faders) — parked per delta.
+- **NEXT:** (a) PERFORM v2 — **SPEC DELIVERED: delta §5b, the COLUMN-SUBSET LAP**
+  (hold any set of column keys = the lap is exactly the held set;
+  `effColumn = S[absoluteStep mod k]`, S sorted; k∤8 polymeter is INTENDED —
+  never reset the mapping at pass boundaries; subsumes stutter + loop brace,
+  two-finger brace gesture removed). Engine: replace the `lockLo/lockHi` stub
+  with a held-column BITMASK + the mapping; unit-test the mapping (incl. the
+  k=3 rotation) in RouterTests FIRST, then the on-device T-intent. Ephemeral
+  state, audition's category. (Cell-hold ISOLATE remains provisional pending
+  the TOUCH design pass.) (a2) EMITTER TOGGLES — **delta §6a**: `busEnabled[4]`
+  (default true, persisted, loader-defaulted), emission-boundary gate only
+  (All = sum of ENABLED emitters; cells keep deriving), pad body toggles in
+  BOTH modes, CH caption = channel-popover opener in EDIT; RouterTests +
+  T-intent per test-procedures; reference preview v60.
+  (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.
 - **OPEN DECISION (not blocked, needs a call):** CC/PB/AT + stopped-note passthrough go out on
