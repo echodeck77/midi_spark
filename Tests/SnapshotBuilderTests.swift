@@ -83,20 +83,41 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box(cs) { _ in }.colours[0].transpose, 5)
     }
 
-    func testSparseBInheritsAButSetFieldsOverride() {
-        // The whole point of the B-state: a field left NIL in B inherits A; a field set in B overrides.
-        let cs = colours(customizing: 0) {
-            $0.paramsA.rate = .r1_8
-            $0.paramsA.octaves = 1
-            $0.paramsB = ColourParams()
-            $0.paramsB.rate = nil        // unset in B → inherits A
-            $0.paramsB.octaves = 3       // set in B → overrides
-        }
+    // MARK: - COLOUR-PAIR morph (delta §9 item 5) — b sourced from the partner, tier gates the resolve
+
+    func testColourPairFullSourcesBFromPartnerAndGlides() {
+        // A FULL pair (same type): b comes from the PARTNER Colour (not a retired paramsB), and morph
+        // glides a→b — so t=1 adopts the partner's params.
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        cs[0].paramsA.octaves = 1            // self
+        cs[1].paramsA.octaves = 3            // partner (same type, differs)
+        cs[0].altColour = 1
         let sc = box(cs) { _ in }.colours[0]
-        XCTAssertEqual(sc.a.rateIndex, Int8(ArpRate.allCases.firstIndex(of: .r1_8)!))
-        XCTAssertEqual(sc.b.rateIndex, sc.a.rateIndex)   // inherited from A
+        XCTAssertEqual(sc.tier, .full)
         XCTAssertEqual(sc.a.octaves, 1)
-        XCTAssertEqual(sc.b.octaves, 3)                  // overridden by B
+        XCTAssertEqual(sc.b.octaves, 3, "b comes from the partner Colour")
+        XCTAssertEqual(effectiveOctaves(sc, t: 1.0), 3, "morphing to the partner adopts its octaves")
+    }
+
+    func testColourPairSwapIsCrossTypeAndUnpairedIsNone() {
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        cs[2].type = .passgate
+        cs[3].type = .chance
+        cs[2].altColour = 3
+        let b = box(cs) { _ in }
+        XCTAssertEqual(b.colours[2].tier, .swap, "different types ⇒ swap")
+        XCTAssertEqual(b.colours[2].b.type, .chance, "b carries the partner's type")
+        XCTAssertEqual(b.colours[0].tier, .none, "unpaired ⇒ none")
+    }
+
+    func testUnpairedColourIgnoresLegacyParamsB() {
+        // paramsB is retired: an unpaired Colour's b equals a even with a legacy paramsB set.
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        cs[0].paramsA.octaves = 2
+        cs[0].paramsB.octaves = 4            // legacy — must be ignored by the builder
+        let sc = box(cs) { _ in }.colours[0]
+        XCTAssertEqual(sc.tier, .none)
+        XCTAssertEqual(sc.b.octaves, 2, "b == a; paramsB is not consulted")
     }
 
     func testEnumToIndexAndClamps() {

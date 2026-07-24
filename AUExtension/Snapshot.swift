@@ -66,7 +66,8 @@ struct SnapColour {
     var transpose: Int8 = 0
     var morph: Double = 0
     var a = SnapParams()
-    var b = SnapParams()             // fully resolved B (sparse overrides already applied)
+    var b = SnapParams()             // delta §9 item 5: the PARTNER Colour's resolved params (= a if unpaired)
+    var tier: MorphTier = .none      // none/full/swap — gates how a→b resolves (glide vs binary flip)
 }
 
 // MARK: - The box: immutable after construction → safe concurrent reads, no locks
@@ -99,20 +100,28 @@ final class SnapshotBox {
 
 // MARK: - Effective params (render-side, §3.2: stepped fields quantize, never glide)
 
+/// The effective morph position for ONE CELL — the value every effective* helper takes as `t` to
+/// interpolate a→b. Tier-aware (delta §9 item 5): `none` (unpaired) → 0, always A; `full`/`partial`
+/// (same-ish type) → ALT pins full-B, else the Colour's morph macro (0…1); `swap` (cross-type) → a BINARY
+/// flip on the ALT bit (0 or 1, no intermediate — the morph fader is inert for a swap pair). The global
+/// morphMaster (param #300) is RETIRED — morph is per-Colour only. Cells differ only by their alt bit.
 @inline(__always)
-func effectiveMorph(_ colourMorph: Double, master: Double) -> Double {
-    min(1.0, colourMorph + (1.0 - colourMorph) * master)      // §13.5
+func effectiveT(_ c: SnapColour, morph: Double, alt: Bool) -> Double {
+    switch c.tier {
+    case .none:  return 0
+    case .swap:  return alt ? 1.0 : 0.0
+    default:     return alt ? 1.0 : min(1.0, max(0.0, morph))   // full, partial
+    }
 }
 
-/// §7: the effective morph position for ONE CELL — the value every other helper here takes as `t`.
-/// A cell's ALT bit forces full B; otherwise the Colour macro merged with MASTER (§13.5).
-/// Colours are definitions, cells are instances (§1.1): two cells sharing a Colour differ only
-/// by their own alt bit, which is why this is the per-cell entry point and `effectiveMorph` is not.
-/// Step 6 joins rowPush to the same expression: `(alt || push) ? 1 : effectiveMorph(...)`.
+/// The effective processor TYPE for a cell — flips to the partner's type at t≥0.5 (only a `swap` pair has
+/// a≠b type; `full`/`none` keep A's type at every t).
 @inline(__always)
-func effectiveT(colourMorph: Double, master: Double, alt: Bool) -> Double {
-    alt ? 1.0 : effectiveMorph(colourMorph, master: master)
-}
+func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { t >= 0.5 ? c.b.type : c.a.type }
+
+/// The effective passgate mask for a cell — follows the type flip (partner's mask past the midpoint).
+@inline(__always)
+func effectivePassMask(_ c: SnapColour, t: Double) -> UInt8 { t >= 0.5 ? c.b.passMask : c.a.passMask }
 
 @inline(__always)
 func effectiveRateBeats(_ c: SnapColour, t: Double) -> Double {

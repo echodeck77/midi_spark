@@ -22,14 +22,15 @@ final class ColourTypeSwitchTests: XCTestCase {
         XCTAssertEqual(c.transpose, 12, "back to HARMONIZE restores its +12")
     }
 
-    func testMorphIsPerType() {
+    func testMorphPersistsAcrossTypeSwitch() {
+        // delta §9 item 5: morph is a single per-Colour scalar (the position TOWARD the partner), NOT
+        // per-type — so a type switch leaves it untouched (unlike transpose, which stays per-type).
         var c = gold()
         c.morph = 0.7
         c.switchType(to: .strum)
-        XCTAssertEqual(c.morph, 0, accuracy: 1e-9, "STRUM has its own morph, not ARP's 0.7")
-        c.morph = 0.3
+        XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9, "morph is per-Colour now — it survives a type switch")
         c.switchType(to: .arp)
-        XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9, "ARP's morph is restored")
+        XCTAssertEqual(c.morph, 0.7, accuracy: 1e-9)
     }
 
     func testTypeSpecificParamsPersistAndDoNotLeak() {

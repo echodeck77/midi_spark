@@ -72,29 +72,33 @@ struct Colour: Codable, Equatable {
     var transpose: Int = 0         // −24…+24, accumulates in chains, clamped — the ACTIVE type's transpose
     var morph: Double = 0          // §3.2 — the per-colour macro AUParameter — the ACTIVE type's morph
     var paramsA: ColourParams = ColourParams()
-    var paramsB: ColourParams = ColourParams()   // sparse in spirit: unset fields inherit from A at merge time
-    // Per-TYPE stash of transpose/morph (spec revision): each processor type keeps its OWN transpose and
-    // morph, so switching type never leaks a pitch/macro from another type, and A→B→A restores A's.
-    // Type-specific PARAMS already isolate (pattern vs harmIntervals … live in distinct ColourParams
-    // fields); transpose+morph were the only shared scalars. Optional → v2 docs decode as nil (all-zero).
+    // LEGACY after COLOUR-PAIR (delta §9 item 5): the "second self" is now a PARTNER Colour (altColour),
+    // not a within-Colour B stash. paramsB is decode-only (old docs keep it) and is IGNORED by the render.
+    var paramsB: ColourParams = ColourParams()
+    // delta §9 item 5: this Colour's morph PARTNER — an index 0…15 into the 16 Colours, or nil = unpaired.
+    // A cell's `alt` flag flips to this partner; `morph` (below) is the position toward it. The ALT box on
+    // the desk edits this. Optional → old docs decode as nil (unpaired) and their alt cells go inert.
+    var altColour: Int? = nil
+    // Per-TYPE stash of TRANSPOSE (spec revision): each processor type keeps its own transpose, so
+    // switching type never leaks a pitch. Optional → v2 docs decode as nil (all-zero).
     var transposeByType: [Int]? = nil
-    var morphByType: [Double]? = nil
+    var morphByType: [Double]? = nil   // LEGACY: morph is now a single per-Colour scalar (toward partner), not per-type
 
-    /// Switch the processor type, giving each type its own transpose/morph. Stash the ACTIVE values under
-    /// the old type, restore the new type's. Idempotent for a no-op switch. `transpose`/`morph` remain the
-    /// live (AUParameter- and snapshot-facing) values for whatever type is currently selected.
+    /// Switch the processor type, giving each type its own TRANSPOSE. Stash the active transpose under the
+    /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Colour
+    /// scalar (the position toward the partner, delta §9 item 5) — NOT per-type — so a type switch leaves
+    /// it untouched. `transpose` remains the live (AUParameter- and snapshot-facing) value for this type.
     mutating func switchType(to newType: ProcessorType) {
         guard newType != type else { return }
         let n = ProcessorType.allCases.count
         func sized(_ a: [Int]?) -> [Int] { var v = a ?? []; if v.count < n { v += Array(repeating: 0, count: n - v.count) }; return v }
-        func sizedD(_ a: [Double]?) -> [Double] { var v = a ?? []; if v.count < n { v += Array(repeating: 0, count: n - v.count) }; return v }
-        var tStash = sized(transposeByType), mStash = sizedD(morphByType)
+        var tStash = sized(transposeByType)
         let oldIdx = ProcessorType.allCases.firstIndex(of: type) ?? 0
         let newIdx = ProcessorType.allCases.firstIndex(of: newType) ?? 0
-        tStash[oldIdx] = transpose; mStash[oldIdx] = morph      // save the active values under the old type
-        transpose = tStash[newIdx]; morph = mStash[newIdx]      // restore the new type's own values
+        tStash[oldIdx] = transpose      // save the active transpose under the old type
+        transpose = tStash[newIdx]      // restore the new type's own transpose
         type = newType
-        transposeByType = tStash; morphByType = mStash
+        transposeByType = tStash
     }
 }
 
@@ -160,7 +164,8 @@ struct PluginState: Codable, Equatable {
     var colours: [Colour]
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
     var activeScene: Int = 0
-    var morphMaster: Double = 0    // §13.5 — parameter #35, reserved & functional now
+    var morphMaster: Double = 0    // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
+                                   // but the render no longer applies it — morph is per-Colour only.
     var busChannels: [Int] = [1, 2, 3, 4]   // v3.0 (delta §7): each bus A–D stamps this channel on exit
     // delta §6a: per-emitter enable (the per-output performance mute). Optional so v2/old docs decode as
     // nil → all-enabled (the loader default); the gate lives ONLY at the emission boundary (seam rule 3).

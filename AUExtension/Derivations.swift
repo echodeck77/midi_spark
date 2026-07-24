@@ -251,6 +251,20 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// Adding a processor = one case here + its branch in the loop.
 enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, identity, silent }
 
+// MARK: - Colour-pair morph tier (delta §9 item 5)
+
+/// The morph capability of a Colour's pairing. `none` = unpaired (inert). `full` = the partner is the
+/// SAME processor type → all params glide (§3.2 stepped-quantize interpolation). `swap` = different types
+/// → a clean binary flip at the cell's ALT bit, NO fader ("the fader never lies"). `partial` = FUTURE
+/// (shared "channels" glide while type identity flips) — the enum admits it; v1 never emits it.
+enum MorphTier: UInt8, Equatable { case none, full, swap, partial }
+
+/// Derive the tier from the pairing. `partner` is nil when unpaired.
+func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
+    guard let partner else { return .none }
+    return selfType == partner ? .full : .swap
+}
+
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor

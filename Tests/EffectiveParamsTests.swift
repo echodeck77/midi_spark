@@ -11,20 +11,20 @@ final class EffectiveParamsTests: XCTestCase {
         var c = SnapColour(); build(&c); return c
     }
 
-    // MARK: MASTER formula (§13.5) + ALT
+    // MARK: effectiveT — tier-aware ALT/morph (delta §9 item 5; morphMaster retired)
 
-    func testEffectiveMorphMaster() {
-        // morph + (1 − morph) * master, clamped to 1.
-        XCTAssertEqual(effectiveMorph(0.0, master: 0.0), 0.0, accuracy: 1e-9)
-        XCTAssertEqual(effectiveMorph(0.5, master: 0.0), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(effectiveMorph(0.0, master: 1.0), 1.0, accuracy: 1e-9)   // master alone pushes to B
-        XCTAssertEqual(effectiveMorph(0.5, master: 0.5), 0.75, accuracy: 1e-9)  // 0.5 + 0.5*0.5
-        XCTAssertLessThanOrEqual(effectiveMorph(1.0, master: 1.0), 1.0)         // never exceeds 1
-    }
-
-    func testEffectiveTAltForcesB() {
-        XCTAssertEqual(effectiveT(colourMorph: 0.2, master: 0, alt: true), 1.0)   // ALT pins full B
-        XCTAssertEqual(effectiveT(colourMorph: 0.2, master: 0, alt: false), 0.2, accuracy: 1e-9)
+    func testEffectiveTByTier() {
+        // FULL pair: ALT pins full-B, else the per-Colour morph macro.
+        let full = colour { $0.tier = .full }
+        XCTAssertEqual(effectiveT(full, morph: 0.2, alt: true), 1.0)
+        XCTAssertEqual(effectiveT(full, morph: 0.2, alt: false), 0.2, accuracy: 1e-9)
+        // SWAP pair: BINARY — ALT flips fully, the morph fader is inert ("the fader never lies").
+        let swap = colour { $0.tier = .swap }
+        XCTAssertEqual(effectiveT(swap, morph: 0.7, alt: false), 0.0)
+        XCTAssertEqual(effectiveT(swap, morph: 0.3, alt: true), 1.0)
+        // UNPAIRED: inert — always A regardless of morph/alt.
+        let none = colour { $0.tier = .none }
+        XCTAssertEqual(effectiveT(none, morph: 0.9, alt: true), 0.0)
     }
 
     // MARK: stepped fields quantize (§3.2) — the important rule: step, never glide

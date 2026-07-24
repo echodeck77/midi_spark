@@ -10,14 +10,22 @@ enum SnapshotBuilder {
     static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
         let scene = doc.scenes[doc.activeScene]
 
-        // ---- colours: resolve A, then B = A overlaid with paramsB's set fields ----
+        // ---- colours: resolve A; B = the PARTNER Colour's params (delta §9 item 5). paramsB is retired
+        //      (decode-only). Unpaired ⇒ b = a, tier none. tier gates render glide (full) vs flip (swap). ----
         var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
         for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
             var sc = SnapColour()
             sc.transpose = Int8(max(-24, min(24, colour.transpose)))
             sc.morph = max(0, min(1, colour.morph))
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)
-            sc.b = resolve(colour.paramsB, type: colour.type, fallback: sc.a)   // sparse B inherits from A
+            if let pi = colour.altColour, pi >= 0, pi < doc.colours.count, pi != i {
+                let partner = doc.colours[pi]
+                sc.b = resolve(partner.paramsA, type: partner.type, fallback: nil)
+                sc.tier = morphTier(selfType: colour.type, partner: partner.type)
+            } else {
+                sc.b = sc.a
+                sc.tier = .none
+            }
             colours[i] = sc
         }
 

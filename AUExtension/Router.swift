@@ -429,12 +429,12 @@ final class Router {
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
-            let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
-                                passMask: colour.a.passMask, pass: pass)
+            let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
+            let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(colour, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
-            let t = effectiveT(colourMorph: over(18 + ci, colour.morph), master: over(34, box.morphMaster), alt: cell.alt)
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let srcN = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
             for k in 0..<srcN {
@@ -475,15 +475,14 @@ final class Router {
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
         let referencing = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
-        let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed, passMask: colour.a.passMask, pass: pass)
+        let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
+        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
+                            passMask: effectivePassMask(colour, t: t), pass: pass)
         if mode == .silent { return nil }      // e.g. a closed passgate sounds nothing
         // ratchet & harmonize sound a POOL (a chord), not one note — a referencing arp can't sample them
         if mode == .ratchet || mode == .harmonize { return nil }
 
         if mode == .arp {
-            let master = over(34, box.morphMaster)
-            let morph = over(18 + ci, colour.morph)
-            let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
             var arpBeats = effectiveRateBeats(colour, t: t)
             if arpBeats <= 0 { arpBeats = 0.25 }
             let octaves = effectiveOctaves(colour, t: t)
@@ -673,14 +672,12 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            let master = over(34, box.morphMaster)
-            let morph = over(18 + ci, colour.morph)
-            let t = effectiveT(colourMorph: morph, master: master, alt: cell.alt)
+            let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
             let fed = parent >= 0
-            let mode = cellMode(type: colour.a.type, bypassed: cell.bypassed,
-                                passMask: colour.a.passMask, pass: diag.pass)
+            let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(colour, t: t), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
             if mode == .arp {
@@ -867,10 +864,10 @@ final class Router {
         let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
-        let t = effectiveT(colourMorph: over(18 + ci, colour.morph), master: over(34, box.morphMaster), alt: cell.alt)
+        let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
 
-        switch colour.a.type {
+        switch effectiveType(colour, t: t) {
         case .arp:
             var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
             let gate = effectiveGate(colour, t: t)
@@ -922,7 +919,7 @@ final class Router {
                                    transpose: Int, t: Double, windowStart: Int64, windowEnd: Int64,
                                    out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
-        let type = colour.a.type
+        let type = effectiveType(colour, t: t)
         let prob = (type == .chance) ? effectiveProbability(colour, t: t) : 1
         let srcN = pool.srcCount(filter: cell.inputChannel)         // §7 source filter, forced source
         for k in 0..<srcN {
