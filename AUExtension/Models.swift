@@ -257,13 +257,12 @@ struct PluginState: Codable, Equatable {
 
     static func factory() -> PluginState {
         var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        // A few designed defaults so the factory session sounds immediately (§6.6) and demonstrates ALT.
+        // A few designed defaults so the factory session sounds immediately (§6.6). (Old paramsB ALT
+        // demos dropped — the pair model sets ALT via a partner Colour; re-author as a follow-up.)
         func idx(_ id: String) -> Int { colourIDs.firstIndex(of: id)! }
         colours[idx("gold")].paramsA.octaves = 2
-        colours[idx("gold")].paramsB = { var b = ColourParams(); b.rate = .r1_32; b.octaves = 3; return b }()
         colours[idx("cyan")].type = .ratchet
         colours[idx("cyan")].paramsA.count = 4
-        colours[idx("cyan")].paramsB.count = 8
         colours[idx("vermilion")].type = .passgate
         colours[idx("magenta")].transpose = 12
 

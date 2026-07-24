@@ -1,10 +1,9 @@
 //  GridUI.swift
-//  MidiSpark — the 8×8 grid view (v56 four-row cell) + palette + OUTPUTS (build-order step 5).
-//  In-cell editing (delta §4/§5): tap a cell BODY paints/recolours it with the palette brush; tap the
-//  INPUT HEADER opens the FROM popover (MIDI IN / any other occupied row / IN CH filter); tap the
-//  EMITTER strip opens the OUT popover (A–D); body LONG-PRESS opens the cell menu (clear / copy
-//  colour). Every edit goes through MidiSparkAudioUnit.editScene → scheduleRebuild. Design tokens
-//  per docs/ui-port-guide.md; visual language per Docs/midispark-preview-v56.html.
+//  MidiSpark — the 8×8 grid view (four-row cell) + palette + RECEIVERS/OUTPUTS panels + the CELL EDITOR.
+//  Editing (delta §5 rev 2): in EDIT the whole pad is ONE tap target that opens the floating CELL EDITOR
+//  (input · colour · emitters · actions); body long-press auditions (stopped); PERFORM tap flips ALT. The
+//  old FROM/OUT popovers + tap-paint + hold-menu are retired (folded into the editor). Every edit goes
+//  through MidiSparkAudioUnit.editScene/editDocument → scheduleRebuild. Tokens per docs/ui-port-guide.md.
 
 import SwiftUI
 import UIKit   // ColumnHoldOverlay: multi-touch column-key holds (§5b) need a UIView, not a SwiftUI gesture
@@ -50,7 +49,7 @@ struct GridView: View {
     var stepBeats: Double = 2   // beats per grid step (from the global STEP rate)
     var swing: Int = 50         // 50…75 — warps the sweep so it spans the real (swung) column window
     var cellHeight: CGFloat = 54   // set by the parent to fit the available height (landscape)
-    var editing: Bool = true    // EDIT: sub-cell zones (FROM/OUT popovers, paint). PERFORM: whole pad = one tap.
+    var editing: Bool = true    // EDIT: pad tap → CELL EDITOR. PERFORM: pad tap → ALT flip. (Both = one target.)
     var selCol: Int = -1
     var selRow: Int = -1
     var onTap: ((Int, Int) -> Void)? = nil          // delta §5: the whole pad is ONE target → opens the CELL EDITOR (EDIT)
@@ -933,9 +932,10 @@ struct HeaderView: View {
 
 /// PROCESSOR box (delta §6): edits the SELECTED Colour (= the palette brush). Fixed height (static-
 /// frames rule — sized for the largest field set; smaller types leave calm space). Type + transpose +
-/// per-type params + morph, with an A/B state tab (§3.1). The B tab exposes ONLY the B-overridable
-/// fields (§3 table); MORPH fades A→B. Transpose/morph are AUParameters (own callbacks); the rest go
-/// through editColour, writing paramsA or paramsB per the active tab.
+/// per-type params + morph (delta §6c: a slim static DESK box — type + description + quick control +
+/// LAUNCH — over a floating WINDOW with the full set). Single treatment now (A/B tab retired, §9 item 5:
+/// the partner Colour is "B"); MORPH glides toward the partner and shows only for a FULL pair. Transpose/
+/// morph are AUParameters (own callbacks); the rest go through editColour (writing paramsA).
 struct ProcessorBox: View {
     enum Mode { case desk, window }
     let colour: Colour
