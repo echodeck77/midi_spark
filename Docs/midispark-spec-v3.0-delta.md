@@ -231,6 +231,33 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   DRAG-from-palette SURVIVES as an accelerator (deliberate, never
   accidental; the desk palette exists regardless for PROCESSOR targeting
   + §6b chip playheads).
+- **DRAG-AND-DROP, EXPANDED (user spec 2026-07-24, RATIFIED SAME DAY —
+  IN ADDITION to the editor; "it turns out I do miss drag and drop"):**
+  **① CELL RELOCATION:** hold a cell, drag it to a new grid position.
+  The hold-vs-audition conflict resolves by MOVEMENT: press-hold starts
+  audition (stopped, as spec'd); moving the finger BEGINS THE DRAG and
+  cancels the audition; staying put keeps listening ("hold to hear it,
+  drag to move it" — no timing windows). Onto an EMPTY target = move;
+  onto an OCCUPIED target = **SWAP (ratified)** — the cells trade places,
+  lossless, undoable; the grid becomes rearrangeable tiles (overwrite
+  rejected: it would be the only untinted destructive gesture).
+  **MOVES NEVER REWRITE REFERENCES** (fields sacred): WITHIN-row drags
+  (column changes) are completely reference-safe — references are
+  row-level; CROSS-row drags mean the old row's children resolve against
+  whatever now occupies it, visibly via the dimmed-FROM display. Teach
+  the sentence: "row-preserving drags rearrange rhythm safely; cross-row
+  drags rewire meaning consciously."
+  **② PALETTE-TO-GRID:** hold a palette chip, drag onto the grid. Onto a
+  POPULATED cell = RECOLOUR ONLY (all other settings kept — the
+  split-paste philosophy as a gesture). Onto an EMPTY cell = create,
+  seeded from the SESSION TEMPLATE (one creation rule everywhere),
+  **shown FADED — the provisional/unreviewed state** — until the user
+  taps it, opening the cell editor; the fade clears on that first visit.
+  **Faded cells PLAY (ratified)** — they derive and sound immediately (the
+  LIVE LAW; sketching while running is audible); the fade is the
+  deviations-announce law applied to creation: "present, sounding,
+  unreviewed."
+  All of it undo-covered — no confirmations anywhere (the undo law).
 
 ## 6. Desk (closes the §6.9 layout-pass task)
 
