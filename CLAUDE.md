@@ -58,7 +58,10 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   resolved). v60 = canonical, and is the reference for the §6a EMITTER TOGGLES
   (pads toggle in both modes; CH caption = opener in EDIT; selectedBus concept
   DEAD). Lineage: v57 column keys · v58 static frames · v59 sixteen-slot strip ·
-  v60 emitter toggles. v26–v59 are history; v50/v51 are BROKEN (JSX bug) — never
+  v60 emitter toggles · **v61 = the RATIFICATION BOARD** (decision surface,
+  not a full sim — v60 stays the last full simulator: colour pairs/ALT
+  box/gradient morph bodies, cell editor + stamp banner, §6a faces,
+  parametric glyphs, receiver bands, the legibility card). v26–v59 are history; v50/v51 are BROKEN (JSX bug) — never
   open; v40 is the preserved abandoned fork — do not implement it. The AUTO/WIDE/
   TALL toggle is a browser preview affordance — never port it.
 
@@ -226,6 +229,29 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (glow-flash + thin peak-hold level bar, ~150ms decay, `OutputsView.meter`; UI owns the decay).
   2 RouterTests. (a) per-cell emitter-letter firing = the existing v59 white-flip (in the active
   column); a strictly per-cell-per-event flash would need a per-CELL feed — DEFERRED.
+  **RATIFICATIONS (2026-07-24, off preview v61 — all in the delta):** the
+  COLOUR-PAIR morph model (item 5: wedges/gradients/ALT box) · RECEIVERS
+  (item 11, band-as-deviation rule) · §6c THE PROCESSOR WINDOW (desk box =
+  type + description + pinned QUICK CONTROL + LAUNCH; params in a floating
+  window; kills the portrait truncation BY DESIGN; = the future EXTERNAL
+  view host) · **§5 rev 2 FINAL (the cell editor: SIGNAL-PATH ORDER —
+  input radio [receivers + rows, dimmed-selectable unpopulated,
+  anti-2-cycle guard] → colour + glyph + summary + alt swatch → emitter
+  toggles → the ON trigger section → action row; live blinks; the LIVE
+  LAW; session template; stamp mode; disclosure/accordion)** · **the ON
+  TRIGGER SYSTEM (five sections, blessed shortlist, derive-vs-mutate law,
+  SPRING|LATCH, composition rules + contextual greying)** · **§5c THE
+  HOLD LATCH** (global spring-class latch; HOLD-off = the drop;
+  PERFORM-only). Column ON system drafted (JUMP; NEXT-SCENE×EVERY-N =
+  SONG MODE) — conversation deferred at the user's request.
+  **⚠ PLAN ALIGNMENT REQUIRED BEFORE APPROVAL:** the a5+a6 plan below was
+  written against the PRE-ratification §5 — re-align increment 1 to the
+  FINAL editor spec (signal-path order; INPUT = receivers+rows radio; the
+  ON section row; live blinks), and decide sequencing: the wave's
+  schema-first rule says RECEIVERS + COLOUR-PAIR schema/loader land
+  BEFORE the editor, else its input/colour sections get built twice.
+  Remaining wave after a7's device pass: schemas → a5+a6 → §6c → §5c →
+  ON engine.
   (a5)+(a6) — PLAN WRITTEN, awaiting approval: `~/.claude/plans/a5-a6-cell-editor-and-undo.md`
   (5 device-verifiable increments: cell-editor inspector → session template/clipboard →
   stamp mode → audition-returns-to-EDIT → undo/redo; each with a testable model layer). Specs:

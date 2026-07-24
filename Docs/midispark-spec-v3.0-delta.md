@@ -125,14 +125,46 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
 - **THE CELL EDITOR (user spec 2026-07-23 rev 2 — supersedes the same-day
   drag-only spec AND the shipped tap-paint AND the separate FROM/OUT
   popovers AND the hold menu, all of which dissolve into ONE surface):**
-  in EDIT, **tap ANY cell (occupied or empty) → the CELL EDITOR pop-up**,
-  the cell's entire definition on one card: COLOUR picker (4×4 palette) ·
-  INPUT (MIDI IN + occupied-rows list, IN CH filter when MIDI IN) ·
-  EMITTERS (four A–D toggles) · a CLEAR / COPY / PASTE-COLOUR /
-  PASTE-ROUTING row (split-paste rules unchanged: clipboard holds both
-  halves; paste-colour on empty creates with defaults ⇐MIDI →A;
-  paste-routing needs a populated target; pasted self-refs harmless by the
-  derivation guard). Tap-away dismisses; one editor at a time.
+  in EDIT, **tap ANY cell (occupied or empty) → the CELL EDITOR pop-up** —
+  and its sections run in SIGNAL-PATH ORDER (user spec 2026-07-24), the
+  same order the cell wears its anatomy:
+  **1. INPUT — radio (a cell has ONE source):** all four RECEIVERS + all
+  eight ROWS. Self-row = hard-disabled (unexpressible, as ever). A row
+  whose cell references THIS row = disabled (UI-level anti-two-cycle
+  guard ONLY — cycles stay legal-and-silent when arising by other paths;
+  guard sees direct pairs, not longer loops). Unpopulated rows =
+  DIMMED-BUT-SELECTABLE (RATIFIED 2026-07-24, preserving
+  stamp-children-first forward wiring; the invalid-ref dim-display law
+  defines the result).
+  **2. COLOUR:** the 4×4 palette; selecting shows a BRIEF TEXT SUMMARY of
+  the processor (type + params digest — shares §6c's description
+  investment) + the ALT partner swatch (pairing displayed; edited at the
+  COLOUR box's ALT slot).
+  **3. EMITTERS:** an A–D button row in the receiver-radio VISUAL style
+  with **TOGGLE semantics — CONFIRMED 2026-07-24** (multi-bus stays; the
+  radio wording was misspoken).
+  **LIVE BLINKS:** receiver buttons flash on incoming activity (the
+  receivers-panel feed reused); emitter buttons flash on THIS CELL's
+  per-bus emission — a TARGETED single-cell feed (audition-style
+  targeting; the general per-cell feed stays deferred). The editor is a
+  patch-and-listen surface.
+  **4. TOUCH — slot reserved** (design conversation pending).
+  **THE LIVE LAW (user 2026-07-24 — free by architecture, stated because
+  it's a feature):** every change made in the editor while the cell is
+  ACTIVE is reflected in the audio output immediately — document mutation
+  → snapshot republish → live derivation, with invariant 4 closing/
+  reopening voices across the transition and the one-clock rule
+  guaranteeing the pattern NEVER loses its place (a rate or pattern
+  change re-derives position from the same beat — mid-performance editing
+  without breaking step is a designed capability, not a tolerated one).
+  **GLYPH PLACEMENT:** the Colour's PARAMETRIC GLYPH (item 10) renders
+  beside the text summary in section 2 — the settings drawn next to the
+  settings written.
+  Then the action row: CLEAR / COPY / COPY TO CELLS… / PASTE-COLOUR /
+  PASTE-ROUTING (split-paste rules unchanged: clipboard holds both
+  halves; paste-colour on empty creates with template defaults;
+  paste-routing needs a populated target; pasted self-refs harmless by
+  the derivation guard). Tap-away dismisses; one editor at a time.
 - **INSPECTOR, not modal (the serial-editing law):** picking a colour does
   NOT dismiss; **tapping another cell RETARGETS the open editor** — bulk
   painting = tap-cell, tap-gold, tap-cell, tap-cell, faster than dragging.
@@ -276,6 +308,33 @@ unpredictable under sweaty fingers; sorted wins.]
   are ARRANGEMENT-level time-warps; the per-Colour behaviours are
   VOICE-level. They compose; neither replaces the other.
 
+### 6c. THE PROCESSOR WINDOW (user spec 2026-07-24, off v61 — supersedes
+### the type-in-COLOUR desk note AND replaces it as the portrait-truncation
+### fix; the §6 static-frames rule finally gets a fully static desk)
+
+The desk PROCESSOR box stops hosting params. It becomes four fixed
+elements: **TYPE SELECTOR · a legible one-line DESCRIPTION of the type ·
+ONE designated QUICK CONTROL · LAUNCH.** Tapping LAUNCH opens the
+**PROCESSOR WINDOW** — a floating content-sized surface (popover grammar
+scaled up; windows float, never reflow) holding the selected Colour's FULL
+parameter set.
+
+- **THE QUICK CONTROL is per-Colour and persisted:** inside the window,
+  any param row can be PINNED as the Colour's surfaced desk control
+  (morph for paired Colours, rate for a ridden arp, probability for
+  CHANCE — the promoted macro). Default pin per type; MORPH auto-pins
+  when a pair exists.
+- **Kills the truncation bug BY DESIGN:** the desk box no longer sizes
+  against variable content — the only dynamic tenant moved to a surface
+  that is allowed to size to content.
+- **THE EXTERNAL ANSWER:** this window is the future AUv3-view host —
+  the standalone plan's logged "UI for plugin pick + view hosting"
+  question resolves to "the same window, two tenants" (our params today,
+  the hosted plugin's view for EXTERNAL Colours later).
+- The CELL EDITOR's colour readout gains a LAUNCH shortcut (edit the
+  Colour's params in cell context). One processor window at a time;
+  tap-away dismisses; static frames everywhere else untouched.
+
 ### 6b. COLOUR-chip activity playheads (DEFINITE requirement, 2026-07)
 
 Palette chips indicate when their Colour is WORKING on the grid, using the
@@ -292,6 +351,35 @@ established mutation-line effect at chip scale:
   colour-pair model (item 5) — the rule survives ratification either way.
 - ONE-CLOCK RULE binding as everywhere: the sweep is a pure function of the
   derived beat fraction; chips own no animation clocks.
+
+### 5c. THE HOLD LATCH (**RATIFIED 2026-07-24** — the global latch
+### modifier, "the sustain pedal for gestures")
+
+A header toggle, top right. **Definition in one sentence: while HOLD is
+on, RELEASE does nothing; touch still does everything.**
+
+- **CAPTURES (the spring class):** ① the §6a velocity overrides (release
+  latches at the released value; re-touch to ride, re-release to
+  re-latch); ② **the §5b lap — and with sustained holding unnecessary,
+  column keys become MEMBERSHIP TOGGLES while HOLD is on** (press adds,
+  press removes; the lap graduates from held chord to editable
+  selection); ③ the entire ON-HOLD behaviour class (ORs with
+  per-assignment LATCH); ④ audition (APPROVED with the section: latch a stopped audition, tweak
+  params hands-free while it drones — revisit by ear only if it annoys).
+- **LAWS:** (1) HOLD modifies RELEASE semantics only — never what a
+  touch does; (2) **HOLD-off = the GLOBAL RELEASE EVENT** — everything
+  captured springs home SIMULTANEOUSLY (the drop, as hardware; immediate
+  in v1, quantized-release a possible later option); (3) unmissable lit
+  state + every captured control wears a HELD marker (latched sliders
+  full-opacity + tick, latched columns keep the LOOP ring) — the screen
+  always answers "what will the drop release?"
+- **STATE:** HOLD and all its captures are EPHEMERAL — cleared on
+  transport stop (one rule, consistent with the lap/overrides it
+  governs). Never persisted.
+- Hardware surfaces inherit it for free (a HOLD button on the Launchpad
+  side column is the obvious tenant). HOLD exists in PERFORM only —
+  absent/inert in EDIT (it modifies perform gestures; one visible mode
+  per mode). OPEN: quantized release (later option).
 
 ### 6a. The EMITTERS panel — behaviour per mode (supersedes panel-as-selector)
 
@@ -468,8 +556,133 @@ every answer at once.
   needs nothing.
 - RECORDED, UNDESIGNED (2026-07 — the user will expand these in a future
   design pass; log, do NOT design, implement, or let them shape other work):
-  1. **TOUCH (per-Colour touch behaviours) — DESIGN SKETCH ON RECORD
-     (2026-07; converging, not yet spec).** Desk order becomes COLOUR →
+  1. **THE TRIGGER SYSTEM (2026-07-24 — TOUCH widened to FIVE per-Colour
+     event sections; naming open: the sections read ON TAP / ON HOLD /
+     ON ARRIVE / ON LEAVE / ON SCENE — candidate system name "ON").**
+     **THE LAW that makes it sane: gesture triggers (TAP/HOLD) may MUTATE
+     (sparse, performer-intended, ephemeral — audition's category);
+     temporal triggers (ARRIVE/LEAVE/SCENE) must be DERIVED** — they fire
+     periodically/automatically, so their actions are pure functions of
+     the derived counters (effectiveAlt = base XOR pass mod 2; morph =
+     f(arrivals); seed(pass)) — replay/relocation-proof, zero new state.
+     A candidate that can't be expressed as a derivation doesn't get in.
+     - **ON TAP** (quant + duration axes as designed): ALT · MUTE/UNMUTE
+       (the fill pad) · SOLO-EMITTERS · FILL · DICE · REPLAY.
+     - **ON HOLD** (momentary, spring): MOMENTARY-ALT · FREEZE ·
+       SLICE-CYCLE · REVERSE · OCT · COMMIT/STARVE · MORPH-SCRUB.
+     - **ON ARRIVE** (per-pass modulations, all derived): ALT-ALTERNATE
+       (faces take turns) · MORPH-DRIFT (±N%/arrival, wrap or ping-pong —
+       the discrete morph-LFO) · DICE-PER-PASS · EMITTER-ROTATE (hocket
+       at pass rate) · FORCE-RETRIG.
+     - **ON LEAVE** (the closing bracket of ARRIVE; small menu): EXIT
+       STAB · RING-vs-CHOP (once the tail rule lands).
+     - **ON SCENE** (arrangement init, derived from pass-since-entry):
+       **JOIN AT PASS N / LEAVE AT PASS M (scenes that perform their own
+       form — transforms multi-scene)** · RESET-MORPH · SET-FACE ·
+       CLAIM-on-entry · AUTO-ARM (RECORD Colours).
+     OVERLAP FLAG: ARRIVE-hooks modulate STATE; PASSGATE/CYCLES gate
+     NOTES — adjacent territory, different layers, never merge.
+     **RECOMMENDED SHORTLIST (Claude, 2026-07-24 — awaiting ratification;
+     ≤5 per section, cuts named):**
+     · ON TAP: ALT · MUTE/UNMUTE · SOLO-EMITTERS · FILL · REPLAY
+       (cut: BYP — mute covers it; DICE — moves to ARRIVE)
+     · ON HOLD: MOMENTARY-ALT · FREEZE · SLICE-CYCLE · MORPH-SCRUB ·
+       OCT-PUSH (2nd wave: REVERSE, HALF/DOUBLE, COMMIT/STARVE; ACCENT/
+       GATE cut — the emitter sliders own dynamics now)
+     · ON ARRIVE (+ section-wide EVERY-N 1..4): ALT-ALTERNATE ·
+       MORPH-DRIFT (wrap|ping-pong) · DICE · EMITTER-ROTATE
+       (2nd wave: FORCE-RETRIG)
+     · ON LEAVE: EXIT-STAB · RING-vs-CHOP (greyed until the tail rule)
+     · ON SCENE: ENTRANCE (join at pass N) · EXIT (leave at pass M) ·
+       RESET-MORPH (sibling of MORPH-DRIFT — deterministic arrivals) ·
+       AUTO-ARM (RECORD Colours, contextual)
+       (cut as REDUNDANT-WITH-PERSISTENCE: SET-FACE, CLAIM-on-entry —
+       the document already carries both; duplicating persistence in a
+       hook is a bug generator)
+     NAME RECOMMENDATION: **"ON"** — rows read as sentences
+     ("on arrive: morph-drift +10%").
+     **SHORTLIST BLESSED (user, 2026-07-24).** Plus two rules from the
+     blessing round:
+     - **SPRING|LATCH generalizes to EVERY HOLD assignment** (promoted
+       from MORPH-SCRUB's one-off): spring = momentary; latch = release
+       keeps the state, next hold releases. Toggle-flavoured behaviours
+       need no new slots — TAP + until-tapped-again IS the toggle; latch
+       gives HOLD its deliberate-toggle variant. The "brief hold = brief
+       blast" problem dissolves inside the existing axes.
+     - **EDITOR DISCLOSURE DISCIPLINE (the overwhelm answer):** the
+       default card = the v61 four zones (the 90% case); **ON ships as ONE
+       collapsed row** showing its assignment summary ("ON · arrive:
+       morph-drift · +1"), dim "＋" when empty; **ACCORDION LAW** — one
+       expanded section at a time, so the card has a maximum height by
+       construction; assigned-only detail inside ON. The SESSION TEMPLATE
+       already makes most cell creation a glance-and-confirm — the full
+       card is read far more often than filled.
+     **EXCLUSIVITY ANALYSIS (2026-07-24 — almost nothing excludes;
+     domains COMPOSE):**
+     - STRUCTURAL: TAP/HOLD/ARRIVE/LEAVE hold ONE assignment each
+       (radio incl. "—"); **ON SCENE is a CHECKLIST** (independent init
+       facets — a drifting Colour joining at pass 3 wants ENTRANCE +
+       RESET-MORPH + maybe AUTO-ARM together).
+     - COMPOSITION RULES (instead of exclusions): ① FACE = XOR stack
+       (effective = base ⊕ alternate(pass) ⊕ held — TAP under ALTERNATE
+       inverts the phase, coherent); ② MORPH = base + drift (SCRUB moves
+       base under DRIFT; RESET-MORPH sets base at entry); ③ AUDIBILITY =
+       schedule AND mute (pre-ENTRANCE taps are DEFERRED-VISIBLE — they
+       set the state worn at joining); ④ FILL never pierces ENTRANCE/EXIT
+       (fill overrides the processor's pass-schedule, never the trigger
+       schedule). Soft caution, documented not forbidden: SOLO-EMITTERS
+       over an EMITTER-ROTATE cell = intermittent audibility (rotation ∩
+       solo) — legal, compositional, name it so it's never a bug report.
+     - **CONTEXTUAL GREYING = the real exclusivity:** ALT-family greys
+       without a pair; MORPH-family without a COMPATIBLE pair; DICE
+       without a stochastic Colour (CHANCE / RANDOM-pattern); AUTO-ARM =
+       RECORD only; RING/CHOP = post-tail-rule. Greyed options render dim
+       with the condition as tap-subtext ("needs an ALT pair — set one in
+       COLOUR"): every grey-out is a teaching moment.
+     - ON-SCREEN LIST (canonical rendering): five rows, radio chips with
+       "—" first; axis pickers as row footers (TAP: when+for · HOLD:
+       spring|latch · ARRIVE: every 1–4); SCENE as checkboxes with inline
+       params (pass n / pass m); footnote legend for grey conditions.
+     **THE COLUMN "ON" SYSTEM (2026-07-24 — the framework applied to the
+     eight column keys; three structural differences from Colours):**
+     ① SCOPE SPLITS BY CLASS: TAP assignment = GLOBAL (keys are
+     interchangeable positions; one muscle memory); ARRIVE/LEAVE =
+     PER-COLUMN (position IS the meaning). ② **ON HOLD = THE LAP, fixed —
+     LAW** (the shipped §5b gesture is not configurable). ③ NO ON-SCENE
+     section (column state persists in the document; hooks would
+     duplicate persistence).
+     - ON TAP (global; fills the 3e816ee vacancy CONFIGURABLY — MUTE
+       returns as the DEFAULT assignment): MUTE · SOLO · **JUMP** (the
+       playhead relocates to the tapped column at the next quantized
+       boundary — finger-sequencing the bar; engine: a sparse performed
+       quantized ephemeral offset, gesture-class, cleared on stop) ·
+       DICE-COLUMN · FILL-COLUMN. RULE: tap actions are SUPPRESSED while
+       a lap is held (the lap owns the strip).
+     - ON ARRIVE / ON LEAVE (per-column, tiny): DICE-ALL · **NEXT SCENE —
+       and NEXT-SCENE on column 8's LEAVE with the EVERY-N param (1·2·4·8)
+       IS SONG MODE**: "every 4th time the playhead leaves column 8,
+       advance the scene" = four-bar scene chains, per-document, from two
+       existing grammar parts. CLASSIFICATION: scene-advance is a
+       QUANTIZED SCHEDULED ACTION (an armed-tap-by-config at a derived
+       boundary — sparse by construction; not a derivation, and doesn't
+       need to be). Design multi-scene WITH this as its arrangement
+       mechanism.
+     - COMPOSITION/GREYING: MUTE∘LAP by the existing silence rule;
+       SOLO/MUTE structurally exclusive; JUMP can't fire mid-lap
+       (suppression); NEXT-SCENE on multiple columns = legal rope;
+       NEXT-SCENE greys until multi-scene; DICE-COLUMN greys when the
+       column holds nothing stochastic.
+     - CONFIG SURFACE: **EDIT-mode tap on a column key = the COLUMN
+       EDITOR popover** (the cell editor's sibling; the mode split
+       disambiguates — EDIT configures, PERFORM performs). Rows: ON TAP
+       (marked "all keys · global") · ON HOLD shown fixed as "THE LAP" ·
+       ON ARRIVE · ON LEAVE (with EVERY-N). Assignments persist in the
+       document (scene chains travel with the piece).
+     UI: the CELL EDITOR's section 4 = five rows, assigned-only shown;
+     the desk TOUCH box question folds into this. Per-Colour; p-lock
+     overrides later per item 5. OPEN: system NAME; per-section
+     shortlists; COL-HOLD's fate (absorbed by ON HOLD context or kept).
+     [Superseded sketch follows for the record:] Desk order becomes COLOUR →
      TOUCH → PROCESSOR → EMITTERS. The TOUCH box is COMPACT: three rows
      (TAP · HOLD · COL-HOLD) showing the selected Colour's assignments
      (DOUBLE-TAP considered and REJECTED 2026-07: the disambiguation delay
@@ -573,8 +786,11 @@ every answer at once.
        of that Colour); release springs home or latches (the SPRING
        semantic as a per-assignment option).
      - Schema: Colour gains altColour(0..15|none) + morph(0..1); cell keeps
-       alt flag only. NOT ratified — awaiting the user's call after a UI
-       mockup (the ratification test: does a grid of ringed pairs READ?).
+       alt flag only. **RATIFIED 2026-07-24 off preview v61** ("good — you don't notice it
+       first but it's useful when you know"): partner display ships as the
+       CORNER WEDGE (as mocked); gradient bodies + morphing glyphs
+       confirmed; the ALT box is the pairing home. PROMOTED from sketch to
+       spec — implementation joins the wave.
      - **PER-CELL OVERRIDES — "grid p-locks" (considered 2026-07-23;
        DECISION: colour-level ships as the base; overrides = a designed
        LATER layer, schema-shaped-for now, built on demand).** Pure
@@ -819,6 +1035,58 @@ every answer at once.
      - Graph citizenship stands: RECORD cells feed processors (RATCHET
        chews the phrase, CHANCE gambles on it, PICK extracts its bass);
        colour-pair morph gives clip↔clip ALT pairs.
+  11. **MIDI RECEIVERS — DESIGN SKETCH (user 2026-07-24; emitters'
+     input twin).** Input config promoted from per-cell scatter to FOUR
+     shared named objects: cells say FROM RECEIVER n; the receiver owns
+     the filter (channel; note-RANGE later — register splits). Change
+     once, all subscribers follow. CONVERGENCES COLLECTED: (a) the
+     reserved MIDI-IN slot above COLOUR = the RECEIVERS panel (kinship
+     with EMITTERS: strips, activity flash; PERFORM face = INPUT velocity
+     meters — the desk gains input metering); (b) receiver toggle = INPUT
+     MUTE (kill a keyboard live); (c) RECORD's source = a receiver;
+     (d) the MPE-merge insurance becomes a PER-RECEIVER property (the MPE
+     front door). **RATIFIED 2026-07-24 off preview v61.** Count = 4; loader maps existing
+     inputChannels in order of appearance (>4 distinct collapse to omni +
+     log); receiver colours = the muted infrastructure family (v61's).
+     **CELL BAND RULE (answers "must cells show receivers?"): the band is a
+     DEVIATION MARKER** — Receiver 1 (default) shows NO band; R2–R4 band;
+     FROM-ROW cells never band (no receiver). Defaults invisible,
+     deviations announce — single-receiver grids stay clean. PROMOTED to
+     spec — schema + panel + editor join the implementation wave.
+  10. **CELL VISUALIZATION v2 — PARAMETRIC GLYPHS (user idea 2026-07-23;
+     sketch, not queued).** The mid-region type glyph becomes THE SETTINGS,
+     DRAWN — a pure function of the Colour's effective params (ARP UP 2oct
+     = ascending dot-staircase, height = span, density = rate · RATCHET ×N
+     = N ticks · CHANCE p = dot field at p density · STRUM = fanned onsets
+     · STEP-MASK = its own bars). The params text demotes to fine print.
+     ANIMATION derives free and ONE-CLOCK PURE: live-column cells sweep a
+     highlight through their glyph at the cell's real rate (the UI runs
+     the same phase formulas off the shared beat — no event feed, rhythm
+     and shape true by derivation). Exact-pitch animation = deferred with
+     the per-cell event feed (the a4 deferral — same infrastructure).
+     Under the colour-pair model the glyph MORPHS between the two
+     patterns at fader position — the honest morph display.
+     SCALE-GATING: a cell disclosure ladder by rendered size — full
+     (header+glyph+params+strip) → mid (glyph+strip) → minimal (colour
+     only); per-rung stable (no per-cell tier flicker; static-frames
+     spirit inside the cell). Rides the §6 rung machinery.
+     PLUS (cheap, decoupled): user-set NAMES per Colour (document field;
+     shown in the COLOUR box + cell editor, never on pads — text dies at
+     pad scale). Hand-PICKED glyphs REJECTED: chosen glyphs are decoration
+     that can drift from truth; the parametric glyph is information that
+     cannot lie.
+     LADDER MIDDLE RUNGS (user 2026-07-24, ties to item 11): below
+     text-size, the input header becomes a RECEIVER-COLOURED top band and
+     the ALT partner shows as a colour region (ring or corner wedge — v61
+     decides which reads). Three colour systems on one pad (receiver band
+     · body · partner) approaches the legibility budget — THE v61
+     question.
+     DESK NOTE (user 2026-07-24): the TYPE selector SEPARATES from the
+     PROCESSOR box — type joins the COLOUR box identity readout
+     (name · type; tapping type = opener for the type popover, sub-44
+     grammar). PROCESSOR becomes pure params (static frame shrinks; type
+     is what a Colour IS, params are how it's SET). Sketch — lands with
+     whichever desk pass builds next.
   8. **HARDWARE GRID SURFACES (Launchpad / Push) — plan on record
      (2026-07-23; supersedes v2.8 §10's TBD, which worried about the
      routing model — irrelevant: the surface speaks only the perform

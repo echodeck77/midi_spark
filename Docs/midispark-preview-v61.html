@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>8x8 State — v61 Ratification Board</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>body{margin:0;background:#0B0E14;font-family:ui-monospace,Menlo,monospace;-webkit-user-select:none;user-select:none}</style>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const {useState} = React;
+const T = { bg:"#0B0E14", panel:"#12161F", panelEdge:"#262D3A", ink:"#EDF0F6", dim:"#5A6478",
+  mono:"ui-monospace,Menlo,monospace", amber:"#FFB020", cyan:"#25E0F0", coral:"#FF6A5E" };
+const HEX = ["#FFC53D","#FF7A1A","#FF4B33","#C2244B","#FF4D9E","#FFA8B8","#B44DFF","#7A3DF0",
+             "#5566FF","#38A6FF","#25E0F0","#148F80","#7BF2CE","#2ECC5E","#C6F23D","#C9A227"];
+const CNAMES = ["GOLD","ORANGE","VERMILION","WINE","MAGENTA","BLUSH","PURPLE","VIOLET",
+                "INDIGO","AZURE","CYAN","TEAL","MINT","GREEN","CHARTREUSE","BRONZE"];
+const RHUES = ["#7C8DB0","#A6906B","#7FA687","#A07C9A"];  // receivers: muted infrastructure family
+const mix = (a,b,t)=>{const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+  const [r1,g1,b1]=p(a),[r2,g2,b2]=p(b);
+  return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;};
+
+// ---------- parametric glyphs (settings, drawn) ----------
+function Glyph({type,params,size,colour,morphTo,morph}){
+  const s = size, ink = "rgba(10,12,16,0.85)";
+  const dots=(n,fy)=>Array.from({length:n},(_,i)=>({x:(i+0.5)/n, y:fy(i,n)}));
+  let pts=[], marks=null;
+  if(type==="ARP") pts = dots(Math.min(6,3+ (params.oct||1)), (i,n)=> params.pat==="DOWN" ? (i+0.5)/n : 1-(i+0.5)/n);
+  if(type==="RTC"){ const n=params.n||3; marks = Array.from({length:n},(_,i)=>
+      <rect key={i} x={s*(0.15+0.7*i/(n-1||1))-1.5} y={s*0.25} width={3} height={s*0.5} rx={1.5} fill={ink}/>); }
+  if(type==="CHNC"){ const p=params.p||0.6; const g=[[.2,.3],[.5,.2],[.8,.35],[.3,.65],[.65,.6],[.85,.75],[.15,.8],[.5,.8]];
+      marks = g.map(([x,y],i)=> <circle key={i} cx={s*x} cy={s*y} r={s*0.06}
+        fill={ink} opacity={ i/g.length < p ? 0.95 : 0.18 }/>); }
+  if(type==="STRM") marks = [0,1,2,3].map(i=> <line key={i} x1={s*0.15+ i*s*0.06} y1={s*0.8}
+        x2={s*0.45 + i*s*0.14} y2={s*0.2} stroke={ink} strokeWidth={2.5} strokeLinecap="round" opacity={0.9-i*0.12}/>);
+  if(type==="PASS") marks = [0,1,2,3].map(i=> <rect key={i} x={s*(0.12+0.22*i)} y={s*0.35}
+        width={s*0.12} height={s*0.3} rx={2} fill={ink} opacity={ i%2===0?0.9:0.2 }/>);
+  if(type==="HARM") marks = [0,1].map(i=> <rect key={i} x={s*0.2} y={s*(0.28+0.28*i)} width={s*0.6} height={s*0.13} rx={2} fill={ink} opacity={0.9-i*0.35}/>);
+  // morph: crossfade two glyph draws
+  return <svg width={s} height={s} style={{display:"block"}}>
+    <g opacity={morphTo!=null ? 1-morph : 1}>
+      {pts.map((p,i)=><circle key={i} cx={s*p.x} cy={s*(0.15+0.7*p.y)} r={s*0.07} fill={ink}/>)}
+      {marks}
+    </g>
+    {morphTo!=null && <g opacity={morph}>
+      {[0,1,2].map(i=><rect key={i} x={s*(0.15+0.7*i/2)-1.5} y={s*0.25} width={3} height={s*0.5} rx={1.5} fill={ink}/>)}
+    </g>}
+  </svg>;
+}
+
+// ---------- the cell, with disclosure rungs ----------
+function Cell({cell, size, mode, onTap, editing, stamping, morphVal}){
+  const rung = size>=96 ? "full" : size>=68 ? "mid" : size>=46 ? "band" : "min";
+  const st = { width:size, height:size, borderRadius:size*0.12, position:"relative", cursor:"pointer",
+    background: cell ? (cell.altIdx!=null && cell.compatible ? mix(HEX[cell.idx],HEX[cell.altIdx], cell.alt? 1-morphVal : morphVal) : HEX[cell.alt? cell.altIdx??cell.idx : cell.idx])
+                     : "#161B24",
+    border: cell ? "none" : "1px solid #232A36",
+    boxShadow: editing ? "0 0 0 2px #fff" : stamping && cell ? "0 0 0 2px "+T.amber : "none",
+    overflow:"hidden", flexShrink:0 };
+  if(!cell) return <div style={st} onClick={onTap}>
+    <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+      color:"#222A38",fontWeight:800,fontSize:size*0.3}}>·</div></div>;
+  const partner = cell.altIdx!=null ? HEX[cell.alt? cell.idx : cell.altIdx] : null;
+  return <div style={st} onClick={onTap}>
+    {rung!=="min" && <div style={{height:Math.max(6,size*0.13), background:RHUES[cell.recv],
+        display:"flex",alignItems:"center",justifyContent:"center"}}>
+      {rung==="full" && <span style={{fontSize:8,color:"rgba(255,255,255,0.85)",fontWeight:800,letterSpacing:0.5}}>
+        {"RCV "+(cell.recv+1)}</span>}</div>}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+        height: size - (rung!=="min"? Math.max(6,size*0.13):0) - (rung==="full"||rung==="mid" ? size*0.18 : 0)}}>
+      {(rung==="full"||rung==="mid") &&
+        <Glyph type={cell.type} params={cell.params} size={size*0.42} colour={HEX[cell.idx]}
+               morphTo={cell.compatible? cell.altIdx : null} morph={cell.alt? 1-morphVal : morphVal}/>}
+    </div>
+    {(rung==="full"||rung==="mid") && <div style={{position:"absolute",bottom:0,left:0,right:0,
+        height:size*0.18, display:"flex",gap:2,padding:"0 8%",alignItems:"center"}}>
+      {"ABCD".split("").map((b,i)=><div key={b} style={{flex:1,textAlign:"center",fontSize:Math.max(6,size*0.09),
+        fontWeight:800, borderRadius:3, color: cell.buses.includes(i)?"rgba(10,12,16,0.9)":"rgba(10,12,16,0.3)",
+        background: cell.buses.includes(i)?"rgba(255,255,255,0.5)":"transparent"}}>{b}</div>)}</div>}
+    {partner && <div style={{position:"absolute", top:rung!=="min"?Math.max(6,size*0.13):0, right:0, width:0, height:0,
+        borderStyle:"solid", borderWidth:`0 ${size*0.26}px ${size*0.26}px 0`,
+        borderColor:`transparent ${partner} transparent transparent`}}/>}
+  </div>;
+}
+
+// ---------- LED ladder ----------
+function Ladder({level}){
+  return <div style={{display:"flex",flexDirection:"column-reverse",gap:2,height:90,width:8}}>
+    {Array.from({length:12},(_,i)=><div key={i} style={{flex:1,borderRadius:1,
+      background: i/12 < level ? (i>9?"#FFC53D":"#2ECC5E") : "#1A212C"}}/>)}</div>;
+}
+
+function App(){
+  const [mode,setMode] = useState("EDIT");
+  const [morphVal,setMorphVal] = useState(0.4);
+  const [selColour,setSelColour] = useState(0);
+  const [altOf,setAltOf] = useState({0:9, 4:5, 2:null});   // colour-level pairs: gold↔azure(compatible ARPs), magenta↔blush
+  const [cells,setCells] = useState(()=>{ const m={};
+    const put=(c,r,idx,type,params,recv,buses,altIdx,compatible)=>m[c+"-"+r]={idx,type,params,recv,buses,altIdx,compatible,alt:false};
+    put(0,0,0,"ARP",{pat:"UP",oct:2},0,[0],9,true);  put(1,0,0,"ARP",{pat:"UP",oct:2},0,[0],9,true);
+    put(2,0,2,"RTC",{n:3},0,[3],null,false);          put(4,0,4,"CHNC",{p:0.65},1,[1],5,false);
+    put(3,1,7,"ARP",{pat:"DOWN",oct:1},1,[2],null,false); put(5,1,13,"STRM",{},1,[2],null,false);
+    put(6,0,10,"PASS",{},0,[1],null,false);           put(7,2,15,"HARM",{},1,[3],null,false);
+    return m; });
+  const [editing,setEditing] = useState(null);        // "c-r" or null
+  const [stamp,setStamp] = useState(null);            // {cell config} while stamping
+  const [template,setTemplate] = useState({idx:0,recv:0,buses:[0],altIdx:9});
+  const [claim,setClaim] = useState(null);
+  const [velTouch,setVelTouch] = useState(null);      // emitter index being overridden
+  const [typePop,setTypePop] = useState(false);
+
+  const tapCell=(k)=>{ const c=cells[k];
+    if(stamp){ setCells({...cells,[k]:{...stamp,alt:false}}); return; }
+    if(mode==="PERFORM"){ if(c && c.altIdx!=null) setCells({...cells,[k]:{...c,alt:!c.alt}}); return; }
+    setEditing(k); };
+  const ed = editing!=null ? cells[editing] : null;
+
+  const pad=(x)=><span style={{color:T.dim}}>{x}</span>;
+  const box={background:T.panel,border:"1px solid "+T.panelEdge,borderRadius:12,padding:12};
+
+  return <div style={{padding:18,color:T.ink,maxWidth:1400,margin:"0 auto"}}>
+    {/* header */}
+    <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+      <span style={{fontWeight:800,letterSpacing:4}}>8×8 STATE</span>
+      {["EDIT","PERFORM"].map(m=><button key={m} onClick={()=>{setMode(m);setEditing(null);setStamp(null);}}
+        style={{fontFamily:T.mono,fontWeight:800,fontSize:11,padding:"5px 12px",borderRadius:7,cursor:"pointer",
+          border:"1px solid "+T.panelEdge, background: mode===m ? (m==="EDIT"?T.amber:T.cyan):"transparent",
+          color: mode===m?"#0B0E14":T.dim}}>{m}</button>)}
+      <span style={{fontSize:10,color:T.dim}}>v61 · RATIFICATION BOARD — item 5 (colour pairs) · §5 rev 2 (cell editor + stamp) · §6a faces · items 10/11 (glyphs · receivers)</span>
+    </div>
+
+    {stamp && <div style={{...box, background:"#2A2410", borderColor:T.amber, marginBottom:12,
+        display:"flex", alignItems:"center", gap:12}}>
+      <span style={{color:T.amber,fontWeight:800,fontSize:12}}>STAMPING</span>
+      <span style={{fontSize:11,color:T.ink}}>tap cells to apply the copied configuration · occupied cells show the overwrite ring</span>
+      <button onClick={()=>setStamp(null)} style={{marginLeft:"auto",fontFamily:T.mono,fontWeight:800,
+        padding:"4px 14px",borderRadius:6,border:"1px solid "+T.amber,background:T.amber,color:"#0B0E14",cursor:"pointer"}}>DONE</button>
+    </div>}
+
+    <div style={{display:"flex",gap:16}}>
+      {/* grid */}
+      <div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(8, 92px)",gap:7}}>
+          {Array.from({length:64},(_,i)=>{ const c=i%8, r=Math.floor(i/8), k=c+"-"+r;
+            return <Cell key={k} cell={cells[k]} size={92} mode={mode}
+              editing={editing===k} stamping={!!stamp && !!cells[k]} morphVal={morphVal}
+              onTap={()=>tapCell(k)}/>;})}
+        </div>
+        <div style={{fontSize:10,color:T.dim,marginTop:8}}>
+          {mode==="EDIT" ? "EDIT · tap any cell → the CELL EDITOR (inspector: picks persist, taps retarget) · drag survives as accelerator"
+                         : "PERFORM · tap = ALT flip (paired cells swap/morph) · whole pad is one target"}</div>
+
+        {/* legibility card */}
+        <div style={{...box, marginTop:16}}>
+          <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:10}}>
+            LEGIBILITY CARD — the disclosure ladder (item 10/11): receiver band · body/gradient · partner wedge · emitter strip</div>
+          <div style={{display:"flex",gap:18,alignItems:"flex-end"}}>
+            {[110,80,56,40].map(s=><div key={s} style={{textAlign:"center"}}>
+              <Cell cell={{idx:0,type:"ARP",params:{pat:"UP",oct:2},recv:0,buses:[0,2],altIdx:9,compatible:true,alt:false}}
+                size={s} mode="EDIT" morphVal={morphVal} onTap={()=>{}}/>
+              <div style={{fontSize:9,color:T.dim,marginTop:4}}>{s}px · {s>=96?"FULL":s>=68?"MID":s>=46?"BAND":"MIN"}</div>
+            </div>)}
+            <div style={{fontSize:10,color:T.dim,maxWidth:260,lineHeight:1.5}}>
+              The go/no-go: do THREE colour systems (receiver band · treatment body · partner wedge)
+              read at each rung, or does one need to yield?</div>
+          </div>
+        </div>
+      </div>
+
+      {/* desk */}
+      <div style={{width:330,display:"flex",flexDirection:"column",gap:12}}>
+        {/* RECEIVERS — the reserved slot materialized */}
+        <div style={box}>
+          <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:8}}>RECEIVERS <span style={{fontWeight:400}}>item 11 — the reserved slot</span></div>
+          <div style={{display:"flex",gap:8}}>
+            {[0,1,2,3].map(i=><div key={i} style={{flex:1,background:"#0E1219",border:"1px solid "+T.panelEdge,
+              borderRadius:8,padding:"6px 4px",textAlign:"center", opacity:i<2?1:0.4}}>
+              <div style={{height:5,borderRadius:3,background:RHUES[i],marginBottom:5}}/>
+              <div style={{fontSize:11,fontWeight:800}}>R{i+1}</div>
+              <div style={{fontSize:9,color:T.dim}}>{i===0?"CH 1":i===1?"CH 2":"OMNI"}</div>
+            </div>)}
+          </div>
+        </div>
+
+        {/* COLOUR — with name·type readout + ALT box */}
+        <div style={box}>
+          <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:8}}>COLOUR</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+            {HEX.map((h,i)=><div key={i} onClick={()=>setSelColour(i)} style={{height:26,borderRadius:6,background:h,
+              cursor:"pointer", outline: selColour===i?"2px solid #fff":"none", position:"relative", overflow:"hidden"}}>
+              {i===0 && <div style={{position:"absolute",left:0,right:0,top:"45%",height:2,background:"rgba(255,255,255,0.9)"}}/>}
+            </div>)}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:800}}>{CNAMES[selColour]}
+                <span onClick={()=>setTypePop(!typePop)} style={{color:T.amber,cursor:"pointer"}}> · {selColour===2?"RATCHET":selColour===4?"CHANCE":"ARP"} ▾</span></div>
+              <div style={{fontSize:9,color:T.dim}}>tap type = popover (the selector left PROCESSOR)</div>
+            </div>
+            <div style={{marginLeft:"auto",textAlign:"center"}}>
+              <div style={{fontSize:8,color:T.dim,fontWeight:800,letterSpacing:1}}>ALT</div>
+              <div onClick={()=>{}} style={{width:34,height:26,borderRadius:6,cursor:"pointer",
+                border:"1.5px dashed "+(altOf[selColour]!=null?"transparent":T.dim),
+                background: altOf[selColour]!=null ? HEX[altOf[selColour]] : "transparent"}}/>
+            </div>
+          </div>
+          {typePop && <div style={{marginTop:8,display:"flex",gap:5,flexWrap:"wrap"}}>
+            {["ARP","RTC","PASS","STRM","CHNC","HARM"].map(t=><span key={t} onClick={()=>setTypePop(false)}
+              style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:5,cursor:"pointer",
+                background:t==="ARP"?T.amber:"#1A212C",color:t==="ARP"?"#0B0E14":T.dim}}>{t}</span>)}</div>}
+        </div>
+
+        {/* PROCESSOR — pure params + the pair morph */}
+        <div style={box}>
+          <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:8}}>
+            PROCESSOR <span style={{color:T.ink}}>{CNAMES[selColour]}</span> <span style={{fontWeight:400}}>pure params — type moved out</span></div>
+          <div style={{fontSize:10,color:T.dim,marginBottom:4}}>PATTERN {pad("UP")} · RATE {pad("1/16")} · OCT {pad("2")} · PHASE {pad("RETRIG")} · GATE {pad("60%")}</div>
+          {altOf[selColour]!=null && <div style={{marginTop:8}}>
+            <div style={{fontSize:10,color:T.dim,marginBottom:4}}>MORPH {Math.round(morphVal*100)}% → <span style={{color:HEX[altOf[selColour]]}}>{CNAMES[altOf[selColour]]}</span>
+              <span style={{color:T.dim}}> (compatible: both ARP — the fader exists)</span></div>
+            <input type="range" min="0" max="100" value={morphVal*100}
+              onChange={e=>setMorphVal(e.target.value/100)} style={{width:"100%",accentColor:mix(HEX[selColour],HEX[altOf[selColour]],morphVal)}}/>
+          </div>}
+        </div>
+
+        {/* EMITTERS — mode-aware faces */}
+        <div style={box}>
+          <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:8}}>
+            EMITTERS <span style={{fontWeight:400}}>{mode==="EDIT"?"EDIT face — CH selectors":"PERFORM face — channel strips"}</span></div>
+          <div style={{display:"flex",gap:8}}>
+            {"ABCD".split("").map((b,i)=><div key={b} style={{flex:1,textAlign:"center"}}>
+              <div style={{padding:"7px 0",borderRadius:8,fontWeight:800,fontSize:13,
+                border:"2px solid rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.12)",marginBottom:6}}>{b}</div>
+              {mode==="EDIT" ? <div style={{fontSize:10,color:T.dim}}>▲<div style={{color:T.cyan,fontWeight:800,fontSize:12}}>{i+1}</div>▼</div>
+              : <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                  <div style={{display:"flex",gap:5,alignItems:"flex-end"}}>
+                    <input type="range" min="1" max="127" defaultValue={100}
+                      onMouseDown={()=>setVelTouch(i)} onMouseUp={()=>setVelTouch(null)}
+                      onTouchStart={()=>setVelTouch(i)} onTouchEnd={()=>setVelTouch(null)}
+                      style={{writingMode:"vertical-lr",direction:"rtl",height:90,width:18,
+                        opacity:velTouch===i?1:0.35, accentColor: velTouch===i?T.amber:"#5A6478"}}/>
+                    <Ladder level={velTouch===i?0.78:[0.5,0.65,0.3,0.42][i]}/>
+                  </div>
+                  <div onClick={()=>setClaim(claim===i?null:i)} style={{fontSize:9,fontWeight:800,
+                    padding:"3px 8px",borderRadius:5,cursor:"pointer",
+                    background:claim===i?T.cyan:"#1A212C", color:claim===i?"#0B0E14":T.dim}}>CLAIM</div>
+                </div>}
+            </div>)}
+          </div>
+          {mode==="PERFORM" && <div style={{fontSize:9,color:T.dim,marginTop:8}}>
+            slider = MOMENTARY ABSOLUTE override (greyed idle, spring-back) · LED = post-transform · CLAIM = radio, residue spills</div>}
+        </div>
+      </div>
+    </div>
+
+    {/* THE CELL EDITOR */}
+    {mode==="EDIT" && editing!=null && <div style={{position:"fixed",right:360,top:120,width:290,
+        background:"#151A24",border:"1px solid #39424F",borderRadius:14,padding:14,
+        boxShadow:"0 16px 50px rgba(0,0,0,0.6)"}}>
+      <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:1,marginBottom:8}}>
+        CELL EDITOR — {editing.replace("-"," · R")} {!ed && <span style={{color:T.amber}}>(empty · template pending)</span>}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:4,marginBottom:10}}>
+        {HEX.map((h,i)=><div key={i} onClick={()=>{ setCells({...cells,[editing]:
+            {...(ed||template), idx:i, type: ed?ed.type:"ARP", params: ed?ed.params:{pat:"UP",oct:2},
+             buses:(ed||template).buses, recv:(ed||template).recv, altIdx: altOf[i]??null,
+             compatible: altOf[i]!=null, alt:false}}); }}
+          style={{height:20,borderRadius:4,background:h,cursor:"pointer",
+            outline:(ed?ed.idx:template.idx)===i? "2px solid #fff": ed? "none":"1px dashed rgba(255,255,255,0.25)"}}/>)}
+      </div>
+      <div style={{fontSize:10,color:T.dim,marginBottom:4}}>INPUT</div>
+      <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+        {[0,1].map(i=><span key={i} style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:5,cursor:"pointer",
+          background:(ed?ed.recv:template.recv)===i? RHUES[i]:"#1A212C",
+          color:(ed?ed.recv:template.recv)===i? "#0B0E14":T.dim}}
+          onClick={()=> ed && setCells({...cells,[editing]:{...ed,recv:i}})}>RCV {i+1}</span>)}
+        {["ROW 1","ROW 2"].map(r=><span key={r} style={{fontSize:10,padding:"3px 8px",borderRadius:5,
+          background:"#1A212C",color:T.dim}}>{r}</span>)}
+      </div>
+      <div style={{fontSize:10,color:T.dim,marginBottom:4}}>EMITTERS</div>
+      <div style={{display:"flex",gap:5,marginBottom:12}}>
+        {"ABCD".split("").map((b,i)=><span key={b} onClick={()=> ed && setCells({...cells,[editing]:
+            {...ed, buses: ed.buses.includes(i)? ed.buses.filter(x=>x!==i):[...ed.buses,i]}})}
+          style={{fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:5,cursor:"pointer",
+            background:(ed?ed.buses:template.buses).includes(i)?"rgba(255,255,255,0.85)":"#1A212C",
+            color:(ed?ed.buses:template.buses).includes(i)?"#0B0E14":T.dim}}>{b}</span>)}
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {["CLEAR","COPY","COPY TO CELLS…","PASTE COLOUR","PASTE ROUTING"].map(a=>
+          <span key={a} onClick={()=>{ if(a==="CLEAR"&&ed){const m={...cells};delete m[editing];setCells(m);setEditing(null);}
+              if(a==="COPY"&&ed) setTemplate(ed);
+              if(a==="COPY TO CELLS…"&&ed){ setStamp(ed); setEditing(null);} }}
+            style={{fontSize:9,fontWeight:800,padding:"4px 8px",borderRadius:5,cursor:"pointer",
+              background:"#1A212C", color: (a==="CLEAR"||a==="COPY")&&!ed ? "#333B49" : T.ink,
+              border:"1px solid "+T.panelEdge}}>{a}</span>)}
+      </div>
+      <div onClick={()=>setEditing(null)} style={{position:"absolute",top:8,right:12,cursor:"pointer",color:T.dim}}>✕</div>
+    </div>}
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>
