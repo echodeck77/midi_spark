@@ -57,6 +57,7 @@ struct DiagView: View {
     @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
     @State private var processorWindowOpen = false   // delta §6c: the floating PROCESSOR WINDOW (full params)
+    @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
@@ -72,7 +73,7 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { editing.toggle(); if editing { setLane(0) } }
+    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } }   // §5c: HOLD is PERFORM-only
 
     // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
     // PERFORM: flip an occupied cell to/from its ALT (B) state (engine-backed `alt`). Empty cells
@@ -178,6 +179,19 @@ struct DiagView: View {
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color(red: 0.98, green: 0.72, blue: 0.12))
     }
+
+    // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
+    // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
+    // v1 captures: §6a velocity overrides (in OutputsView) + audition (below). Lap + ON-HOLD deferred.
+    private func setHold(_ on: Bool) {
+        guard holdLatch != on else { return }
+        holdLatch = on
+        if !on {                                 // the drop: release the captures this layer owns
+            au?.clearAudition(); abox.target = nil
+            // (velocity springs back via OutputsView's onChange(holdLatch); lap capture is deferred)
+        }
+    }
+    private func toggleHold() { setHold(!holdLatch) }
 
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
     private func undo() { if au?.uiUndo() == true { refreshFromDocument() } }
@@ -366,6 +380,7 @@ struct DiagView: View {
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
+            if d.playing && !nd.playing && holdLatch { setHold(false) }   // §5c: transport stop = the drop
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
@@ -393,7 +408,8 @@ struct DiagView: View {
                    onSwing: { au?.setSwing($0); refreshTiming() },
                    onToggleMode: toggleMode,
                    canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
-                   onUndo: undo, onRedo: redo)
+                   onUndo: undo, onRedo: redo,
+                   holdLatch: holdLatch, onToggleHold: toggleHold)
     }
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {
@@ -404,7 +420,7 @@ struct DiagView: View {
                  onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
                  onClear: clearCell, onCopyColour: copyColour,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 laneMask: laneMask, onLaneMask: setLane)
+                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch)
     }
 
     private var hint: some View {
@@ -454,7 +470,7 @@ struct DiagView: View {
 
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim,
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim)
             .padding(8)

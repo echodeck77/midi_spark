@@ -66,6 +66,7 @@ struct GridView: View {
     var onAuditionEnd: (() -> Void)? = nil
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
+    var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
 
     enum PopKind { case from, out }
     @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
@@ -218,7 +219,7 @@ struct GridView: View {
         .onLongPressGesture(minimumDuration: 0.3, maximumDistance: .infinity) {
             onAuditionStart?(col, row)                      // fires ONCE at ~0.3s while holding → audition
         } onPressingChanged: { pressing in
-            if !pressing { onAuditionEnd?() }               // release/cancel → stop the audition
+            if !pressing && !holdLatch { onAuditionEnd?() }  // release → stop, UNLESS §5c HOLD latches it
         }
     }
 
@@ -563,6 +564,7 @@ struct OutputsView: View {
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
     var claim: Int? = nil                                                  // §6a CLAIM: the exclusive emitter, or nil
+    var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
     let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i (both modes)
     let onSetChannel: (Int, Int) -> Void  // EDIT stepper → set emitter i's stamp channel (1–16)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
@@ -589,6 +591,9 @@ struct OutputsView: View {
                     .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
             }
             HStack(alignment: .top, spacing: 5) { ForEach(0..<4, id: \.self) { strip($0) } }
+        }
+        .onChange(of: holdLatch) { latched in            // §5c: HOLD-off = the drop → every fader springs home
+            if !latched { for i in 0..<4 { faderVel[i] = nil; onVelOverride(i, nil) } }
         }
     }
 
@@ -675,8 +680,9 @@ struct OutputsView: View {
                         onVelOverride(i, val)
                     }
                     .onEnded { _ in
+                        if holdLatch { return }             // §5c HOLD: latch at the released value (keep it)
                         faderVel[i] = nil
-                        onVelOverride(i, nil)   // spring back to natural velocity
+                        onVelOverride(i, nil)               // else spring back to natural velocity
                     }
             )
         }
@@ -720,7 +726,8 @@ struct OutputsView: View {
         .overlay(alignment: .bottom) {
             Text(enabled ? (touched ? "\(faderVel[i]!)" : "ch \(ch(i))") : "off")
                 .font(.system(size: 7, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(touched ? 0.7 : 0.25)).padding(.bottom, 1)
+                .foregroundColor(holdLatch && touched ? amber : .white.opacity(touched ? 0.7 : 0.25))  // §5c HELD cue
+                .padding(.bottom, 1)
         }
     }
 
@@ -805,6 +812,8 @@ struct HeaderView: View {
     var canRedo = false
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
+    var holdLatch = false               // delta §5c — PERFORM-mode HOLD (the sustain pedal for gestures)
+    var onToggleHold: () -> Void = {}
 
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
     private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
@@ -828,6 +837,13 @@ struct HeaderView: View {
                     headerIcon("arrow.uturn.backward", enabled: canUndo, action: onUndo)
                     headerIcon("arrow.uturn.forward", enabled: canRedo, action: onRedo)
                 }
+            } else {
+                // delta §5c: HOLD — the sustain pedal for gestures (PERFORM only)
+                Text("HOLD").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(holdLatch ? .black : .white.opacity(0.6))
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(holdLatch ? amber : Color.white.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { onToggleHold() }
             }
 
             // STEP rate selector
