@@ -759,6 +759,38 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    func testColourPairFullMorphsToPartnerUnderAlt() {
+        // FULL pair (both arp): gold 1-oct paired with cyan 3-oct. A gold cell with ALT flips to the
+        // partner (t=1) → the arp spans 3 octaves, reaching 72/84 that a 1-oct arp never would.
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
+        cs[gi].paramsA.octaves = 1; cs[ci].paramsA.octaves = 3
+        cs[gi].altColour = ci
+        func emitted(_ alt: Bool) -> Set<UInt8> {
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        XCTAssertFalse(emitted(false).contains(72), "the base 1-oct arp never reaches 72")
+        XCTAssertTrue(emitted(true).contains(72), "ALT → the partner's 3-oct arp reaches 72")
+    }
+
+    func testColourPairSwapFlipsTypeUnderAlt() {
+        // SWAP pair (arp ↔ passgate): gold ARP paired with a cyan all-CLOSED PASSGATE. Plain sounds (arp);
+        // ALT flips to the closed passgate → SILENT — proving the render flips both the type and its mask.
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
+        cs[ci].type = .passgate; cs[ci].paramsA.passes = [false, false, false, false]
+        cs[gi].altColour = ci
+        func sounds(_ alt: Bool) -> Bool {
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+            return !e.ons.isEmpty
+        }
+        XCTAssertTrue(sounds(false), "the base gold arp sounds")
+        XCTAssertFalse(sounds(true), "ALT → SWAP to a closed passgate is silent")
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through

@@ -27,6 +27,17 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(effectiveT(none, morph: 0.9, alt: true), 0.0)
     }
 
+    func testEffectiveTypeAndPassMaskFlipAtMidpoint() {
+        // A SWAP pair carries the partner's type/mask in b; render flips to it past t=0.5.
+        let c = colour { $0.a.type = .arp; $0.b.type = .passgate; $0.a.passMask = 0b1111; $0.b.passMask = 0b0101 }
+        XCTAssertEqual(effectiveType(c, t: 0), .arp)
+        XCTAssertEqual(effectiveType(c, t: 0.49), .arp)
+        XCTAssertEqual(effectiveType(c, t: 0.5), .passgate)
+        XCTAssertEqual(effectiveType(c, t: 1), .passgate)
+        XCTAssertEqual(effectivePassMask(c, t: 0), 0b1111)
+        XCTAssertEqual(effectivePassMask(c, t: 1), 0b0101)
+    }
+
     // MARK: stepped fields quantize (§3.2) — the important rule: step, never glide
 
     func testRateQuantizesToLadder() {

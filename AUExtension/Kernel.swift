@@ -190,7 +190,7 @@ final class Kernel {
             // it (OMNI or channel match; wire ch = filter − 1). A vel-0 note-on is a note-off — skip it.
             let vel = bytes[2]
             if vel > 0 {
-                for i in 0..<4 where receiverChannels[i] == 0 || receiverChannels[i] == channel + 1 {
+                for i in 0..<4 where receiverHears(filter: receiverChannels[i], channel: channel) {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
                 }

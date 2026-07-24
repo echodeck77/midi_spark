@@ -110,6 +110,14 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.colours[0].tier, .none, "unpaired ⇒ none")
     }
 
+    func testMorphMasterRetiredNoLongerAffectsResolve() {
+        // delta §9 item 5: morphMaster (#300) is retired — the snapshot morph is the per-Colour value only.
+        let cs = colours(customizing: 0) { $0.morph = 0.2 }
+        var st = PluginState(colours: cs, scenes: [SceneState.empty()])
+        st.morphMaster = 1.0                              // would have pushed morph→1 in the old model
+        XCTAssertEqual(SnapshotBuilder.build(from: st).colours[0].morph, 0.2, accuracy: 1e-9)
+    }
+
     func testUnpairedColourIgnoresLegacyParamsB() {
         // paramsB is retired: an unpaired Colour's b equals a even with a legacy paramsB set.
         var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }

@@ -265,6 +265,14 @@ func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
     return selfType == partner ? .full : .swap
 }
 
+// MARK: - Receiver channel match (delta §9 item 11)
+
+/// Does a receiver with `filter` (0 = OMNI, 1–16) hear a note arriving on wire `channel` (0–15)?
+/// Wire channel = filter − 1. Used for input metering attribution (and mirrors NotePool's source filter).
+@inline(__always) func receiverHears(filter: UInt8, channel: UInt8) -> Bool {
+    filter == 0 || filter == channel + 1
+}
+
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor

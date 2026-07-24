@@ -53,13 +53,7 @@ struct GridView: View {
     var editing: Bool = true    // EDIT: sub-cell zones (FROM/OUT popovers, paint). PERFORM: whole pad = one tap.
     var selCol: Int = -1
     var selRow: Int = -1
-    var onTap: ((Int, Int) -> Void)? = nil
-    // in-cell editing (delta §5): the header opens the FROM popover, the emitter strip the OUT popover.
-    var onSetInput: ((Int, Int, Int?) -> Void)? = nil
-    var onCycleInCh: ((Int, Int) -> Void)? = nil
-    var onToggleBus: ((Int, Int, Bus) -> Void)? = nil
-    var onClear: ((Int, Int) -> Void)? = nil        // body long-press → clear
-    var onCopyColour: ((Int, Int) -> Void)? = nil   // body long-press → adopt colour as brush
+    var onTap: ((Int, Int) -> Void)? = nil          // delta §5: the whole pad is ONE target → opens the CELL EDITOR (EDIT)
     // AUDITION (§6.4 / delta §5): press-and-hold a cell (≈0.3s) → sound its processor alone while the
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil
@@ -68,8 +62,6 @@ struct GridView: View {
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
 
-    enum PopKind { case from, out }
-    @State private var pop: (col: Int, row: Int, kind: PopKind)? = nil
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
@@ -223,59 +215,11 @@ struct GridView: View {
         }
     }
 
-    // One isPresented binding per cell, true only when this cell is the popover target.
-    private func popBinding(_ col: Int, _ row: Int) -> Binding<Bool> {
-        Binding(get: { pop?.col == col && pop?.row == row },
-                set: { if !$0 { pop = nil } })
-    }
-
-    @ViewBuilder private func popoverContent(_ col: Int, _ row: Int) -> some View {
-        let cell = cellAt(col, row)
-        if pop?.kind == .out {
-            HStack(spacing: 6) {
-                ForEach(Bus.allCases, id: \.self) { b in
-                    let on = cell?.buses.contains(b) ?? false
-                    Text(b.rawValue)
-                        .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.8))
-                        .frame(width: 34, height: 34)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.white : Color.white.opacity(0.12)))
-                        .onTapGesture { onToggleBus?(col, row, b) }
-                }
-            }
-            .padding(12)
-        } else {
-            // FROM: MIDI IN, then each OTHER occupied row; + IN CH when MIDI IN.
-            let occupied = (0..<8).filter { $0 != row && cellAt(col, $0) != nil }
-            VStack(alignment: .leading, spacing: 4) {
-                fromButton("MIDI IN", on: cell?.inputRow == nil) { onSetInput?(col, row, nil); pop = nil }
-                ForEach(occupied, id: \.self) { r in
-                    fromButton("ROW \(r + 1)", on: cell?.inputRow == r) { onSetInput?(col, row, r); pop = nil }
-                }
-                if cell?.inputRow == nil {
-                    fromButton("IN CH: \(cell?.inputChannel ?? 0 == 0 ? "OMNI" : "\(cell!.inputChannel)")",
-                               on: (cell?.inputChannel ?? 0) != 0, accent: true) { onCycleInCh?(col, row) }
-                }
-            }
-            .padding(10)
-        }
-    }
-
-    private func fromButton(_ label: String, on: Bool, accent: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Text(label)
-            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : (accent ? accentCyan : .white.opacity(0.85)))
-            .padding(.vertical, 6).padding(.horizontal, 12)
-            .frame(minWidth: 96, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(on ? Color.white : Color.white.opacity(0.08)))
-            .onTapGesture(perform: action)
-    }
-
-    // ① INPUT HEADER — "FROM MIDI" / "MIDI CHn" / "FROM ROW n"; flares white on the live column.
+    // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live column.
     private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
         let midi = parent < 0
-        let label = midi ? (cell.inputChannel > 0 ? "MIDI CH\(cell.inputChannel)" : "FROM MIDI")
+        let recv = cell.inputReceiver ?? 0
+        let label = midi ? (recv == 0 ? "FROM MIDI" : "FROM R\(recv + 1)")
                          : "FROM ROW \(parent + 1)"
         return Text(label)
             .font(.system(size: 6.5, weight: .heavy, design: .monospaced))

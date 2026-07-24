@@ -227,18 +227,6 @@ struct DiagView: View {
         au?.clearAudition()
     }
 
-    private func clearCell(_ col: Int, _ row: Int) {
-        guard let au else { return }
-        au.editScene { $0.cells[col][row] = nil }
-        if selCol == col && selRow == row { selCol = -1; selRow = -1 }
-        scene = au.uiScene()
-    }
-
-    // COPY = eyedropper: adopt this cell's Colour as the current brush.
-    private func copyColour(_ col: Int, _ row: Int) {
-        if let id = scene.cells[col][row]?.colourID { brush = id }
-    }
-
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
     private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
     private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
@@ -258,18 +246,6 @@ struct DiagView: View {
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
     private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     private var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
-
-    // ---- in-cell popover edits (target a specific col,row, not the selection) ----
-    private func editCell(_ col: Int, _ row: Int, _ f: @escaping (inout Cell) -> Void) {
-        guard let au else { return }
-        au.editScene { s in if var c = s.cells[col][row] { f(&c); s.cells[col][row] = c } }
-        scene = au.uiScene()
-    }
-    private func setInput(_ col: Int, _ row: Int, _ inputRow: Int?) { editCell(col, row) { $0.inputRow = inputRow } }
-    private func cycleInChAt(_ col: Int, _ row: Int) { editCell(col, row) { $0.inputChannel = ($0.inputChannel + 1) % 17 } }
-    private func toggleBusAt(_ col: Int, _ row: Int, _ b: Bus) {
-        editCell(col, row) { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
-    }
 
     // EMITTERS (delta §6a): toggle emitter i on/off; set its stamp channel (from the EDIT popover).
     private func toggleEmitter(_ i: Int) {
@@ -430,16 +406,14 @@ struct DiagView: View {
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
-                 onSetInput: setInput, onCycleInCh: cycleInChAt, onToggleBus: toggleBusAt,
-                 onClear: clearCell, onCopyColour: copyColour,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch)
     }
 
     private var hint: some View {
         Text(editing
-             ? "EDIT · TAP → paint \(brush.uppercased()) · header → FROM · A–D → OUT · HOLD → audition (stopped) / menu"
-             : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap")
+             ? "EDIT · TAP cell → editor (input · colour · emitters) · HOLD cell → audition (stopped)"
+             : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -529,8 +503,11 @@ struct DiagView: View {
                 RoundedRectangle(cornerRadius: 2).fill(Color(hex: colourHexes[p])).frame(width: 12, height: 12)
                     .overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.5), lineWidth: 1))
             } else {
-                Image(systemName: "plus").font(.system(size: 8, weight: .heavy))
-                    .foregroundColor(altTargeting ? .black : .white.opacity(0.4))
+                // empty slot waiting to be filled — a dashed outline (brighter while targeting)
+                RoundedRectangle(cornerRadius: 2).fill(Color.black.opacity(0.15)).frame(width: 12, height: 12)
+                    .overlay(RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(altTargeting ? Color.black.opacity(0.6) : Color.white.opacity(0.35),
+                                      style: StrokeStyle(lineWidth: 1, dash: [2, 1.5])))
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 3)
