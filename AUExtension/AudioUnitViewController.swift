@@ -77,13 +77,25 @@ struct DiagView: View {
             }
             selCol = col; selRow = row
         } else {
-            au.editScene { s in
+            au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
                 guard var c = s.cells[col][row] else { return }
                 c.alt.toggle()
                 s.cells[col][row] = c
             }
         }
         scene = au.uiScene()
+    }
+
+    // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
+    private func undo() { if au?.uiUndo() == true { refreshFromDocument() } }
+    private func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
+    private func refreshFromDocument() {
+        guard let au else { return }
+        scene = au.uiScene()
+        docColours = au.uiColours()
+        busChannels = au.uiBusChannels()
+        busEnabled = au.uiBusEnabled()
+        claim = au.uiClaim()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -266,7 +278,9 @@ struct DiagView: View {
                    editing: editing,
                    onStep: { au?.setStepRateIndex($0); refreshTiming() },
                    onSwing: { au?.setSwing($0); refreshTiming() },
-                   onToggleMode: toggleMode)
+                   onToggleMode: toggleMode,
+                   canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
+                   onUndo: undo, onRedo: redo)
     }
 
     private func gridBlock(_ cellHeight: CGFloat) -> some View {

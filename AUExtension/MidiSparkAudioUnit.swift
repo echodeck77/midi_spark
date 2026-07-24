@@ -33,15 +33,32 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// THREAD (SwiftUI actions already are). All UI edits — paint, clear, wiring — go through here,
     /// so the render side sees them exactly as it sees a preset load. UI-only state (selection,
     /// brush) never touches the document.
-    func editScene(_ mutate: (inout SceneState) -> Void) {
+    func editScene(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout SceneState) -> Void) {
+        if record { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
         mutate(&document.scenes[document.activeScene])
         scheduleRebuild()
     }
 
-    /// Document-level edit path (busChannels, morphMaster, …) — same publish semantics as editScene.
-    func editDocument(_ mutate: (inout PluginState) -> Void) {
+    /// Document-level edit path (busChannels, receivers, …) — same publish semantics as editScene.
+    func editDocument(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout PluginState) -> Void) {
+        if record { undoStack.record(document, coalesceKey: coalesceKey) }
         mutate(&document)
         scheduleRebuild()
+    }
+
+    // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
+    // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
+    // and continuous AUParameter sliders (transpose/morph) are excluded for v1 (they bypass these paths).
+    private var undoStack = UndoStack<PluginState>()
+    var uiCanUndo: Bool { undoStack.canUndo }
+    var uiCanRedo: Bool { undoStack.canRedo }
+    @discardableResult func uiUndo() -> Bool {
+        guard let restored = undoStack.undo(current: document) else { return false }
+        document = restored; scheduleRebuild(); return true
+    }
+    @discardableResult func uiRedo() -> Bool {
+        guard let restored = undoStack.redo(current: document) else { return false }
+        document = restored; scheduleRebuild(); return true
     }
 
     /// AUDITION (§6.4 / delta §5): hold a cell → sound its processor alone while stopped. Ephemeral
@@ -95,6 +112,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// dedicated setters below so host automation stays in sync.
     func editColour(_ index: Int, _ mutate: (inout Colour) -> Void) {
         guard index >= 0, index < document.colours.count else { return }
+        undoStack.record(document)                              // a6: discrete Colour edit
         mutate(&document.colours[index])
         scheduleRebuild()
     }
@@ -105,6 +123,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setColourType(_ index: Int, _ newType: ProcessorType) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard index >= 0, index < document.colours.count, document.colours[index].type != newType else { return }
+        undoStack.record(document)                              // a6: discrete type switch
         document.colours[index].switchType(to: newType)
         suppressRebuild = true
         _parameterTree.parameter(withAddress: ParamAddress.transpose(index))?.value = AUValue(document.colours[index].transpose)

@@ -279,3 +279,47 @@ struct PluginState: Codable, Equatable {
         return state
     }
 }
+
+// MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack
+
+/// A bounded past/future stack of document VALUES for undo/redo (delta §5). `record` is called BEFORE a
+/// mutation with the CURRENT (pre-mutation) value: it pushes onto the past, clears the redo future, and
+/// caps the depth. A `coalesceKey` collapses a run of same-key records (a continuous gesture = one step):
+/// the FIRST record of the run captures the pre-gesture value, later same-key records don't push again.
+/// `undo`/`redo` take the live value and return the value to restore (moving the live one to the other
+/// side). Pure and Foundation-only, so it unit-tests off-device; the AU owns the mutation choke point.
+struct UndoStack<T: Equatable>: Equatable {
+    private(set) var past: [T] = []
+    private(set) var future: [T] = []
+    private var lastKey: String? = nil
+    let cap: Int
+
+    init(cap: Int = 50) { self.cap = max(1, cap) }
+
+    var canUndo: Bool { !past.isEmpty }
+    var canRedo: Bool { !future.isEmpty }
+
+    mutating func record(_ current: T, coalesceKey: String? = nil) {
+        future.removeAll()                                   // a fresh edit invalidates the redo branch
+        if let k = coalesceKey, k == lastKey, !past.isEmpty { return }   // same ongoing gesture → don't re-push
+        past.append(current)
+        if past.count > cap { past.removeFirst() }
+        lastKey = coalesceKey
+    }
+
+    /// Returns the value to restore (and stashes `current` for redo), or nil if there is nothing to undo.
+    mutating func undo(current: T) -> T? {
+        guard let prev = past.popLast() else { return nil }
+        future.append(current)
+        lastKey = nil                                        // the next record starts a fresh coalesce run
+        return prev
+    }
+
+    /// Returns the value to re-apply (and stashes `current` for undo), or nil if there is nothing to redo.
+    mutating func redo(current: T) -> T? {
+        guard let next = future.popLast() else { return nil }
+        past.append(current)
+        lastKey = nil
+        return next
+    }
+}

@@ -624,6 +624,10 @@ struct HeaderView: View {
     let onStep: (Int) -> Void
     let onSwing: (Int) -> Void
     let onToggleMode: () -> Void
+    var canUndo = false                 // delta §5 / a6 — EDIT-mode undo/redo
+    var canRedo = false
+    var onUndo: () -> Void = {}
+    var onRedo: () -> Void = {}
 
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
     private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
@@ -640,6 +644,14 @@ struct HeaderView: View {
                 modeChip("PERFORM", on: !editing, hue: accent)
             }
             .onTapGesture { onToggleMode() }
+
+            // delta §5 / a6: undo/redo — EDIT only (undoing mid-performance is surprising, spec scope-lean)
+            if editing {
+                HStack(spacing: 3) {
+                    headerIcon("arrow.uturn.backward", enabled: canUndo, action: onUndo)
+                    headerIcon("arrow.uturn.forward", enabled: canRedo, action: onRedo)
+                }
+            }
 
             // STEP rate selector
             HStack(spacing: 3) {
@@ -668,6 +680,15 @@ struct HeaderView: View {
                 .foregroundColor(playing ? accent : .white.opacity(0.4))
             Text("build \(build)").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
         }
+    }
+
+    private func headerIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Image(systemName: name).font(.system(size: 11, weight: .heavy))
+            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
+            .frame(width: 26, height: 22)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle())
+            .onTapGesture { if enabled { action() } }
     }
 
     private func modeChip(_ label: String, on: Bool, hue: Color) -> some View {

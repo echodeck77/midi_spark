@@ -164,3 +164,63 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.formatVersion, 4)
     }
 }
+
+// MARK: - UndoStack (delta §5 / a6)
+
+final class UndoStackTests: XCTestCase {
+
+    func testUndoRedoWalksHistory() {
+        var s = UndoStack<Int>()
+        s.record(0)                              // before 0→1
+        s.record(1)                              // before 1→2 ; live value is now 2
+        XCTAssertTrue(s.canUndo); XCTAssertFalse(s.canRedo)
+        XCTAssertEqual(s.undo(current: 2), 1)
+        XCTAssertEqual(s.undo(current: 1), 0)
+        XCTAssertNil(s.undo(current: 0))         // nothing older
+        XCTAssertEqual(s.redo(current: 0), 1)
+        XCTAssertEqual(s.redo(current: 1), 2)
+        XCTAssertNil(s.redo(current: 2))
+    }
+
+    func testNewRecordClearsRedo() {
+        var s = UndoStack<Int>()
+        s.record(0); s.record(1)
+        _ = s.undo(current: 2)                    // at 1, redo future = [2]
+        XCTAssertTrue(s.canRedo)
+        s.record(1)                              // a fresh edit invalidates redo
+        XCTAssertFalse(s.canRedo)
+    }
+
+    func testCoalesceCollapsesSameKey() {
+        var s = UndoStack<Int>()
+        s.record(0, coalesceKey: "morph")        // pre-gesture value captured
+        s.record(1, coalesceKey: "morph")        // mid-gesture → no new step
+        s.record(2, coalesceKey: "morph")
+        XCTAssertEqual(s.undo(current: 3), 0)     // one undo returns to the pre-gesture value
+        XCTAssertNil(s.undo(current: 0))
+    }
+
+    func testCoalesceBreaksOnDifferentKey() {
+        var s = UndoStack<Int>()
+        s.record(0, coalesceKey: "a")
+        s.record(1, coalesceKey: "b")            // different key → a distinct step
+        XCTAssertEqual(s.undo(current: 2), 1)
+        XCTAssertEqual(s.undo(current: 1), 0)
+    }
+
+    func testDiscreteRecordsNeverCoalesce() {
+        var s = UndoStack<Int>()
+        s.record(0); s.record(1)                 // nil key ⇒ always a new step
+        XCTAssertEqual(s.undo(current: 2), 1)
+        XCTAssertEqual(s.undo(current: 1), 0)
+    }
+
+    func testCapDropsOldest() {
+        var s = UndoStack<Int>(cap: 3)
+        for i in 0..<5 { s.record(i) }           // keep the last 3 pre-values: 2,3,4
+        XCTAssertEqual(s.undo(current: 5), 4)
+        XCTAssertEqual(s.undo(current: 4), 3)
+        XCTAssertEqual(s.undo(current: 3), 2)
+        XCTAssertNil(s.undo(current: 2))         // 0,1 were dropped by the cap
+    }
+}
