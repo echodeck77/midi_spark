@@ -55,6 +55,7 @@ struct DiagView: View {
     @State private var editorPending = false
     @State private var template: StampConfig? = nil
     @State private var stampMode = false
+    @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
@@ -446,17 +447,58 @@ struct DiagView: View {
     }
 
     private var colourBox: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let partner = (brushIndex >= 0 && brushIndex < docColours.count) ? docColours[brushIndex].altColour : nil
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("COLOUR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
                 Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+                Spacer()
+                altBox(partner: partner)      // delta §9 item 5: the pairing home
+            }
+            if altTargeting {
+                Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
+                    .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
-                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing) { brush = $0 }
+                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing) { pickPalette($0) }
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // delta §9 item 5: the ALT box beside the palette — shows the current Colour's PARTNER (or +). Tap to
+    // enter targeting; then pick a palette Colour to pair (re-pick the current partner to unpair).
+    private func altBox(partner: Int?) -> some View {
+        HStack(spacing: 3) {
+            Text("ALT").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(altTargeting ? .black : .white.opacity(0.5))
+            if let p = partner, p < colourHexes.count {
+                RoundedRectangle(cornerRadius: 2).fill(Color(hex: colourHexes[p])).frame(width: 12, height: 12)
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.5), lineWidth: 1))
+            } else {
+                Image(systemName: "plus").font(.system(size: 8, weight: .heavy))
+                    .foregroundColor(altTargeting ? .black : .white.opacity(0.4))
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 4).fill(altTargeting ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
+        .contentShape(Rectangle()).onTapGesture { altTargeting.toggle() }
+    }
+
+    // Palette tap: normally selects the desk brush; while ALT-targeting it sets the brush Colour's partner
+    // (re-picking the current partner unpairs; self-pick is ignored).
+    private func pickPalette(_ id: String) {
+        guard let bi = colourIDs.firstIndex(of: brush) else { return }
+        if altTargeting {
+            altTargeting = false
+            guard let pi = colourIDs.firstIndex(of: id), pi != bi else { return }
+            let current = (bi < docColours.count) ? docColours[bi].altColour : nil
+            au?.editColour(bi) { $0.altColour = (current == pi ? nil : pi) }   // re-pick same ⇒ unpair
+            docColours = au?.uiColours() ?? docColours
+        } else {
+            brush = id
+        }
     }
 
     // SCENE strip — the 16 factory scenes (Docs/factory-scenes.md), full-width along the bottom.
