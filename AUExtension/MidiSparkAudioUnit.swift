@@ -82,8 +82,18 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 
-    /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio.
+    /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
     func uiReceivers() -> [Receiver] { document.receiversResolved }
+    func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
+    func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
+    func toggleReceiverMPE(_ i: Int)              { editReceiver(i) { $0.mpeMerge.toggle() } }
+    private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {
+        guard (0..<4).contains(i) else { return }
+        editDocument { d in
+            if d.receivers == nil { d.receivers = d.receiversResolved }   // materialize before editing
+            f(&d.receivers![i])
+        }
+    }
 
     /// delta §6a: the four emitter enable flags (nil/old docs ⇒ all-enabled), and the setter (persisted).
     func uiBusEnabled() -> [Bool] { document.busEnabledResolved }

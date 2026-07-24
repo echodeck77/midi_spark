@@ -358,6 +358,77 @@ struct GridView: View {
     }
 }
 
+// MARK: - RECEIVERS panel (delta §9 item 11) — the input twin of the EMITTERS panel
+
+/// The four MIDI receivers as a strip panel above COLOUR: name + a channel filter (EDIT: ▲▼, OMNI…16),
+/// an MPE-merge toggle (EDIT), and an INPUT MUTE (both modes — "kill a live keyboard"). Receiver colours
+/// are the fixed "infrastructure family" (muted). Input velocity metering is a follow-up.
+struct ReceiversView: View {
+    let receivers: [Receiver]
+    let editing: Bool
+    let onSetChannel: (Int, Int) -> Void
+    let onToggleMute: (Int) -> Void
+    let onToggleMPE: (Int) -> Void
+
+    private let hues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
+    private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
+    private func wrap(_ ch: Int) -> Int { ch < 0 ? 16 : (ch > 16 ? 0 : ch) }   // OMNI(0)…16, wraps
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text(editing ? "MIDI in · tap ▲▼ = filter" : "input mutes")
+                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            }
+            HStack(alignment: .top, spacing: 5) { ForEach(0..<4, id: \.self) { strip($0) } }
+        }
+    }
+
+    private func strip(_ i: Int) -> some View {
+        let rec = r(i)
+        let muted = rec.muted
+        return VStack(spacing: 3) {
+            HStack(spacing: 3) {
+                Circle().fill(hues[i]).frame(width: 7, height: 7)
+                Text("R\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
+            }
+            if editing {
+                HStack(spacing: 2) {
+                    stepBtn("chevron.down") { onSetChannel(i, wrap(rec.channel - 1)) }
+                    Text(rec.channel == 0 ? "OMNI" : "\(rec.channel)")
+                        .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity)
+                    stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
+                }
+                Text("MPE").font(.system(size: 7, weight: .heavy, design: .monospaced))
+                    .foregroundColor(rec.mpeMerge ? .black : .white.opacity(0.4))
+                    .frame(maxWidth: .infinity).frame(height: 14)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(rec.mpeMerge ? hues[i] : Color.white.opacity(0.06)))
+                    .contentShape(Rectangle()).onTapGesture { onToggleMPE(i) }
+            } else {
+                Text(rec.channel == 0 ? "OMNI" : "ch \(rec.channel)")
+                    .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            Text(muted ? "MUTED" : "LIVE").font(.system(size: 7, weight: .heavy, design: .monospaced))
+                .foregroundColor(muted ? .white.opacity(0.55) : .black)
+                .frame(maxWidth: .infinity).frame(height: 15)
+                .background(RoundedRectangle(cornerRadius: 3).fill(muted ? Color.white.opacity(0.06) : hues[i]))
+                .contentShape(Rectangle()).onTapGesture { onToggleMute(i) }
+        }
+        .padding(5).frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(muted ? Color.white.opacity(0.02) : hues[i].opacity(0.12)))
+    }
+
+    private func stepBtn(_ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol).font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.6))
+            .frame(width: 18, height: 16).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+}
+
 // MARK: - THE CELL EDITOR (delta §5 rev 2 FINAL) — one floating card, signal-path order
 
 /// The cell editor (delta §5): tap any cell in EDIT → this floating card, the cell's whole definition in

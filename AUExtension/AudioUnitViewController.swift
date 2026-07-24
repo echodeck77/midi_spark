@@ -61,6 +61,7 @@ struct DiagView: View {
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
+    @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
@@ -279,6 +280,11 @@ struct DiagView: View {
     private func setVelOverride(_ i: Int, _ v: Int?) {
         au?.setVelOverride(i, v)
     }
+    // delta §9 item 11: RECEIVERS panel edits — channel filter / input mute / MPE-merge (undoable doc edits).
+    private func setReceiverChannel(_ i: Int, _ ch: Int) { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers }
+    private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
+    private func toggleReceiverMPE(_ i: Int) { au?.toggleReceiverMPE(i); receivers = au?.uiReceivers() ?? receivers }
+
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
     // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
     private func setClaim(_ i: Int) {
@@ -392,6 +398,7 @@ struct DiagView: View {
                 emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date()
             }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
+            let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
@@ -436,6 +443,7 @@ struct DiagView: View {
     // (this VStack, in a right-hand column) stacks them top→bottom; PORTRAIT uses `deskBand` below.
     private var desk: some View {
         VStack(spacing: 8) {
+            receiversBox           // delta §9 item 11: the reserved MIDI-IN slot ABOVE COLOUR
             colourBox
             if let bc = brushColour {
                 ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .desk, glides: brushGlides,
@@ -474,6 +482,13 @@ struct DiagView: View {
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim)
             .padding(8)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    private var receiversBox: some View {
+        ReceiversView(receivers: receivers, editing: editing,
+                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
+            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
