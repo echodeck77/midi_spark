@@ -224,14 +224,17 @@ struct GridView: View {
     private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
         let midi = parent < 0
         let recv = cell.inputReceiver ?? 0
-        let label = midi ? (recv == 0 ? "FROM MIDI" : "FROM R\(recv + 1)")
-                         : "FROM ROW \(parent + 1)"
         let band: Color? = (midi && recv > 0 && recv < receiverHues.count) ? receiverHues[recv] : nil
+        // Degradation ladder middle rung: below text size the header collapses to a PURE band (no text),
+        // so the receiver identity stays legible when the cell is too small for "FROM …".
+        let compact = cellHeight < 36
+        let label = compact ? "" : (midi ? (recv == 0 ? "FROM MIDI" : "FROM R\(recv + 1)")
+                                          : "FROM ROW \(parent + 1)")
         return Text(label)
             .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
             .lineLimit(1).minimumScaleFactor(0.7)
             .foregroundColor(live ? .black : .white.opacity(0.85))
-            .frame(maxWidth: .infinity).frame(height: 13)
+            .frame(maxWidth: .infinity).frame(height: compact ? 8 : 13)
             .background(live ? Color.white : (band ?? Color.black.opacity(0.52)))
             .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
     }
