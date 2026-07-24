@@ -157,6 +157,18 @@ struct SceneState: Codable, Equatable {
     static func empty() -> SceneState {
         SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
     }
+
+    /// delta §5 drag-and-drop: relocate a cell. Onto an empty slot = MOVE; onto an occupied slot = SWAP.
+    /// Both are one swap of the cell structs — fields move AS-IS (MOVES NEVER REWRITE REFERENCES: inputRow
+    /// is row-level, so within-row drags stay reference-safe and cross-row drags rewire meaning visibly).
+    mutating func swapCells(_ a: (col: Int, row: Int), _ b: (col: Int, row: Int)) {
+        guard a.col >= 0, a.col < 8, a.row >= 0, a.row < 8,
+              b.col >= 0, b.col < 8, b.row >= 0, b.row < 8,
+              (a.col != b.col || a.row != b.row) else { return }
+        let tmp = cells[a.col][a.row]
+        cells[a.col][a.row] = cells[b.col][b.row]
+        cells[b.col][b.row] = tmp
+    }
 }
 
 struct PluginState: Codable, Equatable {

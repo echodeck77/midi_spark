@@ -225,6 +225,35 @@ final class UndoStackTests: XCTestCase {
     }
 }
 
+// MARK: - Cell relocation (delta §5 drag-and-drop)
+
+final class CellRelocationTests: XCTestCase {
+    func testSwapCellsMovesToEmptyPreservingFields() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.b]); c.inputRow = 3; return c }()
+        s.swapCells((0, 0), (2, 5))                    // move onto an empty slot
+        XCTAssertNil(s.cells[0][0])
+        XCTAssertEqual(s.cells[2][5]?.colourID, "gold")
+        XCTAssertEqual(s.cells[2][5]?.inputRow, 3, "the reference moves as-is (fields sacred)")
+        XCTAssertEqual(s.cells[2][5]?.buses, [.b])
+    }
+    func testSwapCellsSwapsTwoOccupied() {
+        var s = SceneState.empty()
+        s.cells[1][1] = Cell(colourID: "gold")
+        s.cells[4][2] = Cell(colourID: "cyan")
+        s.swapCells((1, 1), (4, 2))
+        XCTAssertEqual(s.cells[1][1]?.colourID, "cyan")
+        XCTAssertEqual(s.cells[4][2]?.colourID, "gold")
+    }
+    func testSwapCellsSelfAndOutOfRangeAreNoOps() {
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
+        s.swapCells((0, 0), (0, 0))                    // self → no-op
+        XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
+        s.swapCells((0, 0), (9, 9))                    // out of range → no-op
+        XCTAssertEqual(s.cells[0][0]?.colourID, "gold")
+    }
+}
+
 // MARK: - StampConfig (delta §5) — session template / clipboard round trip
 
 final class StampConfigTests: XCTestCase {

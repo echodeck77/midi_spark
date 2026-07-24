@@ -182,6 +182,14 @@ struct DiagView: View {
         .background(Color(red: 0.98, green: 0.72, blue: 0.12))
     }
 
+    // delta §5 drag-and-drop (EDIT): relocate a cell — move onto an empty slot, swap onto an occupied one.
+    // A document edit (undoable via editScene); references move as-is (fields sacred).
+    private func moveCell(_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) {
+        guard let au else { return }
+        au.editScene { $0.swapCells(from, to) }
+        scene = au.uiScene()
+    }
+
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
     // v1 captures: §6a velocity overrides (in OutputsView) + audition (below). Lap + ON-HOLD deferred.
@@ -403,7 +411,7 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch)
+                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell)
     }
 
     private var hint: some View {

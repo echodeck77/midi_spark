@@ -64,10 +64,26 @@ struct GridView: View {
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
+    var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
+    // §5 drag-and-drop (EDIT): the cell being dragged + the hovered drop target; the grid's measured size
+    // maps a drag location (in the "grid" coordinate space) to a cell.
+    struct GridPos: Equatable { let col: Int; let row: Int }
+    @State private var dragFrom: GridPos? = nil
+    @State private var dragTo: GridPos? = nil
+    @State private var gridSize: CGSize = .zero
+    private func cellAt(location p: CGPoint) -> GridPos? {
+        guard gridSize.width > 0 else { return nil }
+        let cellW = (gridSize.width - CGFloat(7) * Self.vGap) / 8
+        let col = Int(p.x / (cellW + Self.vGap))
+        let y = p.y - (Self.headH + Self.vGap)                 // below the column-key row
+        let row = Int(y / (cellHeight + Self.vGap))
+        guard col >= 0, col < 8, row >= 0, row < 8, y >= 0 else { return nil }
+        return GridPos(col: col, row: row)
+    }
 
     /// The beat position NOW, extrapolated from the last poll (one-clock rule, §4): the UI polls at
     /// ~4 Hz; between polls we advance the last value by elapsed·tempo so the playhead glides.
@@ -89,6 +105,8 @@ struct GridView: View {
             }
         }
         .overlay { mutationLines }                       // per-cell falling lines in the active column
+        .coordinateSpace(name: "grid")                   // §5 drag-and-drop: maps a drag location → a cell
+        .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
         .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
     }
@@ -206,6 +224,12 @@ struct GridView: View {
                     .padding(3)
             }
         }
+        .overlay {                                          // §5 drag-and-drop: the hovered drop target
+            if dragFrom != nil, dragTo == GridPos(col: col, row: row), dragFrom != dragTo {
+                RoundedRectangle(cornerRadius: 8).stroke(accentCyan, lineWidth: 2.5)
+            }
+        }
+        .opacity(dragFrom == GridPos(col: col, row: row) ? 0.4 : 1)   // dim the cell being dragged
         .contentShape(Rectangle())
         // delta §5: the whole pad is ONE tap target in both modes — EDIT opens the CELL EDITOR (the VC
         // routes onTap), PERFORM flips ALT. FROM/OUT popovers + the hold menu are retired (contents moved
@@ -216,6 +240,22 @@ struct GridView: View {
         } onPressingChanged: { pressing in
             if !pressing && !holdLatch { onAuditionEnd?() }  // release → stop, UNLESS §5c HOLD latches it
         }
+        // §5 drag-and-drop (EDIT only): MOVEMENT begins the drag and cancels the audition ("hold to hear
+        // it, drag to move it" — minimumDistance 16 means a tap/still-hold never triggers this). Drop on an
+        // empty slot = move; on an occupied slot = swap (via the VC). PERFORM: inert (guarded out).
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .named("grid"))
+                .onChanged { v in
+                    guard editing, cell != nil else { return }
+                    if dragFrom == nil { dragFrom = GridPos(col: col, row: row); onAuditionEnd?() }
+                    dragTo = cellAt(location: v.location)
+                }
+                .onEnded { v in
+                    defer { dragFrom = nil; dragTo = nil }
+                    guard editing, let from = dragFrom, let to = cellAt(location: v.location), to != from else { return }
+                    onMoveCell?((from.col, from.row), (to.col, to.row))
+                }
+        )
     }
 
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
