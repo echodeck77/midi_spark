@@ -257,6 +257,23 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   LIVE LAW; sketching while running is audible); the fade is the
   deviations-announce law applied to creation: "present, sounding,
   unreviewed."
+  **③ GHOST BATCH EDITING (user rule 2026-07-24):** when MULTIPLE ghost
+  cells of a colour exist (faded, routing unconfirmed) and the editor
+  opens on one, **it applies to ALL ghosts of that colour BY DEFAULT** —
+  sketch with drags, configure once. Header announces scope ("EDITING 5
+  GHOST CELLS · GOLD") with a **THIS CELL ONLY** escape toggle. All
+  sections apply to the batch (input, emitters, colour = recolours the
+  family, ON, and the action row — batch-CLEAR wipes the sketch,
+  undo-covered). **THE BATCH BOUNDARY IS THE FADE**: only unreviewed
+  cells batch, so configured work can never be surprise-edited — the
+  safety rule and the visual state are the same fact. Retargeting:
+  another same-colour ghost = same batch; a configured cell or other
+  colour = exits to single editing.
+  **UN-FADE RULE (unified, revising "clears on first visit"): ghosts
+  un-fade on the FIRST COMMITTED CHANGE, never on open** — looking is
+  free, touching confirms (a batch opened and dismissed untouched
+  confirms nothing; a single ghost inspected-not-configured stays
+  honestly marked).
   All of it undo-covered — no confirmations anywhere (the undo law).
 
 ## 6. Desk (closes the §6.9 layout-pass task)
@@ -568,7 +585,28 @@ flash when notes leave).
      (default)** | CASCADE (fixed A→D seniority — strict ownership even
      among claimants) · ③ match: **PITCH-CLASS (default)** | EXACT NOTE.
      Ship defaults first (currently: single + pitch-class); the options
-     popover is a later, small surface. Suppress, never defer (released notes don't
+     popover is a later, small surface.
+     **THE EMITTER RELATIONSHIP FAMILY (user seeds 2026-07-24 — "playing
+     the channels off against each other"; CLAIM grows into per-emitter
+     ROLES, one radio each):** NONE · **CLAIM + LEAK %** (suppression
+     with bleed: claimed classes pass at scaled velocity — the hole
+     becomes a SHADOW; current claim = LEAK 0, so it's ONE param on
+     shipped machinery) · **FLIP** (the anti-claim: only pitch classes
+     NOBODY is sounding — actively takes the negative space, even with
+     no claimants; a FLIP'd pad is structurally incapable of doubling
+     anyone — counterpoint as a channel property) · **FLATTEN + amount**
+     (the other axis — ACTIVITY-based ducking: while the flattener
+     sounds, others' new note-ons arrive velocity-scaled; pumping in
+     MIDI; "is it sounding" = a refcount query, stateless) · **ALT**
+     (pairwise turn-taking — the parked HOCKET's simplest form promoted;
+     round-robin stays parked). COMPOSITION per the ON discipline:
+     everything composes (FLIP under a claimant yields harder; mutual
+     FLATTENers = legal rope); all modes = one-line admission filters or
+     velocity transforms on the same ghost/refcount tables;
+     suppress-never-defer inherits family-wide. SHIP ORDER: LEAK → FLIP
+     → FLATTEN → ALT — ALL gated behind single-CLAIM device validation
+     + the hang fix (the family stands on the ghost machinery under
+     suspicion). Suppress, never defer (released notes don't
      retroactively sound elsewhere — §6a doctrine). CLAIM IS PERSISTED
      (it shapes the arrangement; the touch-override is not).
      **LAW (user-ratified 2026-07-24, matching the as-built behaviour —
@@ -1039,9 +1077,50 @@ every answer at once.
        SELECTOR (wheel = ribbon over the held pool) — performance toy,
        logged as such.
        DOCTRINE-FIGHTERS, flagged: MONO/last-note needs event-order memory
-       (capture-state class; the only impure idea — last or never). OUT OF
-       SCOPE: CC/LFO generators (Kernel/standalone territory, not
-       processors).
+       (capture-state class; the only impure idea — last or never).
+       **THE MOD PROCESSOR (CC shapes) — 2026-07-24, the earlier "OUT OF
+       SCOPE: CC/LFO generators" verdict REVISITED and revised:** the
+       exclusion targeted FREE-RUNNING Kernel-level generators (which do
+       fight the model); a **beat-derived, per-cell, emission-stamped CC
+       shape is IN-MODEL by every law** — one-clock pure (replay-safe
+       sweeps), channel-level by nature (fits better than bend). A MOD
+       Colour emits shaped CC (target CC#, shape sine/ramp/S&H, rate,
+       depth) through its emitters' stamps; busEnabled gates it; the grid
+       SEQUENCES MODULATION (MOD cells under the bass columns = CC74
+       wobble in the arrangement). NEW RULE it needs — CC state
+       pollution: a **LEAVE-DISPOSITION** (reset-to-default on column
+       exit | leave-as-landed) = the ON LEAVE section's third tenant.
+       Adjacent future: scene-entry CC snapshots as an ON SCENE
+       candidate. Roster position: strong candidate, first CC-emitting
+       type.
+       **MOD-THROUGH-MOD (user 2026-07-24 — CC chains via ⇐Rn; the graph
+       model extends with ZERO structural change: a MOD cell's sounding
+       set = its current value; children sample it at their own ticks,
+       unit-delay refs and all — CV patching from the note machinery).**
+       Child-stage vocabulary: DEPTH/OFFSET (attenuverter) · INVERT ·
+       SLEW · QUANTIZE/STEP · SHAPE-MULTIPLY (AM of modulation).
+       USE CASES ON RECORD: one-clock-many-depths (master LFO + scaling
+       children to different CC#s/emitters, phase-locked) · **OPPOSITION
+       BREATHING (parent → A, inverted child → B: two synths in
+       complementary motion — the killer demo)** · sample-and-glide
+       (S&H → SLEW; same source sharp to one synth, drifting to another)
+       · **S&H FOR FREE (a slow child sampling a fast parent = the
+       child's tick rate is the sample clock — no dedicated type
+       needed)** · breathing depth (shape-multiply: wobble that swells
+       over bars) · phrase-synced free-running (FREE parent through a
+       RETRIG child — PHASE modes modulate modulation) · **cross-domain
+       TRACK: a MOD cell referencing a NOTE cell derives CC from the
+       sounding material — pitch→filter tracking, velocity→brightness,
+       and DENSITY→SEND (busy passes push the reverb wetter: the music
+       mixes itself).** THE LINE NOT CROSSED: CC curves modulating
+       INTERNAL note-processor params = the mod-matrix door — noted,
+       NOT opened (internal params belong to morph + host mapping;
+       the bright line keeps the system explicable).
+       CC ROLES SUMMARY (2026-07-24, mirrors the pitch-bend analysis):
+       passthrough DONE (e4bfa30) · incoming-CC→params = FREE via host
+       AUParameter mapping (the stable-address dividend; internal
+       CC-learn = standalone carrot ONLY) · CC64 pedal = receiver tab
+       (above) · generated CC = the MOD processor.
      - **THE TAIL RULE — design brief (2026-07-23; the cross-step
        amendment, answered ONCE for all customers incl. EXTERNAL tails).**
        Voices MAY outlive their column. Customers, in value order:
@@ -1189,8 +1268,11 @@ every answer at once.
      register ZONING; composes with Colour transpose across layers) ·
      ④ VELOCITY (curve soft/lin/hard + min/max clamp — controller
      compensation; clamp-to-fixed = organ mode) · ⑤ MPE MERGE (as
-     logged) · ⑥ **LATCH — the headline, USER-DEFINITE 2026-07-24: OFF / SUSTAIN /
-     CHORD-LATCH**
+     logged) · ⑥ **SUSTAIN PEDAL (CC64)** — notes released pedal-down STAY in the pool
+     until pedal-up (rig-class; latch's played-with-feet cousin) —
+     **DEFERRED to the later list (user 2026-07-24): design kept, not in
+     the receivers wave** · ⑦ **LATCH — the headline,
+     USER-DEFINITE 2026-07-24: OFF / SUSTAIN / CHORD-LATCH**
      (play a chord, release, it HOLDS; a new chord REPLACES — the
      arpeggiator hold, per-receiver). Chord-latch resolves the oldest
      ergonomic tension: "the held chord is the score" stops meaning
@@ -1211,6 +1293,171 @@ every answer at once.
      FROM-ROW cells never band (no receiver). Defaults invisible,
      deviations announce — single-receiver grids stay clean. PROMOTED to
      spec — schema + panel + editor join the implementation wave.
+  14. **THE MASTER + WIRE INSERTS (user proposal 2026-07-24 — "one last
+     colour processor" per emitter, and a MASTER the interface never
+     had).**
+     - **THE MASTER STRIP (valuable independently, near-term-able):** the
+       All-cable sum made grabbable on the §6d panel — master MUTE
+       (global emission kill, the panic's dignified cousin) · master
+       VELOCITY fader (momentary-absolute at the sum) · master METER.
+       The mixing desk's missing citizen.
+     - **WIRE INSERTS = referencing cells that live on the wire:** input
+       = the emitter's pre-insert sum-as-pool (exactly the child-samples-
+       parent semantics); output = the cable. LAWS: inserts run **FREE
+       phase perpetually** (no column; HARMONIZE = continuous thickening,
+       ARP = free-running over the emitter's content; entry-triggered
+       types (STRUM) re-trigger on SUM-CHANGE — the one special rule) ·
+       **THE CONSTITUTIONAL CAP: ONE insert per emitter + ONE on master,
+       NEVER chains on the wire** — the wire gets a single word; the
+       grammar stays on the grid (visible, steppable, flow-animated).
+       Visibility: the insert = its Colour's chip on the strip; edits via
+       normal Colour machinery; the flow layer gains an insert node.
+     - **MASTER SCOPE — RATIFIED 2026-07-24: ALL OUTPUT** — every cable,
+       after per-emitter inserts; the All cable stays the plain sum.
+     - **CREATIVE USES ON RECORD:** per-scene master Colours (music-class
+       → each scene masters itself): master-HARMONIZE = the chorus lift
+       (everything blooms) · master-CHANCE = breakdown by dissolution
+       (the whole instrument frays together) · **master TRANSPOSE = THE
+       KEY CHANGE** (the insert Colour's transpose at the sum — "last
+       chorus up a tone" as one control; the mechanism the instrument
+       never had, free). PERFORMANCE: the whisper-drop (momentary master
+       fader + SPRING; with HOLD = latched duck, released by the global
+       drop). **THE CHARACTER FADER: pair the master insert's Colour** —
+       HARMONIZE-5th↔octave = voicing character on one fader;
+       CHANCE-100↔30 = a DENSITY master; morphMaster at address 300 =
+       AUM rides the whole instrument's character over the song's arc.
+       FUTURE: master-MOD = the DJ filter (one CC sweep, every synth,
+       together) · master-ECHO = the global send · wildcard: master-ARP
+       in FREE = the entire output re-articulated as one running voice
+       (the demo video's closing shot candidate).
+     - PAYOFFS: master-HARMONIZE (instant ensemble) · per-emitter CHANCE
+       (output thinning) · velocity-curve inserts · FUTURE: **ECHO and
+       MOD as inserts = the send-effect model** (delays/CC shapes living
+       on wires, where sends belong — likely the echo tail customer's
+       true home). SEQUENCING: post-wave; the master strip may ship
+       earlier with a §6d touch.
+  13. **THE FLIGHT RECORDER (2026-07-24 — device data capture; the
+     derived architecture's diagnostic dividend).** A session is FULLY
+     DETERMINED by three streams: host beat timeline · input MIDI events
+     · document mutations (beat-timestamped). CAPTURE (dev builds):
+     RT-safe ring buffer on the render side, drained off-thread (the 4Hz
+     poll pattern's second job), exported from the App Group container
+     via share sheet. REPLAY: a harness loader feeds the capture to the
+     130-test suite — **bit-exact reproduction; a device bug becomes a
+     T-session and stays forever as its own regression test**
+     (capture-to-test is a pipeline because state derives, never
+     accumulates). Delegable to Claude Code as a self-contained task.
+     **THE HANG-DETECTION KIT (2026-07-24 — user reports device hangs;
+     the refcount IS the ledger, so detection = exposure + one
+     invariant):** ① **ASSERT-ON-SILENCE** — at provably-silent moments
+     (stopped + no input + no latch) the open-tuple table must be EMPTY;
+     violations self-report with fingerprints (tuple, owner cell, birth
+     beat, opening path) — every stop becomes a hang test. ② **OPEN-
+     VOICES dump** (dev gesture): the live table with owners + ages —
+     read the culprit off the corpse, no repro needed (rides the 4Hz
+     poll). ③ **HARNESS LEAK-HUNTER**: the invariant at every T-session
+     end + a GESTURE FUZZER (random toggle/CLAIM/lap/mode/scene
+     interleavings while notes run → stop → assert-empty; refcount leaks
+     live in transition interleavings). ④ flight-recorder replay (above)
+     = field hang → deterministic repro → permanent regression test —
+     **the recorder is hereby PROMOTED to urgent**. ⑤ instrumented
+     PANIC: assert-the-present / all-notes-off LOG their kill list
+     (every panic press = a filed bug report).
+     **SUSPECTS for the current hang, by recency and shape:** (a)
+     stopped-passthrough note-OFFs gated by state changed since the ON
+     (the off must mirror the on's admission — verify passthrough notes
+     live in the refcount table); (b) a7 CLAIM ghost lifecycle
+     (off/switch/muted paths, the L1 window); (c) §6a disable-while-
+     sounding; (d) lap transitions over chord-holds (k=1 sustain).
+     ADJACENT postures: os_log/Instruments/MetricKit = the free tier
+     (never log/allocate/lock on the render thread — ring-and-drain is
+     the only legal pattern there). **LINE: no telemetry from the AU
+     extension, EVER**; analytics if-ever = standalone-only, opt-in.
+     **MIDI FILE EXPORT (2026-07-24 — the recorder's sibling; easy):**
+     format = native MusicSequence → MusicSequenceFileCreate (or ~150
+     lines of hand-rolled SMF Format 1). **One track per emitter** (names
+     + channel stamps preserved — the export lands in a DAW pre-split
+     into the arrangement). Derived-beat timestamps → exact PPQ:
+     **quantize-perfect files by construction, swing intact** (cleaner
+     than any cable recording). DATA PATH: no output recording needed —
+     capture → OFFLINE REPLAY in the harness → collect emissions → SMF
+     (one capture, any export, retroactive: "export Tuesday's jam").
+     CONSISTENCY: the "no file I/O" ruling governed clip STORAGE; export
+     is an output ARTIFACT — no contradiction; IMPORT stays excluded.
+     WHY NOW: the SONG's production pipeline — compose in-app, export
+     per-emitter MIDI, mix the demo video's audio in a DAW while the
+     video films the instrument performing the same material. Dev-first
+     (share sheet from the App Group); product surface = the standalone
+     Files carrot's second tenant.
+     **THE REPLAY BUFFER UX (user 2026-07-24 — ratified as the export's
+     shape): one button serves a file of THE LAST N SCENE PASSES.**
+     Mechanism: always-on capture ring measured in PASSES; at every pass
+     wrap, a CHECKPOINT (document state, KBs) beside the event tail;
+     press → checkpoint at −N + events since → offline replay (pure
+     derivation: 32 passes in milliseconds) → SMF → share sheet.
+     Retroactive, near-instant, spans scene switches (an ARRANGEMENT
+     chunk, song-mode chains included). N = a setting (8/16/32/64);
+     the button = one press. Ring memory trivial (sparse events + small
+     checkpoints). **SPEC ADDITION this forces: the capture's streams
+     generalize to beat timeline + input MIDI + ALL USER ACTIONS
+     (document mutations ∪ PERFORM GESTURES** — lap holds, overrides,
+     CLAIM taps, HOLD: ephemeral-state mutators must be captured or
+     replays miss the performance half). "The best take is the one you
+     didn't plan; this makes not-planning free."
+     **THE TIME MACHINE (user interface spec 2026-07-24 — v2; the replay
+     buffer's full face; the v1 one-button export remains the quick
+     path).** A header button. On press: ARMED — the lanes fill LIVE
+     until the pass wrap (quantized takeover), then: **the grid's bottom
+     row becomes the MASTER midi-lane, the four rows above it A/B/C/D
+     lanes — all inheriting the GRID'S COLUMN GEOMETRY** (one visible
+     window = one pass; notes render UNDER the columns that generated
+     them). At the wrap, **output switches to the stored capture,
+     receivers HALT and render dark** (input honestly dead). FROZEN:
+     the VIEWED pass LOOPS (tape-scrub); the remaining upper cells
+     become BACK/FORWARD — shifting the window by pass through the
+     scene-session history. **UNFREEZE = STATE REWIND ON THE RUNNING
+     CLOCK:** restore the viewed checkpoint — document AND captured
+     gesture ephemera (a held lap returns mid-hold) — receivers reopen,
+     derivation resumes live from that state at the current host beat
+     (timeline sacred: the music rewound, not the clock); history
+     branches naturally (the ring writes forward from now).
+     **EXPORT: drag a time-range on the lanes, lanes selectable, SAVE →
+     ONE FILE PER SELECTED LANE** (the quantize-perfect SMF pipeline).
+     ENGINE: two new verbs only — REPLAY-AS-OUTPUT (the offline
+     replayer streaming through the cables at now) and STATE-RESTORE
+     (checkpoint + ephemera; the gesture-stream capture provides) —
+     everything else is this item's existing rails. NAME: working title
+     fine; App Store copy collides with Apple's backup brand — rename
+     at shipping, not now.
+  12. **THE SONG + PRESET MANAGEMENT + THE NOTES WINDOW (opened
+     2026-07-24 — three interlocking threads).**
+     - **THE SONG:** a real multi-scene piece built alongside the app —
+       the demo video's spine AND shipping content. It RECRUITS the wave:
+       §5d switching = its skeleton; **song mode (NEXT-SCENE × EVERY-N)
+       lets the video film the instrument PERFORMING THE SONG ITSELF**
+       (hands enter for the lap/strips/drops only — the most honest
+       promo footage an instrument can have); RECORD supplies riffs; ON
+       makes scenes breathe; the curriculum teaches the vocabulary the
+       song then speaks. AMBIGUITY flagged: "generating scenes" read as
+       AUTHORING at scale; procedural generation = a different feature,
+       one word clarifies.
+     - **PRESET MANAGEMENT (undesigned — opened, needs its own pass):**
+       the UNIT question is pre-answered by the §5d rig/music split —
+       **the SCENE is the portable unit** (music only: imports play
+       through YOUR rig; presets never break your setup BY DESIGN). Two
+       shelves: DOCUMENTS (whole songs: rig + scenes) and SCENES
+       (importable into any slot — compose songs from a library, which
+       is also how the demo song gets built). Storage: App Group
+       container now; the standalone Files browser is this feature's
+       second act (already a carrot). Resolves the CAPACITY question's
+       pressure (curriculum + song competing for 16 slots).
+     - **THE NOTES WINDOW ("one last window"):** per-SCENE + per-document
+       plain-text notes; a floating window in the §6c family; persisted
+       in fullState (tiny). THE CONVERGENCE: **the factory scenes'
+       HOLD/LISTEN/PERFORM lines ship as their notes — the curriculum
+       becomes self-documenting IN-APP**; every preset arrives with its
+       instructions; the demo song carries its performance script in the
+       instrument being filmed. Not annotation — how content SPEAKS.
   10. **CELL VISUALIZATION v2 — PARAMETRIC GLYPHS (user idea 2026-07-23;
      sketch, not queued).** The mid-region type glyph becomes THE SETTINGS,
      DRAWN — a pure function of the Colour's effective params (ARP UP 2oct
@@ -1233,6 +1480,24 @@ every answer at once.
      pad scale). Hand-PICKED glyphs REJECTED: chosen glyphs are decoration
      that can drift from truth; the parametric glyph is information that
      cannot lie.
+     **THE FLOW LAYER (user interest 2026-07-24 — notes as transient
+     pulses traveling their actual path; item 10's companion).** Three
+     hops: ENTRY (receiver band → glyph) · REFERENCE (parent cell →
+     child cell, only while sampling — the graph visible only in use) ·
+     EMISSION (glyph → emitter letter → the panel flash/meter, which
+     become the DESTINATIONS of visible motion). **Reconciles with the
+     no-wiring law by amendment: no STATIC wiring; TRANSIENT flow is the
+     sanctioned form** (a pulse is information, a cable is furniture).
+     DERIVATION GIFT: for pure types every pulse is DERIVABLE (tick
+     times = f(beat, snapshot)) — the SAME machinery as the glyph
+     highlight, rendered as motion-between-places; one-clock pure, no
+     event feed (the deferred per-cell feed upgrades RECORD/EXTERNAL
+     later). NOISE BUDGET: live-column scope (≤8 cells), in-column
+     reference hops only, intensity **OFF / SUBTLE (playing default) /
+     SHOWCASE (for the camera — the demo video's money shot: the song
+     performing itself via NEXT-SCENE chains WITH its note-flow
+     visible; footage no competitor can film because no competitor's
+     signal path is derivable).**
      LADDER MIDDLE RUNGS (user 2026-07-24, ties to item 11): below
      text-size, the input header becomes a RECEIVER-COLOURED top band and
      the ALT partner shows as a colour region (ring or corner wedge — v61
