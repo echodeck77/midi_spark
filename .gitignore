@@ -36,5 +36,5 @@ fastlane/report.xml
 fastlane/screenshots
 
 # Claude↔Claude message passing (local only — inbox/outbox, never tracked)
-/incoming/
-/outgoing/
+/_incoming/
+/_outgoing/
