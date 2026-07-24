@@ -48,6 +48,13 @@ struct DiagView: View {
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
+    // delta §5 (a5): the CELL EDITOR — target cell (-1 = closed), pending (empty, ghosted, uncommitted),
+    // the session template = clipboard (one stamp object), and STAMP MODE ("COPY TO CELLS…").
+    @State private var editorCol = -1
+    @State private var editorRow = -1
+    @State private var editorPending = false
+    @State private var template: StampConfig? = nil
+    @State private var stampMode = false
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
@@ -71,19 +78,103 @@ struct DiagView: View {
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
-            au.editScene { s in
-                if var c = s.cells[col][row] { c.colourID = brush; s.cells[col][row] = c }
-                else { s.cells[col][row] = Cell(colourID: brush) }
+            if stampMode {                                 // delta §5 STAMP MODE: apply the stamp, no editor
+                au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
+                selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
+            } else {                                       // open / RETARGET the inspector on this cell
+                editorCol = col; editorRow = row
+                editorPending = (scene.cells[col][row] == nil)
+                selCol = col; selRow = row
             }
-            selCol = col; selRow = row
         } else {
             au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
                 guard var c = s.cells[col][row] else { return }
                 c.alt.toggle()
                 s.cells[col][row] = c
             }
+            scene = au.uiScene()
         }
-        scene = au.uiScene()
+    }
+
+    // MARK: - Cell editor (delta §5) — commit-on-first-interaction, inspector retarget, template/stamp
+
+    private var currentTemplate: StampConfig { template ?? .bootstrap(colourID: brush) }
+
+    /// Apply an edit to the target cell. A PENDING (empty) cell is CREATED from the template on this first
+    /// interaction; an occupied cell is mutated in place. Committing also updates the template + desk brush.
+    private func editorApply(_ f: (inout Cell) -> Void) {
+        guard let au, editorCol >= 0 else { return }
+        if scene.cells[editorCol][editorRow] == nil {
+            var c = currentTemplate.makeCell(); f(&c)
+            au.editScene { $0.cells[editorCol][editorRow] = c }
+            editorPending = false
+        } else {
+            au.editScene { s in if var c = s.cells[editorCol][editorRow] { f(&c); s.cells[editorCol][editorRow] = c } }
+        }
+        scene = au.uiScene(); docColours = au.uiColours()
+        if let c = scene.cells[editorCol][editorRow] { template = .from(c); brush = c.colourID }   // commit ⇒ template + desk
+    }
+
+    private func editorClear() {
+        guard let au, editorCol >= 0 else { return }
+        au.editScene { $0.cells[editorCol][editorRow] = nil }
+        editorPending = true; scene = au.uiScene()          // cleared → empty, editor stays (template ghost)
+    }
+    private func editorCopy() { if let c = scene.cells[editorCol][editorRow] { template = .from(c) } }
+    private func editorCopyToCells() {                      // enter STAMP MODE, close the editor
+        if let c = scene.cells[editorCol][editorRow] { template = .from(c) }
+        stampMode = true; editorCol = -1
+    }
+    private func editorPasteColour()  { editorApply { $0.colourID = currentTemplate.colourID } }
+    private func editorPasteRouting() { editorApply { $0.inputRow = currentTemplate.inputRow
+                                                      $0.inputReceiver = currentTemplate.inputReceiver
+                                                      $0.buses = currentTemplate.buses } }
+    private func editorClose() { editorCol = -1; editorPending = false }
+
+    // INPUT radio helpers: which rows are occupied (dim) and which are blocked (self + anti-2-cycle).
+    private func occupiedRows(_ col: Int) -> Set<Int> {
+        Set((0..<8).filter { scene.cells[col][$0] != nil })
+    }
+    private func blockedRows(_ col: Int, _ thisRow: Int) -> Set<Int> {
+        var s: Set<Int> = [thisRow]                         // self-reference unexpressible
+        for r in 0..<8 where scene.cells[col][r]?.inputRow == thisRow { s.insert(r) }   // direct 2-cycle guard
+        return s
+    }
+
+    @ViewBuilder private var cellEditorCard: some View {
+        if editorCol >= 0, editorCol < 8, editorRow < 8 {
+            CellEditorView(
+                col: editorCol, row: editorRow,
+                cell: scene.cells[editorCol][editorRow],
+                pending: editorPending,
+                template: currentTemplate,
+                colours: docColours,
+                receivers: au?.uiReceivers() ?? [],
+                occupiedRows: occupiedRows(editorCol),
+                blockedRows: blockedRows(editorCol, editorRow),
+                hasClipboard: template != nil,
+                onColour: { id in editorApply { $0.colourID = id } },
+                onInput: { rec, row in editorApply { $0.inputRow = row; if let r = rec { $0.inputReceiver = r } } },
+                onToggleEmitter: { b in editorApply { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } } },
+                onClear: editorClear, onCopy: editorCopy, onCopyToCells: editorCopyToCells,
+                onPasteColour: editorPasteColour, onPasteRouting: editorPasteRouting, onClose: editorClose)
+        }
+    }
+
+    // delta §5 STAMP MODE: the non-negotiable banner. (Per-cell overwrite tint is a follow-up.)
+    private var stampBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.on.square").font(.system(size: 11, weight: .heavy))
+            Text("STAMPING — tap cells to apply").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            Spacer()
+            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.35)))
+                .contentShape(Rectangle()).onTapGesture { stampMode = false }
+        }
+        .foregroundColor(.black)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Color(red: 0.98, green: 0.72, blue: 0.12))
     }
 
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
@@ -245,6 +336,10 @@ struct DiagView: View {
                     }
                     .padding(12)
                 }
+                // delta §5: STAMP banner (top) + the floating CELL EDITOR card (top-leading, near the grid).
+                // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
+                if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
+                if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
             }
         }
         .onReceive(timer) { _ in

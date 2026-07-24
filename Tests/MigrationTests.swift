@@ -224,3 +224,27 @@ final class UndoStackTests: XCTestCase {
         XCTAssertNil(s.undo(current: 2))         // 0,1 were dropped by the cap
     }
 }
+
+// MARK: - StampConfig (delta §5) — session template / clipboard round trip
+
+final class StampConfigTests: XCTestCase {
+    func testFromCellAndBackRoundTrips() {
+        var c = Cell(colourID: "cyan", buses: [.b, .d]); c.inputRow = 3; c.inputReceiver = 2
+        let t = StampConfig.from(c)
+        XCTAssertEqual(t.colourID, "cyan")
+        XCTAssertEqual(t.inputRow, 3)
+        XCTAssertEqual(t.inputReceiver, 2)
+        XCTAssertEqual(t.buses, [.b, .d])
+        let made = t.makeCell()
+        XCTAssertEqual(made.colourID, "cyan")
+        XCTAssertEqual(made.inputRow, 3)
+        XCTAssertEqual(made.inputReceiver, 2)
+        XCTAssertEqual(made.buses, [.b, .d])
+    }
+    func testBootstrapIsMidiReceiver1EmitA() {
+        let t = StampConfig.bootstrap(colourID: "gold")
+        XCTAssertNil(t.inputRow)                 // ⇐ MIDI
+        XCTAssertEqual(t.inputReceiver, 0)       // Receiver 1
+        XCTAssertEqual(t.buses, [.a])            // → A
+    }
+}

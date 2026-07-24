@@ -280,6 +280,27 @@ struct PluginState: Codable, Equatable {
     }
 }
 
+// MARK: - Session template / clipboard (delta §5) — one STAMP object
+
+/// The session-scoped TEMPLATE = CLIPBOARD (one stamp object, delta §5): a cell's full config minus its
+/// perform state. Written by committing a cell in the editor AND by COPY; read by the empty-cell pre-fill
+/// and the split-paste actions. Ephemeral (never persisted). Bootstrap = the desk Colour + ⇐MIDI(R1) →A.
+struct StampConfig: Equatable {
+    var colourID: String
+    var inputRow: Int? = nil        // a row reference; nil = MIDI-IN via the receiver below
+    var inputReceiver: Int = 0      // 0–3, used when inputRow == nil
+    var buses: Set<Bus> = [.a]
+
+    static func bootstrap(colourID: String) -> StampConfig { StampConfig(colourID: colourID) }
+    static func from(_ c: Cell) -> StampConfig {
+        StampConfig(colourID: c.colourID, inputRow: c.inputRow, inputReceiver: c.inputReceiver ?? 0, buses: c.buses)
+    }
+    /// A fresh cell carrying this config (perform state defaulted).
+    func makeCell() -> Cell {
+        var c = Cell(colourID: colourID); c.inputRow = inputRow; c.inputReceiver = inputReceiver; c.buses = buses; return c
+    }
+}
+
 // MARK: - Undo/redo (delta §5 / a6) — a bounded document-value stack
 
 /// A bounded past/future stack of document VALUES for undo/redo (delta §5). `record` is called BEFORE a
