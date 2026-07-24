@@ -940,65 +940,51 @@ struct HeaderView: View {
     }
 }
 
-/// PROCESSOR box (delta §6): edits the SELECTED Colour (= the palette brush). Fixed height (static-
-/// frames rule — sized for the largest field set; smaller types leave calm space). Type + transpose +
-/// per-type params + morph (delta §6c: a slim static DESK box — type + description + quick control +
-/// LAUNCH — over a floating WINDOW with the full set). Single treatment now (A/B tab retired, §9 item 5:
-/// the partner Colour is "B"); MORPH glides toward the partner and shows only for a FULL pair. Transpose/
-/// morph are AUParameters (own callbacks); the rest go through editColour (writing paramsA).
+/// PROCESSOR panels (delta §6d): edit the SELECTED Colour (= the palette brush), split into a SELECTOR
+/// (type + one-line description) and SETTINGS (the full param set, INLINE — the §6c popup is dropped).
+/// SETTINGS is a FIXED frame sized for the largest (arp) field set, so the portrait truncation dies by
+/// geometry; smaller types leave calm space. Single treatment (A/B tab retired, §9 item 5 — the partner
+/// Colour is "B"); MORPH glides toward the partner and shows only for a FULL pair. Transpose/morph are
+/// AUParameters (own callbacks); the rest go through editColour (writing paramsA).
 struct ProcessorBox: View {
-    enum Mode { case desk, window }
+    enum Mode { case selector, settings }
     let colour: Colour
     let colourIndex: Int
-    var mode: Mode = .window
+    var mode: Mode = .settings
     var glides: Bool = false                            // paired FULL → the morph fader glides (else hidden)
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
     var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
-    var onLaunch: (() -> Void)? = nil                   // §6c: desk box → open the floating window
-    var onClose: (() -> Void)? = nil
+
+    static let settingsHeight: CGFloat = 214            // fixed — sized for the arp field set (truncation-killer)
 
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
     private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
     private func setParam(_ f: @escaping (inout ColourParams) -> Void) { onEdit { f(&$0.paramsA) } }
 
     var body: some View {
-        if mode == .desk { deskBody } else { windowBody }
+        if mode == .selector { selectorBody } else { settingsBody }
     }
 
-    // §6c DESK box — the fully STATIC tenant: type + one-line description + a QUICK CONTROL + LAUNCH.
-    // The full param set is evicted to the floating window, so this frame never resizes on content.
-    private var deskBody: some View {
+    // §6d PROCESSOR SELECTOR — the type + the legible one-line description.
+    private var selectorBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Text("PROCESSOR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 Text(colour.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                Spacer()
-                Text("EDIT ▸").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
-                    .contentShape(Rectangle()).onTapGesture { onLaunch?() }
             }
             seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
-            Text(descriptionLine).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            quickControl                                 // MORPH when paired-FULL, else TRANSPOSE (§6c default pin)
-            Spacer(minLength: 0)
+            Text(descriptionLine).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.55))
         }
-        .padding(8).frame(height: 118, alignment: .top)
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // §6c PROCESSOR WINDOW — the floating, content-sized full param set (LAUNCH opens it).
-    private var windowBody: some View {
+    // §6d PROCESSOR SETTINGS — the full param set INLINE, in a fixed frame sized for the largest type.
+    private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("PROCESSOR · \(colour.colourID.uppercased())").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                Spacer()
-                Image(systemName: "xmark").font(.system(size: 11, weight: .heavy)).foregroundColor(.white.opacity(0.5))
-                    .frame(width: 24, height: 24).contentShape(Rectangle()).onTapGesture { onClose?() }
-            }
-            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
+            Text("SETTINGS").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
                 stepper(colour.transpose, -24, 24) { onTranspose($0) }
             }
@@ -1008,25 +994,10 @@ struct ProcessorBox: View {
                     Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(12).frame(width: 300)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x14181F)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.3), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
-    }
-
-    // The desk QUICK CONTROL (§6c): MORPH auto-pins for a gliding pair, else TRANSPOSE (a universal
-    // default; per-type default pins + user-pinning are a follow-up).
-    @ViewBuilder private var quickControl: some View {
-        if glides {
-            field("MORPH \(Int(colour.morph * 100))%  → ALT") {
-                Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
-            }
-        } else {
-            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
-                stepper(colour.transpose, -24, 24) { onTranspose($0) }
-            }
-        }
+        .padding(8).frame(height: Self.settingsHeight, alignment: .top).clipped()
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
     // A one-line description of the current treatment (shared investment with the cell-editor summary).

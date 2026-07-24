@@ -56,7 +56,6 @@ struct DiagView: View {
     @State private var template: StampConfig? = nil
     @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
-    @State private var processorWindowOpen = false   // delta §6c: the floating PROCESSOR WINDOW (full params)
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
@@ -310,27 +309,32 @@ struct DiagView: View {
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 if landscape {
-                    // Shrink the grid cells to fit the height left after header + scene strip, so the
-                    // strip is never clipped (degradation ladder: cells clamp at a legible floor).
-                    let cellH = max(30, min(54, (geo.size.height - 150) / 8))
+                    // §6d landscape: grid on top with a grid-aligned RECEIVERS│EMITTERS band directly
+                    // below it (50/50); the right quarter is the identity column (COLOUR→ALT→SELECTOR→
+                    // SETTINGS). Cells clamp to leave room for the band + header + strip.
+                    let cellH = max(26, min(50, (geo.size.height - 300) / 8))
                     VStack(spacing: 8) {
                         header
                         HStack(alignment: .top, spacing: 10) {
-                            VStack(spacing: 4) { gridBlock(cellH); hint }
-                            ScrollView(.vertical, showsIndicators: false) { desk }   // only PROCESSOR-tall content scrolls
-                                .frame(width: 320)
+                            VStack(spacing: 8) {
+                                gridBlock(cellH)
+                                HStack(spacing: 8) {                      // aligned to the grid's edges
+                                    receiversBox.frame(maxWidth: .infinity)
+                                    emittersBox.frame(maxWidth: .infinity)
+                                }
+                                hint
+                            }
+                            ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
                         }
                         sceneStrip
                     }
                     .padding(12)
                 } else {
-                    // Portrait (delta §6): grid on top, then the desk as a COMPACT BAND below —
-                    // COLOUR · PROCESSOR · EMITTERS left-to-right (not a vertical stack), then the
-                    // scene strip full-width. The band is fixed-height (only PROCESSOR scrolls,
-                    // within itself); the GRID absorbs the remaining height so the band + strip are
-                    // always visible without an outer scroll. Final sizing tuned on device.
-                    let bandH: CGFloat = 210
-                    let cellH = max(28, min(54, (geo.size.height - bandH - 210) / 8))
+                    // §6d portrait: grid on top, then the 25/50/25 × 2 band (COLOUR/ALT · SELECTOR/
+                    // SETTINGS · RECEIVERS/EMITTERS), then the scene strip + dev loader. The band is
+                    // fixed-height (sized for the inline SETTINGS panel); the GRID absorbs the rest.
+                    let bandH: CGFloat = 300
+                    let cellH = max(26, min(54, (geo.size.height - bandH - 210) / 8))
                     VStack(spacing: 8) {
                         header
                         gridBlock(cellH)
@@ -345,17 +349,8 @@ struct DiagView: View {
                 // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
                 if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
                 if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
-                // §6c: the floating PROCESSOR WINDOW (content-sized), top-trailing near the desk.
-                if processorWindowOpen, let bc = brushColour {
-                    VStack {
-                        ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .window, glides: brushGlides,
-                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                                     onSetType: setBrushType, onClose: { processorWindowOpen = false })
-                            .padding(.top, 60).padding(.trailing, 20)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
+                //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
             }
         }
         .onReceive(timer) { _ in
@@ -421,16 +416,14 @@ struct DiagView: View {
     // The DESK — three named boxes in order: COLOUR · PROCESSOR · EMITTERS (delta §6). Order is
     // preserved in both orientations; only the AXIS flips with the leftover rectangle. LANDSCAPE
     // (this VStack, in a right-hand column) stacks them top→bottom; PORTRAIT uses `deskBand` below.
-    private var desk: some View {
+    // §6d landscape identity column (right quarter): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
+    // (RECEIVERS/EMITTERS move to the grid-aligned band under the grid in the layout increment.)
+    private var identityColumn: some View {
         VStack(spacing: 8) {
-            receiversBox           // delta §9 item 11: the reserved MIDI-IN slot ABOVE COLOUR
             colourBox
-            if let bc = brushColour {
-                ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .desk, glides: brushGlides,
-                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                             onSetType: setBrushType, onLaunch: { processorWindowOpen = true })
-            }
-            emittersBox
+            altPanel
+            processorSelector
+            processorSettings
         }
     }
 
@@ -439,20 +432,16 @@ struct DiagView: View {
     // frame (§6: "only PROCESSOR may scroll, content-sized up to a ceiling"); COLOUR and EMITTERS
     // sit at the top of their slots. PROCESSOR gets the widest share — it carries the 6-wide RATE
     // row — matching the ~320pt it enjoys in the landscape column.
+    // §6d PORTRAIT band: three columns × two rows — LEFT 25% COLOUR/ALT · MIDDLE 50% SELECTOR/SETTINGS ·
+    // RIGHT 25% RECEIVERS/EMITTERS. Per-orientation FIXED frames; the settings panel is sized for the
+    // largest field set, so truncation dies by geometry.
     private func deskBand(_ width: CGFloat, _ height: CGFloat) -> some View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap * 2)
         return HStack(alignment: .top, spacing: gap) {
-            colourBox.frame(width: avail * 0.30)
-            Group {
-                if let bc = brushColour {
-                    ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .desk, glides: brushGlides,
-                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                                 onSetType: setBrushType, onLaunch: { processorWindowOpen = true })
-                }
-            }
-            .frame(width: avail * 0.44, height: height)
-            emittersBox.frame(width: avail * 0.26)
+            VStack(spacing: gap) { colourBox; altPanel }.frame(width: avail * 0.25)
+            VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.50)
+            VStack(spacing: gap) { receiversBox; emittersBox }.frame(width: avail * 0.25)
         }
     }
 
@@ -473,24 +462,50 @@ struct DiagView: View {
     }
 
     private var colourBox: some View {
-        let partner = (brushIndex >= 0 && brushIndex < docColours.count) ? docColours[brushIndex].altColour : nil
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("COLOUR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
                 Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
-                Spacer()
-                altBox(partner: partner)      // delta §9 item 5: the pairing home
-            }
-            if altTargeting {
-                Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
-                    .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing) { pickPalette($0) }
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // §6d: ALT is now its own panel (delta §9 item 5) — the pairing home, a palette-cell-sized button
+    // (empty dashed slot when unpaired) + the targeting hint. Tap → target; then pick a palette Colour.
+    private var altPanel: some View {
+        let partner = (brushIndex >= 0 && brushIndex < docColours.count) ? docColours[brushIndex].altColour : nil
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("ALT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Spacer()
+                altBox(partner: partner)
+            }
+            if altTargeting {
+                Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
+                    .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // §6d PROCESSOR SELECTOR / SETTINGS — the split inline panels (the §6c popup is gone).
+    @ViewBuilder private var processorSelector: some View {
+        if let bc = brushColour {
+            ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .selector, glides: brushGlides,
+                         onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
+        }
+    }
+    @ViewBuilder private var processorSettings: some View {
+        if let bc = brushColour {
+            ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .settings, glides: brushGlides,
+                         onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
+        }
     }
 
     // delta §9 item 5: the ALT box beside the palette — shows the current Colour's PARTNER (or +). Tap to
