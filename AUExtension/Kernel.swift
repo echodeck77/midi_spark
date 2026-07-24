@@ -49,6 +49,22 @@ final class Kernel {
     private var laneMask: UInt8 = 0
     func setLaneMask(_ mask: UInt8) { laneMask = mask }
 
+    // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
+    // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
+    // on slider release. Single main-thread writer + render read of an aligned UInt32 = race-safe.
+    private var velOverride: UInt32 = 0
+
+    // Reused 3-byte scratch for passthrough forwarding — avoids a heap allocation per incoming MIDI event
+    // on the render thread (invariant 3), mirroring LiveMIDIEmitter's scratch. Single render thread,
+    // handleIncoming is not reentrant, so one shared buffer is safe.
+    private var passthroughScratch = [UInt8](repeating: 0, count: 3)
+    func setVelOverride(_ bus: Int, _ value: Int?) {
+        guard bus >= 0 && bus < 4 else { return }
+        let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
+        let shift = UInt32(bus) * 8
+        velOverride = (velOverride & ~(0xFF << shift)) | (byte << shift)
+    }
+
     // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
     func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
 
@@ -134,6 +150,7 @@ final class Kernel {
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
+                        velOverride: velOverride,
                         out: liveEmitter, diag: &diag)
     }
 
@@ -170,12 +187,11 @@ final class Kernel {
         let mask = passthroughCableMask(isNote: isNote, playing: playing, auditionSuppressing: suppressAuditionNotes)
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
-            var copy: [UInt8] = [0, 0, 0]
-            for i in 0..<n { copy[i] = bytes[i] }
+            for i in 0..<n { passthroughScratch[i] = bytes[i] }
             var m = mask
             while m != 0 {                                  // forward on each cable in the mask (0 = All, 1 = Emit A)
                 let cable = UInt8(m.trailingZeroBitCount); m &= m - 1
-                _ = out(sampleTime, cable, n, &copy)
+                _ = out(sampleTime, cable, n, &passthroughScratch)
             }
         }
     }

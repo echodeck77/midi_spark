@@ -373,19 +373,30 @@ struct GridView: View {
 /// modes (the per-output performance mute). In EDIT the CH caption is an OPENER for the channel popover
 /// (1–16); in PERFORM CH is display-only. Disabled = recessed/dark. (Firing-flash animation deferred —
 /// it needs a per-bus emit signal from the engine.)
+/// EMITTERS panel (delta §6a rev — a7). A mode-aware, per-emitter CHANNEL-STRIP mixer that supersedes
+/// the a2 caption-popover. Every emitter is a vertical strip: a TOGGLE pad on top (letter + live
+/// metering flash, both modes) over a fixed-height control region — EDIT shows a dedicated CH stepper
+/// (▲/▼, no popover, no selection state); PERFORM shows a velocity FADER + LED ladder (the momentary
+/// absolute override — drag to whisper/slam the bus, release springs it back). Both faces fill the
+/// SAME strip height, so the desk box never resizes across the mode flip (§6a static-frame law).
 struct OutputsView: View {
     let busEnabled: [Bool]        // 4 flags (short/empty ⇒ enabled)
     let busChannels: [Int]        // 4 values, 1–16
     let editing: Bool
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
-    let onToggle: (Int) -> Void           // pad body → toggle emitter i (both modes)
-    let onSetChannel: (Int, Int) -> Void  // EDIT popover → set emitter i's stamp channel
+    var claim: Int? = nil                                                  // §6a CLAIM: the exclusive emitter, or nil
+    let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i (both modes)
+    let onSetChannel: (Int, Int) -> Void  // EDIT stepper → set emitter i's stamp channel (1–16)
+    var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
+    var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM radio → toggle emitter i as sole claimant
 
-    @State private var chOpen: Int? = nil
+    // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
+    @State private var faderVel: [Int?] = [nil, nil, nil, nil]
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let letters = ["A", "B", "C", "D"]
+    private let controlHeight: CGFloat = 78   // the EDIT stepper / PERFORM fader region — identical both modes
 
     private func on(_ i: Int) -> Bool { i < busEnabled.count ? busEnabled[i] : true }
     private func ch(_ i: Int) -> Int { i < busChannels.count ? busChannels[i] : i + 1 }
@@ -394,38 +405,150 @@ struct OutputsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text("All = enabled emitters, by channel").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                Text(editing ? "tap ▲▼ to set channel" : "drag to force velocity")
+                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
             }
-            HStack(spacing: 5) { ForEach(0..<4, id: \.self) { emitterPad($0) } }
+            HStack(alignment: .top, spacing: 5) { ForEach(0..<4, id: \.self) { strip($0) } }
         }
     }
 
-    private func emitterPad(_ i: Int) -> some View {
+    // One emitter strip: toggle pad + a fixed-height control region — the CH stepper in EDIT, or the
+    // velocity fader over a CLAIM radio in PERFORM. Both regions are `controlHeight` tall, so the panel
+    // frame is identical across the mode flip (§6a static-frame law).
+    private func strip(_ i: Int) -> some View {
+        VStack(spacing: 4) {
+            togglePad(i)
+            if editing {
+                channelStepper(i)
+            } else {
+                VStack(spacing: 3) {
+                    fader(i)          // flexible — fills the region above the radio
+                    claimRadio(i)     // fixed footer
+                }
+                .frame(height: controlHeight)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // TOGGLE — the emitter letter over its enable state; the meter flash lives here in both modes.
+    private func togglePad(_ i: Int) -> some View {
         let enabled = on(i)
-        return VStack(spacing: 3) {
-            Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(enabled ? .black : .white.opacity(0.35))
-            Text("ch \(ch(i))").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(enabled ? (sharedWithEnabled(i) ? amber : .black.opacity(0.7)) : .white.opacity(0.25))
-                .padding(.horizontal, 4).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(editing && enabled ? Color.black.opacity(0.12) : .clear))
-                .contentShape(Rectangle())
-                .onTapGesture { editing ? (chOpen = i) : onToggle(i) }   // EDIT: opener · PERFORM: toggle like the body
-                .popover(isPresented: Binding(get: { chOpen == i }, set: { if !$0 { chOpen = nil } })) { channelGrid(i) }
-        }
-        .frame(maxWidth: .infinity).frame(height: 46)
-        .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? cyan : Color.white.opacity(0.05)))
-        .overlay { if enabled { meter(i) } }        // §6a velocity meter (disabled emitters never meter)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? .clear : Color.white.opacity(0.12), lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture { onToggle(i) }        // BODY = enable/disable toggle (both modes)
+        return Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+            .foregroundColor(enabled ? .black : .white.opacity(0.35))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? cyan : Color.white.opacity(0.05)))
+            .overlay { if enabled { meter(i) } }        // §6a velocity meter (disabled emitters never meter)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { onToggle(i) }
     }
 
-    /// §6a metering (EVENT-driven, UI owns the decay): a velocity glow-flash + a thin bottom level bar
-    /// (peak-hold, ~150ms linear decay) driven by the latched peak. Post-transform velocity, always.
+    // EDIT — a dedicated per-emitter channel stepper (▲/▼, wrapping 1–16). Replaces the a2 popover;
+    // no selection state, no floating layer. Amber number = shares a channel with another enabled emitter.
+    private func channelStepper(_ i: Int) -> some View {
+        let enabled = on(i)
+        return VStack(spacing: 0) {
+            stepButton("chevron.up") { stepChannel(i, +1) }
+            Text("\(ch(i))").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? (sharedWithEnabled(i) ? amber : cyan) : .white.opacity(0.35))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            stepButton("chevron.down") { stepChannel(i, -1) }
+        }
+        .frame(maxWidth: .infinity).frame(height: controlHeight)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)))
+        .overlay(alignment: .bottom) {
+            Text("ch").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25)).padding(.bottom, 1)
+        }
+    }
+    private func stepButton(_ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol).font(.system(size: 11, weight: .heavy))
+            .foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity).frame(height: 20)
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func stepChannel(_ i: Int, _ delta: Int) {
+        var n = ch(i) + delta
+        if n > 16 { n = 1 }; if n < 1 { n = 16 }
+        onSetChannel(i, n)
+    }
+
+    // PERFORM — a vertical velocity fader with an 8-segment LED ladder. Idle: the ladder tracks the live
+    // meter (decaying). Touched: it shows the forced value and a bright set-point line; drag maps y →
+    // 1–127, release springs back (fader → nil, engine → natural velocity). Disabled emitter = greyed.
+    private func fader(_ i: Int) -> some View {
+        let enabled = on(i)
+        return GeometryReader { g in
+            let h = g.size.height
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                let touched = faderVel[i] != nil
+                let level = touched ? Double(faderVel[i]!) / 127.0 : decayed(i, now: tl.date)
+                faderBody(i: i, level: level, touched: touched, enabled: enabled)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        guard enabled else { return }
+                        let frac = 1 - min(1, max(0, v.location.y / max(1, h)))
+                        let val = max(1, Int((frac * 127).rounded()))
+                        faderVel[i] = val
+                        onVelOverride(i, val)
+                    }
+                    .onEnded { _ in
+                        faderVel[i] = nil
+                        onVelOverride(i, nil)   // spring back to natural velocity
+                    }
+            )
+        }
+        .frame(maxHeight: .infinity)   // fills the region above the CLAIM footer
+    }
+
+    // PERFORM — the CLAIM radio (one-claimant exclusivity). Amber = this emitter holds the claim; tap to
+    // claim (releasing any prior) or tap the claimant again to clear. Distinct from the cyan enable cue.
+    private func claimRadio(_ i: Int) -> some View {
+        let claimed = claim == i
+        return Text("CLAIM").font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(claimed ? .black : .white.opacity(0.45))
+            .frame(maxWidth: .infinity).frame(height: 18)
+            .background(RoundedRectangle(cornerRadius: 4).fill(claimed ? amber : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(claimed ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { onClaim(i) }
+    }
+
+    private func faderBody(i: Int, level: Double, touched: Bool, enabled: Bool) -> some View {
+        let segs = 8
+        let lit = Int((Double(segs) * level).rounded(.up))
+        return VStack(spacing: 2) {
+            ForEach(0..<segs, id: \.self) { row in
+                let j = segs - 1 - row                       // draw top→bottom, segment 0 at the base
+                let isLit = enabled && j < lit
+                let hot = j >= segs - 2                       // top two segments = "hot" (amber)
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(isLit ? (hot ? amber : cyan) : Color.white.opacity(enabled ? 0.08 : 0.04))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .center) {
+                        if touched && j == lit - 1 {          // bright set-point line on the top lit segment
+                            Rectangle().fill(Color.white).frame(height: 2)
+                        }
+                    }
+            }
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)))
+        .overlay(alignment: .bottom) {
+            Text(enabled ? (touched ? "\(faderVel[i]!)" : "ch \(ch(i))") : "off")
+                .font(.system(size: 7, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(touched ? 0.7 : 0.25)).padding(.bottom, 1)
+        }
+    }
+
+    /// §6a metering (EVENT-driven, UI owns the decay): a velocity glow-flash on the toggle pad, driven
+    /// by the latched peak (peak-hold, ~150ms linear decay). Post-transform velocity, always.
     private func meter(_ i: Int) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
             let level = decayed(i, now: tl.date)
@@ -444,24 +567,6 @@ struct OutputsView: View {
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < emitPeak.count, i < emitPeakAt.count else { return 0 }
         return max(0, emitPeak[i] * (1 - now.timeIntervalSince(emitPeakAt[i]) / 0.15))   // ~150ms peak-hold decay
-    }
-
-    private func channelGrid(_ i: Int) -> some View {
-        VStack(spacing: 5) {
-            Text("EMIT \(letters[i]) → CHANNEL").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            ForEach(0..<4, id: \.self) { r in
-                HStack(spacing: 4) {
-                    ForEach(1...4, id: \.self) { c in
-                        let n = r * 4 + c
-                        Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                            .foregroundColor(n == ch(i) ? .black : .white.opacity(0.8))
-                            .frame(width: 34, height: 30)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(n == ch(i) ? cyan : Color.white.opacity(0.1)))
-                            .onTapGesture { onSetChannel(i, n); chOpen = nil }
-                    }
-                }
-            }
-        }.padding(12)
     }
 }
 

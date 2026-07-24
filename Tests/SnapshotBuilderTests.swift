@@ -29,6 +29,18 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(mask([true, false]), 0b1101, "short array ⇒ missing entries enabled")
     }
 
+    func testClaimEmitterMapsToSnapshot() {
+        func claim(_ c: Int?) -> Int8 {
+            var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+            st.claimEmitter = c
+            return SnapshotBuilder.build(from: st).claimEmitter
+        }
+        XCTAssertEqual(claim(nil), -1, "nil ⇒ no claim")
+        XCTAssertEqual(claim(0), 0, "emitter A claims")
+        XCTAssertEqual(claim(3), 3, "emitter D claims")
+        XCTAssertEqual(claim(9), -1, "out-of-range ⇒ no claim")
+    }
+
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
         // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE
         // type's own value, not a stash left over from a different type. (The render reads SnapColour

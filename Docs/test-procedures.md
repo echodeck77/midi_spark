@@ -161,10 +161,38 @@ Re-enable B → its stream returns at the next articulation, not mid-note.
 Shared-channel case: set two emitters to the SAME channel, disable one → All
 keeps the survivor's notes with no early offs. Hammer all four toggles
 rapidly during play → zero stuck notes anywhere, All always equals the
-enabled sum. EDIT mode: pad body still toggles; the DEDICATED per-emitter CH selector
-below each toggle edits the channel (delta §6a rev — the as-built caption
-popover passes until a7 lands); changing a channel live re-stamps cleanly
-(T6 semantics).
+enabled sum. EDIT mode: the toggle pad still enables/disables; the DEDICATED
+per-emitter CH stepper (▲/▼, wrapping 1–16) below each toggle edits the channel
+(a7 — this replaced the a2 caption popover); changing a channel live re-stamps
+cleanly (T6 semantics).
+
+**T-intent — emitter panel v2 (§6a rev / a7; number per repo authority).** The
+EMITTERS panel is now a mode-aware channel-strip mixer (same static frame both
+modes — flip EDIT↔PERFORM, the box must not resize). Two new PERFORM controls,
+on the T10 setup (three streams on Emit A/B/C + omni monitor on All), chord held
+and playing:
+(a) VELOCITY OVERRIDE — drag an emitter's vertical fader: every NEW note-on on
+that emitter flattens to the fader value (whisper at the bottom, slam at the top),
+own cable AND its All copy; the LED ladder shows the set point while touched and
+tracks the live meter when idle. RELEASE → that emitter springs back to natural
+velocity (no stuck notes, no persisted change — reload the scene and it's gone).
+Other emitters are untouched; a DISABLED emitter stays silent under a drag.
+(b) CLAIM — tap an emitter's CLAIM radio (amber). While a chord is held: any pitch
+the claimant is sounding VANISHES from the other emitters (own cables + their All
+contribution) — the claimant keeps it, the others get the residue (unclaimed
+pitches still sound). Tap another emitter → the claim moves (RADIO, one at a time);
+tap the claimant again → clear. No stuck notes across claim on/off/switch. CLAIM
+IS PERSISTED (survives reload). MUTED CLAIMANT: disable the claimant's emitter
+TOGGLE while it holds the claim → it goes silent itself but STILL reserves its
+pitches (a sidechain-style claim — the others stay ducked against a lead you don't
+hear); re-enable → it sounds again. Suppression is RATE-INDEPENDENT at every arp
+rate for BOTH single-cell fan-out AND separate cells (a persistent silent
+ownership "ghost" tracks the claimant even when its audible note is too short to
+straddle a render window). KNOWN CAVEAT (accepted, L1): the only soft edge is two
+DIFFERENT cells whose SAME-pitch notes both NEWLY onset in the same render window —
+suppression then favours the claimant only if its cell is at/above the other in the
+column (row order). A claimant note held from a prior window is always
+order-independent.
 
 **T-intent — column-subset lap (§5b; number per repo authority).** A scene
 with distinct material in every column (scene 4 STAIRCASE is ideal). Playing,

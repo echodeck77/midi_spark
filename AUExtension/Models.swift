@@ -149,6 +149,10 @@ struct PluginState: Codable, Equatable {
         let e = busEnabled ?? []
         return (0..<4).map { $0 < e.count ? e[$0] : true }
     }
+    // delta §6a CLAIM: the one-claimant emitter with exclusive rights over a pitch (0–3), or nil = none.
+    // Persisted (a document property, unlike the ephemeral velocity override); optional so old docs
+    // decode as nil. Suppression lives at the emission boundary against the live voice table.
+    var claimEmitter: Int? = nil
 
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /

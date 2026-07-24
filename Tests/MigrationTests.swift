@@ -65,10 +65,12 @@ final class MigrationTests: XCTestCase {
         d.busEnabled = [true, false, true, false]
         d.colours[0].transposeByType = [1, 2, 3, 4, 5, 6]
         d.colours[0].morphByType = [0, 0.25, 0.5, 0.75, 1, 0]
+        d.claimEmitter = 2                          // §6a CLAIM (a7) — persisted
         let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
         XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
         XCTAssertEqual(reloaded.colours[0].transposeByType, [1, 2, 3, 4, 5, 6])
         XCTAssertEqual(reloaded.colours[0].morphByType, [0, 0.25, 0.5, 0.75, 1, 0])
+        XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
     }
 
     func testOldSchemaDocDecodesDefaultsNewFieldsAndIgnoresRemovedKeys() throws {
@@ -79,6 +81,7 @@ final class MigrationTests: XCTestCase {
         d.formatVersion = 3; d.busEnabled = [false, true, true, true]
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
         root.removeValue(forKey: "busEnabled")                       // old docs never had it
+        root.removeValue(forKey: "claimEmitter")                     // nor CLAIM (a7)
         var scene = (root["scenes"] as! [[String: Any]])[0]
         scene["rowBypass"] = [false, false, false]                   // dead keys an old doc still carries
         scene["stackMute"] = [true]; scene["stackSolo"] = [false]
@@ -87,6 +90,7 @@ final class MigrationTests: XCTestCase {
         let reloaded = try JSONDecoder().decode(PluginState.self, from: mutated)   // must NOT throw
         XCTAssertNil(reloaded.busEnabled, "missing busEnabled → nil")
         XCTAssertEqual(reloaded.busEnabledResolved, [true, true, true, true], "nil ⇒ all enabled")
+        XCTAssertNil(reloaded.claimEmitter, "missing claimEmitter → nil (no claim)")
         XCTAssertEqual(reloaded.formatVersion, 3)                    // decoded despite the removed legacy keys
     }
 

@@ -145,14 +145,17 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   The full manual suite (T1–T17 + B1–B4) passes on device; graph routing +
   channels/outputs + all six processors, zero stuck notes. `TestSessions.swift`
   carries **T1–T17** (numbering authority — see test-procedures preamble);
-  `Tests/` holds a **111-test macOS unit suite** over the pure core (Derivations +
+  `Tests/` holds a **130-test macOS unit suite** over the pure core (Derivations +
   Snapshot/Builder + loader migration + SceneFactory) AND the render engine itself
   (`RouterTests.swift` — a recording `MIDIEmitter` double asserts no-stuck-notes /
   §7b two-cable / channel-stamp / muted-silence / AUDITION / GRAPH ROUTING (fed-cell
-  derivation, muted-parent reroute, silent cycles) / playing-HARMONIZE / the §5b LAP
-  (column-subset mapping incl. k=3 polymeter + stutter-lock) / §6a EMITTER TOGGLES
-  (disabled-silent, All = enabled sum, disable-close, shared-channel survives), off-device,
-  since Router went Foundation-only). BOTH stay green every commit; unit tests off-device, FIRST.
+  derivation, muted-parent reroute, silent cycles, fan-out TREE, backward/downward tap) /
+  playing-HARMONIZE / IN-CH filter routing / §7 COLLISION (sustained survives same-pitch
+  arp) / the §5b LAP (column-subset mapping incl. k=3 polymeter + stutter-lock) / §6a
+  EMITTER TOGGLES (disabled-silent, All = enabled sum, disable-close, shared-channel
+  survives) / §6a a7 VELOCITY OVERRIDE + CLAIM (fan-out + cross-cell suppression at every
+  rate, muted-claimant reservation, radio switch), off-device, since Router went Foundation-
+  only). BOTH stay green every commit; unit tests off-device, FIRST.
 - **GUI RECONCILE — DONE** (`GridUI.swift`, all SwiftUI-only; target preview
   **v59**). Shipped: header (STEP rate + SWING + PASS/bpm readout, params 0/1);
   FOUR-ROW cells (input header · type+params body · A–D emitter strip · empty-cell
@@ -223,6 +226,9 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   (glow-flash + thin peak-hold level bar, ~150ms decay, `OutputsView.meter`; UI owns the decay).
   2 RouterTests. (a) per-cell emitter-letter firing = the existing v59 white-flip (in the active
   column); a strictly per-cell-per-event flash would need a per-CELL feed — DEFERRED.
+  (a5)+(a6) — PLAN WRITTEN, awaiting approval: `~/.claude/plans/a5-a6-cell-editor-and-undo.md`
+  (5 device-verifiable increments: cell-editor inspector → session template/clipboard →
+  stamp mode → audition-returns-to-EDIT → undo/redo; each with a testable model layer). Specs:
   (a5) EDIT rework — delta §5 rev 2 (user spec 2026-07-23): the unified
   CELL EDITOR — tap any cell in EDIT → one pop-up (colour picker + input
   rows/IN CH + emitter toggles + CLEAR/COPY/PASTE-COLOUR/PASTE-ROUTING).
@@ -237,15 +243,21 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   mutation choke point (UndoManager; three-finger gestures free); coalesce
   continuous gestures; scope lean EDIT-only (open question); RECORD's
   future undo-last-layer unifies. Implement with (a5).
-  (a7) EMITTER PANEL v2 — delta §6a revs (user spec 2026-07-23): the
-  PERFORM face = four channel strips (toggle w/ event flash · velocity
-  slider + green LED ladder, MOMENTARY ABSOLUTE override, greyed idle,
-  spring-back, ephemeral · CLAIM radio — persisted, suppress-never-defer);
-  the EDIT face = DEDICATED per-emitter CH selector below each toggle
-  (SUPERSEDES the as-built caption-popover from a2); VISUAL KINSHIP law
-  (panel toggles = the cells' emitter-letter vocabulary, scaled). Mode-
-  aware within one static frame. New ephemeral override value via the
-  audition-style path; CLAIM = document field + emission-boundary check.
+  (a7) EMITTER PANEL v2 — delta §6a revs — **BUILT + OFF-DEVICE VERIFIED, awaiting device
+  confirmation** (130 tests green, iOS builds). `OutputsView` is now a mode-aware channel-
+  strip mixer within one static frame: EDIT face = per-emitter CH STEPPER (▲/▼, wraps 1–16 —
+  SUPERSEDES the a2 caption popover); PERFORM face = velocity FADER + 8-seg LED ladder
+  (MOMENTARY ABSOLUTE override, ephemeral, spring-back on release; idle ladder tracks the live
+  meter) over a CLAIM radio. Engine: `velOverride` = packed UInt32 (byte/emitter, ephemeral,
+  audition's category) applied in `emitOneBus`; `claimEmitter` = persisted `PluginState` field
+  → `SnapshotBox` → Router. CLAIM = suppress-never-defer at the emission boundary, checked
+  against a PERSISTENT SILENT "ghost" voice (`Voice.silent`) the claimant always leaves — so
+  suppression is RATE-INDEPENDENT for single-cell fan-out AND cross-cell, and a MUTED claimant
+  still reserves (sidechain-style). Claimant is emitted FIRST within a fan-out. Known caveat
+  (L1, accepted): two DIFFERENT cells whose same-pitch notes both NEWLY onset in one render
+  window are row-order-dependent. Device procedures in test-procedures.md (a7 T-intent + CLAIM).
+  (Review-fixed alongside: M1 — a per-event render-thread allocation in `handleIncoming` →
+  reused scratch; L2 — audition reconcile now excludes silent ghosts; L4 comment.)
   (b) MORPH desk (16 faders) — parked per delta.
   (c) MULTI-SCENE is the flagship-but-unbuilt gap: `scenes[]` is always length 1 and `activeScene`
   is never assigned; the strip REPLACES the document rather than switching a live scene.
@@ -261,6 +273,11 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   for the v2→v3 migration); the `TODO(spec §7)` param route writes the document then rebuilds rather
   than routing into the snapshot directly. (A fuller UI isolation — pads Equatable so they don't
   re-render even while PLAYING — is possible but unneeded: audition is stopped-only, the pads are cheap.)
+  §6a CLAIM residual (L3, accepted): two ENABLED emitters sharing an All stamp channel, fanned from ONE
+  articulation with a SHORT note, emit `on,off,on,off` on All instead of the §7-merged `on,…,off` —
+  because each per-bus voice is immediate-closed at its own `offSample`. Audibly negligible (the offs
+  coincide); fixing it would require deferring the real off, which breaks fast same-note articulation.
+  The primary case (long HOLD + same-pitch arp) is unaffected (the hold voice straddles the window).
 - Acceptance checklist: spec §11 (+ delta §8 items 29–32). Tags shipped:
   `v0.1-scaffold`, `v0.2-bridge`, `v0.3-router`, `v0.4-graph-routing`,
   `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 + audition +

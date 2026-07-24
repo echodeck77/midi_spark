@@ -47,6 +47,7 @@ struct DiagView: View {
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
+    @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
@@ -149,6 +150,18 @@ struct DiagView: View {
         au.setBusEnabled(i, !(i < busEnabled.count ? busEnabled[i] : true))
         busEnabled = au.uiBusEnabled()
     }
+    // §6a PERFORM velocity override: while a fader is touched, force emitter i to `v` (1–127); nil on
+    // release springs it back to natural velocity. Ephemeral — nothing is written to the document.
+    private func setVelOverride(_ i: Int, _ v: Int?) {
+        au?.setVelOverride(i, v)
+    }
+    // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
+    // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
+    private func setClaim(_ i: Int) {
+        guard let au else { return }
+        au.setClaim(i)
+        claim = au.uiClaim()
+    }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
@@ -232,6 +245,7 @@ struct DiagView: View {
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
+            let cl = au.uiClaim();         if cl != claim { claim = cl }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
@@ -315,8 +329,9 @@ struct DiagView: View {
 
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                    emitPeak: emitPeak, emitPeakAt: emitPeakAt,
-                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel)
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim,
+                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
+                    onVelOverride: setVelOverride, onClaim: setClaim)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

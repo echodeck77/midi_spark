@@ -39,6 +39,8 @@ final class Router {
         var cable: UInt8 = 0
         var bus: UInt8 = 0           // delta §6a: originating emitter (0–3), so an emitter-disable can
         var offSample: Int64 = .max  // close exactly its notes (own cable + its All copy).
+        var silent = false           // delta §6a CLAIM: a MUTED claimant's ghost voice — tracked for
+                                     // exclusivity but never emitted (no wire, no refcount).
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -54,6 +56,14 @@ final class Router {
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
     private var prevBusEnabledMask: UInt8 = 0b1111   // edge: a bus going enabled→disabled closes its notes
+    // §6a PERFORM velocity override (momentary absolute, ephemeral). Packed: byte i = emitter i's forced
+    // velocity, 0 = no override, 1–127 = flatten every new note-on to this value. Scalar so the
+    // main-write/render-read stays race-safe (an aligned UInt32, like heldColumns).
+    private var velOverride: UInt32 = 0
+    // §6a CLAIM (persisted, one-claimant RADIO): the emitter with exclusive rights (−1 = none). When set,
+    // a NON-claimant emitting a pitch that is already sounding on the claimant is suppressed (own cable +
+    // its All copy) — the claimant keeps that pitch, others get the residue. Suppress, never defer.
+    private var claimEmitter: Int8 = -1
     // delta §6a metering feed (EVENT-driven, not beat-derived): per-emitter peak velocity + event count
     // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
     private var meterPeakVel = [UInt8](repeating: 0, count: 4)
@@ -97,7 +107,7 @@ final class Router {
     private var harmVels = [UInt8](repeating: 0, count: 4)
 
     func reset() {
-        for i in voices.indices { voices[i].active = false; voices[i].offSample = .max }
+        for i in voices.indices { voices[i].active = false; voices[i].offSample = .max; voices[i].silent = false }
         for i in refcount.indices { refcount[i] = 0 }
         distinctSounding = 0
         wasPlaying = false
@@ -168,18 +178,23 @@ final class Router {
     @discardableResult
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
-                           velocity: UInt8 = 96, out: MIDIEmitter?) -> Int {
+                           velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false) -> Int {
         guard let out else { return -1 }
-        // Claim a slot BEFORE emitting: a note we can't track is worse than a dropped one (it would
-        // hang). At 128-voice capacity this never trips for the real topologies.
+        // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
+        // than emit an on we can't schedule an off for — an untrackable note would hang. At 128-voice
+        // capacity this never trips for the real topologies (incl. claim ghosts, which are finite-lived).
         var slot = -1
         for i in voices.indices where !voices[i].active { slot = i; break }
         guard slot >= 0 else { return -1 }
 
-        out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
-        let idx = rcIndex(cable, chan, note)
-        if refcount[idx] == 0 { distinctSounding += 1 }
-        refcount[idx] += 1
+        // §6a CLAIM: a SILENT voice (a muted claimant's reservation) is tracked for exclusivity only —
+        // no wire note-on and no refcount, so it can never emit an off or hold a shared channel alive.
+        if !silent {
+            out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
+            let idx = rcIndex(cable, chan, note)
+            if refcount[idx] == 0 { distinctSounding += 1 }
+            refcount[idx] += 1
+        }
 
         voices[slot].active = true
         voices[slot].note = note
@@ -187,6 +202,7 @@ final class Router {
         voices[slot].cable = cable
         voices[slot].bus = bus
         voices[slot].offSample = offSample
+        voices[slot].silent = silent
         return slot
     }
 
@@ -209,8 +225,12 @@ final class Router {
     private func closeVoice(_ i: Int, atSample time: Int64, out: MIDIEmitter?) {
         guard voices[i].active else { return }
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
+        let wasSilent = voices[i].silent
         voices[i].active = false
         voices[i].offSample = .max
+        voices[i].silent = false
+        // §6a CLAIM: a silent reservation never touched the wire or the refcount — just free the slot.
+        if wasSilent { return }
 
         let idx = rcIndex(cable, chan, note)
         if refcount[idx] > 0 { refcount[idx] -= 1 }
@@ -238,6 +258,17 @@ final class Router {
 
     private func anyVoiceActive() -> Bool {
         for v in voices where v.active { return true }
+        return false
+    }
+
+    // §6a CLAIM: does the claimant currently OWN `note`? Answered from the claimant's persistent SILENT
+    // ghost (emitOneBus opens one per claimant note, enabled or muted), which survives the audible
+    // voice's immediate close — so this is correct for short notes too. Used at the emission boundary to
+    // suppress the same pitch on non-claimant emitters.
+    private func pitchSoundingOnClaimant(_ note: UInt8) -> Bool {
+        guard claimEmitter >= 0 else { return false }
+        let cb = UInt8(claimEmitter)
+        for v in voices where v.active && v.silent && v.bus == cb && v.note == note { return true }
         return false
     }
 
@@ -288,29 +319,69 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
+        // §6a CLAIM: emit the CLAIMANT bus FIRST when this articulation fans to it, so its ownership trace
+        // (the silent ghost opened in emitOneBus) is in the table before any non-claimant in the same
+        // fan-out checks — co-onset suppression is then order-independent. Uncontested fan-out: bus order.
         var mask = busMask
+        if claimEmitter >= 0, busMask & (1 << UInt8(claimEmitter)) != 0 {
+            let c = emitOneBus(Int(claimEmitter), note: note, velocity: velocity, onSample: onSample,
+                               offSample: offSample, windowEnd: windowEnd, out: out)
+            if c >= 0 { lastCh = UInt8(c) }
+            mask &= ~(1 << UInt8(claimEmitter))
+        }
         while mask != 0 {
             let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
             mask &= mask - 1
-            // delta §6a: a DISABLED emitter produces nothing — not on its own cable, not on All. So
-            // All is exactly the sum of ENABLED emitters, and re-enable resumes at the next articulation.
-            guard busEnabledMask & (1 << UInt8(bus)) != 0 else { continue }
-            if velocity > meterPeakVel[bus] { meterPeakVel[bus] = velocity }   // §6a metering (post-transform vel)
-            meterEvents[bus] &+= 1
-            let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
-            lastCh = ch
-            // own cable (bus+1) and the ALL cable (0) — both channel-stamped identically (no array
-            // literal on the hot path). Unrolled to avoid allocation. Both tagged with the origin bus.
-            let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
-                                onSample: onSample, offSample: offSample, velocity: velocity, out: out)
-            if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
-            let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                                onSample: onSample, offSample: offSample, velocity: velocity, out: out)
-            if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
+            let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
+                               offSample: offSample, windowEnd: windowEnd, out: out)
+            if c >= 0 { lastCh = UInt8(c) }
         }
         diag.emitCount &+= 1
         diag.lastEmitNote = note
         diag.lastEmitChan = lastCh
+    }
+
+    /// Emit ONE lit bus of a fanned articulation: CLAIM handling → enable gate → velocity override →
+    /// meter → the two cables (own bus+1 and ALL). Returns the wire channel it stamped, or −1 if nothing
+    /// audible was emitted (gated/suppressed). A regular method (not a captured closure) — no render-path
+    /// allocation. Both cables are channel-stamped identically and tagged with the origin bus (§6a/§7b).
+    @discardableResult
+    private func emitOneBus(_ bus: Int, note: UInt8, velocity: UInt8,
+                            onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?) -> Int {
+        if claimEmitter >= 0 {
+            if bus == Int(claimEmitter) {
+                // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks the
+                // claimant as sounding this pitch for the note's whole life. It is what non-claimants
+                // check (`pitchSoundingOnClaimant`), decoupled from the AUDIBLE voice below — which is
+                // immediate-closed for short notes. So suppression is RATE-INDEPENDENT: a fast arp note
+                // that opens+closes inside one render window still registers the claim. NOT immediate-
+                // closed here (that is the whole point); drainDue / transport edges / reset close it
+                // sample-accurately. A muted claimant opens ONLY this ghost — the sidechain-style claim.
+                openVoice(note: note, chan: 0, cable: UInt8(bus + 1), bus: UInt8(bus),
+                          onSample: onSample, offSample: offSample, velocity: 0, out: out, silent: true)
+            } else if pitchSoundingOnClaimant(note) {
+                // Non-claimant yields a pitch the claimant owns — own cable AND its All copy. Suppress,
+                // never defer: no voice opens, so there is no off to emit and the refcount is untouched.
+                return -1
+            }
+        }
+        // delta §6a: a DISABLED emitter emits nothing audible (its claim ghost, if any, was opened above,
+        // so a muted claimant still reserves). All is then exactly the sum of ENABLED emitters.
+        guard busEnabledMask & (1 << UInt8(bus)) != 0 else { return -1 }
+        // §6a PERFORM momentary override: while a strip's slider is touched, flatten every NEW note-on on
+        // that emitter to the slider value (own cable + its All copy). 0 = untouched → natural velocity.
+        let ov = UInt8((velOverride >> (UInt32(bus) * 8)) & 0xFF)
+        let v = ov != 0 ? ov : velocity
+        if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
+        meterEvents[bus] &+= 1
+        let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
+        let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
+                            onSample: onSample, offSample: offSample, velocity: v, out: out)
+        if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
+        let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
+                            onSample: onSample, offSample: offSample, velocity: v, out: out)
+        if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
+        return Int(ch)
     }
 
     /// HOLD content, emitted ONCE per column at the transition: an identity cell whose input is MIDI
@@ -495,12 +566,15 @@ final class Router {
                  frameCount: UInt32,
                  audition: Int = -1,
                  laneMask: UInt8 = 0,
+                 velOverride: UInt32 = 0,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
+        self.velOverride = velOverride              // §6a PERFORM velocity override, this render
+        claimEmitter = box.claimEmitter             // §6a CLAIM: the exclusive-rights emitter, this render
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
@@ -900,7 +974,9 @@ final class Router {
     /// auto-closing (offSample .max); reconcile / release ends them. Shared by chord-hold and strum.
     private func reconcileAuditionVoices(busMask: UInt8, windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionCurrent[i] = false }
-        for v in voices where v.active { auditionCurrent[Int(v.note)] = true }
+        // Exclude SILENT claim ghosts: they carry no wire note, so a desired audible note at that pitch
+        // must still be opened (else a disabled claimant's reservation would mute an audition voice).
+        for v in voices where v.active && !v.silent { auditionCurrent[Int(v.note)] = true }
         for i in voices.indices where voices[i].active && !auditionDesired[Int(voices[i].note)] {
             closeVoice(i, atSample: renderSampleImmediate, out: out)
         }

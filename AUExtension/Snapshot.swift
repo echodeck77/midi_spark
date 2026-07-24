@@ -74,9 +74,11 @@ final class SnapshotBox {
     let cells: [SnapCell]            // 64, index = column * 8 + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
+    let claimEmitter: Int8           // delta §6a: the one-claimant CLAIM emitter (0–3), or −1 = none
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
-         colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111) {
+         colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
+         claimEmitter: Int8 = -1) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -85,6 +87,7 @@ final class SnapshotBox {
         self.cells = cells
         self.busChannels = busChannels
         self.busEnabledMask = busEnabledMask
+        self.claimEmitter = claimEmitter
     }
 }
 

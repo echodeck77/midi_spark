@@ -54,6 +54,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
 
+    /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
+    /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
+    /// Ephemeral, never persisted — the momentary "whisper/slam a bus" gesture, not the parked scale-fader.
+    func setVelOverride(_ bus: Int, _ value: Int?) { kernel.setVelOverride(bus, value) }
+
     /// §6a metering: per-emitter peak velocity (0–127) + event count since the last poll (read-and-clear).
     func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
 
@@ -69,6 +74,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             while e.count < 4 { e.append(true) }
             e[i] = on
             d.busEnabled = e
+        }
+    }
+
+    /// delta §6a CLAIM (a7): the one-claimant emitter (0–3), or nil = none. Persisted, RADIO — setting a
+    /// claimant replaces any prior; passing the current claimant (or nil) clears it (a toggle at the UI).
+    func uiClaim() -> Int? { document.claimEmitter }
+    func setClaim(_ i: Int?) {
+        editDocument { d in
+            if let i, (0..<4).contains(i) { d.claimEmitter = (d.claimEmitter == i) ? nil : i }
+            else { d.claimEmitter = nil }
         }
     }
 

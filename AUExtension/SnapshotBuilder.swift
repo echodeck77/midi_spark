@@ -84,6 +84,8 @@ enum SnapshotBuilder {
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
         var busEnabledMask: UInt8 = 0
         for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
+        // delta §6a CLAIM: the exclusive-rights emitter (nil/out-of-range ⇒ −1 = no claim).
+        let claim: Int8 = (doc.claimEmitter.map { (0..<4).contains($0) ? Int8($0) : -1 }) ?? -1
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -92,7 +94,8 @@ enum SnapshotBuilder {
                            colours: colours,
                            cells: cells,
                            busChannels: busCh,
-                           busEnabledMask: busEnabledMask)
+                           busEnabledMask: busEnabledMask,
+                           claimEmitter: claim)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
