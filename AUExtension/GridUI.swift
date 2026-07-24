@@ -24,6 +24,10 @@ let colourHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
     0x5566FF, 0x38A6FF, 0x25E0F0, 0x148F80, 0x7BF2CE, 0x2ECC5E, 0xC6F23D, 0xC9A227,
 ]
+// delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
+// RECEIVERS panel and the cells' band-as-deviation marker.
+let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
+
 func colourColor(_ id: String) -> Color? {
     colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
 }
@@ -214,18 +218,21 @@ struct GridView: View {
         }
     }
 
-    // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live column.
+    // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
+    // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
+    // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
     private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
         let midi = parent < 0
         let recv = cell.inputReceiver ?? 0
         let label = midi ? (recv == 0 ? "FROM MIDI" : "FROM R\(recv + 1)")
                          : "FROM ROW \(parent + 1)"
+        let band: Color? = (midi && recv > 0 && recv < receiverHues.count) ? receiverHues[recv] : nil
         return Text(label)
             .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
             .lineLimit(1).minimumScaleFactor(0.7)
-            .foregroundColor(live ? .black : (midi ? .white.opacity(0.7) : .white))
+            .foregroundColor(live ? .black : .white.opacity(0.85))
             .frame(maxWidth: .infinity).frame(height: 13)
-            .background(live ? Color.white : Color.black.opacity(0.52))
+            .background(live ? Color.white : (band ?? Color.black.opacity(0.52)))
             .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
     }
 
@@ -315,7 +322,7 @@ struct ReceiversView: View {
     let onToggleMute: (Int) -> Void
     let onToggleMPE: (Int) -> Void
 
-    private let hues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
+    private var hues: [Color] { receiverHues }
     private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
     private func wrap(_ ch: Int) -> Int { ch < 0 ? 16 : (ch > 16 ? 0 : ch) }   // OMNI(0)…16, wraps
 
