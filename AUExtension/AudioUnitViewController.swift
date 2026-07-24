@@ -60,6 +60,8 @@ struct DiagView: View {
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
+    @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
+    @State private var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
     @State private var docColours: [Colour] = []
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
@@ -397,6 +399,10 @@ struct DiagView: View {
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
                 emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date()
             }
+            let rin = au.pollReceiverActivity()      // §9 item 11: per-receiver INPUT metering
+            for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 {
+                receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
+            }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
@@ -486,7 +492,7 @@ struct DiagView: View {
     }
 
     private var receiversBox: some View {
-        ReceiversView(receivers: receivers, editing: editing,
+        ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

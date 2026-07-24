@@ -68,6 +68,17 @@ final class Kernel {
     // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
     func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
 
+    // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
+    // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
+    private var receiverChannels: [UInt8] = [0, 0, 0, 0]
+    private var inputPeak = [UInt8](repeating: 0, count: 4)
+    private var inputEvents = [UInt32](repeating: 0, count: 4)
+    func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32]) {
+        let r = (inputPeak, inputEvents)
+        for i in 0..<4 { inputPeak[i] = 0; inputEvents[i] = 0 }
+        return r
+    }
+
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
@@ -86,6 +97,7 @@ final class Kernel {
                 events: UnsafePointer<AURenderEvent>?) {
 
         guard let box = store?.acquire() else { return }
+        receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
         liveEmitter.out = midiOut       // sync the emission seam to the current host block, this render
@@ -174,6 +186,15 @@ final class Kernel {
         let channel = bytes[0] & 0x0F
         if status == 0x90, length >= 3 {
             pool.noteOn(bytes[1], velocity: bytes[2], channel: channel)
+            // delta §9 item 11 INPUT metering: attribute this note-on to EVERY receiver whose filter hears
+            // it (OMNI or channel match; wire ch = filter − 1). A vel-0 note-on is a note-off — skip it.
+            let vel = bytes[2]
+            if vel > 0 {
+                for i in 0..<4 where receiverChannels[i] == 0 || receiverChannels[i] == channel + 1 {
+                    if vel > inputPeak[i] { inputPeak[i] = vel }
+                    inputEvents[i] &+= 1
+                }
+            }
         } else if status == 0x80, length >= 3 {
             pool.noteOff(bytes[1])
         }

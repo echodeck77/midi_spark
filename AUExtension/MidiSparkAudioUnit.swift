@@ -79,6 +79,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// §6a metering: per-emitter peak velocity (0–127) + event count since the last poll (read-and-clear).
     func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
 
+    /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
+    func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainReceiverActivity() }
+
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
 

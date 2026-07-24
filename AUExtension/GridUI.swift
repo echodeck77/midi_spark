@@ -366,6 +366,8 @@ struct GridView: View {
 struct ReceiversView: View {
     let receivers: [Receiver]
     let editing: Bool
+    var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
+    var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
     let onToggleMPE: (Int) -> Void
@@ -408,9 +410,10 @@ struct ReceiversView: View {
                     .background(RoundedRectangle(cornerRadius: 3).fill(rec.mpeMerge ? hues[i] : Color.white.opacity(0.06)))
                     .contentShape(Rectangle()).onTapGesture { onToggleMPE(i) }
             } else {
-                Text(rec.channel == 0 ? "OMNI" : "ch \(rec.channel)")
-                    .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                inputMeter(i)                                   // PERFORM: live input velocity meter
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .overlay(Text(rec.channel == 0 ? "OMNI" : "ch \(rec.channel)")
+                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55)))
             }
             Text(muted ? "MUTED" : "LIVE").font(.system(size: 7, weight: .heavy, design: .monospaced))
                 .foregroundColor(muted ? .white.opacity(0.55) : .black)
@@ -426,6 +429,27 @@ struct ReceiversView: View {
         Image(systemName: symbol).font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.6))
             .frame(width: 18, height: 16).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    // §9 item 11: input velocity meter — a bottom-anchored bar in the receiver hue, peak-hold ~150ms decay.
+    private func inputMeter(_ i: Int) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            let level = decayed(i, now: tl.date)
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
+                GeometryReader { g in
+                    Rectangle().fill(hues[i].opacity(0.85))
+                        .frame(width: g.size.width, height: g.size.height * CGFloat(level))
+                        .position(x: g.size.width / 2, y: g.size.height - g.size.height * CGFloat(level) / 2)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .allowsHitTesting(false)
+    }
+    private func decayed(_ i: Int, now: Date) -> Double {
+        guard i < peak.count, i < peakAt.count else { return 0 }
+        return max(0, peak[i] * (1 - now.timeIntervalSince(peakAt[i]) / 0.15))
     }
 }
 

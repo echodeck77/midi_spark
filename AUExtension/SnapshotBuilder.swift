@@ -103,6 +103,8 @@ enum SnapshotBuilder {
         for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
         // delta §6a CLAIM: the exclusive-rights emitter (nil/out-of-range ⇒ −1 = no claim).
         let claim: Int8 = (doc.claimEmitter.map { (0..<4).contains($0) ? Int8($0) : -1 }) ?? -1
+        // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
+        let recvCh = doc.receiversResolved.map { UInt8(max(0, min(16, $0.channel))) }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -112,7 +114,8 @@ enum SnapshotBuilder {
                            cells: cells,
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
-                           claimEmitter: claim)
+                           claimEmitter: claim,
+                           receiverChannels: recvCh)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
