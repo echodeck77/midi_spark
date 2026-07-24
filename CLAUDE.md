@@ -4,6 +4,21 @@ AUv3 MIDI processor (`aumi`) for iPadOS. One line: **"Don't sequence notes. Sequ
 happens to them."** An 8×8 grid sequences MIDI *processors* (arps, ratchets, gates) over
 time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b). Primary host: AUM.
 
+## Claude↔Claude message passing (`incoming/` · `outgoing/` — gitignored, local only)
+
+An async channel with a PARTNER Claude (design/planning context). Both dirs are gitignored
+and NEVER committed. The protocol — **run it on an interval, and whenever the user triggers it**:
+1. **CHECK `incoming/`** for new files. Each is documentation/instruction from the partner Claude.
+   - An UPDATED version of a doc I hold (this CLAUDE.md, a `Docs/*` file) → **MERGE** its changes
+     into my copy (reconcile, don't blindly overwrite).
+   - A NEW document → **ADD** it to the right place (`Docs/`, etc.).
+   - After processing a file, **DELETE it** from `incoming/` (it's consumed).
+2. **REPLY via `outgoing/`**: first **EMPTY `outgoing/`**, then write ONE findings/decisions file
+   (what I merged, what I built, key decisions + rationale, open questions) PLUS copies of the
+   **recently-changed source files** so the partner can review the actual code.
+3. Keep the tracked side clean: commit only real repo changes (`.gitignore`, docs, code) — the
+   inbox/outbox contents are transient and untracked.
+
 ## Authoritative documents (read before designing anything)
 - `Docs/midispark-spec-v2.8.md` — the base spec (consolidated, self-contained) —
   **read together with `Docs/midispark-spec-v3.0-delta.md`, which supersedes the
