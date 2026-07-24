@@ -28,6 +28,23 @@ let colourHexes: [UInt32] = [
 // RECEIVERS panel and the cells' band-as-deviation marker.
 let receiverHues: [Color] = [Color(hex: 0x6B7A8F), Color(hex: 0x7E6B8F), Color(hex: 0x6B8F7E), Color(hex: 0x8F836B)]
 
+// §5 drag-and-drop: the grid's fixed layout metrics + a point→cell map, SHARED by GridView (its own
+// coordinate space) and the VC (mapping a cross-view palette drag by the grid's captured global frame).
+enum GridGeometry {
+    static let headH: CGFloat = 38      // the prominent column-key row (v57)
+    static let vGap: CGFloat = 3
+    /// Which cell contains a point in GRID-LOCAL coordinates (origin = the column-key row's top-left)?
+    static func cell(atLocal p: CGPoint, gridWidth: CGFloat, cellHeight: CGFloat) -> (col: Int, row: Int)? {
+        guard gridWidth > 0 else { return nil }
+        let cellW = (gridWidth - CGFloat(7) * vGap) / 8
+        let col = Int(p.x / (cellW + vGap))
+        let y = p.y - (headH + vGap)                 // below the column-key row
+        let row = Int(y / (cellHeight + vGap))
+        guard col >= 0, col < 8, row >= 0, row < 8, y >= 0 else { return nil }
+        return (col, row)
+    }
+}
+
 func colourColor(_ id: String) -> Color? {
     colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
 }
@@ -65,24 +82,20 @@ struct GridView: View {
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
+    var faded: Set<GridPos> = []                     // §5: provisional (palette-created, unreviewed) cells → dimmed
+    var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
     // §5 drag-and-drop (EDIT): the cell being dragged + the hovered drop target; the grid's measured size
     // maps a drag location (in the "grid" coordinate space) to a cell.
-    struct GridPos: Equatable { let col: Int; let row: Int }
+    struct GridPos: Hashable { let col: Int; let row: Int }
     @State private var dragFrom: GridPos? = nil
     @State private var dragTo: GridPos? = nil
     @State private var gridSize: CGSize = .zero
     private func cellAt(location p: CGPoint) -> GridPos? {
-        guard gridSize.width > 0 else { return nil }
-        let cellW = (gridSize.width - CGFloat(7) * Self.vGap) / 8
-        let col = Int(p.x / (cellW + Self.vGap))
-        let y = p.y - (Self.headH + Self.vGap)                 // below the column-key row
-        let row = Int(y / (cellHeight + Self.vGap))
-        guard col >= 0, col < 8, row >= 0, row < 8, y >= 0 else { return nil }
-        return GridPos(col: col, row: row)
+        GridGeometry.cell(atLocal: p, gridWidth: gridSize.width, cellHeight: cellHeight).map { GridPos(col: $0.col, row: $0.row) }
     }
 
     /// The beat position NOW, extrapolated from the last poll (one-clock rule, §4): the UI polls at
@@ -92,8 +105,8 @@ struct GridView: View {
     }
 
     // Layout constants — shared by cellView and the mutation-line overlay so they never drift.
-    private static let vGap: CGFloat = 3
-    private static let headH: CGFloat = 38     // the prominent column-key row (v57)
+    private static let vGap = GridGeometry.vGap
+    private static let headH = GridGeometry.headH     // the prominent column-key row (v57)
 
     var body: some View {
         VStack(spacing: Self.vGap) {
@@ -225,11 +238,13 @@ struct GridView: View {
             }
         }
         .overlay {                                          // §5 drag-and-drop: the hovered drop target
-            if dragFrom != nil, dragTo == GridPos(col: col, row: row), dragFrom != dragTo {
+            let pos = GridPos(col: col, row: row)
+            if (dragFrom != nil && dragTo == pos && dragFrom != dragTo) || dropHoverCell == pos {
                 RoundedRectangle(cornerRadius: 8).stroke(accentCyan, lineWidth: 2.5)
             }
         }
-        .opacity(dragFrom == GridPos(col: col, row: row) ? 0.4 : 1)   // dim the cell being dragged
+        // dim the cell being dragged; faded = provisional (palette-created, unreviewed until first edit)
+        .opacity(dragFrom == GridPos(col: col, row: row) ? 0.4 : (faded.contains(GridPos(col: col, row: row)) ? 0.45 : 1))
         .contentShape(Rectangle())
         // delta §5: the whole pad is ONE tap target in both modes — EDIT opens the CELL EDITOR (the VC
         // routes onTap), PERFORM flips ALT. FROM/OUT popovers + the hold menu are retired (contents moved
@@ -1176,6 +1191,8 @@ struct PaletteView: View {
     var stepBeats: Double = 2
     var swing: Int = 50
     let onPick: (String) -> Void
+    var onChipDrag: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drag (id, global point)
+    var onChipDrop: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drop (id, global point)
 
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
@@ -1207,6 +1224,11 @@ struct PaletteView: View {
                                 lineWidth: id == brush ? 2 : 0.5))
                     .contentShape(Rectangle())
                     .onTapGesture { onPick(id) }
+                    .simultaneousGesture(                        // §5: drag a chip onto the grid (min-dist so tap is safe)
+                        DragGesture(minimumDistance: 16, coordinateSpace: .global)
+                            .onChanged { v in onChipDrag?(id, v.location) }
+                            .onEnded { v in onChipDrop?(id, v.location) }
+                    )
             }
         }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }

@@ -57,6 +57,12 @@ struct DiagView: View {
     @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
+    // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
+    // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
+    @State private var gridFrame: CGRect = .zero
+    @State private var paletteDragColour: String? = nil
+    @State private var paletteDragPoint: CGPoint? = nil
+    @State private var fadedCells: Set<GridView.GridPos> = []
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -87,6 +93,7 @@ struct DiagView: View {
                 au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
             } else {                                       // open / RETARGET the inspector on this cell
+                fadedCells.remove(GridView.GridPos(col: col, row: row))   // §5: first visit clears the provisional fade
                 editorCol = col; editorRow = row
                 editorPending = (scene.cells[col][row] == nil)
                 selCol = col; selRow = row
@@ -188,6 +195,32 @@ struct DiagView: View {
         guard let au else { return }
         au.editScene { $0.swapCells(from, to) }
         scene = au.uiScene()
+    }
+
+    // §5 palette-to-grid: map a GLOBAL drop point to a grid cell (cell height derived from the captured
+    // grid frame), then RECOLOUR a populated cell or CREATE a faded one on empty. EDIT only.
+    private func cellAtGlobal(_ p: CGPoint) -> GridView.GridPos? {
+        guard gridFrame.width > 0, gridFrame.height > 0 else { return nil }
+        let local = CGPoint(x: p.x - gridFrame.minX, y: p.y - gridFrame.minY)
+        let cellH = (gridFrame.height - GridGeometry.headH - 8 * GridGeometry.vGap) / 8
+        return GridGeometry.cell(atLocal: local, gridWidth: gridFrame.width, cellHeight: cellH)
+            .map { GridView.GridPos(col: $0.col, row: $0.row) }
+    }
+    private func paletteDragChanged(_ id: String, _ point: CGPoint) {
+        guard editing else { return }                 // EDIT-only
+        paletteDragColour = id; paletteDragPoint = point
+    }
+    private func paletteDrop(_ id: String, _ point: CGPoint) {
+        defer { paletteDragColour = nil; paletteDragPoint = nil }
+        guard editing, let au, let pos = cellAtGlobal(point) else { return }
+        if scene.cells[pos.col][pos.row] != nil {     // POPULATED → recolour only (keep other settings)
+            au.editScene { s in if var c = s.cells[pos.col][pos.row] { c.colourID = id; s.cells[pos.col][pos.row] = c } }
+        } else {                                       // EMPTY → create from the template, shown FADED
+            var c = currentTemplate.makeCell(); c.colourID = id
+            au.editScene { $0.cells[pos.col][pos.row] = c }
+            fadedCells.insert(pos)                     // provisional until the user opens the editor
+        }
+        brush = id; scene = au.uiScene(); docColours = au.uiColours()
     }
 
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
@@ -358,6 +391,16 @@ struct DiagView: View {
                 // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
                 if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
                 if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
+                // §5 palette-to-grid: a chip ghost following the finger (positioned in the GeometryReader's
+                // local space = the global drag point minus the reader's global origin).
+                if let id = paletteDragColour, let pt = paletteDragPoint {
+                    let o = geo.frame(in: .global).origin
+                    RoundedRectangle(cornerRadius: 4).fill(colourColor(id) ?? .gray)
+                        .frame(width: 44, height: 22).opacity(0.85)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white, lineWidth: 1))
+                        .position(x: pt.x - o.x, y: pt.y - o.y)
+                        .allowsHitTesting(false)
+                }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
             }
@@ -411,7 +454,11 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell)
+                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
+                 faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal))
+            .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
+                .onAppear { gridFrame = g.frame(in: .global) }
+                .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
     }
 
     private var hint: some View {
@@ -478,7 +525,8 @@ struct DiagView: View {
                 Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
-                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing) { pickPalette($0) }
+                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
+                        onPick: { pickPalette($0) }, onChipDrag: paletteDragChanged, onChipDrop: paletteDrop)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
