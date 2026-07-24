@@ -190,7 +190,8 @@ struct DiagView: View {
         holdLatch = on
         if !on {                                 // the drop: release the captures this layer owns
             au?.clearAudition(); abox.target = nil
-            // (velocity springs back via OutputsView's onChange(holdLatch); lap capture is deferred)
+            au?.setLaneMask(0); laneMask = 0     // §5c: the latched lap set drops too (velocity springs
+                                                 // back via OutputsView's onChange(holdLatch))
         }
     }
     private func toggleHold() { setHold(!holdLatch) }

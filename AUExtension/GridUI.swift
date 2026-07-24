@@ -113,7 +113,7 @@ struct GridView: View {
         }
         .overlay { masterArrow }
         // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP).
-        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, onChange: cb) } }
+        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, latched: holdLatch, onChange: cb) } }
     }
 
     // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
@@ -811,14 +811,22 @@ struct OutputsView: View {
 /// in PERFORM; unmounting (mode switch) cancels its touches → the parent gets mask 0.
 private struct ColumnHoldOverlay: UIViewRepresentable {
     let gap: CGFloat
+    var latched: Bool = false          // §5c HOLD: column keys become membership TOGGLES (editable lap set)
     let onChange: (UInt8) -> Void
 
-    func makeUIView(context: Context) -> TouchRow { let v = TouchRow(); v.gap = gap; v.onChange = onChange; return v }
-    func updateUIView(_ v: TouchRow, context: Context) { v.gap = gap; v.onChange = onChange }
+    func makeUIView(context: Context) -> TouchRow { let v = TouchRow(); v.gap = gap; v.onChange = onChange; v.latched = latched; return v }
+    func updateUIView(_ v: TouchRow, context: Context) { v.gap = gap; v.onChange = onChange; v.latched = latched }
 
     final class TouchRow: UIView {
         var gap: CGFloat = 3
         var onChange: ((UInt8) -> Void)?
+        // §5c: while latched, a TAP toggles a column's membership and the set persists (release does
+        // nothing). HOLD-on GRADUATES the currently-held columns into the set; HOLD-off clears it (the
+        // VC also drops the engine lap). Momentary hold is the un-latched behaviour, unchanged.
+        var latched: Bool = false {
+            didSet { if latched != oldValue { latchedMask = latched ? currentTouchMask() : 0 } }
+        }
+        private var latchedMask: UInt8 = 0
         private var active: Set<UITouch> = []
 
         override init(frame: CGRect) { super.init(frame: frame); isMultipleTouchEnabled = true; backgroundColor = .clear }
@@ -830,17 +838,23 @@ private struct ColumnHoldOverlay: UIViewRepresentable {
             let c = Int((t.location(in: self).x / stride).rounded(.down))
             return (c >= 0 && c < 8) ? c : nil
         }
-        private func report() {
+        private func currentTouchMask() -> UInt8 {
             var mask: UInt8 = 0
             for t in active where t.phase != .ended && t.phase != .cancelled {
                 if let c = column(t) { mask |= 1 << UInt8(c) }
             }
-            onChange?(mask)
+            return mask
         }
-        override func touchesBegan(_ ts: Set<UITouch>, with e: UIEvent?)     { active.formUnion(ts); report() }
-        override func touchesMoved(_ ts: Set<UITouch>, with e: UIEvent?)     { report() }
-        override func touchesEnded(_ ts: Set<UITouch>, with e: UIEvent?)     { active.subtract(ts); report() }
-        override func touchesCancelled(_ ts: Set<UITouch>, with e: UIEvent?) { active.subtract(ts); report() }
+        private func report() { onChange?(latched ? latchedMask : currentTouchMask()) }
+
+        override func touchesBegan(_ ts: Set<UITouch>, with e: UIEvent?) {
+            active.formUnion(ts)
+            if latched { for t in ts { if let c = column(t) { latchedMask ^= (1 << UInt8(c)) } } }   // tap = toggle
+            report()
+        }
+        override func touchesMoved(_ ts: Set<UITouch>, with e: UIEvent?)     { if !latched { report() } }
+        override func touchesEnded(_ ts: Set<UITouch>, with e: UIEvent?)     { active.subtract(ts); if !latched { report() } }
+        override func touchesCancelled(_ ts: Set<UITouch>, with e: UIEvent?) { active.subtract(ts); if !latched { report() } }
     }
 }
 
