@@ -56,6 +56,7 @@ struct DiagView: View {
     @State private var template: StampConfig? = nil
     @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
+    @State private var processorWindowOpen = false   // delta §6c: the floating PROCESSOR WINDOW (full params)
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var docColours: [Colour] = []
@@ -224,6 +225,11 @@ struct DiagView: View {
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
     private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
     private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
+    // delta §9 item 5: does the brush Colour's pairing GLIDE? (paired + same type = FULL). Gates the morph fader.
+    private var brushGlides: Bool {
+        guard let c = brushColour, let p = c.altColour, p >= 0, p < docColours.count else { return false }
+        return docColours[p].type == c.type
+    }
 
     private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
         guard let au else { return }
@@ -341,6 +347,17 @@ struct DiagView: View {
                 // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
                 if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
                 if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
+                // §6c: the floating PROCESSOR WINDOW (content-sized), top-trailing near the desk.
+                if processorWindowOpen, let bc = brushColour {
+                    VStack {
+                        ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .window, glides: brushGlides,
+                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                                     onSetType: setBrushType, onClose: { processorWindowOpen = false })
+                            .padding(.top, 60).padding(.trailing, 20)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
         }
         .onReceive(timer) { _ in
@@ -405,9 +422,9 @@ struct DiagView: View {
         VStack(spacing: 8) {
             colourBox
             if let bc = brushColour {
-                ProcessorBox(colour: bc, colourIndex: brushIndex,
+                ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .desk, glides: brushGlides,
                              onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                             onSetType: setBrushType)
+                             onSetType: setBrushType, onLaunch: { processorWindowOpen = true })
             }
             emittersBox
         }
@@ -425,11 +442,9 @@ struct DiagView: View {
             colourBox.frame(width: avail * 0.30)
             Group {
                 if let bc = brushColour {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        ProcessorBox(colour: bc, colourIndex: brushIndex,
-                                     onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                                     onSetType: setBrushType)
-                    }
+                    ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .desk, glides: brushGlides,
+                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                                 onSetType: setBrushType, onLaunch: { processorWindowOpen = true })
                 }
             }
             .frame(width: avail * 0.44, height: height)

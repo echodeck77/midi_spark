@@ -882,105 +882,123 @@ struct HeaderView: View {
 /// fields (§3 table); MORPH fades A→B. Transpose/morph are AUParameters (own callbacks); the rest go
 /// through editColour, writing paramsA or paramsB per the active tab.
 struct ProcessorBox: View {
+    enum Mode { case desk, window }
     let colour: Colour
     let colourIndex: Int
+    var mode: Mode = .window
+    var glides: Bool = false                            // paired FULL → the morph fader glides (else hidden)
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
-    var onSetType: ((ProcessorType) -> Void)? = nil   // type switch isolates transpose/morph per type
-
-    enum ABTab: Hashable { case a, b }
-    @State private var tab: ABTab = .a
+    var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
+    var onLaunch: (() -> Void)? = nil                   // §6c: desk box → open the floating window
+    var onClose: (() -> Void)? = nil
 
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
-
-    /// Display params for the current tab: A directly, or B merged over A (unset B fields show A).
-    private var dp: ColourParams {
-        guard tab == .b else { return colour.paramsA }
-        var m = colour.paramsA
-        let b = colour.paramsB
-        if let v = b.rate { m.rate = v }; if let v = b.octaves { m.octaves = v }
-        if let v = b.count { m.count = v }; if let v = b.passes { m.passes = v }
-        if let v = b.spread { m.spread = v }; if let v = b.probability { m.probability = v }
-        if let v = b.harmIntervals { m.harmIntervals = v }
-        return m
-    }
-    /// Route a param edit to paramsA or paramsB per the active tab.
-    private func setParam(_ f: @escaping (inout ColourParams) -> Void) {
-        onEdit { c in if tab == .b { f(&c.paramsB) } else { f(&c.paramsA) } }
-    }
+    private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
+    private func setParam(_ f: @escaping (inout ColourParams) -> Void) { onEdit { f(&$0.paramsA) } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        if mode == .desk { deskBody } else { windowBody }
+    }
+
+    // §6c DESK box — the fully STATIC tenant: type + one-line description + a QUICK CONTROL + LAUNCH.
+    // The full param set is evicted to the floating window, so this frame never resizes on content.
+    private var deskBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Text("PROCESSOR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 Text(colour.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
                 Spacer()
-                ForEach([ABTab.a, ABTab.b], id: \.self) { t in       // A/B state tabs (§3.1)
-                    Text(t == .a ? "A" : "B").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                        .foregroundColor(tab == t ? .black : .white.opacity(0.6))
-                        .frame(width: 22, height: 16)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(tab == t ? accent : Color.white.opacity(0.1)))
-                        .onTapGesture { tab = t }
-                }
+                Text("EDIT ▸").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.2)))
+                    .contentShape(Rectangle()).onTapGesture { onLaunch?() }
             }
-            if tab == .a {
-                seg(ProcessorType.allCases.map { typeShort($0) },
-                    sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
-                field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
-                    stepper(colour.transpose, -24, 24) { onTranspose($0) }
-                }
-            } else {
-                Text("B-STATE — the morph target · overridable fields only")
-                    .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            }
-
-            typeParams(bTab: tab == .b)
-
-            field("MORPH \(Int(colour.morph * 100))%  A→B") {
-                Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
-            }
+            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
+            Text(descriptionLine).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            quickControl                                 // MORPH when paired-FULL, else TRANSPOSE (§6c default pin)
             Spacer(minLength: 0)
         }
-        .padding(8)
-        .frame(height: 268, alignment: .top)   // fixed: sized for the largest (ARP) field set; smaller
-        .clipped()                             // types leave calm space, overflow scrolls within, never bleeds
+        .padding(8).frame(height: 118, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // Reads `dp` (display value for the current tab), writes via `setParam` (A or B). In the B tab
-    // only the §3 B-overridable fields render (rate/octaves · count · passes · spread · probability ·
-    // intervals); non-overridable fields (pattern/phase/gate/ramp/dir/tilt) are A-only.
-    @ViewBuilder private func typeParams(bTab: Bool) -> some View {
-        let p = dp
+    // §6c PROCESSOR WINDOW — the floating, content-sized full param set (LAUNCH opens it).
+    private var windowBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("PROCESSOR · \(colour.colourID.uppercased())").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                Spacer()
+                Image(systemName: "xmark").font(.system(size: 11, weight: .heavy)).foregroundColor(.white.opacity(0.5))
+                    .frame(width: 24, height: 24).contentShape(Rectangle()).onTapGesture { onClose?() }
+            }
+            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
+            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
+                stepper(colour.transpose, -24, 24) { onTranspose($0) }
+            }
+            typeParams()
+            if glides {                                  // "the fader never lies" — morph only shows when it glides
+                field("MORPH \(Int(colour.morph * 100))%  → ALT") {
+                    Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+                }
+            }
+        }
+        .padding(12).frame(width: 300)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x14181F)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.3), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
+    }
+
+    // The desk QUICK CONTROL (§6c): MORPH auto-pins for a gliding pair, else TRANSPOSE (a universal
+    // default; per-type default pins + user-pinning are a follow-up).
+    @ViewBuilder private var quickControl: some View {
+        if glides {
+            field("MORPH \(Int(colour.morph * 100))%  → ALT") {
+                Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+            }
+        } else {
+            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
+                stepper(colour.transpose, -24, 24) { onTranspose($0) }
+            }
+        }
+    }
+
+    // A one-line description of the current treatment (shared investment with the cell-editor summary).
+    private var descriptionLine: String {
+        switch colour.type {
+        case .arp: return "\(p.pattern?.rawValue ?? "UP") · \(p.rate?.rawValue ?? "1/16") · \(p.octaves ?? 1)oct"
+        case .ratchet: return "×\(p.count ?? 3) repeats"
+        case .passgate: return "passes " + (p.passes ?? [true,true,true,true]).map { $0 ? "1" : "0" }.joined()
+        case .strum: return "\((p.strumDir ?? .up).rawValue) · spread \(Int((p.spread ?? 0.1) * 100))"
+        case .chance: return "\(Int((p.probability ?? 1) * 100))% pass"
+        case .harmonize:
+            let iv = (p.harmIntervals ?? [0,0,0]).filter { $0 != 0 }
+            return iv.isEmpty ? "unison" : "voices " + iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: ",")
+        }
+    }
+
+    @ViewBuilder private func typeParams() -> some View {
         switch colour.type {
         case .arp:
-            if !bTab {
-                field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
-                    setParam { $0.pattern = ArpPattern.allCases[i] } } }
-            }
+            field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
+                setParam { $0.pattern = ArpPattern.allCases[i] } } }
             field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: p.rate?.rawValue ?? "1/16") { i in
                 setParam { $0.rate = ArpRate.allCases[i] } } }
             HStack(spacing: 8) {
                 field("OCT") { seg(["1","2","3","4"], sel: "\(p.octaves ?? 1)") { i in
                     setParam { $0.octaves = i + 1 } } }
-                if !bTab {
-                    field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
-                        setParam { $0.phase = ArpPhase.allCases[i] } } }
-                }
+                field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
+                    setParam { $0.phase = ArpPhase.allCases[i] } } }
             }
-            if !bTab {
-                field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
-                    Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
-                }
+            field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
+                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
             }
         case .ratchet:
             field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
                 setParam { $0.count = [2,3,4,6,8][i] } } }
-            if !bTab {
-                field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
-                    Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
-                }
+            field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
+                Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
             }
         case .passgate:
             field("PASSES") { HStack(spacing: 4) {
@@ -994,16 +1012,12 @@ struct ProcessorBox: View {
                 }
             } }
         case .strum:
-            if !bTab {
-                field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
-                    setParam { $0.strumDir = StrumDir.allCases[i] } } }
-            }
+            field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
+                setParam { $0.strumDir = StrumDir.allCases[i] } } }
             field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
                 Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
-            if !bTab {
-                field("TILT \(Int((p.velTilt ?? 0) * 100))") {
-                    Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
-            }
+            field("TILT \(Int((p.velTilt ?? 0) * 100))") {
+                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
         case .chance:
             field("PROBABILITY \(Int((p.probability ?? 1) * 100))%") {
                 Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
