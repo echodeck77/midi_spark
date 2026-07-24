@@ -1,118 +1,73 @@
-# 8x8 State — feature status (snapshot 2026-07-24)
+# 8x8 State — feature status (snapshot 2026-07-24 · v2)
 
-A point-in-time survey. **CLAUDE.md is the live truth**; when they disagree,
-this file is stale — regenerate, don't trust. Legend: ✅ shipped &
-device-verified · 🔧 built, confirm status · 📋 specced & queued · 📐 specced,
-unqueued · 🧭 decided posture · 💭 sketched (parked, design on record) ·
-❓ awaiting the user's call · 🚫 rejected on record.
+Point-in-time survey; **CLAUDE.md is the live truth** — when they disagree,
+regenerate this, don't trust it. Legend: ✅ shipped/device-verified ·
+🔧 built, device pass pending · 📋 specced & queued (the WAVE) ·
+🧭 decided posture · 💭 sketched/parked · ❓ user's call · 🚫 rejected.
 
 ## ✅ Shipped and device-verified
-- AUv3 `aumi` core: five cables (All + Emit A–D), fullState = host Preset,
-  35-param tree (stable addresses), passthrough (All + Emit A, `e4bfa30`)
-- Snapshot architecture: atomic publish/acquire; render thread pure;
-  derived-never-accumulated; zero stuck notes (emitted-tuple refcount)
-- v3.0 GRAPH ROUTING: receiver-picked references (any row), fan-out,
-  cycles legal-and-silent, muted-parent reroute, backward taps
-- Channels: filter-in (per-cell, OMNI default) / stamp-out (busChannels)
-- ALL SIX processors: ARP (5 patterns) · RATCHET · PASSGATE · STRUM ·
-  CHANCE · HARMONIZE; PHASE = RETRIG / LEGATO / FREE; swing; morph A/B per
-  Colour + morphMaster (current model)
-- GUI reconcile: four-row cells, FROM/OUT popovers (as built), PROCESSOR
-  box, three-box responsive desk, v57 column keys, SIXTEEN-slot scene
-  strip, master arrow + mutation-line playheads, watermarks
-- PERFORM v1: EDIT·PERFORM toggle; tap = ALT flip (MUTE/BYP + selector +
-  column-tap-mute REMOVED at `3e816ee` pending TOUCH; engine fields kept)
-- AUDITION, all six types (chord-hold reconciles to live keys)
-- §5b COLUMN-SUBSET LAP: engine (`f30b006`) + multi-touch UI (`6f28e88`);
-  k∤8 polymeter + k=1 sustain confirmed by ear
-- §6a EMITTER TOGGLES (`a3227fa`): busEnabled[4], emission-boundary gate,
-  All = enabled sum (CH editing currently caption-popover — superseded on
-  paper by a7)
-- §6b COLOUR-chip activity playheads (`b3d2445`); (a4) velocity METERING
-  (`43c6cf5`): panel glow + peak-hold bars, post-transform, event-driven
-- Identity: "8x8 State" display name applied everywhere; AppIcon; 111-test
-  off-device suite; T1–T17 + DEV LOADER; deduped 4 Hz poll
+Engine (graph routing, six processors, channels, five cables, refcount,
+snapshot purity) · GUI reconcile (cells, popovers-as-built, desk, column
+keys, scene strip, playheads) · PERFORM v1 (ALT tap) · AUDITION (all
+types) · §5b COLUMN-SUBSET LAP (engine + multi-touch UI; polymeter + k=1
+by ear) · §6a EMITTER TOGGLES · §6b chip activity playheads · velocity
+METERING · CC/passthrough on All+Emit A (`e4bfa30`) · identity (name,
+icon) · 130-test suite · T1–T17 + DEV LOADER
 
-## 🔧 Built — confirm status on repo side
-- SceneFactory sixteen scenes vs the REVISED factory-scenes.md (scenes 9/11
-  grid changes; standing-rig ear-verify) — reconcile item left old NEXT
-- UI-size checkpoint gate (test-procedures) — formal run not seen in status
-- `v0.7-gui` tag — candidate, pending the above
+## 🔧 Built — a7 device pass pending
+Emitter channel strips (EDIT CH steppers · PERFORM momentary-ABSOLUTE
+velocity sliders + 8-seg ladders · CLAIM radio w/ ghost voices; muted
+claimant reserves — now LAW). Fold into the pass: the pitch-class CLAIM
+fix (mod-12, octave case in procedures).
 
-## 📋 Specced and queued (CLAUDE.md NEXT)
-- (a5) THE CELL EDITOR — delta §5 rev 2: one tap-anywhere pop-up (palette ·
-  input/IN CH · emitters · clear/copy/split-paste); inspector retargeting;
-  SESSION TEMPLATE (=clipboard, one stamp object, commit-on-first-
-  interaction); STAMP MODE ("COPY TO CELLS…", banner, overwrite tint);
-  invalid-⇐ROW dimmed display; retires tap-paint + FROM/OUT popovers +
-  hold menu; audition RETURNS to EDIT+stopped; drag = accelerator
-- (a6) UNDO/REDO — document-value stack, coalescing, (scope: ❓ below);
-  future RECORD layer-undo unifies
-- (a7) EMITTER PANEL v2 — PERFORM face: four channel strips (toggle+flash ·
-  momentary-ABSOLUTE velocity slider + green LED ladder, spring-back,
-  ephemeral · CLAIM radio, persisted, suppress-never-defer); EDIT face:
-  dedicated per-emitter CH selectors; VISUAL KINSHIP with cell letters
-- (b) MORPH desk (16 faders) — parked-tagged, model-dependent (see ❓)
-- (c) MULTI-SCENE — the flagship gap (scenes[] length-1 today)
+## 📋 The WAVE (all ratified; order: schemas first)
+1. SCHEMAS + loaders: RECEIVERS (4, band-as-deviation; the receiver TAB:
+   channel/range/transpose/velocity/MPE-merge/**CHORD-LATCH — user-
+   definite**) · COLOUR-PAIRS (ALT partner, capability tiers, migration;
+   scenes 14/16 re-author)
+2. §6d THE SIX-PANEL LAYOUT (landscape band + identity column, settings
+   INLINE — §6c popup dropped, window = future EXTERNAL host only;
+   portrait 25/50/25×2; truncation dies by geometry)
+3. a5+a6: THE CELL EDITOR (signal-path order, input radio, live blinks,
+   LIVE LAW, session template, stamp mode, ON section) + UNDO/REDO
+   (⚠ the written a5+a6 plan predates the final spec — re-align first)
+4. THE ON TRIGGER SYSTEM engine (derive-law temporal hooks; blessed
+   shortlist; SPRING|LATCH; composition rules + contextual greying)
+5. §5c THE HOLD LATCH (global spring-class latch; the drop; PERFORM-only)
 
-## 📐 Specced, unqueued (promotable on your word)
-- CYCLES {∞,1,2,3,4} — one-shot/N-cycle gestures; pure tick comparison,
-  needs no tail rule; STRUM ×N; RECORD LOOP/ONE-SHOT collapses into it
-- SPILL — finite gestures complete past the boundary (tail customer 6;
-  waits on the tail amendment)
-- §6b/metering follow-mentions: per-cell-per-event emitter-letter flash
-  (needs a per-cell feed — deferred by a4 as built)
+## 🧭 Proposed, awaiting the user's approval round
+§5d MULTI-SCENE switching (arm-at-wrap, double-tap immediate, assert-the-
+present/foreign-kill, three-mode transitions w/ one-lingerer bound,
+rig/music split) · CLAIM multi-claim v-next (SHARED tier model + config
+axes) · column ON system (JUMP; NEXT-SCENE×EVERY-N = song mode) — drafted,
+conversation deferred
 
-## 🧭 Decided postures (design settled, work deferred)
-- MIDI 2.0: UMP/eventList transport verification SOON (delegable spike);
-  semantics not-now · MPE: input MERGE toggle = near-term insurance; full
-  MPE = pitch-continuity wave 3 (foreclosure check passed)
-- EXTERNAL processors: standalone-only; hosting-policy PHASE modes;
-  instance-per-RUN; edit-time instantiation
-- STANDALONE app: second-host model; three seam rules enforced (done)
-- HARDWARE surfaces: CoreMIDI-in-extension SPIKE gates (delegable);
-  Launchpad X first (SysEx RGB = the real hexes); PERFORM-only v1; Push =
-  pads-only later
-- TOUCH v1 ships live-replay only; per-cell capture = TOUCH v2 direction
+## 🧭 Decided postures
+MIDI2 UMP verify (delegable spike) · MPE merge = receiver property ·
+EXTERNAL processors (standalone; §6c window = its view host) · hardware
+surfaces (CoreMIDI spike gates; Launchpad first) · protocols (Audiobus
+free via AUv3, IAA dead, Link = standalone; multi-host QA pre-release)
 
-## 💭 Sketched — parked with full design on record (delta §9)
-1. TOUCH system: 3 slots (TAP·HOLD·COL-HOLD) × 3-axis grammar
-   (WHAT×WHEN×HOW-LONG); ~10-behaviour menu; inherit/QUANT-blink laws
-2. Recorded-input capture: consolidated into RECORD's infra (two lifecycles)
-3. Row solo (undesigned)
-4. Emitter layer remainder: persistent scale-fader (automatable), HOCKET,
-   velocity-SPLIT, emitter SWAP, TOUCH slots on pads
-5. COLOUR-PAIR MORPH model (❓ unratified): ALT box, capability tiers
-   (FULL/SWAP now, PARTIAL by ear), rescues (200+i addresses, 16-strip
-   desk); p-lock per-cell overrides = sanctioned later layer
-6. Future processors: STEP-MASK (confirmed; drawable bars) · PICK (FROM+N;
-   voice splitting) · NOTE-CHANCE · roster (★TRANSPOSE-SEQ, ★ROTATE/
-   INVERT, BURST, DRONE, CASCADE, RAMP, HUMANIZE, MIRROR, SHIFT,
-   VELOCITY-MAP; EUCLID/ACCENT as STEP-MASK modes) · TAIL RULE brief (6
-   customers; slide is the headline) · PITCH BEND (wheel→morph = cheapest
-   win; BEND processor; PICK→GLIDE) · MONO (only impure idea)
-7. MPE/MIDI 2.0 posture (above)  8. Hardware surfaces (above)
-9. RECORD processor: grid-as-record-button, LENGTH 1–8, ONE-SHOT/OVERDUB,
-   overlapping fan-out windows, ABS v1 (+ROOT/DEGREE later), resampling
-   (⇐Rn), scene riffs, takes, true-timeline rule
-10. PARAMETRIC GLYPHS: settings-drawn cell glyphs, derived live highlight,
-    disclosure ladder, user Colour names (picked glyphs rejected)
+## 💭 Sketched/parked (delta §9)
+TOUCH→ON absorbed (done above) · RECORD processor (full design + unlocks:
+resampling, scene riffs, takes) · row solo · emitter layer remainder
+(persistent fader, HOCKET, split, swap) · future processors (STEP-MASK,
+PICK, NOTE-CHANCE, roster ★TRANSPOSE-SEQ ★ROTATE/INVERT, CYCLES+SPILL) ·
+TAIL RULE (7 customers incl. scene crossfade; the fork) · pitch bend
+roles · parametric glyphs + disclosure ladder + Colour names
 
-## ❓ Outstanding calls — yours
-- Colour-pair morph RATIFICATION (needs the v61 mockup sitting)
-- SCALE adjudication (corrective-post-HARMONIZE vs constitution)
-- Undo SCOPE (lean: EDIT-only) · TOUCH behaviour shortlist (+COL-HOLD
-  reading, portrait fit) · CYCLES promotion timing
-- By ear at their passes: PICK STRICT-vs-CLAMP · tail referenceability
-  fork · NOTE-CHANCE form (lean TILT) · PARTIAL-morph pairs · RECORD
-  re-arm/clear UX + undo depth
-- Scheduling: multi-scene slot; the two delegable spikes (UMP verify,
-  CoreMIDI-in-extension)
+## ❓ The user's open calls
+Approve the proposed set above · SCALE adjudication · undo scope (lean
+EDIT-only) · multi-scene continuation (split ratification, boundary
+choreography, scene-management UX) · columns ON conversation · by-ear at
+their passes: PICK STRICT/CLAMP · tail fork · NOTE-CHANCE form · PARTIAL
+morph pairs · RECORD UX · CYCLES promotion timing · the two spikes
 
-## 🚫 Rejected on record (with reasons in the delta)
-Double-tap TOUCH slot · pure per-cell ALT/TOUCH (legibility contract) ·
-invalid-ref field mutation · dual-threshold holds · shared CH selector
-row · hand-picked glyphs · tap-to-paint (retired by the editor) ·
-two-finger loop brace (subsumed by the lap) · order-of-press lap sets ·
-PASS-MASK (incidental) · engine-linked standalone · morphing opaque
-external plugins · SCALE-as-input-override (pending the ❓ above)
+## 🚫 Rejected on record (reasons in the delta)
+§6c popup for internal params ("didn't work as hoped") + pinned quick
+control · double-tap on cells (kept ONLY where deferred: scene slots) ·
+pure per-cell ALT/TOUCH · field-mutation on invalid refs · dual-threshold
+holds · shared CH selector row · hand-picked glyphs · tap-to-paint ·
+two-finger loop brace · order-of-press laps · PASS-MASK · SET-FACE/CLAIM
+scene hooks (redundant-with-persistence) · input timing-quantize ·
+mute-releases-claim

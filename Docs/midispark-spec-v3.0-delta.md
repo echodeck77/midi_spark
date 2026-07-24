@@ -308,32 +308,53 @@ unpredictable under sweaty fingers; sorted wins.]
   are ARRANGEMENT-level time-warps; the per-Colour behaviours are
   VOICE-level. They compose; neither replaces the other.
 
-### 6c. THE PROCESSOR WINDOW (user spec 2026-07-24, off v61 — supersedes
-### the type-in-COLOUR desk note AND replaces it as the portrait-truncation
-### fix; the §6 static-frames rule finally gets a fully static desk)
+### 6d. THE SIX-PANEL LAYOUT (user spec 2026-07-24 — supersedes the
+### three-box desk arrangement in BOTH orientations; the grid itself is
+### UNCHANGED in both)
 
-The desk PROCESSOR box stops hosting params. It becomes four fixed
-elements: **TYPE SELECTOR · a legible one-line DESCRIPTION of the type ·
-ONE designated QUICK CONTROL · LAUNCH.** Tapping LAUNCH opens the
-**PROCESSOR WINDOW** — a floating content-sized surface (popover grammar
-scaled up; windows float, never reflow) holding the selected Colour's FULL
-parameter set.
+**LANDSCAPE:** grid as-is (column keys atop). Directly below the grid, a
+fixed-height band split 50/50 — **RECEIVERS left · EMITTERS right —
+PERFECTLY ALIGNED to the grid's edges** (the alignment discipline is what
+makes it read as one machine: the receivers box ends where column 4
+ends). The band's height is FIXED, sized for its tallest tenant (the
+emitter PERFORM face: slider + ladder + CLAIM); the EDIT face uses less
+of the same frame. The right quarter of the app = the identity column,
+top to bottom: **COLOUR (palette) → ALT (a dedicated panel; button equal
+in size to a palette cell, EMPTY when no partner) → PROCESSOR SELECTOR
+(type, displayed clearly, with the legible one-line description) →
+PROCESSOR SETTINGS (full params, INLINE — see the §6c revision below).**
+Scene strip: full-width at the very bottom, unchanged.
 
-- **THE QUICK CONTROL is per-Colour and persisted:** inside the window,
-  any param row can be PINNED as the Colour's surfaced desk control
-  (morph for paired Colours, rate for a ridden arp, probability for
-  CHANCE — the promoted macro). Default pin per type; MORPH auto-pins
-  when a pair exists.
-- **Kills the truncation bug BY DESIGN:** the desk box no longer sizes
-  against variable content — the only dynamic tenant moved to a surface
-  that is allowed to size to content.
-- **THE EXTERNAL ANSWER:** this window is the future AUv3-view host —
-  the standalone plan's logged "UI for plugin pick + view hosting"
-  question resolves to "the same window, two tenants" (our params today,
-  the hosted plugin's view for EXTERNAL Colours later).
-- The CELL EDITOR's colour readout gains a LAUNCH shortcut (edit the
-  Colour's params in cell context). One processor window at a time;
-  tap-away dismisses; static frames everywhere else untouched.
+**PORTRAIT:** grid full-width, same dimensions. Below it, a band of
+**three columns × two rows**: LEFT 25% = COLOUR over ALT · MIDDLE 50% =
+PROCESSOR SELECTOR over PROCESSOR SETTINGS (the widest params surface
+the instrument has ever had) · RIGHT 25% = RECEIVERS over EMITTERS.
+Scene strip below; DEV LOADER remains portrait-only beneath it.
+
+**LAWS:** the six panels keep one IDENTITY across orientations (only
+geography changes); frames are per-orientation FIXED (two layouts, each
+internally static); **the portrait truncation bug dies by GEOMETRY in
+both orientations** — the settings area is sized for the largest type's
+field set as a layout fact. The cell's vertical signal flow (receiver
+band top, emitters bottom) vs the landscape band's horizontal flow =
+different axes, both legible — one mockup glance to confirm they don't
+argue.
+
+### 6c. THE PROCESSOR WINDOW — **REVISED 2026-07-24: the popup
+### requirement is DROPPED** ("didn't work as well as hoped" — user, off
+### the v61 board). Settings return INLINE (see §6d). This section
+### narrows to its irreplaceable job:
+
+**The window survives ONLY as the future EXTERNAL AUv3-view host** —
+the standalone plan's "UI for plugin view hosting" answer stands: when
+EXTERNAL Colours arrive, selecting one shows a LAUNCH in the settings
+area opening the floating window with the hosted plugin's view (internal
+types never use it). RETIRED WITH THE POPUP: the pinned QUICK CONTROL
+(it was the compact box's compensation; with full params inline, pinning
+is unnecessary — re-openable if a perform-macro need ever returns) and
+the LAUNCH-for-internal-types. KEPT: the legible one-line type
+DESCRIPTION, now living with the PROCESSOR SELECTOR (§6d). The cell
+editor's launch shortcut applies to EXTERNAL Colours only.
 
 ### 6b. COLOUR-chip activity playheads (DEFINITE requirement, 2026-07)
 
@@ -380,6 +401,61 @@ on, RELEASE does nothing; touch still does everything.**
   side column is the obvious tenant). HOLD exists in PERFORM only —
   absent/inert in EDIT (it modifies perform gestures; one visible mode
   per mode). OPEN: quantized release (later option).
+
+### 5d. MULTI-SCENE — switching rules (PROPOSED 2026-07-24; the scenes
+### conversation opens — awaiting approval next round)
+
+- **TAP a scene slot = ARM:** the slot blinks (QUANT vocabulary); the
+  switch fires when **trueColumn wraps to 1** — TRUE timeline (a held
+  lap neither delays nor hastens it; §5b's true-time rules extend).
+  Tapping a DIFFERENT slot re-targets the arm; tapping the ARMED slot
+  again outside the double window CANCELS.
+- **TAP THE ACTIVE SLOT = ASSERT THE PRESENT (user 2026-07-24):** "this
+  scene, now, alone" — cancels any pending arm AND **kills all FOREIGN
+  voices** (the lingering scene's tails/completions: force-end the
+  completion window, refcount-correct offs — `closeLingerer()`, the §5d
+  machinery's one extra verb). The performance flow: tap-tap to switch
+  immediately, tap again if the blend overstays — switch-and-slam, three
+  touches of one finger. Harmless no-op when nothing lingers (a door you
+  can slam while shut); occupies DEAD gesture real estate (tap-on-current
+  was meaningless); doubles as the SCOPED PANIC — kills only what isn't
+  now, the current scene untouched.
+- **DOUBLE-TAP = IMMEDIATE** — at the CURRENT playhead position: the
+  timeline is sacred and never restarts (one-clock doctrine); the new
+  scene's content slides in under the running beat, voices closing per
+  invariant 4. **Principled exception to the double-tap rejection:** the
+  delay tax only exists where single-tap acts immediately; a scene tap
+  is deferred by design, so double-detection costs nothing perceptible.
+  **(Scene transitions — the three-mode design, analyzed 2026-07-24:
+  "finish their iteration" is BOUNDED BY CONSTRUCTION** — an ∞-cycler's
+  iteration ends at its step, finite gestures complete per SPILL, tails
+  obey TTL: worst case = ONE STEP of outgoing generation + decaying
+  tails = a crossfade, not chaos. Near-invisible at pass-boundary
+  switches (the old scene ends at its natural edge); at IMMEDIATE
+  switches it IS the DJ blend — the old material becomes the transition
+  fill. THE MODES: **CHOP (ships first, as above) | RING (sustain tails
+  only) | FINISH (tails + ≤1-step gesture completion)** — future home: a
+  PER-SCENE EXIT property (the outgoing scene decides how it leaves).
+  MACHINERY: tail-rule customer #7 = voices outliving their DOCUMENT —
+  the outgoing SNAPSHOT LINGERS for its completion window (old+new held
+  briefly; references resolve inside the whole lingering snapshot).
+  THE ANTI-CHAOS BOUNDS: finite-only completion · **ONE LINGERER MAX** —
+  a new switch force-chops the previous lingerer (crossfade yes, piling
+  no) · voice-table steal-oldest absorbs density worst-cases.)
+- Stopped: tap loads immediately.
+- **UNIFICATION:** manual arming and the column-ON NEXT-SCENE trigger
+  are one machinery — a single scene-switch scheduler with two clients
+  (finger and config).
+- **THE RIG / MUSIC SPLIT (proposed state-model backbone):**
+  DOCUMENT-level, survives switches = the RIG: receivers, bus channels
+  (hardware doesn't rewire between scenes). PER-SCENE = the MUSIC:
+  grid, Colours + pairings, per-Colour ON assignments, **column ON
+  assignments (each scene chains differently — that's how songs
+  branch)**, CLAIM (it shapes the arrangement). **EPHEMERAL perform
+  state SURVIVES the switch** (lean): the lap, HOLD captures, velocity
+  overrides — stuttering THROUGH a scene change is a technique, not a
+  bug. OPEN: step rate + swing per-scene or rig (lean per-scene — they
+  are musical); exact voice-close choreography at the boundary.
 
 ### 6a. The EMITTERS panel — behaviour per mode (supersedes panel-as-selector)
 
@@ -439,12 +515,45 @@ flash when notes leave).
      (automatable mix) remains parked as a separate future variant.]
   3. the **CLAIM button** (promotes the parked exclusivity/spillover
      design): the claiming emitter takes EXCLUSIVE rights to incoming
-     notes; others receive the residue. **RADIO — one claimant at a
-     time** (claiming B releases A; deletes all priority-ordering
-     questions; multi-claim with left→right priority = logged future
-     variant). Suppress, never defer (released notes don't retroactively
-     sound elsewhere — §6a doctrine). CLAIM IS PERSISTED (it shapes the
-     arrangement; the touch-override is not).
+     notes; others receive the residue. **CLAIM MATCHES BY PITCH CLASS
+     (user fix 2026-07-24): a claimed C3 suppresses ALL C's — every
+     octave — on the other emitters.** The claimant owns its HARMONY;
+     residue = different pitch classes, not octave doubles (octave
+     doubling across synths is exactly the mud exclusivity exists to
+     prevent). Engine: the suppression check (incl. the ghost-voice
+     comparison) runs on note mod 12. [Supersedes the as-built
+     exact-pitch match — a one-line change to fold into the a7 device
+     pass; the CLAIM T-intent gains an octave case.] **RADIO — one
+     claimant at a time** (v1 as built; validate by ear at the a7 device
+     pass). **MULTI-CLAIM — designed v-next (user model, 2026-07-24 rev 2):
+     SHARED claims — claimants are a privileged TIER, not a hierarchy.**
+     A and B claimed ⇒ the union of their sounding classes is suppressed
+     on C and D; **claimants never suppress each other** (inter-claimant
+     doubling is often deliberate — bass doubling the lead for emphasis;
+     "the front line may double each other; the back line may not").
+     Simpler than any cascade: NO ordering — claimant emitters check
+     nothing, non-claimants check the union of all claimants' ghosts;
+     claimants emit first (any order among them). Muted claimants stack
+     reservations (layered holes). UI: CLAIM buttons stop being radio —
+     multiple light.
+     **FUTURE CONFIG SET (log now, surface at implementation):** three
+     axes — ① claim count: SINGLE | MULTI · ② multi-mode: **SHARED
+     (default)** | CASCADE (fixed A→D seniority — strict ownership even
+     among claimants) · ③ match: **PITCH-CLASS (default)** | EXACT NOTE.
+     Ship defaults first (currently: single + pitch-class); the options
+     popover is a later, small surface. Suppress, never defer (released notes don't
+     retroactively sound elsewhere — §6a doctrine). CLAIM IS PERSISTED
+     (it shapes the arrangement; the touch-override is not).
+     **LAW (user-ratified 2026-07-24, matching the as-built behaviour —
+     never "fix" this): A MUTED CLAIMANT STILL RESERVES.** CLAIM and the
+     §6a mute are independent axes — CLAIM is persisted arrangement
+     structure, mute is a performance gate at the emission boundary; the
+     ghost-voice reservation exists regardless of whether the claimant
+     emits (sidechain-style: mute the bass and its harmonic hole
+     remains). The alternative would make muting one emitter suddenly
+     FLOOD the others with previously-suppressed pitch classes — a
+     surprise texture change from an unrelated gesture. If the flood is
+     WANTED, un-claiming is the explicit gesture for it.
   The frame is MODE-AWARE within the static-frames rule: same box, same
   size; EDIT shows the toggle + CH-popover face above; PERFORM shows the
   strips.
@@ -1045,7 +1154,29 @@ every answer at once.
      meters — the desk gains input metering); (b) receiver toggle = INPUT
      MUTE (kill a keyboard live); (c) RECORD's source = a receiver;
      (d) the MPE-merge insurance becomes a PER-RECEIVER property (the MPE
-     front door). **RATIFIED 2026-07-24 off preview v61.** Count = 4; loader maps existing
+     front door). **THE RECEIVER TAB — feature set (2026-07-24; LAW: receiver features
+     must be RIG-class — about the CONTROLLER, never the music; musical
+     transforms belong to Colours, which is WHY receivers are
+     document-level):** ① CHANNEL (defining) · ② RANGE (lo/hi bounds —
+     register splits; zones without channels) · ③ TRANSPOSE (± semis —
+     register ZONING; composes with Colour transpose across layers) ·
+     ④ VELOCITY (curve soft/lin/hard + min/max clamp — controller
+     compensation; clamp-to-fixed = organ mode) · ⑤ MPE MERGE (as
+     logged) · ⑥ **LATCH — the headline, USER-DEFINITE 2026-07-24: OFF / SUSTAIN /
+     CHORD-LATCH**
+     (play a chord, release, it HOLDS; a new chord REPLACES — the
+     arpeggiator hold, per-receiver). Chord-latch resolves the oldest
+     ergonomic tension: "the held chord is the score" stops meaning
+     PHYSICALLY held — both hands freed for the grid; one tap re-voices
+     the instrument. RULES: latch SURVIVES transport stop (your chord is
+     your patch) but latched notes DON'T drive the stopped passthrough
+     (only physically-held notes pass — no eternal drone). The receiver
+     strip DISPLAYING its latched notes = the reserved MIDI-IN display's
+     true form. EXCLUDED with reasons: input timing-quantize (the grid IS
+     the quantizer); input scale-force (would prejudge the SCALE
+     adjudication); CC (resolved, e4bfa30); mono-ize (logged maybe — PICK
+     does it downstream).
+     **RATIFIED 2026-07-24 off preview v61.** Count = 4; loader maps existing
      inputChannels in order of appearance (>4 distinct collapse to omni +
      log); receiver colours = the muted infrastructure family (v61's).
      **CELL BAND RULE (answers "must cells show receivers?"): the band is a

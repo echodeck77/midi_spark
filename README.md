@@ -17,8 +17,10 @@ these revs — the delta wins).
 > Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
 > channels/outputs, graph routing, the full GUI reconcile, the perform layer, and
 > audition (all types) are built and DEVICE-VERIFIED, with a 111-test off-device suite
-> covering the render engine itself. PERFORM v2 is landing: the §5b column-subset LAP
-> (device-verified) and the §6a emitter toggles are both done. See CLAUDE.md; do not code
+> covering the render engine itself. PERFORM v2 is landing: the §5b LAP
+> (device-verified), the §6a toggles, and the a7 emitter channel strips
+> (velocity override + LED ladders + CLAIM) are built. Next wave: the §6d
+> six-panel layout, the cell editor, undo, receivers, colour-pairs, ON. See CLAUDE.md; do not code
 > from this README.
 
 ## Setup — Path A (recommended): XcodeGen

@@ -138,7 +138,18 @@ the HTML's `T` constant.
    rule), header/emitter states. Acceptance 12 (rescoped): header names the
    live parent; emitter strip matches actual emission — verify vs a monitor.
 4. Edit interactions: FROM/OUT popovers → then drag-and-drop + hold menu.
-5. Desk: three-box responsive placement + SCENE strip (wire scene slots to
+5. Desk: **SUPERSEDED by delta §6d THE SIX-PANEL LAYOUT** — landscape:
+   receivers|emitters band directly below the grid (50/50, GRID-ALIGNED,
+   fixed height sized for the emitter PERFORM face) + right identity
+   column COLOUR → ALT (dedicated panel, palette-cell-sized button,
+   empty when unpaired) → PROCESSOR SELECTOR (type + one-line
+   description) → PROCESSOR SETTINGS (full params INLINE — the §6c popup
+   is DROPPED; the window survives only as the future EXTERNAL view
+   host). Portrait: three columns × two rows below the full-width grid —
+   25% COLOUR/ALT · 50% SELECTOR/SETTINGS · 25% RECEIVERS/EMITTERS.
+   Panels keep one identity across orientations; frames per-orientation
+   fixed. (Historical three-box text follows for the record:)
+   Desk: three-box responsive placement + SCENE strip (wire scene slots to
    the TestSessions loader in dev builds) → perform layers → audition
    (incl. EDIT-stopped hold, delta §5) → QUANT arming visuals. MORPH desk
    returns as its own later pass.

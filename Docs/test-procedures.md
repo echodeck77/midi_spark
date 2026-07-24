@@ -181,7 +181,10 @@ Other emitters are untouched; a DISABLED emitter stays silent under a drag.
 the claimant is sounding VANISHES from the other emitters (own cables + their All
 contribution) — the claimant keeps it, the others get the residue (unclaimed
 pitches still sound). Tap another emitter → the claim moves (RADIO, one at a time);
-tap the claimant again → clear. No stuck notes across claim on/off/switch. CLAIM
+tap the claimant again → clear. No stuck notes across claim on/off/switch.
+OCTAVE CASE (delta §6a pitch-class fix — lands with the mod-12 change):
+claim A, hold C3 on A's material → play C4/C5 material routed to B →
+ALL C's suppressed on B regardless of octave; a D on B passes. CLAIM
 IS PERSISTED (survives reload). MUTED CLAIMANT: disable the claimant's emitter
 TOGGLE while it holds the claim → it goes silent itself but STILL reserves its
 pitches (a sidechain-style claim — the others stay ducked against a lead you don't
@@ -209,6 +212,12 @@ keep their TRUE schedule.
 the sounding column.
 
 ## UI size checkpoints (GUI reconciliation gate)
+
+NOTE (2026-07-24): the checkpoint geometry below predates **delta §6d THE
+SIX-PANEL LAYOUT** (receivers|emitters band under the grid + right
+identity column in landscape; 25/50/25 × 2 band in portrait; settings
+inline). Re-run the checkpoints against §6d when the layout lands; the
+truncation finding is resolved BY GEOMETRY there.
 
 Screenshot-verify the reconciled UI at: 1024×768 (floor device), 11-inch
 (primary), 13-inch (roomy) — both orientations each — plus ONE deliberately

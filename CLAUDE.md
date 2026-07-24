@@ -250,8 +250,14 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   ON section row; live blinks), and decide sequencing: the wave's
   schema-first rule says RECEIVERS + COLOUR-PAIR schema/loader land
   BEFORE the editor, else its input/colour sections get built twice.
-  Remaining wave after a7's device pass: schemas → a5+a6 → §6c → §5c →
-  ON engine.
+  Remaining wave after a7's device pass: schemas → a5+a6 → **§6d THE
+  SIX-PANEL LAYOUT (2026-07-24: landscape = receivers|emitters band
+  under the grid, grid-aligned, + right identity column COLOUR→ALT→TYPE→
+  SETTINGS-inline; portrait = 25/50/25 × 2 band; §6c popup DROPPED —
+  settings inline, the window narrows to the future EXTERNAL view host;
+  truncation dies by geometry both orientations)** → §5c → ON engine.
+  CHORD-LATCH (receiver tab, delta item 11) is user-DEFINITE — include
+  in the receivers schema/panel work.
   (a5)+(a6) — PLAN WRITTEN, awaiting approval: `~/.claude/plans/a5-a6-cell-editor-and-undo.md`
   (5 device-verifiable increments: cell-editor inspector → session template/clipboard →
   stamp mode → audition-returns-to-EDIT → undo/redo; each with a testable model layer). Specs:
@@ -282,6 +288,11 @@ time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b)
   still reserves (sidechain-style). Claimant is emitted FIRST within a fan-out. Known caveat
   (L1, accepted): two DIFFERENT cells whose same-pitch notes both NEWLY onset in one render
   window are row-order-dependent. Device procedures in test-procedures.md (a7 T-intent + CLAIM).
+  **SPEC FIX pending (2026-07-24, delta §6a): CLAIM matches by PITCH
+  CLASS, not exact pitch** — a claimed C3 suppresses all C's on other
+  emitters (note mod 12 in the suppression check, ghosts included).
+  As-built is exact-pitch: one-line engine change + an octave case in the
+  CLAIM procedure; fold into the a7 device pass.
   (Review-fixed alongside: M1 — a per-event render-thread allocation in `handleIncoming` →
   reused scratch; L2 — audition reconcile now excludes silent ghosts; L4 comment.)
   (b) MORPH desk (16 faders) — parked per delta.
