@@ -15,6 +15,9 @@ import Foundation
 
 enum Snap {
     static let cols = 8, rows = 8, colours = 16
+    // delta §9 item 11: a source filter ≥17 matches no held note (NotePool.matches never sees chan ≥16),
+    // so it is the render-free way to express a MUTED receiver — its subscribers read an empty pool.
+    static let mutedSourceFilter: UInt8 = 17
     // Ladders shared by builder and kernel. Order MUST match the enums' allCases (§8: stable).
     static let arpRateBeats: [Double] = ArpRate.allCases.map(\.beats)
     static let stepRateBeats: [Double] = StepRate.allCases.map(\.beats)
@@ -32,7 +35,10 @@ struct SnapCell {
     // v3.0 graph routing (delta §1, precomputed here so render never scans):
     var resolvedParent: Int8 = -1   // referenced row IF occupied & ≠ self, else −1 (= MIDI IN)
     var isTapped = false            // some OTHER cell in this column references this row
-    var inputChannel: UInt8 = 0     // delta §7: source filter, 0 = OMNI, else 1–16 (MIDI-IN cells only)
+    var inputChannel: UInt8 = 0     // delta §7: source filter, 0 = OMNI, 1–16 channel, ≥17 = match-nothing
+                                    // (a muted receiver; Snap.mutedSourceFilter). Resolved from the cell's
+                                    // receiver at build time — MIDI-IN cells only; render just reads it.
+    var resolvedReceiver: Int8 = -1 // delta §9 item 11: the receiver a MIDI-IN cell reads (0–3), else −1
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)

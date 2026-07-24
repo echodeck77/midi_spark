@@ -115,7 +115,28 @@ struct Cell: Codable, Equatable {
     var inputRow: Int? = nil
     // v3.0 (delta §7): input-channel filter for a MIDI-IN cell. 0 = OMNI (default); 1–16 = only notes
     // arriving on that channel. Applies at the source boundary only (referenced parents aren't filtered).
+    // LEGACY after RECEIVERS (delta §9 item 11): the filter now lives on the Receiver a cell subscribes
+    // to. Kept for migration (synthesizeReceiversIfNeeded reads it) + as the fallback when a doc has no
+    // receivers; not dropped until a later formatVersion (parallel to `stack`/`srcMix`).
     var inputChannel: Int = 0
+    // delta §9 item 11: the RECEIVER a MIDI-IN cell subscribes to (0–3). Consulted ONLY when inputRow ==
+    // nil; nil = the default receiver (0 = Receiver 1). Row-referencing cells ignore it. The cell's
+    // effective source filter is resolved from this receiver at build time (SnapCell.inputChannel).
+    var inputReceiver: Int? = nil
+}
+
+// MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object
+
+/// One of four document-level MIDI receivers. A MIDI-IN cell subscribes to a receiver (FROM RECEIVER n)
+/// and inherits its channel filter; the receiver also carries a persisted input-mute (the input twin of
+/// the §6a emitter mute) and a per-receiver MPE-merge flag (the "MPE front door" — field only for now;
+/// merge semantics are their own later mini-spec). Receiver COLOUR is assigned by index (the fixed
+/// infrastructure family), not stored. note-RANGE (register splits) is a later addition — no field yet.
+struct Receiver: Codable, Equatable {
+    var name: String = ""
+    var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
+    var mpeMerge: Bool = false  // per-receiver MPE-merge (the front door); engine semantics deferred
+    var muted: Bool = false     // input mute (PERSISTED) — a muted receiver feeds its subscribers nothing
 }
 
 // MARK: - Scene & document — §9
@@ -135,7 +156,7 @@ struct SceneState: Codable, Equatable {
 }
 
 struct PluginState: Codable, Equatable {
-    var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing (§migration)
+    var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
     var colours: [Colour]
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
     var activeScene: Int = 0
@@ -153,6 +174,14 @@ struct PluginState: Codable, Equatable {
     // Persisted (a document property, unlike the ephemeral velocity override); optional so old docs
     // decode as nil. Suppression lives at the emission boundary against the live voice table.
     var claimEmitter: Int? = nil
+    // delta §9 item 11: the four document-level MIDI receivers (shared named inputs). Optional so pre-
+    // receiver docs decode as nil and get four synthesized by synthesizeReceiversIfNeeded() on load.
+    var receivers: [Receiver]? = nil
+    /// The four receivers, nil/short-array safe (missing ⇒ OMNI). Non-persisting read helper.
+    var receiversResolved: [Receiver] {
+        let r = receivers ?? []
+        return (0..<4).map { $0 < r.count ? r[$0] : Receiver(name: "\($0 + 1)") }
+    }
 
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
@@ -161,23 +190,64 @@ struct PluginState: Codable, Equatable {
     /// everything else is MIDI IN (nil). `srcMix` has no v3 equivalent and is dropped (logged).
     /// The old fields are LEFT in place — the router still reads `stack` until the commit-3 flip.
     mutating func migrateLegacyRoutingIfNeeded() {
-        guard formatVersion < 3 else { return }
-        var droppedSrcMix = 0
+        if formatVersion < 3 {
+            var droppedSrcMix = 0
+            for si in scenes.indices {
+                for col in scenes[si].cells.indices {
+                    for row in scenes[si].cells[col].indices {
+                        guard var cell = scenes[si].cells[col][row] else { continue }
+                        let aboveStacked = row > 0 && (scenes[si].cells[col][row - 1]?.stack ?? false)
+                        cell.inputRow = aboveStacked ? row - 1 : nil
+                        if cell.srcMix { droppedSrcMix += 1 }
+                        scenes[si].cells[col][row] = cell
+                    }
+                }
+            }
+            if droppedSrcMix > 0 {
+                print("MidiSpark: migrated v2 document to graph routing; dropped +SRC on \(droppedSrcMix) cell(s) (no v3 equivalent).")
+            }
+            formatVersion = 3
+        }
+        synthesizeReceiversIfNeeded()   // delta §9 item 11 — runs for v3 docs too (they have no receivers yet)
+    }
+
+    /// delta §9 item 11: promote per-cell input-channel filters to four shared RECEIVERS. Idempotent
+    /// (gated on `receivers == nil`), runs on every doc entering the AU. Distinct MIDI-IN channel filters
+    /// are collected in ORDER OF APPEARANCE → up to 4 receivers (Receiver 1 = the first, usually OMNI 0);
+    /// >4 distinct collapse the overflow to Receiver 1 + log. Each MIDI-IN cell is pointed at the receiver
+    /// matching its old filter. OMNI (the overwhelming default) → Receiver 1 ⇒ clean, band-free grids.
+    mutating func synthesizeReceiversIfNeeded() {
+        guard receivers == nil else { return }
+        var distinct: [Int] = []
+        for scene in scenes {
+            for col in scene.cells {
+                for maybe in col {
+                    guard let cell = maybe, cell.inputRow == nil else { continue }   // MIDI-IN cells only
+                    let ch = max(0, min(16, cell.inputChannel))
+                    if !distinct.contains(ch) { distinct.append(ch) }
+                }
+            }
+        }
+        if distinct.isEmpty { distinct = [0] }                       // no MIDI-IN cells → a lone OMNI receiver
+        let overflow = max(0, distinct.count - 4)
+        if overflow > 0 { distinct = Array(distinct.prefix(4)) }
+        var recs = distinct.enumerated().map { Receiver(name: "\($0.offset + 1)", channel: $0.element) }
+        while recs.count < 4 { recs.append(Receiver(name: "\(recs.count + 1)")) }   // pad to 4 (OMNI)
         for si in scenes.indices {
             for col in scenes[si].cells.indices {
                 for row in scenes[si].cells[col].indices {
-                    guard var cell = scenes[si].cells[col][row] else { continue }
-                    let aboveStacked = row > 0 && (scenes[si].cells[col][row - 1]?.stack ?? false)
-                    cell.inputRow = aboveStacked ? row - 1 : nil
-                    if cell.srcMix { droppedSrcMix += 1 }
+                    guard var cell = scenes[si].cells[col][row], cell.inputRow == nil else { continue }
+                    let ch = max(0, min(16, cell.inputChannel))
+                    cell.inputReceiver = recs.firstIndex(where: { $0.channel == ch }) ?? 0   // overflow → R1
                     scenes[si].cells[col][row] = cell
                 }
             }
         }
-        if droppedSrcMix > 0 {
-            print("MidiSpark: migrated v2 document to graph routing; dropped +SRC on \(droppedSrcMix) cell(s) (no v3 equivalent).")
+        receivers = recs
+        if overflow > 0 {
+            print("MidiSpark: synthesized receivers; \(overflow) overflow input channel(s) collapsed to Receiver 1.")
         }
-        formatVersion = 3
+        formatVersion = max(formatVersion, 4)
     }
 
     static func factory() -> PluginState {
@@ -199,7 +269,8 @@ struct PluginState: Codable, Equatable {
         scene.cells[4][0] = Cell(colourID: "gold")
         scene.cells[6][0] = Cell(colourID: "cyan")
         var state = PluginState(colours: colours, scenes: [scene])
-        state.formatVersion = 3   // built directly in the v3.0 graph model
+        state.formatVersion = 4   // built directly in the v3.0 graph model + receivers
+        state.receivers = (1...4).map { Receiver(name: "\($0)") }   // four OMNI receivers; cells default to R1
         return state
     }
 }

@@ -40,7 +40,16 @@ enum SnapshotBuilder {
                    ir < scene.cells[c].count, scene.cells[c][ir] != nil {
                     sc.resolvedParent = Int8(ir)
                 }
-                sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // delta §7 source filter
+                // delta §9 item 11: a MIDI-IN cell's source filter comes from the RECEIVER it subscribes
+                // to (channel, or match-nothing if the receiver is muted); with no receivers (or a row
+                // ref) fall back to the legacy per-cell filter. resolvedReceiver drives the UI band later.
+                if let recs = doc.receivers, let ri = cell.inputReceiver, ri >= 0, ri < recs.count {
+                    sc.resolvedReceiver = Int8(ri)
+                    sc.inputChannel = recs[ri].muted ? Snap.mutedSourceFilter
+                                                     : UInt8(max(0, min(16, recs[ri].channel)))
+                } else {
+                    sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
+                }
                 cells[c * Snap.rows + r] = sc
             }
         }

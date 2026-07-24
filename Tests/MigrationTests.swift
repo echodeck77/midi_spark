@@ -21,7 +21,7 @@ final class MigrationTests: XCTestCase {
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes[0].cells[0][1]?.inputRow, 0)      // references row 0
         XCTAssertNil(d.scenes[0].cells[0][0]?.inputRow)          // top cell → MIDI IN
-        XCTAssertEqual(d.formatVersion, 3)
+        XCTAssertEqual(d.formatVersion, 4)                       // migration now also synthesizes receivers
     }
 
     func testUnstackedAboveMeansMidiIn() {
@@ -52,10 +52,62 @@ final class MigrationTests: XCTestCase {
 
     func testFactoryIsV3Consistent() {
         let f = PluginState.factory()
-        XCTAssertEqual(f.formatVersion, 3)
+        XCTAssertEqual(f.formatVersion, 4)                       // v3 graph + receivers
+        XCTAssertEqual(f.receivers?.count, 4)                    // four OMNI receivers seeded
         // factory: vermilion at (2,0) stacked, magenta at (2,1) → magenta references row 0
         XCTAssertEqual(f.scenes[0].cells[2][1]?.inputRow, 0)
         XCTAssertNil(f.scenes[0].cells[0][0]?.inputRow)          // an unfed top cell
+    }
+
+    // MARK: - RECEIVERS (delta §9 item 11) — synthesis from legacy per-cell filters
+
+    func testSynthesizeReceiversFromDistinctInputChannels() {
+        let d0 = doc({ s in
+            s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // OMNI
+            s.cells[1][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 3; return c }()   // ch 3
+            s.cells[2][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // OMNI again
+            s.cells[3][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 5; return c }()   // ch 5
+        }, version: 3)
+        var d = d0; d.synthesizeReceiversIfNeeded()
+        XCTAssertEqual(d.receivers?.map { $0.channel }, [0, 3, 5, 0])   // order of appearance, padded OMNI
+        XCTAssertEqual(d.scenes[0].cells[0][0]?.inputReceiver, 0)       // OMNI → R1
+        XCTAssertEqual(d.scenes[0].cells[1][0]?.inputReceiver, 1)       // ch3 → R2
+        XCTAssertEqual(d.scenes[0].cells[2][0]?.inputReceiver, 0)       // OMNI → R1
+        XCTAssertEqual(d.scenes[0].cells[3][0]?.inputReceiver, 2)       // ch5 → R3
+        XCTAssertEqual(d.formatVersion, 4)
+        var again = d; again.synthesizeReceiversIfNeeded()             // idempotent
+        XCTAssertEqual(again.receivers?.count, 4)
+    }
+
+    func testSynthesizeReceiversOverflowCollapsesToReceiverOne() {
+        let d0 = doc({ s in
+            for (i, ch) in [1, 2, 3, 4, 5, 6].enumerated() {          // 6 distinct > 4
+                s.cells[i][0] = { var c = Cell(colourID: "gold"); c.inputChannel = ch; return c }()
+            }
+        }, version: 3)
+        var d = d0; d.synthesizeReceiversIfNeeded()
+        XCTAssertEqual(d.receivers?.map { $0.channel }, [1, 2, 3, 4])  // first four kept
+        XCTAssertEqual(d.scenes[0].cells[3][0]?.inputReceiver, 3)      // ch4 → R4
+        XCTAssertEqual(d.scenes[0].cells[4][0]?.inputReceiver, 0)      // ch5 overflow → R1
+        XCTAssertEqual(d.scenes[0].cells[5][0]?.inputReceiver, 0)      // ch6 overflow → R1
+    }
+
+    func testSynthesizeReceiversDefaultsToOmniWhenNoMidiInCells() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 3
+        d.synthesizeReceiversIfNeeded()
+        XCTAssertEqual(d.receivers?.count, 4)
+        XCTAssertEqual(d.receivers?.allSatisfy { $0.channel == 0 }, true)   // all OMNI
+    }
+
+    func testReceiversRoundTripThroughJSON() throws {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.receivers = [Receiver(name: "Keys", channel: 1, mpeMerge: true, muted: false),
+                       Receiver(name: "Pads", channel: 2, mpeMerge: false, muted: true),
+                       Receiver(name: "3"), Receiver(name: "4")]
+        let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
+        XCTAssertEqual(reloaded.receivers?[0], Receiver(name: "Keys", channel: 1, mpeMerge: true, muted: false))
+        XCTAssertEqual(reloaded.receivers?[1].muted, true)
     }
 
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
@@ -82,6 +134,7 @@ final class MigrationTests: XCTestCase {
         var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
         root.removeValue(forKey: "busEnabled")                       // old docs never had it
         root.removeValue(forKey: "claimEmitter")                     // nor CLAIM (a7)
+        root.removeValue(forKey: "receivers")                        // nor RECEIVERS (§9 item 11)
         var scene = (root["scenes"] as! [[String: Any]])[0]
         scene["rowBypass"] = [false, false, false]                   // dead keys an old doc still carries
         scene["stackMute"] = [true]; scene["stackSolo"] = [false]
@@ -91,6 +144,8 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(reloaded.busEnabled, "missing busEnabled → nil")
         XCTAssertEqual(reloaded.busEnabledResolved, [true, true, true, true], "nil ⇒ all enabled")
         XCTAssertNil(reloaded.claimEmitter, "missing claimEmitter → nil (no claim)")
+        XCTAssertNil(reloaded.receivers, "missing receivers → nil (loader synthesizes on entry)")
+        XCTAssertEqual(reloaded.receiversResolved.count, 4, "resolved helper is nil-safe ⇒ four OMNI")
         XCTAssertEqual(reloaded.formatVersion, 3)                    // decoded despite the removed legacy keys
     }
 
@@ -103,9 +158,9 @@ final class MigrationTests: XCTestCase {
         d.migrateLegacyRoutingIfNeeded()
         let data = try JSONEncoder().encode(d)
         var reloaded = try JSONDecoder().decode(PluginState.self, from: data)
-        reloaded.migrateLegacyRoutingIfNeeded()                  // no-op: already v3
+        reloaded.migrateLegacyRoutingIfNeeded()                  // no-op: already v4 (receivers present)
         XCTAssertEqual(reloaded.scenes[0].cells[0][1]?.inputRow, 0)
         XCTAssertNil(reloaded.scenes[0].cells[3][0]?.inputRow)
-        XCTAssertEqual(reloaded.formatVersion, 3)
+        XCTAssertEqual(reloaded.formatVersion, 4)
     }
 }

@@ -711,6 +711,39 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    func testMutedReceiverSilencesItsSubscribers() {
+        // delta §9 item 11: a MIDI-IN cell subscribed to a MUTED receiver reads an empty pool → silence.
+        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            return s }()])
+        st.receivers = [Receiver(name: "1", channel: 0, muted: true), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.events.isEmpty, "a muted receiver feeds its subscribers nothing")
+    }
+
+    func testReceiverChannelFilterRoutesSubscribersEndToEnd() {
+        // Two cells subscribe to two receivers filtering different channels — the T6 routing, but the
+        // filter now lives on the shared receiver rather than the cell.
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = passgateColour("gold")
+        cs[colourIDs.firstIndex(of: "cyan")!] = passgateColour("cyan")
+        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()  // R1 = ch 1
+            s.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()  // R2 = ch 2
+            return s }()])
+        st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3"), Receiver(name: "4")]
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)   // wire ch 0 → R1 (ch 1)
+        pool.noteOn(64, velocity: 100, channel: 1)   // wire ch 1 → R2 (ch 2)
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), pool, beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "R1 subscriber hears its channel")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.note == 64 }.isEmpty, "R1 subscriber doesn't hear R2's channel")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 64 }.count, 0, "R2 subscriber hears its channel")
+        assertNothingLeftSounding(e)
+    }
+
     func testBackwardTapDownwardReferenceEmits() {
         // Device T11b (backward tap), previously unit-untested at the Router level: a cell references a
         // row BELOW itself (legal in v3.0 — any-row refs). Row 0 ⇐ row 2 → A; row 2 ⇐ MIDI IN → B. Both

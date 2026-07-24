@@ -29,6 +29,35 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(mask([true, false]), 0b1101, "short array ⇒ missing entries enabled")
     }
 
+    // MARK: - RECEIVERS (delta §9 item 11) — cell → receiver → SnapCell filter resolution
+
+    func testReceiverChannelResolvesIntoSnapCellFilter() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputReceiver = 1; return c }()   // subscribes R2
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [s])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2", channel: 5), Receiver(name: "3"), Receiver(name: "4")]
+        let sc = SnapshotBuilder.build(from: st).cells[0]
+        XCTAssertEqual(sc.inputChannel, 5, "R2's channel filter is stamped on the cell")
+        XCTAssertEqual(sc.resolvedReceiver, 1)
+    }
+
+    func testMutedReceiverProducesMatchNothingFilter() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [s])
+        st.receivers = [Receiver(name: "1", channel: 0, muted: true), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let sc = SnapshotBuilder.build(from: st).cells[0]
+        XCTAssertGreaterThanOrEqual(sc.inputChannel, 17, "a muted receiver ⇒ match-nothing filter")
+    }
+
+    func testNoReceiversFallsBackToLegacyInputChannel() {
+        // Parity: a doc with no receivers (pre-migration / a direct test build) keeps the per-cell filter.
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 4; return c }()
+        let st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [s])   // receivers == nil
+        XCTAssertEqual(SnapshotBuilder.build(from: st).cells[0].inputChannel, 4)
+    }
+
     func testClaimEmitterMapsToSnapshot() {
         func claim(_ c: Int?) -> Int8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
