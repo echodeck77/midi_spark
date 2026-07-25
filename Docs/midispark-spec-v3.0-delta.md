@@ -895,7 +895,14 @@ every answer at once.
        (marked "all keys · global") · ON HOLD shown fixed as "THE LAP" ·
        ON ARRIVE · ON LEAVE (with EVERY-N). Assignments persist in the
        document (scene chains travel with the piece).
-     UI: the CELL EDITOR's section 4 = five rows, assigned-only shown;
+     UI (user rev 2026-07-26 — SUPERSEDES the popup-editor section-4 placement):
+     the ON section renders ONLY in STAGING/cell-edit mode, as a new section BELOW
+     the EMITTERS panel in that mode's column (scrolling permitted there); five
+     rows, assigned-only summaries, accordion; assignments write the staged
+     COLOUR's ON config and propagate to the selected set like receiver/emitter
+     edits. The occupied-cell popup editor does NOT carry ON. GUI shipped
+     engine-inert (iteration 1); demonstration-then-commit + the derive-law
+     engine = the recorded next iteration.
      the desk TOUCH box question folds into this. Per-Colour; p-lock
      overrides later per item 5. OPEN: system NAME; per-section
      shortlists; COL-HOLD's fate (absorbed by ON HOLD context or kept).
