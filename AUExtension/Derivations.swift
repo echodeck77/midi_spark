@@ -144,6 +144,42 @@ func passthroughCableMask(isNote: Bool, playing: Bool, auditionSuppressing: Bool
     return forward ? 0b0000_0011 : 0        // cable 0 (All) + cable 1 (Emit A)
 }
 
+/// PASSTHROUGH GATE (a8 hang fix, 2026-07-25) — the STATEFUL wrapper that makes raw-note passthrough
+/// note-balanced. The pure `passthroughCableMask` decides a note-ON's fate (forward only when stopped &
+/// not audition-suppressed), but a note-OFF must NOT be re-judged by the *current* state: if `playing`
+/// or audition flipped between a note's ON and its OFF, judging the OFF drops it and STRANDS the ON at
+/// the synth — a stuck note, the hang. This gate forwards a note-OFF **iff that note's ON was
+/// forwarded**, whatever the state is now. It tracks one bit per (channel, note); a `0x90` with
+/// velocity 0 is a note-OFF. Pure/Foundation-only so the render loop owns one and unit tests drive it.
+struct PassthroughGate {
+    private var active = [Bool](repeating: false, count: 16 * 128)   // (channel<<7 | note): ON forwarded, awaiting OFF
+
+    /// The cable mask (0 = drop) for one raw MIDI event. Call once per event, in arrival order.
+    mutating func mask(statusByte: UInt8, note: UInt8, velocity: UInt8, playing: Bool, auditionSuppressing: Bool) -> UInt8 {
+        let hi = statusByte & 0xF0
+        guard hi == 0x90 || hi == 0x80 else {                       // CC/PB/AT etc. always pass
+            return passthroughCableMask(isNote: false, playing: playing, auditionSuppressing: auditionSuppressing)
+        }
+        let idx = (Int(statusByte) & 0x0F) << 7 | (Int(note) & 0x7F)
+        if hi == 0x80 || velocity == 0 {                            // note-OFF (incl. vel-0 note-on)
+            let forward = active[idx]                               // forward iff we forwarded its ON
+            active[idx] = false
+            return forward ? 0b0000_0011 : 0
+        }
+        let m = passthroughCableMask(isNote: true, playing: playing, auditionSuppressing: auditionSuppressing)
+        active[idx] = (m != 0)                                      // remember, so the matching OFF follows
+        return m
+    }
+
+    /// PANIC / reset: the indices of every note still awaiting its OFF (for an all-notes-off flush), then
+    /// clears them. The render side can emit note-offs for these on a transport reset to guarantee silence.
+    mutating func drainActive() -> [(channel: UInt8, note: UInt8)] {
+        var out: [(UInt8, UInt8)] = []
+        for i in 0..<active.count where active[i] { out.append((UInt8(i >> 7), UInt8(i & 0x7F))); active[i] = false }
+        return out
+    }
+}
+
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
 /// mutation-line playhead (grid cells AND §6b Colour chips). SWING-AWARE: swing stretches/compresses
 /// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map

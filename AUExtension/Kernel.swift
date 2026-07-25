@@ -58,6 +58,9 @@ final class Kernel {
     // on the render thread (invariant 3), mirroring LiveMIDIEmitter's scratch. Single render thread,
     // handleIncoming is not reentrant, so one shared buffer is safe.
     private var passthroughScratch = [UInt8](repeating: 0, count: 3)
+    // a8 hang fix (2026-07-25): the passthrough echo is note-balanced through this gate so a note-OFF is
+    // forwarded whenever its ON was — even if playing/audition flipped in between (else = a stuck note).
+    private var passthroughGate = PassthroughGate()
     func setVelOverride(_ bus: Int, _ value: Int?) {
         guard bus >= 0 && bus < 4 else { return }
         let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
@@ -205,7 +208,11 @@ final class Kernel {
             diag.ccData2 = length > 2 ? bytes[2] : 0
         }
         // §2.6 (reconciled to §7b): CC/PB/AT + stopped-note passthrough go out on All (0) + Emit A (1).
-        let mask = passthroughCableMask(isNote: isNote, playing: playing, auditionSuppressing: suppressAuditionNotes)
+        // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.
+        let pNote = length >= 2 ? bytes[1] : 0
+        let pVel  = length >= 3 ? bytes[2] : 0
+        let mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
+                                        playing: playing, auditionSuppressing: suppressAuditionNotes)
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }

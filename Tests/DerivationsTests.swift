@@ -419,6 +419,71 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(passthroughCableMask(isNote: true, playing: false, auditionSuppressing: true),  0, "audition replaces the raw chord")
     }
 
+    // MARK: - PassthroughGate (a8 hang fix) — a note-OFF must follow its forwarded ON, no stuck notes
+
+    private let allAndA: UInt8 = 0b11
+
+    // THE BUG: note held across a transport START. ON while stopped forwards; OFF while PLAYING must STILL
+    // forward (its ON was echoed to the synth), or the synth is stranded ON forever = the hang.
+    func testGateNoteOffFollowsOnAcrossTransportStart() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false), allAndA)
+        XCTAssertEqual(g.mask(statusByte: 0x80, note: 60, velocity: 0,   playing: true,  auditionSuppressing: false), allAndA,
+                       "note-OFF must follow its forwarded ON even though playing flipped true — no stuck note")
+    }
+
+    // Same failure via the AUDITION transition: ON while not auditioning, OFF once audition suppresses.
+    func testGateNoteOffFollowsOnAcrossAuditionStart() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 64, velocity: 90, playing: false, auditionSuppressing: false), allAndA)
+        XCTAssertEqual(g.mask(statusByte: 0x80, note: 64, velocity: 0,  playing: false, auditionSuppressing: true),  allAndA,
+                       "note-OFF must follow its forwarded ON even though audition began — no stuck note")
+    }
+
+    // A vel-0 note-on IS a note-off and must follow the ON the same way.
+    func testGateVelZeroNoteOnIsTreatedAsOff() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 67, velocity: 100, playing: false, auditionSuppressing: false), allAndA)
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 67, velocity: 0,   playing: true,  auditionSuppressing: false), allAndA,
+                       "0x90 vel-0 = note-OFF, follows its ON")
+    }
+
+    // No SPURIOUS off: a note played WHILE PLAYING was never echoed, so its OFF must not forward (else it
+    // could cut a sequenced note the processors emitted on cable 0/1).
+    func testGateSuppressedOnMeansSuppressedOff() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: true,  auditionSuppressing: false), 0)
+        XCTAssertEqual(g.mask(statusByte: 0x80, note: 60, velocity: 0,   playing: true,  auditionSuppressing: false), 0,
+                       "an OFF whose ON was never echoed must not forward")
+    }
+
+    // Tracking is per (channel, note): an OFF only follows the ON on the SAME channel.
+    func testGateTracksPerChannel() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false), allAndA, "ch1 ON")
+        XCTAssertEqual(g.mask(statusByte: 0x81, note: 60, velocity: 0,   playing: true,  auditionSuppressing: false), 0,       "ch2 OFF — no ON tracked there")
+        XCTAssertEqual(g.mask(statusByte: 0x80, note: 60, velocity: 0,   playing: true,  auditionSuppressing: false), allAndA, "ch1 OFF — follows the ch1 ON")
+    }
+
+    // CC/PB/AT always forward regardless of state, and are not note-tracked.
+    func testGateNonNotesAlwaysForward() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.mask(statusByte: 0xB0, note: 7,  velocity: 100, playing: true,  auditionSuppressing: false), allAndA, "CC")
+        XCTAssertEqual(g.mask(statusByte: 0xE0, note: 0,  velocity: 64,  playing: true,  auditionSuppressing: true),  allAndA, "pitch bend")
+    }
+
+    // drainActive returns every note still awaiting its OFF (for a panic all-notes-off), then clears.
+    func testGateDrainActiveReportsHeldPassthroughNotes() {
+        var g = PassthroughGate()
+        _ = g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false)
+        _ = g.mask(statusByte: 0x91, note: 72, velocity: 100, playing: false, auditionSuppressing: false)
+        let held = g.drainActive().sorted { ($0.channel, $0.note) < ($1.channel, $1.note) }
+        XCTAssertEqual(held.count, 2)
+        XCTAssertEqual(held[0].channel, 0); XCTAssertEqual(held[0].note, 60)
+        XCTAssertEqual(held[1].channel, 1); XCTAssertEqual(held[1].note, 72)
+        XCTAssertTrue(g.drainActive().isEmpty, "drain clears")
+    }
+
     // MARK: - column sweep fraction (mutation-line / §6b chip playhead)
 
     func testColumnSweepFractionSwingAwareSpansTheRealColumn() {
