@@ -4,18 +4,23 @@ AUv3 MIDI processor (`aumi`) for iPadOS. One line: **"Don't sequence notes. Sequ
 happens to them."** An 8×8 grid sequences MIDI *processors* (arps, ratchets, gates) over
 time; held chords go in, five MIDI outputs come out — ALL + A–D (delta §7b). Primary host: AUM.
 
-## Claude↔Claude message passing (`_incoming/` · `_outgoing/` — gitignored, local only)
+## Claude↔Claude message passing (`_dear_claude_code/` inbox · `_dear_claude/` outbox — gitignored)
 
-An async channel with a PARTNER Claude (design/planning context). Both dirs are gitignored
-and NEVER committed. Trigger is **MANUAL** — run this when the user asks (e.g. "check incoming"):
-1. **CHECK `_incoming/`** for new files. Each is documentation/instruction from the partner Claude.
+An async channel with a PARTNER Claude (design/planning context). Both dirs are gitignored and
+NEVER committed. The names read as the letter's salutation: **`_dear_claude_code/`** holds messages
+addressed to ME (my INBOX, from the design side); **`_dear_claude/`** is where I write TO the design
+Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. "check incoming"):
+1. **CHECK `_dear_claude_code/`** for new files. Each is documentation/instruction from the partner.
    - An UPDATED version of a doc I hold (this CLAUDE.md, a `Docs/*` file) → **MERGE** its changes
-     into my copy (reconcile, don't blindly overwrite).
+     into my copy (reconcile, don't blindly overwrite — we edit in parallel, so watch for reverts).
    - A NEW document → **ADD** it to the right place (`Docs/`, etc.).
-   - After processing a file, **DELETE it** from `_incoming/` (it's consumed).
-2. **REPLY via `_outgoing/`**: first **EMPTY `_outgoing/`**, then write ONE findings/decisions file
-   (what I merged, what I built, key decisions + rationale, open questions) PLUS copies of the
-   **recently-changed source files** so the partner can review the actual code.
+   - After processing a file, **DELETE it** from `_dear_claude_code/` (it's consumed).
+2. **REPLY via `_dear_claude/`**: first **EMPTY `_dear_claude/`**, then write ONE findings/decisions
+   file (what I merged, what I built, key decisions + rationale, open questions) plus the
+   **recently-changed source** for review.
+   - **CONSTRAINTS (2026-07-25): keep it FLAT (no subdirectories) and ≤ 20 files total** — Claude's
+     document read limit is 20. Bundle source into a SINGLE file (`SOURCE-SNAPSHOT.md`, each `.swift`
+     under an H2 header) rather than shipping loose files, so FINDINGS + bundle = 2 documents.
 3. Keep the tracked side clean: commit only real repo changes (`.gitignore`, docs, code) — the
    inbox/outbox contents are transient and untracked.
 

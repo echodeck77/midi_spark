@@ -36,5 +36,5 @@ fastlane/report.xml
 fastlane/screenshots
 
 # Claude↔Claude message passing (local only — inbox/outbox, never tracked)
-/_incoming/
-/_outgoing/
+/_dear_claude/          # my outbox → messages TO the design-side Claude
+/_dear_claude_code/     # my inbox  → messages FROM the design-side Claude (addressed to Claude Code)
