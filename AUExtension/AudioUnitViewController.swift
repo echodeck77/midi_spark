@@ -328,6 +328,7 @@ struct DiagView: View {
         holdLatch = on
         if !on {                                 // the drop: release the captures this layer owns
             au?.clearAudition(); abox.target = nil
+            au?.setHoldCell(-1); abox.held = false          // §9 item 1: a latched ON HOLD drops too
             au?.setLaneMask(0); laneMask = 0     // §5c: the latched lap set drops too (velocity springs
                                                  // back via OutputsView's onChange(holdLatch))
             if cellPreview { cellPreview = false; au?.clearPreview() }   // §5c: a latched cell PREVIEW drops too
@@ -351,16 +352,23 @@ struct DiagView: View {
     // target lives in a REFERENCE box mutated SILENTLY (never @State) so starting/stopping an audition
     // never re-renders the grid mid-press (which would tear down the long-press gesture). The deduped
     // poll above does the rest — when stopped the grid is quiescent, so the gesture is never disturbed.
-    final class AuditionBox { var target: (col: Int, row: Int)? = nil }
+    final class AuditionBox { var target: (col: Int, row: Int)? = nil; var held = false }
     @State private var abox = AuditionBox()
 
+    // PERFORM press-hold. STOPPED → AUDITION (the cell alone). PLAYING → ON HOLD (§9 item 1): the cell's ON
+    // HOLD treatment overlays while held. Both are kernel-only (no @State / re-render, like the audition path).
     private func startAudition(_ col: Int, _ row: Int) {
         guard let au, scene.cells[col][row] != nil else { return }
+        if d.playing {
+            au.setHoldCell(col * 8 + row); abox.held = true          // ON HOLD overlay (idempotent per onChanged)
+            return
+        }
         if abox.target?.col == col && abox.target?.row == row { return }
         abox.target = (col, row)
-        au.setAudition(col: col, row: row)                           // kernel only — no @State, no re-render
+        au.setAudition(col: col, row: row)
     }
-    private func endAudition() {
+    private func endAudition() {                                     // release (SPRING); §5c-HOLD latch keeps it (see setHold)
+        if abox.held { au?.setHoldCell(-1); abox.held = false }
         guard au != nil, abox.target != nil else { return }
         abox.target = nil
         au?.clearAudition()
