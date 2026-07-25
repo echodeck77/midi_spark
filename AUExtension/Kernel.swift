@@ -45,6 +45,20 @@ final class Kernel {
     private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
     func setAudition(_ target: Int) { auditionTarget = Int32(target) }
 
+    // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell, set from the UI while PREVIEW is held.
+    // Ephemeral, never persisted. colourIndex −1 = inactive. Row −1 = receiver input (its channel filter);
+    // the Router renders it SOLO. Suppresses raw passthrough (only the virtual cell sounds).
+    private var previewActive = false
+    private var previewColourIndex: Int32 = -1
+    private var previewFilter: Int32 = 0
+    private var previewBusMask: UInt8 = 0
+    private var previewInputRow: Int32 = -1
+    func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
+        previewColourIndex = Int32(colourIndex); previewFilter = Int32(filter)
+        previewBusMask = busMask; previewInputRow = Int32(inputRow); previewActive = colourIndex >= 0 && busMask != 0
+    }
+    func clearPreview() { previewActive = false; previewColourIndex = -1; previewBusMask = 0 }
+
     // §5b COLUMN-SUBSET LAP: the held column keys (bit i = column i), set from the UI (PERFORM only),
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
     private var laneMask: UInt8 = 0
@@ -174,6 +188,7 @@ final class Kernel {
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride,
+                        preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 
         // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
@@ -250,7 +265,7 @@ final class Kernel {
         let pNote = length >= 2 ? bytes[1] : 0
         let pVel  = length >= 3 ? bytes[2] : 0
         let mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
-                                        playing: playing, auditionSuppressing: suppressAuditionNotes)
+                                        playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive)
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }

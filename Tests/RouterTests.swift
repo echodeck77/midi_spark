@@ -935,4 +935,72 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 0)
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - PREVIEW / cell audition (Phase 2, Increment 1: ARP solo)
+
+    @discardableResult
+    private func runPreview(_ box: SnapshotBox, _ pool: NotePool,
+                            _ preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int),
+                            beats: Double, into e: RecordingEmitter, playing: Bool = true,
+                            tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) -> (Router, KernelDiag, Double) {
+        let router = Router(); var diag = KernelDiag()
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        while beat < beats {
+            router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, preview: preview, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        return (router, diag, ts)
+    }
+    private func boxWithBusEnabled(_ cs: [Colour], _ enabled: [Bool], _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        var st = PluginState(colours: cs, scenes: [s]); st.busEnabled = enabled
+        return SnapshotBuilder.build(from: st)
+    }
+
+    // SOLO: a real bus-A ARP cell would sound on cable 1; with PREVIEW on bus B, ONLY the virtual cell
+    // emits (cable 2 + All), and the real cell is silenced.
+    func testPreviewSolosOnlyTheVirtualCell() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)   // preview → bus B
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "preview emits on bus B (cable 2)")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "the real bus-A cell is SOLOED OUT")
+    }
+
+    // The virtual cell emits through its STAGED buses, respecting busEnabled — a disabled staged emitter is silent.
+    func testPreviewRespectsBusEnabled() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = boxWithBusEnabled(arpColours(), [false, true, true, true]) { _ in }   // bus A disabled
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)   // preview → bus A (disabled)
+        XCTAssertEqual(e.ons.count, 0, "a disabled staged emitter stays silent under preview")
+    }
+
+    // Preview emits its arp over the source pool (receiver / OMNI input), and it works with a claim set
+    // (CLAIM bypassed — solo has no other-emitter context).
+    func testPreviewEmitsOverSourcePoolAndIgnoresClaim() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var s = SceneState.empty()
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.claimEmitter = 0   // CLAIM on bus A
+        _ = s
+        let b = SnapshotBuilder.build(from: st)
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)   // preview → bus B, claim on A
+        XCTAssertGreaterThan(e.ons.count, 0, "preview arps the source pool and is not blocked by CLAIM")
+    }
+
+    // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
+    func testPreviewLeavesNothingStuckOnRelease() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
+        var diag = KernelDiag()      // release PREVIEW → the deactivation edge flushes
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
 }

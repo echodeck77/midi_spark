@@ -65,6 +65,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
     func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
     func clearAudition() { kernel.setAudition(-1) }
+    // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell renders solo while PREVIEW is held.
+    func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
+        kernel.setPreview(colourIndex: colourIndex, filter: filter, busMask: busMask, inputRow: inputRow)
+    }
+    func clearPreview() { kernel.clearPreview() }
 
     /// §5b COLUMN-SUBSET LAP: the held column keys as a bitmask (bit i = column i). Ephemeral, never
     /// persisted; the PERFORM UI sets it while column keys are held and clears it (0) on release /

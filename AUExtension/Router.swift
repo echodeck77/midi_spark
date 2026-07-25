@@ -77,6 +77,12 @@ final class Router {
     private var prevAudition = -1
     private var auditionStartSample: Int64 = 0
     private var auditionLastTick: Int64 = -1
+    // PREVIEW / cell audition (Phase 2, design 2026-07-26): a VIRTUAL cell (the staged config) rendered
+    // SOLO through the audition machinery. `previewMode` gates the CLAIM logic OFF (solo = no other-emitter
+    // context); `prevPreviewActive` flushes on the activation edge. Reuses the audition clock/dedup slots
+    // (preview and audition are mutually exclusive). Ephemeral, never in the snapshot.
+    private var previewMode = false
+    private var prevPreviewActive = false
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
     // treatment, vs. what is sounding now — reconciled each window so the sustained preview follows the
     // keys live. Fixed 128-note bitsets + per-note velocity; reused every window, no hot-path allocation.
@@ -358,7 +364,7 @@ final class Router {
     @discardableResult
     private func emitOneBus(_ bus: Int, note: UInt8, velocity: UInt8,
                             onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?) -> Int {
-        if claimEmitter >= 0 {
+        if claimEmitter >= 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
             if bus == Int(claimEmitter) {
                 // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks the
                 // claimant as sounding this pitch for the note's whole life. It is what non-claimants
@@ -576,6 +582,7 @@ final class Router {
                  audition: Int = -1,
                  laneMask: UInt8 = 0,
                  velOverride: UInt32 = 0,
+                 preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
 
@@ -620,6 +627,25 @@ final class Router {
 
         pool.rebuildSorted()
         diag.poolCount = pool.count
+
+        // ---- PREVIEW / cell audition SOLO (Phase 2): the staged VIRTUAL cell renders alone. On the
+        //      activation edge, flush every voice (entering = real cells go silent; leaving = they
+        //      resume next window). While active, ONLY the virtual cell emits — normal derivation and
+        //      audition are both skipped. Works stopped (free clock) and playing (live beat). ----
+        if preview.active != prevPreviewActive {
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            auditionStartSample = windowStart; auditionLastTick = -1        // re-origin the solo clock
+            prevPreviewActive = preview.active
+        }
+        if preview.active {
+            let mBeat = playing ? musicalOf(beatPos, stepBeats: S, a: a) : 0
+            previewRender(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
+                          playing: playing, liveBeat: mBeat, box: box, pool: pool, tempo: tempo,
+                          sampleRate: sampleRate, windowStart: windowStart, frameCount: frameCount,
+                          S: S, out: out, diag: &diag)
+            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
+            return
+        }
 
         // ---- AUDITION (transport stopped): a held cell sounds its processor ALONE against the live
         //      source — phase zeroed, input forced to source, all-open passgate, host tempo (§6.4 /
@@ -840,6 +866,44 @@ final class Router {
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+    }
+
+    // MARK: - PREVIEW / cell audition (Phase 2, design 2026-07-26)
+
+    /// Render the staged VIRTUAL cell SOLO — the CELL box PREVIEW button. `filter` = the staged input's
+    /// channel filter (a receiver's channel, 0 = OMNI). Emits through the staged `busMask`, RESPECTING
+    /// busEnabled (via emitOneBus) and BYPASSING CLAIM (`previewMode`). Clock = the live musical beat while
+    /// playing, else the free audition clock. Increment 1: ARP; ROW-FEED input + RATCHET/STRUM/chord-hold
+    /// = 1b (they fall through silently for now).
+    private func previewRender(colourIndex ci: Int, filter: Int, busMask: UInt8, playing: Bool, liveBeat: Double,
+                               box: SnapshotBox, pool: NotePool, tempo: Double, sampleRate: Double,
+                               windowStart: Int64, frameCount: UInt32, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
+        let colour = box.colours[ci]
+        let beatsPerSample = tempo / 60.0 / sampleRate
+        let windowBeats = Double(frameCount) * beatsPerSample
+        let windowEnd = windowStart + Int64(frameCount)
+        let clockBeat = playing ? liveBeat : Double(windowStart - auditionStartSample) * beatsPerSample
+        let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: false)
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        previewMode = true; defer { previewMode = false }
+        switch effectiveType(colour, t: t) {
+        case .arp:
+            var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(colour, t: t)
+            let octaves = effectiveOctaves(colour, t: t)
+            auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
+                          windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
+                let base = arpPickSource(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
+                                         pool: pool, filter: UInt8(clamping: filter))
+                guard base >= 0 else { return }
+                let n = base + transpose; guard n >= 0 && n <= 127 else { return }
+                emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT,
+                          windowEnd: windowEnd, out: out, diag: &diag)
+            }
+        default:
+            break   // Increment 1b: RATCHET / STRUM / chord-hold + the ROW-FEED input source
+        }
     }
 
     // MARK: - audition (§6.4 / delta §5)
