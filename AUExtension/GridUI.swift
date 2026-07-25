@@ -1193,6 +1193,7 @@ struct PaletteView: View {
     let onPick: (String) -> Void
     var onChipDrag: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drag (id, global point)
     var onChipDrop: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drop (id, global point)
+    var onLongPress: ((String) -> Void)? = nil            // cell-edit staging: long-press → stage a cell of this Colour
 
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
@@ -1229,6 +1230,9 @@ struct PaletteView: View {
                             .onChanged { v in onChipDrag?(id, v.location) }
                             .onEnded { v in onChipDrop?(id, v.location) }
                     )
+                    .simultaneousGesture(                        // cell-edit staging: press-hold (no move) → stage this Colour
+                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress?(id) }
+                    )
             }
         }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
@@ -1248,5 +1252,111 @@ struct PaletteView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Cell-edit STAGING (user 2026-07-25) — long-press a colour → configure a pending cell in the
+// side panels (EDIT only). The RECEIVERS panel becomes the cell's INPUT picker (R1–R4 radio + a FROM ROW
+// option), the EMITTERS panel its OUTPUT buses. Ephemeral (a StampConfig), recalled across enter/exit.
+// The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.
+
+private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+private let stagingAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+
+/// Marching-ants animated dashed border — the "prominent moving outline" marking a panel in cell-edit
+/// state. Pure UI (an animated dashPhase); no render-path involvement.
+struct MarchingAnts: ViewModifier {
+    var active: Bool
+    var color: Color
+    @State private var phase: CGFloat = 0
+    func body(content: Content) -> some View {
+        content.overlay {
+            if active {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(color, style: StrokeStyle(lineWidth: 2, dash: [7, 4], dashPhase: phase))
+                    .onAppear { withAnimation(.linear(duration: 0.55).repeatForever(autoreverses: false)) { phase = -11 } }
+            }
+        }
+    }
+}
+extension View {
+    func marchingAnts(_ active: Bool, color: Color = stagingCyan) -> some View { modifier(MarchingAnts(active: active, color: color)) }
+}
+
+/// RECEIVERS panel in cell-edit state: pick the pending cell's INPUT. R1–R4 select a receiver
+/// (inputRow == nil, radio); FROM ROW selects a row reference (inputRow = 0…7) via a ± stepper.
+struct StagingInputView: View {
+    let inputRow: Int?
+    let inputReceiver: Int
+    let receivers: [Receiver]
+    let onPickReceiver: (Int) -> Void
+    let onPickRow: () -> Void          // select the FROM ROW option
+    let onStepRow: (Int) -> Void       // ± wrapping 0…7
+    private var hues: [Color] { receiverHues }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("cell input").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
+            }
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { i in
+                    tile("R\(i + 1)", on: inputRow == nil && inputReceiver == i, hue: hues[i]) { onPickReceiver(i) }
+                }
+            }
+            HStack(spacing: 6) {                                   // the FROM ROW input option + row stepper
+                let on = inputRow != nil
+                Text("FROM ROW").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.7))
+                    .padding(.horizontal, 8).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? stagingAmber : Color.white.opacity(0.06)))
+                    .contentShape(Rectangle()).onTapGesture { onPickRow() }
+                Spacer()
+                stepBtn("chevron.down") { onStepRow(-1) }
+                Text(inputRow != nil ? "\(inputRow! + 1)" : "—").font(.system(size: 13, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? stagingAmber : .white.opacity(0.3)).frame(minWidth: 20)
+                stepBtn("chevron.up") { onStepRow(+1) }
+            }
+        }
+    }
+    private func tile(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.75))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? hue : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func stepBtn(_ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol).font(.system(size: 10, weight: .heavy)).foregroundColor(.white.opacity(0.6))
+            .frame(width: 22, height: 22).background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+}
+
+/// EMITTERS panel in cell-edit state: the pending cell's OUTPUT buses (A–D membership toggles).
+struct StagingEmittersView: View {
+    let buses: Set<Bus>
+    let onToggle: (Int) -> Void
+    private let letters: [Bus] = [.a, .b, .c, .d]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("cell output").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
+            }
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { i in
+                    let on = buses.contains(letters[i])
+                    Text(letters[i].rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.35))
+                        .frame(maxWidth: .infinity).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? stagingCyan : Color.white.opacity(0.05)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+                        .contentShape(Rectangle()).onTapGesture { onToggle(i) }
+                }
+            }
+        }
     }
 }

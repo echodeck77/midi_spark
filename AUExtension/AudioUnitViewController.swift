@@ -56,6 +56,12 @@ struct DiagView: View {
     @State private var template: StampConfig? = nil
     @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
+    // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
+    // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
+    // only the colour is set fresh by whichever chip is long-pressed. The drag-to-grid + live preview is
+    // DEFERRED to the design spec — this scaffold is EDIT-only panel staging.
+    @State private var staging = false
+    @State private var stagedConfig = StampConfig(colourID: "gold")
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
     // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
@@ -81,7 +87,26 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } }   // §5c: HOLD is PERFORM-only
+    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { staging = false } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+
+    // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
+    // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
+    private func enterStaging(_ id: String) {
+        guard editing else { return }
+        stagedConfig.colourID = id; brush = id      // set the staged colour + reflect it in the desk
+        stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
+        staging = true
+    }
+    private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)) }
+    private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0 }   // select FROM ROW (default row 1)
+    private func stepStagedRow(_ delta: Int) {
+        let cur = stagedConfig.inputRow ?? 0
+        stagedConfig.inputRow = ((cur + delta) % 8 + 8) % 8
+    }
+    private func toggleStagedBus(_ i: Int) {
+        let bus = Bus.allCases[i]
+        if stagedConfig.buses.contains(bus) { stagedConfig.buses.remove(bus) } else { stagedConfig.buses.insert(bus) }
+    }
 
     // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
     // PERFORM: flip an occupied cell to/from its ALT (B) state (engine-backed `alt`). Empty cells
@@ -191,6 +216,25 @@ struct DiagView: View {
         .foregroundColor(.black)
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color(red: 0.98, green: 0.72, blue: 0.12))
+    }
+
+    // Cell-edit STAGING banner (user 2026-07-25) — the mode indicator + DONE exit. Cyan to match the
+    // marching-ants outline on the repurposed panels. (Drag-to-grid hand-off is deferred to the spec.)
+    private var stagingBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.dashed").font(.system(size: 11, weight: .heavy))
+            if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
+            Text("STAGING \(stagedConfig.colourID.uppercased()) — set input & emitters below")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+            Spacer()
+            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.35)))
+                .contentShape(Rectangle()).onTapGesture { staging = false }
+        }
+        .foregroundColor(.black)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Color(red: 0.15, green: 0.88, blue: 0.94))
     }
 
     // delta §5 drag-and-drop (EDIT): relocate a cell — move onto an empty slot, swap onto an occupied one.
@@ -394,6 +438,7 @@ struct DiagView: View {
                 // delta §5: STAMP banner (top) + the floating CELL EDITOR card (top-leading, near the grid).
                 // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
                 if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
+                if staging { VStack(spacing: 0) { stagingBanner; Spacer() } }
                 if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
                 // §5 palette-to-grid: a chip ghost following the finger (positioned in the GeometryReader's
                 // local space = the global drag point minus the reader's global origin).
@@ -505,20 +550,36 @@ struct DiagView: View {
         }
     }
 
-    private var emittersBox: some View {
-        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
-                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
-                    onVelOverride: setVelOverride, onClaim: setClaim)
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    @ViewBuilder private var emittersBox: some View {
+        Group {
+            if staging {                              // cell-edit state: the pending cell's OUTPUT buses
+                StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
+            } else {
+                OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
+                            emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
+                            onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
+                            onVelOverride: setVelOverride, onClaim: setClaim)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        .marchingAnts(staging)
     }
 
-    private var receiversBox: some View {
-        ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
-            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    @ViewBuilder private var receiversBox: some View {
+        Group {
+            if staging {                              // cell-edit state: the pending cell's INPUT source
+                StagingInputView(inputRow: stagedConfig.inputRow, inputReceiver: stagedConfig.inputReceiver,
+                                 receivers: receivers, onPickReceiver: setStagedReceiver,
+                                 onPickRow: pickStagedRow, onStepRow: stepStagedRow)
+            } else {
+                ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
+                              onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        .marchingAnts(staging)
     }
 
     private var colourBox: some View {
@@ -530,7 +591,8 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { pickPalette($0) }, onChipDrag: paletteDragChanged, onChipDrop: paletteDrop)
+                        onPick: { pickPalette($0) }, onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
+                        onLongPress: enterStaging)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
