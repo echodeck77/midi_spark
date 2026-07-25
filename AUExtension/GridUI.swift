@@ -97,6 +97,7 @@ struct GridView: View {
     struct GridPos: Hashable { let col: Int; let row: Int }
     @State private var dragFrom: GridPos? = nil
     @State private var dragTo: GridPos? = nil
+    @State private var stagePressed = false          // this long-press already fired staging (once per gesture)
     @State private var gridSize: CGSize = .zero
     private func cellAt(location p: CGPoint) -> GridPos? {
         GridGeometry.cell(atLocal: p, gridWidth: gridSize.width, cellHeight: cellHeight).map { GridPos(col: $0.col, row: $0.row) }
@@ -285,18 +286,19 @@ struct GridView: View {
                 .onChanged { value in
                     guard case .second(true, let drag) = value else { return }   // long-press done → picked up
                     if editing {
-                        guard cell != nil else { return }
-                        if dragFrom == nil {
-                            dragFrom = GridPos(col: col, row: row)
-                            onLongPressStageCell?(col, row)                       // long-press → STAGE this cell (+ armed to relocate)
+                        if !stagePressed {                                        // fire staging ONCE: populated adopts,
+                            stagePressed = true; onLongPressStageCell?(col, row)  // EMPTY stages the selected Colour (3rd entrance)
                         }
-                        if let d = drag { dragTo = cellAt(location: d.location) }
+                        if cell != nil {                                          // relocate arms only for a pre-existing cell
+                            if dragFrom == nil { dragFrom = GridPos(col: col, row: row) }
+                            if let d = drag { dragTo = cellAt(location: d.location) }
+                        }
                     } else {
                         onAuditionStart?(col, row)                                // PERFORM: hold → audition (idempotent)
                     }
                 }
                 .onEnded { value in
-                    defer { dragFrom = nil; dragTo = nil }
+                    defer { dragFrom = nil; dragTo = nil; stagePressed = false }
                     if !editing { if !holdLatch { onAuditionEnd?() }; return }
                     guard case .second(true, let drag?) = value, let from = dragFrom,
                           let to = cellAt(location: drag.location), to != from else { return }
