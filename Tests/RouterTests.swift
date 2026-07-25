@@ -1267,6 +1267,32 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(short, long, "a smaller GATE must make a shorter note (short=\(short) long=\(long))")
     }
 
+    // §9 item 1 ON SCENE (integration): ENTER 3 keeps a cell silent for the first two passes, then it sounds.
+    func testOnSceneEntranceDelaysSounding() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours()
+        var on = OnConfig(); on.sceneEntrance = true; on.entrancePass = 3; cs[gold].on = on
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr
+        let cycle = Double(Snap.cols) * b.stepBeats
+        let pool = chord([60, 64, 67])
+        func passOns(_ p: Int) -> Int {
+            let e = RecordingEmitter()
+            var beat = Double(p) * cycle, ts = (beat / wb) * Double(frames)
+            while beat < Double(p + 1) * cycle {
+                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return e.ons.count
+        }
+        XCTAssertEqual(passOns(0), 0, "pass 1 (ENTER 3) is silent")
+        XCTAssertEqual(passOns(1), 0, "pass 2 is silent")
+        XCTAssertGreaterThan(passOns(2), 0, "pass 3 — the cell enters and sounds")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!

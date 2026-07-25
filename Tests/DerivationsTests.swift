@@ -325,6 +325,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arriveBusMask(base: 0, on: on, arrivals: 3), 0)
     }
 
+    // MARK: - ON SCENE audibility (§9 item 1)
+
+    func testOnSceneAudibilityEntranceExit() {
+        var on = OnConfig()
+        XCTAssertTrue(onSceneAudible(on, pass: 0)); XCTAssertTrue(onSceneAudible(on, pass: 20))   // no facets → always
+        on.sceneEntrance = true; on.entrancePass = 3                                              // ENTER 3 (1-indexed)
+        XCTAssertEqual([0, 1, 2, 3].map { onSceneAudible(on, pass: $0) }, [false, false, true, true])
+        on = OnConfig(); on.sceneExit = true; on.exitPass = 7                                     // EXIT 7
+        XCTAssertEqual([4, 5, 6, 7].map { onSceneAudible(on, pass: $0) }, [true, true, false, false])
+        on.sceneEntrance = true; on.entrancePass = 3                                              // ENTER 3 + EXIT 7
+        XCTAssertEqual([1, 2, 5, 6].map { onSceneAudible(on, pass: $0) }, [false, true, true, false])
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {

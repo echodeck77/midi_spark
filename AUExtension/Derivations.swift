@@ -410,6 +410,18 @@ func arriveBusMask(base: UInt8, on: OnConfig, arrivals: Int) -> UInt8 {
     return ((m << shift) | (m >> (4 - shift))) & 0x0F     // rotate-left within the low 4 bits
 }
 
+/// ON SCENE audibility (§9 item 1): is a cell audible this pass? An ENTRANCE holds it out until its pass
+/// (`p < entrancePass`); an EXIT retires it from its pass on (`p >= exitPass`). `pass` is 0-indexed (since
+/// the scene anchor — v1 = transport start); the UI's ENTER/EXIT numbers are 1-indexed, so compare against
+/// `pass + 1`. AND-composed with mute upstream. (RESET-MORPH needs a scene-restart to reset against, which
+/// a single-scene world never fires — deferred to multi-scene.)
+func onSceneAudible(_ on: OnConfig, pass: Int) -> Bool {
+    let p = pass + 1                                   // 1-indexed pass, matching the 1…16 UI
+    if on.sceneEntrance && p < on.entrancePass { return false }   // hasn't entered yet
+    if on.sceneExit && p >= on.exitPass { return false }          // has exited
+    return true
+}
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)
