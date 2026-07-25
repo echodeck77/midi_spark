@@ -57,6 +57,14 @@ final class MigrationTests: XCTestCase {
         // factory: vermilion at (2,0) stacked, magenta at (2,1) → magenta references row 0
         XCTAssertEqual(f.scenes[0].cells[2][1]?.inputRow, 0)
         XCTAssertNil(f.scenes[0].cells[0][0]?.inputRow)          // an unfed top cell
+        // Every MIDI-IN cell must be POINTED at a receiver — else it bypasses receiver mute (item 11 ruling).
+        for scene in f.scenes {
+            for col in scene.cells {
+                for maybe in col where maybe != nil && maybe!.inputRow == nil {
+                    XCTAssertNotNil(maybe!.inputReceiver, "a factory MIDI-IN cell must point at a receiver")
+                }
+            }
+        }
     }
 
     // MARK: - RECEIVERS (delta §9 item 11) — synthesis from legacy per-cell filters
@@ -77,6 +85,18 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(d.formatVersion, 4)
         var again = d; again.synthesizeReceiversIfNeeded()             // idempotent
         XCTAssertEqual(again.receivers?.count, 4)
+    }
+
+    // A doc built at v3 with receivers PRE-SET but MIDI-IN cells left unpointed (the old factory bug) must be
+    // repaired by synthesis — the cell gets pointed so it honours receiver mute (item 11 ruling 2026-07-26).
+    func testSynthesisRepairsPreSetReceiversWithUnpointedCells() {
+        var d = doc({ s in
+            s.cells[0][0] = { var c = Cell(colourID: "gold"); c.inputChannel = 0; return c }()   // MIDI-IN, unpointed
+        }, version: 4)
+        d.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        XCTAssertNil(d.scenes[0].cells[0][0]?.inputReceiver)           // pre-condition: unpointed
+        d.synthesizeReceiversIfNeeded()                               // must repair despite receivers already set
+        XCTAssertEqual(d.scenes[0].cells[0][0]?.inputReceiver, 0, "an unpointed MIDI-IN cell is repaired to R1")
     }
 
     func testSynthesizeReceiversOverflowCollapsesToReceiverOne() {

@@ -295,6 +295,9 @@ final class Kernel {
                         && receiverHears(filter: receiverChannels[0], channel: channel)) {
             mask = 0
         }
+        // §item 11 (mute ruling 2026-07-26): a MUTED Receiver 1 passes NOTHING — the note soundcheck
+        // included — so all-muted receivers ⇒ total input silence. recvCh carries mute as mutedSourceFilter.
+        if receiverChannels[0] >= Snap.mutedSourceFilter { mask = 0 }
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }

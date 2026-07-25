@@ -402,9 +402,10 @@ struct GridView: View {
 
 // MARK: - RECEIVERS panel (delta §9 item 11) — the input twin of the EMITTERS panel
 
-/// The four MIDI receivers as a strip panel above COLOUR: name + a channel filter (EDIT: ▲▼, OMNI…16),
-/// an MPE-merge toggle (EDIT), and an INPUT MUTE (both modes — "kill a live keyboard"). Receiver colours
-/// are the fixed "infrastructure family" (muted). Input velocity metering is a follow-up.
+/// The four MIDI receivers as a strip panel above COLOUR: name + a cable stepper + a channel filter
+/// (EDIT: ▲▼, OMNI…16) + an INPUT MUTE (both modes — "kill a live keyboard") + a LIVE input meter.
+/// MPE is SILENT AUTO-DETECT (user ruling 2026-07-25) — no interface anywhere. Receiver colours are the
+/// fixed "infrastructure family" (muted).
 struct ReceiversView: View {
     let receivers: [Receiver]
     let editing: Bool
@@ -412,7 +413,6 @@ struct ReceiversView: View {
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
-    let onToggleMPE: (Int) -> Void
     var onSetCable: (Int, Int?) -> Void = { _, _ in }   // §item 11: set a receiver's input cable (nil = ANY)
 
     private var hues: [Color] { receiverHues }
@@ -465,11 +465,6 @@ struct ReceiversView: View {
                         .frame(maxWidth: .infinity)
                     stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
                 }
-                Text("MPE").font(.system(size: 7, weight: .heavy, design: .monospaced))
-                    .foregroundColor(rec.mpeMerge ? .black : .white.opacity(0.4))
-                    .frame(maxWidth: .infinity).frame(height: 14)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(rec.mpeMerge ? hues[i] : Color.white.opacity(0.06)))
-                    .contentShape(Rectangle()).onTapGesture { onToggleMPE(i) }
             } else {
                 inputMeter(i)                                   // PERFORM: live input velocity meter
                     .frame(maxWidth: .infinity).frame(height: 30)

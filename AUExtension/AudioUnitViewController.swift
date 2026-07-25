@@ -412,11 +412,11 @@ struct DiagView: View {
     private func setVelOverride(_ i: Int, _ v: Int?) {
         au?.setVelOverride(i, v)
     }
-    // delta §9 item 11: RECEIVERS panel edits — channel filter / input mute / MPE-merge (undoable doc edits).
+    // delta §9 item 11: RECEIVERS panel edits — channel filter / input cable / input mute (undoable doc edits).
+    // MPE is silent auto-detect (user ruling 2026-07-25) — no control.
     private func setReceiverChannel(_ i: Int, _ ch: Int) { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers }
     private func setReceiverCable(_ i: Int, _ mask: Int?) { au?.setReceiverCable(i, mask); receivers = au?.uiReceivers() ?? receivers }
     private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
-    private func toggleReceiverMPE(_ i: Int) { au?.toggleReceiverMPE(i); receivers = au?.uiReceivers() ?? receivers }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
     // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
@@ -690,7 +690,7 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE,
+                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

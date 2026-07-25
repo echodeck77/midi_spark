@@ -330,37 +330,44 @@ struct PluginState: Codable, Equatable {
     /// >4 distinct collapse the overflow to Receiver 1 + log. Each MIDI-IN cell is pointed at the receiver
     /// matching its old filter. OMNI (the overwhelming default) → Receiver 1 ⇒ clean, band-free grids.
     mutating func synthesizeReceiversIfNeeded() {
-        guard receivers == nil else { return }
-        var distinct: [Int] = []
-        for scene in scenes {
-            for col in scene.cells {
-                for maybe in col {
-                    guard let cell = maybe, cell.inputRow == nil else { continue }   // MIDI-IN cells only
-                    let ch = max(0, min(16, cell.inputChannel))
-                    if !distinct.contains(ch) { distinct.append(ch) }
+        if receivers == nil {
+            var distinct: [Int] = []
+            for scene in scenes {
+                for col in scene.cells {
+                    for maybe in col {
+                        guard let cell = maybe, cell.inputRow == nil else { continue }   // MIDI-IN cells only
+                        let ch = max(0, min(16, cell.inputChannel))
+                        if !distinct.contains(ch) { distinct.append(ch) }
+                    }
                 }
             }
+            if distinct.isEmpty { distinct = [0] }                       // no MIDI-IN cells → a lone OMNI receiver
+            let overflow = max(0, distinct.count - 4)
+            if overflow > 0 { distinct = Array(distinct.prefix(4)) }
+            var recs = distinct.enumerated().map { Receiver(name: "\($0.offset + 1)", channel: $0.element) }
+            while recs.count < 4 { recs.append(Receiver(name: "\(recs.count + 1)")) }   // pad to 4 (OMNI)
+            receivers = recs
+            if overflow > 0 {
+                print("MidiSpark: synthesized receivers; \(overflow) overflow input channel(s) collapsed to Receiver 1.")
+            }
+            formatVersion = max(formatVersion, 4)
         }
-        if distinct.isEmpty { distinct = [0] }                       // no MIDI-IN cells → a lone OMNI receiver
-        let overflow = max(0, distinct.count - 4)
-        if overflow > 0 { distinct = Array(distinct.prefix(4)) }
-        var recs = distinct.enumerated().map { Receiver(name: "\($0.offset + 1)", channel: $0.element) }
-        while recs.count < 4 { recs.append(Receiver(name: "\(recs.count + 1)")) }   // pad to 4 (OMNI)
+        // Point every UNPOINTED MIDI-IN cell at the receiver matching its channel (R1 on no match). This runs
+        // ALWAYS (idempotent — only nil cells), so a v3 doc built with receivers PRE-SET but cells left nil is
+        // repaired too — else those cells fall to the legacy per-cell filter and bypass receiver MUTE while
+        // playing (delta §9 item 11 mute ruling 2026-07-26).
+        guard let recs = receivers else { return }
         for si in scenes.indices {
             for col in scenes[si].cells.indices {
                 for row in scenes[si].cells[col].indices {
-                    guard var cell = scenes[si].cells[col][row], cell.inputRow == nil else { continue }
+                    guard var cell = scenes[si].cells[col][row],
+                          cell.inputRow == nil, cell.inputReceiver == nil else { continue }
                     let ch = max(0, min(16, cell.inputChannel))
                     cell.inputReceiver = recs.firstIndex(where: { $0.channel == ch }) ?? 0   // overflow → R1
                     scenes[si].cells[col][row] = cell
                 }
             }
         }
-        receivers = recs
-        if overflow > 0 {
-            print("MidiSpark: synthesized receivers; \(overflow) overflow input channel(s) collapsed to Receiver 1.")
-        }
-        formatVersion = max(formatVersion, 4)
     }
 
     static func factory() -> PluginState {
@@ -382,7 +389,10 @@ struct PluginState: Codable, Equatable {
         scene.cells[6][0] = Cell(colourID: "cyan")
         var state = PluginState(colours: colours, scenes: [scene])
         state.formatVersion = 4   // built directly in the v3.0 graph model + receivers
-        state.receivers = (1...4).map { Receiver(name: "\($0)") }   // four OMNI receivers; cells default to R1
+        // Synthesize the four receivers AND POINT every MIDI-IN cell at one — the initial document + store are
+        // built straight from factory() (no migrate pass), so without this the cells would keep inputReceiver=nil
+        // and bypass receiver MUTE (delta §9 item 11).
+        state.synthesizeReceiversIfNeeded()
         return state
     }
 }

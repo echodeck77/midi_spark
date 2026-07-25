@@ -95,7 +95,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
     func setReceiverCable(_ i: Int, _ mask: Int?)  { editReceiver(i) { $0.cable = mask } }   // §item 11 INPUT CABLES
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
-    func toggleReceiverMPE(_ i: Int)              { editReceiver(i) { $0.mpeMerge.toggle() } }
+    // MPE is silent auto-detect (user ruling 2026-07-25) — no setter/UI; the `mpeMerge` field is reserved.
     private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {
         guard (0..<4).contains(i) else { return }
         editDocument { d in

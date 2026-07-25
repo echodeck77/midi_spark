@@ -1331,7 +1331,9 @@ every answer at once.
      (d) the MPE-merge insurance becomes a PER-RECEIVER property (the MPE
      front door). **INPUT CABLES (user 2026-07-25 — the output-cable symmetry completed):**
      a receiver's SOURCE = **CABLE (1–4 | ANY) × CHANNEL (filter | OMNI)**;
-     the AU declares FOUR named input cables mirroring the receivers.
+     the READING side (per-event cable/group) is complete, but DECLARING four
+     named inputs to a host is impossible for an AUv3 extension — it is a
+     STANDALONE feature instead (see HOST-GATING below).
      **SCHEMA = BITMASK (amendment 2026-07-26): store `Receiver.cable` as an
      OptionSet/bitmask** (ANY = all bits; v1 stepper writes single bits or all).
      Cost now nil; buys SUBSET-MULTI receivers (cables {1,3}) later as a UI-only
@@ -1342,6 +1344,21 @@ every answer at once.
      LATCH per receiver (any source's chord replaces; shared-receiver fights are
      documented, not solved). Passthrough: a multi-source R1 passes its full
      set's channel-wide expression.
+     **HOST-GATING (spike verdict 2026-07-26):** AUv3 offers NO input-port
+     declaration (no MIDIInputNames counterpart; SDK-confirmed). Cable
+     distinction exists only as the per-event cable byte / UMP group, stamped
+     by the HOST — per-cable receiver separation works exactly where the host
+     tags distinct sources distinctly, and nowhere else. The reading side
+     (legacy + UMP) is complete regardless; ANY-default keeps every host
+     working. Whether AUM tags per-source cables today = answered at the device
+     pass. **THE STANDALONE CARROT GROWS:** the app-level mechanism that gives
+     other apps their multiple listed inputs is OUR standalone plan's output
+     mechanism mirrored — the standalone publishes FOUR NAMED virtual
+     destinations ('8x8 State IN 1–4'), stamps each with its cable, and feeds
+     the hosted AU: named input ports as a standalone headline feature,
+     deliverable in full, no host required. (Extra AUM entries sighted in the
+     wild = host-synthesized control ports or app endpoints — never AU-declared
+     inputs.)
      Default cable=ANY preserves today's behaviour (migration no-op;
      single-input hosts unchanged — the multi-host QA pass gains a
      checkbox). Two keyboards on two ports, both OMNI = channel gymnastics
@@ -1351,9 +1368,11 @@ every answer at once.
      an MPE controller gets a PRIVATE stream and merges cleanly beside a
      plain keyboard (the spray-trap existed only under stream-sharing).
      ONE DECISION (lean recorded): channel-wide passthrough follows
-     **RECEIVER 1's source** (the primary performer's expression; union
-     rejected — doubled CCs). Surfaces as a CABLE selector on the
-     receiver tab (rig-class ✓). Sequencing: after a8, with the spike.
+     **RECEIVER 1's source AND ITS MUTE** (the primary performer's expression;
+     union rejected — doubled CCs). **A MUTED R1 passes NOTHING** — notes when
+     stopped, CC/PB/AT anytime; all-muted receivers ⇒ total input silence
+     (ruling 2026-07-26). Surfaces as a CABLE selector on the receiver tab
+     (rig-class ✓). Sequencing: after a8, with the spike.
      **THE RECEIVER TAB — feature set (2026-07-24; LAW: receiver features
      must be RIG-class — about the CONTROLLER, never the music; musical
      transforms belong to Colours, which is WHY receivers are

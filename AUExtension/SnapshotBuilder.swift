@@ -92,7 +92,11 @@ enum SnapshotBuilder {
         // delta §6a CLAIM: the exclusive-rights emitter (nil/out-of-range ⇒ −1 = no claim).
         let claim: Int8 = (doc.claimEmitter.map { (0..<4).contains($0) ? Int8($0) : -1 }) ?? -1
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
-        let recvCh = doc.receiversResolved.map { UInt8(max(0, min(16, $0.channel))) }
+        // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
+        // the R1 passthrough gate blocks it (mute ruling 2026-07-26) — one representation, both consumers.
+        let recvCh = doc.receiversResolved.map {
+            $0.muted ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
+        }
         let recvCable = doc.receiversResolved.map { UInt8($0.cableResolved & 0b1111) }   // §item 11 INPUT CABLES
 
         return SnapshotBox(generation: generation,

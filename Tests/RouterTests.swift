@@ -1175,6 +1175,18 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(b.receiverCables, [0b1111, 0b0101, 0b1111, 0b1111], "all four receiver cables land on the box (ANY default)")
     }
 
+    // §item 11 mute ruling: a MUTED receiver resolves to the match-nothing filter on the box — this is what
+    // makes its input meter go dark and (for R1) blocks passthrough. An unmuted OMNI receiver stays OMNI.
+    func testMutedReceiverResolvesToMatchNothingFilter() {
+        var st = PluginState(colours: arpColours(), scenes: [SceneState.empty()])
+        var r0 = Receiver(name: "1"); r0.muted = true
+        st.receivers = [r0, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.receiverChannels[0], Snap.mutedSourceFilter, "a muted receiver resolves to match-nothing")
+        XCTAssertEqual(b.receiverChannels[1], 0, "an unmuted OMNI receiver stays OMNI (0)")
+        XCTAssertFalse(receiverHears(filter: b.receiverChannels[0], channel: 0), "match-nothing → hears no channel")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!
