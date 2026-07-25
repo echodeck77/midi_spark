@@ -68,6 +68,10 @@ struct DiagView: View {
     // move-away / cancel). Never persisted, never recorded for undo. Committed for real only on DROP.
     @State private var previewPos: GridView.GridPos? = nil
     @State private var previewUnder: Cell? = nil
+    // The cells PLACED during the current staging session — they pulse colour↔black (like their palette
+    // chip), gate the empty-cell flash (empties only invite once ≥1 is placed), and are the "selected
+    // cells" that live-reflect receiver/emitter edits. Cleared on enter/retarget/exit. View-local.
+    @State private var stagedCells: Set<GridView.GridPos> = []
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
     // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
@@ -103,6 +107,7 @@ struct DiagView: View {
     private func enterStaging(_ id: String) {
         stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
         stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
+        stagedCells = []                            // fresh session (also on retarget): nothing placed yet
         editing = true                              // long-press always brings us into EDIT + staging
         staging = true
     }
@@ -110,7 +115,23 @@ struct DiagView: View {
     // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
     private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
 
-    private func exitStaging() { clearPreview(); staging = false }
+    private func exitStaging() { clearPreview(); staging = false; stagedCells = [] }
+
+    // A receiver/emitter edit while staging live-updates every cell placed this session (the "selected
+    // cells") — input source + output buses; the staged Colour is unchanged within a session.
+    private func applyStagedToPlaced() {
+        guard let au, !stagedCells.isEmpty else { return }
+        au.editScene { s in
+            for p in stagedCells {
+                guard var c = s.cells[p.col][p.row] else { continue }
+                c.inputRow = stagedConfig.inputRow
+                c.inputReceiver = stagedConfig.inputReceiver
+                c.buses = stagedConfig.buses
+                s.cells[p.col][p.row] = c
+            }
+        }
+        scene = au.uiScene(); docColours = au.uiColours()
+    }
 
     // Live preview: move the transient staged cell to the hovered grid cell (or clear it off-grid). Restores
     // whatever it displaces before moving, so the arrangement is never permanently altered until DROP.
@@ -137,15 +158,17 @@ struct DiagView: View {
         previewPos = nil; previewUnder = nil
         scene = au.uiScene()
     }
-    private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)) }
-    private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0 }   // select FROM ROW (default row 1)
+    private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)); applyStagedToPlaced() }
+    private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0; applyStagedToPlaced() }   // select FROM ROW (default row 1)
     private func stepStagedRow(_ delta: Int) {
         let cur = stagedConfig.inputRow ?? 0
         stagedConfig.inputRow = ((cur + delta) % 8 + 8) % 8
+        applyStagedToPlaced()
     }
     private func toggleStagedBus(_ i: Int) {
         let bus = Bus.allCases[i]
         if stagedConfig.buses.contains(bus) { stagedConfig.buses.remove(bus) } else { stagedConfig.buses.insert(bus) }
+        applyStagedToPlaced()
     }
 
     // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
@@ -155,9 +178,11 @@ struct DiagView: View {
         guard let au else { return }
         if editing {
             if staging {                                   // cell-edit staging: tap an EMPTY cell → place the staged cell too
+                let pos = GridView.GridPos(col: col, row: row)
                 guard scene.cells[col][row] == nil else { return }   // populated cells ignored (panels are in cell-edit)
                 au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
-                fadedCells.remove(GridView.GridPos(col: col, row: row))       // deliberately configured → confirmed, not faded
+                fadedCells.remove(pos)                       // deliberately configured → confirmed, not faded
+                stagedCells.insert(pos)                      // a placed cell: pulses + tracks staged edits
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
                 return
             }
@@ -318,6 +343,7 @@ struct DiagView: View {
             if editing, let pos = cellAtGlobal(point) {
                 var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
                 au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
+                stagedCells.insert(pos)                             // a placed cell: pulses + tracks staged edits
                 brush = id; scene = au.uiScene(); docColours = au.uiColours()
                 // STAY in cell-edit (user 2026-07-25): empty cells now pulse; tap them / drag again to place more.
             } else {
@@ -570,7 +596,7 @@ struct DiagView: View {
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
-                 staging: staging, stagingColor: stagingColor)
+                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })

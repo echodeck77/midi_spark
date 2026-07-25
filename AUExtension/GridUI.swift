@@ -86,6 +86,7 @@ struct GridView: View {
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
+    var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -245,11 +246,20 @@ struct GridView: View {
                 RoundedRectangle(cornerRadius: 8).stroke(accentCyan, lineWidth: 2.5)
             }
         }
-        .overlay {                                          // cell-edit staging: empty cells pulse in the staged Colour → tap to place
-            if staging, cell == nil {
+        .overlay {                                          // staging: empty cells pulse a border → tap to place, but ONLY once ≥1 cell placed
+            if staging, cell == nil, !stagedCells.isEmpty {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                     let f = 0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 0.9)
                     RoundedRectangle(cornerRadius: 8).strokeBorder(stagingColor.opacity(0.2 + 0.7 * f), lineWidth: 2)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .overlay {                                          // staging: a PLACED cell pulses colour↔black, like its palette chip
+            if stagedCells.contains(GridPos(col: col, row: row)) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                    let f = 0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 0.85)
+                    RoundedRectangle(cornerRadius: 8).fill(Color.black).opacity(f * 0.72)
                 }
                 .allowsHitTesting(false)
             }
