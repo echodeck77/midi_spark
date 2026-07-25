@@ -345,6 +345,45 @@ func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
     return (mask & (1 << (eventCable - 1))) != 0
 }
 
+// MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
+
+/// UMP message word count by Message Type (top nibble of word0), per the UMP spec — lets the parser
+/// stride packet words without decoding every message.
+func umpWordCount(mt: Int) -> Int {
+    switch mt {
+    case 0x0, 0x1, 0x2, 0x6, 0x7: return 1
+    case 0x3, 0x4, 0x8, 0x9, 0xA: return 2
+    case 0xB, 0xC: return 3
+    default: return 4                       // 0x5, 0xD, 0xE, 0xF
+    }
+}
+
+/// Convert a UMP Channel-Voice message to legacy 3-byte MIDI + its GROUP (0–15, the cable equivalent).
+/// Handles MIDI-1.0 CV (MT 0x2, 1 word — already 7-bit) and MIDI-2.0 CV (MT 0x4, 2 words — note on/off,
+/// CC, channel pressure, pitch bend, downscaled to 7/14-bit). Returns nil for any other message type.
+func umpToLegacy(_ w0: UInt32, _ w1: UInt32) -> (b0: UInt8, b1: UInt8, b2: UInt8, len: Int, group: Int)? {
+    let mt = Int((w0 >> 28) & 0xF)
+    let group = Int((w0 >> 24) & 0xF)
+    if mt == 0x2 {                          // MIDI 1.0 CV in UMP: [MT|grp][status][d1][d2]
+        let status = UInt8((w0 >> 16) & 0xFF)
+        let hi = status & 0xF0
+        let len = (hi == 0xC0 || hi == 0xD0) ? 2 : 3
+        return (status, UInt8((w0 >> 8) & 0x7F), UInt8(w0 & 0x7F), len, group)
+    }
+    guard mt == 0x4 else { return nil }     // MIDI 2.0 CV
+    let chan = UInt8((w0 >> 16) & 0xF)
+    let idx = UInt8((w0 >> 8) & 0x7F)
+    switch (w0 >> 20) & 0xF {               // status nibble
+    case 0x8: return (0x80 | chan, idx, 0, 3, group)                                     // note-off
+    case 0x9: return (0x90 | chan, idx, UInt8(max(1, min(127, Int((w1 >> 16) & 0xFFFF) >> 9))), 3, group)  // note-on (16→7, min 1)
+    case 0xB: return (0xB0 | chan, idx, UInt8((w1 >> 25) & 0x7F), 3, group)              // CC (32→7)
+    case 0xD: return (0xD0 | chan, UInt8((w1 >> 25) & 0x7F), 0, 2, group)                // channel pressure
+    case 0xE: let v14 = (w1 >> 18) & 0x3FFF                                              // pitch bend (32→14)
+              return (0xE0 | chan, UInt8(v14 & 0x7F), UInt8((v14 >> 7) & 0x7F), 3, group)
+    default:  return nil
+    }
+}
+
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor

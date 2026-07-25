@@ -209,6 +209,63 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(receiverHearsCable(mask: 0b0001, eventCable: 9))
     }
 
+    // MARK: UMP → legacy (§item 11 INPUT CABLES — the eventList path)
+
+    // A UMP MIDI-1.0 Channel-Voice message (MT 0x2): one word [MT|grp][status][d1][d2].
+    private func ump1(_ group: UInt32, _ status: UInt32, _ d1: UInt32, _ d2: UInt32) -> UInt32 {
+        (0x2 << 28) | (group << 24) | (status << 16) | (d1 << 8) | d2
+    }
+
+    func testUmpWordCountByMessageType() {
+        XCTAssertEqual(umpWordCount(mt: 0x2), 1)   // MIDI 1.0 CV
+        XCTAssertEqual(umpWordCount(mt: 0x4), 2)   // MIDI 2.0 CV
+        XCTAssertEqual(umpWordCount(mt: 0x0), 1)   // utility
+        XCTAssertEqual(umpWordCount(mt: 0x3), 2)   // 7-bit sysex
+        XCTAssertEqual(umpWordCount(mt: 0x5), 4)   // 128-bit data
+        XCTAssertEqual(umpWordCount(mt: 0xD), 4)   // flex
+    }
+
+    func testUmpMidi1CVDecodesWithGroupAsCable() {
+        // Note-on, group 3, ch 5, note 60, vel 100 → legacy bytes verbatim, group 3 (cable = group+1 upstream).
+        guard let m = umpToLegacy(ump1(3, 0x95, 60, 100), 0) else { return XCTFail("nil") }
+        XCTAssertEqual(m.b0, 0x95); XCTAssertEqual(m.b1, 60); XCTAssertEqual(m.b2, 100)
+        XCTAssertEqual(m.len, 3);   XCTAssertEqual(m.group, 3)
+        // Program change (0xC) is a 2-byte message.
+        guard let pc = umpToLegacy(ump1(0, 0xC0, 7, 0), 0) else { return XCTFail("nil") }
+        XCTAssertEqual(pc.len, 2)
+    }
+
+    func testUmpMidi2NoteOnScalesVelocityAndKeepsGroup() {
+        // MT 0x4 note-on: [0x4|grp][0x9|ch][note][0] + [vel16<<16]. Group 2, ch 1, note 64, vel16 0x8000.
+        let w0: UInt32 = (0x4 << 28) | (2 << 24) | (0x9 << 20) | (1 << 16) | (64 << 8)
+        let w1: UInt32 = 0x8000 << 16
+        guard let m = umpToLegacy(w0, w1) else { return XCTFail("nil") }
+        XCTAssertEqual(m.b0, 0x91); XCTAssertEqual(m.b1, 64)
+        XCTAssertEqual(m.b2, 64)                          // 0x8000 >> 9 = 64
+        XCTAssertEqual(m.group, 2)
+        // A near-zero 16-bit velocity still yields a sounding note-on (min 1), never a false note-off.
+        guard let q = umpToLegacy(w0, 0x0001 << 16) else { return XCTFail("nil") }
+        XCTAssertEqual(q.b0, 0x91); XCTAssertEqual(q.b2, 1)
+    }
+
+    func testUmpMidi2NoteOffAndCC() {
+        // Note-off (0x8).
+        let off: UInt32 = (0x4 << 28) | (0x8 << 20) | (3 << 16) | (72 << 8)
+        guard let n = umpToLegacy(off, 0) else { return XCTFail("nil") }
+        XCTAssertEqual(n.b0, 0x83); XCTAssertEqual(n.b1, 72); XCTAssertEqual(n.b2, 0)
+        // CC (0xB): 32-bit value 0xFFFFFFFF → 7-bit 127.
+        let cc: UInt32 = (0x4 << 28) | (0xB << 20) | (74 << 8)
+        guard let c = umpToLegacy(cc, 0xFFFFFFFF) else { return XCTFail("nil") }
+        XCTAssertEqual(c.b0, 0xB0); XCTAssertEqual(c.b1, 74); XCTAssertEqual(c.b2, 127)
+    }
+
+    func testUmpNonChannelVoiceIsIgnored() {
+        XCTAssertNil(umpToLegacy(0x0 << 28, 0))            // utility
+        XCTAssertNil(umpToLegacy(0x1 << 28, 0))            // system realtime
+        // MT 0x4 with a reserved status nibble (0x0) → nil (only note/CC/pressure/bend handled).
+        XCTAssertNil(umpToLegacy((0x4 << 28) | (0x0 << 20), 0))
+    }
+
     // MARK: NotePool (§2.5)
 
     func testPoolSortsAndCounts() {

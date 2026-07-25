@@ -11,6 +11,7 @@
 import Foundation
 import AudioToolbox
 import AVFoundation
+import CoreMIDI
 import os
 
 // KernelDiag moved to Diag.swift (Foundation-only) so Router can compile into the unit-test target.
@@ -73,6 +74,9 @@ final class Kernel {
     // on the render thread (invariant 3), mirroring LiveMIDIEmitter's scratch. Single render thread,
     // handleIncoming is not reentrant, so one shared buffer is safe.
     private var passthroughScratch = [UInt8](repeating: 0, count: 3)
+    // §item 11 INPUT CABLES (eventList/UMP path): scratch the UMP→legacy parse writes into before
+    // handoff to handleIncoming. Same single-render-thread, non-reentrant safety as passthroughScratch.
+    private var umpScratch = [UInt8](repeating: 0, count: 3)
     // a8 hang fix (2026-07-25): the passthrough echo is note-balanced through this gate so a note-OFF is
     // forwarded whenever its ON was — even if playing/audition flipped in between (else = a stuck note).
     private var passthroughGate = PassthroughGate()
@@ -175,6 +179,19 @@ final class Kernel {
                         handleIncoming(bytes: bytes, length: length,
                                        sampleTime: midi.eventSampleTime,
                                        playing: playing, cable: eventCable)
+                    }
+                }
+            case .midiEventList:
+                // §item 11 INPUT CABLES — the UMP / MIDI-2.0 path. Hosts that negotiate the eventList
+                // protocol deliver events here instead of .MIDI; the UMP GROUP is the cable equivalent.
+                // Walk the list IN PLACE (never copy — MIDIEventList is variable-length; a value copy
+                // would drop trailing packets), decode each Channel-Voice message to legacy bytes.
+                let ts = e.pointee.MIDIEventsList.eventSampleTime
+                if let listPtr = e.pointer(to: \.MIDIEventsList.eventList) {
+                    var pkt = listPtr.pointer(to: \.packet)!
+                    for _ in 0..<Int(listPtr.pointee.numPackets) {
+                        processUMPPacket(pkt, sampleTime: ts, playing: playing)
+                        pkt = UnsafePointer(MIDIEventPacketNext(UnsafeMutablePointer(mutating: pkt)))
                     }
                 }
             case .parameter, .parameterRamp:
@@ -285,6 +302,32 @@ final class Kernel {
             while m != 0 {                                  // forward on each cable in the mask (0 = All, 1 = Emit A)
                 let cable = UInt8(m.trailingZeroBitCount); m &= m - 1
                 _ = out(sampleTime, cable, n, &passthroughScratch)
+            }
+        }
+    }
+
+    // §item 11 INPUT CABLES — decode one UMP packet (its Channel-Voice messages) into the legacy path.
+    // Each packet holds `wordCount` 32-bit UMP words; a message is 1–4 words (umpWordCount by type). We
+    // stride word-by-word, converting MIDI-1.0-CV (MT 0x2) and MIDI-2.0-CV (MT 0x4) to legacy bytes with
+    // the GROUP mapped to a 1-based cable — identical downstream to a .MIDI event. Other MTs are skipped.
+    private func processUMPPacket(_ pkt: UnsafePointer<MIDIEventPacket>, sampleTime: AUEventSampleTime, playing: Bool) {
+        let count = Int(pkt.pointee.wordCount)
+        guard count > 0 else { return }
+        withUnsafeBytes(of: pkt.pointee.words) { raw in
+            let words = raw.bindMemory(to: UInt32.self)   // 64-word fixed tuple; count bounds the valid ones
+            var i = 0
+            while i < count && i < words.count {
+                let w0 = words[i]
+                let size = umpWordCount(mt: Int((w0 >> 28) & 0xF))
+                let w1: UInt32 = (i + 1 < count && i + 1 < words.count) ? words[i + 1] : 0
+                if let m = umpToLegacy(w0, w1) {
+                    umpScratch[0] = m.b0; umpScratch[1] = m.b1; umpScratch[2] = m.b2
+                    umpScratch.withUnsafeBufferPointer {
+                        handleIncoming(bytes: $0, length: m.len, sampleTime: sampleTime,
+                                       playing: playing, cable: m.group + 1)
+                    }
+                }
+                i += size
             }
         }
     }
