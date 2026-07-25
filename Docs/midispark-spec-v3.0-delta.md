@@ -1241,9 +1241,17 @@ every answer at once.
      - **MPE INPUT — a trap is armed:** per-cell channel filters read
        channels as separate controllers; an MPE controller sprays one
        performance across ch2–16 and would be misread as fifteen keyboards.
-       NEAR-TERM insurance: an MPE-INPUT MERGE mode (detect-or-toggle,
-       fold member channels into one source, strip per-note expression).
-       One toggle, one class of confused-user reports prevented.
+       **RULING (user 2026-07-26): SILENT AUTO-DETECT, NO INTERFACE.** The
+       merge triggers on hearing a zone-configuration RPN; from then that
+       source's member channels fold. **No UI anywhere** (the manual toggle
+       is removed); the miss-case is a support-doc line, not a setting. With
+       INPUT CABLES, detection scopes PER-CABLE — an RPN heard on cable N
+       folds members for receivers sourced from cable N (or ANY), so an MPE
+       controller on its own cable coexists with plain keyboards elsewhere.
+       VELOCITY: strike velocity is KEPT (it rides in the note-on; the pool's
+       atom is (note, velocity)); only the CONTINUOUS per-note streams
+       (member PB, pressure, slide CC) are discarded. The receiver's velocity
+       curve/clamp applies to merged sources normally.
      - MPE FULL (expression through the engine; MPE OUTPUT): far-future —
        output-side it is the third wave of pitch continuity (dissolves the
        BEND processor's channel-wide limit: per-note vibrato, poly slides)
