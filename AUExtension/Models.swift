@@ -83,6 +83,11 @@ struct Colour: Codable, Equatable {
     // switching type never leaks a pitch. Optional → v2 docs decode as nil (all-zero).
     var transposeByType: [Int]? = nil
     var morphByType: [Double]? = nil   // LEGACY: morph is now a single per-Colour scalar (toward partner), not per-type
+    // §9 item 1 the ON TRIGGER SYSTEM (GUI iteration 1, 2026-07-26): per-Colour trigger assignments,
+    // STORED INERT — no engine execution yet. Optional so pre-ON docs decode as nil → OnConfig() defaults.
+    var on: OnConfig? = nil
+    /// The ON config, nil-safe (missing ⇒ all-"—"/unchecked). Non-persisting read helper.
+    var onResolved: OnConfig { on ?? OnConfig() }
 
     /// Switch the processor type, giving each type its own TRANSPOSE. Stash the active transpose under the
     /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Colour
@@ -99,6 +104,81 @@ struct Colour: Codable, Equatable {
         transpose = tStash[newIdx]      // restore the new type's own transpose
         type = newType
         transposeByType = tStash
+    }
+}
+
+// MARK: - ON trigger config (§9 item 1) — per-Colour; GUI iteration 1 stores it INERT (no engine yet).
+// Enums are String-raw so their rawValue IS the chip label. Append-only (never reorder/reuse the strings).
+
+enum OnTap: String, Codable, CaseIterable { case none = "—", alt = "ALT", mute = "MUTE", solo = "SOLO EMITTERS", fill = "FILL", replay = "REPLAY" }
+enum OnTapWhen: String, Codable, CaseIterable { case now = "NOW", step = "STEP", pass = "PASS", lap = "LAP" }
+enum OnTapFor: String, Codable, CaseIterable { case retap = "RETAP", onePass = "1 PASS", oneLap = "1 LAP" }
+enum OnHold: String, Codable, CaseIterable { case none = "—", alt = "ALT", freeze = "FREEZE", sliceCycle = "SLICE-CYCLE", morphScrub = "MORPH-SCRUB", oct = "OCT" }
+enum OnHoldRelease: String, Codable, CaseIterable { case spring = "SPRING", latch = "LATCH" }
+enum SliceSize: String, Codable, CaseIterable { case half = "½", quarter = "¼", eighth = "⅛", sixteenth = "1⁄16" }
+enum OnArrive: String, Codable, CaseIterable { case none = "—", altAlternate = "ALT-ALTERNATE", morphDrift = "MORPH-DRIFT", dice = "DICE", emitterRotate = "EMITTER-ROTATE" }
+enum DriftMode: String, Codable, CaseIterable { case loop = "↻", pingpong = "⇄" }
+enum OnLeave: String, Codable, CaseIterable { case none = "—", exitStab = "EXIT STAB", ringChop = "RING·CHOP" }
+
+/// The five ON rows for one Colour. All fields defaulted (none/unchecked), so `OnConfig()` is "unassigned".
+/// Every field non-Optional with a default — the whole struct is written together; `Colour.on` is the
+/// Optional that gives old-doc compatibility. (A FUTURE schema change here must add fields as Optional or
+/// custom-decode, or bump formatVersion — this version reads only what it wrote.)
+struct OnConfig: Codable, Equatable {
+    // ON TAP
+    var tap: OnTap = .none
+    var tapWhen: OnTapWhen = .now
+    var tapFor: OnTapFor = .retap
+    // ON HOLD
+    var hold: OnHold = .none
+    var holdRelease: OnHoldRelease = .spring
+    var sliceSize: SliceSize = .quarter        // shown only when hold == .sliceCycle
+    var octUp: Bool = true                     // OCT direction ± (shown only when hold == .oct)
+    // ON ARRIVE
+    var arrive: OnArrive = .none
+    var arriveEvery: Int = 1                   // 1…4
+    var driftPct: Int = 10                     // ±n% (shown only when arrive == .morphDrift)
+    var driftMode: DriftMode = .pingpong       // ↻ / ⇄ (shown only when arrive == .morphDrift)
+    // ON LEAVE
+    var leave: OnLeave = .none
+    // ON SCENE (independent checklist facets)
+    var sceneEntrance: Bool = false
+    var entrancePass: Int = 1                  // 1…16
+    var sceneExit: Bool = false
+    var exitPass: Int = 1                      // 1…16
+    var sceneResetMorph: Bool = false
+    var sceneAutoArm: Bool = false             // always greyed this iteration (no RECORD type)
+
+    /// True when nothing is assigned anywhere — the whole section reads "unassigned".
+    var isEmpty: Bool { self == OnConfig() }
+
+    // Collapsed-row summaries (the accordion shows these). "" ⇒ the row is unassigned (render a dim "＋").
+    var tapSummary: String {
+        guard tap != .none else { return "" }
+        return "\(tap.rawValue) · \(tapWhen.rawValue) · \(tapFor.rawValue)"
+    }
+    var holdSummary: String {
+        guard hold != .none else { return "" }
+        var s = "\(hold.rawValue) · \(holdRelease.rawValue)"
+        if hold == .sliceCycle { s += " · \(sliceSize.rawValue)" }
+        if hold == .oct { s += " · \(octUp ? "+" : "−")" }
+        return s
+    }
+    var arriveSummary: String {
+        guard arrive != .none else { return "" }
+        var s = arrive.rawValue
+        if arrive == .morphDrift { s += " \(driftMode.rawValue) \(driftPct)%" }
+        s += " · every \(arriveEvery)"
+        return s
+    }
+    var leaveSummary: String { leave == .none ? "" : leave.rawValue }
+    var sceneSummary: String {
+        var parts: [String] = []
+        if sceneEntrance { parts.append("ENTER \(entrancePass)") }
+        if sceneExit { parts.append("EXIT \(exitPass)") }
+        if sceneResetMorph { parts.append("RESET MORPH") }
+        if sceneAutoArm { parts.append("AUTO-ARM") }
+        return parts.joined(separator: " · ")
     }
 }
 

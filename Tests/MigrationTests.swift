@@ -324,3 +324,57 @@ final class PreviewOverlayTests: XCTestCase {
         XCTAssertNil(decoded.scenes[decoded.activeScene].cells[2][2], "the reloaded preset has no preview cell")
     }
 }
+
+// MARK: - ON trigger config (§9 item 1, GUI iteration 1) — schema + persistence
+
+final class OnConfigTests: XCTestCase {
+    func testDefaultIsEmpty() {
+        let c = OnConfig()
+        XCTAssertTrue(c.isEmpty)
+        XCTAssertEqual(c.tap, .none); XCTAssertEqual(c.hold, .none)
+        XCTAssertEqual(c.arrive, .none); XCTAssertEqual(c.leave, .none)
+        XCTAssertFalse(c.sceneEntrance); XCTAssertFalse(c.sceneAutoArm)
+        XCTAssertEqual(c.tapSummary, ""); XCTAssertEqual(c.holdSummary, "")
+        XCTAssertEqual(c.arriveSummary, ""); XCTAssertEqual(c.sceneSummary, "")
+    }
+    func testCodableRoundTripAllFields() throws {
+        var c = OnConfig()
+        c.tap = .fill; c.tapWhen = .pass; c.tapFor = .oneLap
+        c.hold = .oct; c.octUp = false; c.holdRelease = .latch
+        c.arrive = .morphDrift; c.driftMode = .pingpong; c.driftPct = 25; c.arriveEvery = 3
+        c.leave = .exitStab
+        c.sceneEntrance = true; c.entrancePass = 4; c.sceneExit = true; c.exitPass = 12; c.sceneResetMorph = true
+        let back = try JSONDecoder().decode(OnConfig.self, from: JSONEncoder().encode(c))
+        XCTAssertEqual(c, back)
+        XCTAssertFalse(back.isEmpty)
+    }
+    // Old (pre-ON) doc: a Colour JSON with no `on` key must decode, resolving to the empty config.
+    func testColourWithoutOnKeyDecodes() throws {
+        let full = Colour(colourID: "gold", type: .arp)                        // on defaults to nil
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(full)) as! [String: Any]
+        dict.removeValue(forKey: "on")                                          // simulate a pre-ON document
+        let back = try JSONDecoder().decode(Colour.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertNil(back.on)
+        XCTAssertTrue(back.onResolved.isEmpty)
+    }
+    func testColourRoundTripCarriesOn() throws {
+        var col = Colour(colourID: "cyan", type: .chance)
+        var on = OnConfig(); on.tap = .mute; on.sceneResetMorph = true; col.on = on
+        let back = try JSONDecoder().decode(Colour.self, from: JSONEncoder().encode(col))
+        XCTAssertEqual(back.on?.tap, .mute)
+        XCTAssertEqual(back.on?.sceneResetMorph, true)
+    }
+    func testSummaries() {
+        var c = OnConfig()
+        c.arrive = .morphDrift; c.driftMode = .pingpong; c.driftPct = 10; c.arriveEvery = 2
+        XCTAssertEqual(c.arriveSummary, "MORPH-DRIFT ⇄ 10% · every 2")
+        c.hold = .sliceCycle; c.sliceSize = .eighth; c.holdRelease = .spring
+        XCTAssertEqual(c.holdSummary, "SLICE-CYCLE · SPRING · ⅛")
+        c.tap = .solo; c.tapWhen = .lap; c.tapFor = .onePass
+        XCTAssertEqual(c.tapSummary, "SOLO EMITTERS · LAP · 1 PASS")
+        c.sceneEntrance = true; c.entrancePass = 3; c.sceneExit = true; c.exitPass = 7
+        XCTAssertEqual(c.sceneSummary, "ENTER 3 · EXIT 7")
+        c.leave = .exitStab
+        XCTAssertEqual(c.leaveSummary, "EXIT STAB")
+    }
+}
