@@ -68,7 +68,8 @@ struct SnapColour {
     var a = SnapParams()
     var b = SnapParams()             // delta §9 item 5: the PARTNER Colour's resolved params (= a if unpaired)
     var tier: MorphTier = .none      // none/full/swap — gates how a→b resolves (glide vs binary flip)
-}
+    var on = OnConfig()              // delta §9 item 1: the resolved ON assignments (arrive/scene = derivations,
+}                                    // tap/hold = ephemeral gestures); render reads it precomputed here.
 
 // MARK: - The box: immutable after construction → safe concurrent reads, no locks
 

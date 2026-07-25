@@ -17,6 +17,17 @@ final class SnapshotBuilderTests: XCTestCase {
         return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
     }
 
+    // delta §9 item 1: the builder carries each Colour's ON assignments onto its SnapColour (nil → unassigned).
+    func testOnConfigResolvesOntoSnapColour() {
+        var on = OnConfig()
+        on.arrive = .morphDrift; on.driftMode = .pingpong; on.driftPct = 15; on.arriveEvery = 2
+        on.sceneEntrance = true; on.entrancePass = 3
+        let cs = colours(customizing: 2) { $0.on = on }
+        let b = box(cs) { _ in }
+        XCTAssertEqual(b.colours[2].on, on, "colour 2's ON assignments reach the snapshot verbatim")
+        XCTAssertEqual(b.colours[0].on, OnConfig(), "an unassigned colour resolves to an empty OnConfig")
+    }
+
     func testBusEnabledMaskFromDocument() {
         func mask(_ e: [Bool]?) -> UInt8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

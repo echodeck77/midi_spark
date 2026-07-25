@@ -17,6 +17,7 @@ enum SnapshotBuilder {
             var sc = SnapColour()
             sc.transpose = Int8(max(-24, min(24, colour.transpose)))
             sc.morph = max(0, min(1, colour.morph))
+            sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)
             if let pi = colour.altColour, pi >= 0, pi < doc.colours.count, pi != i {
                 let partner = doc.colours[pi]
