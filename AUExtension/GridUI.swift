@@ -84,6 +84,8 @@ struct GridView: View {
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
     var faded: Set<GridPos> = []                     // §5: provisional (palette-created, unreviewed) cells → dimmed
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
+    var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
+    var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -241,6 +243,15 @@ struct GridView: View {
             let pos = GridPos(col: col, row: row)
             if (dragFrom != nil && dragTo == pos && dragFrom != dragTo) || dropHoverCell == pos {
                 RoundedRectangle(cornerRadius: 8).stroke(accentCyan, lineWidth: 2.5)
+            }
+        }
+        .overlay {                                          // cell-edit staging: empty cells pulse in the staged Colour → tap to place
+            if staging, cell == nil {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                    let f = 0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 0.9)
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(stagingColor.opacity(0.2 + 0.7 * f), lineWidth: 2)
+                }
+                .allowsHitTesting(false)
             }
         }
         // dim the cell being dragged; faded = provisional (palette-created, unreviewed until first edit)

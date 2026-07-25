@@ -154,6 +154,13 @@ struct DiagView: View {
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
+            if staging {                                   // cell-edit staging: tap an EMPTY cell → place the staged cell too
+                guard scene.cells[col][row] == nil else { return }   // populated cells ignored (panels are in cell-edit)
+                au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
+                fadedCells.remove(GridView.GridPos(col: col, row: row))       // deliberately configured → confirmed, not faded
+                selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
+                return
+            }
             if stampMode {                                 // delta §5 STAMP MODE: apply the stamp, no editor
                 au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
                 fadedCells.remove(GridView.GridPos(col: col, row: row))   // a deliberate stamp is a committed change → un-fade
@@ -264,7 +271,7 @@ struct DiagView: View {
         HStack(spacing: 10) {
             Image(systemName: "square.dashed").font(.system(size: 11, weight: .heavy))
             if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
-            Text("STAGING \(stagedConfig.colourID.uppercased()) — set input/emitters · drag to grid to place")
+            Text("STAGING \(stagedConfig.colourID.uppercased()) — drag or tap empty cells to place · tap its chip to exit")
                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
             Spacer()
             Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -312,7 +319,7 @@ struct DiagView: View {
                 var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
                 au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
                 brush = id; scene = au.uiScene(); docColours = au.uiColours()
-                staging = false; editing = false      // "once dropped, edit mode is off" → straight to PERFORM
+                // STAY in cell-edit (user 2026-07-25): empty cells now pulse; tap them / drag again to place more.
             } else {
                 scene = au.uiScene()                  // dropped off-grid → preview cleared, stay in staging
             }
@@ -562,7 +569,8 @@ struct DiagView: View {
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
-                 faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal))
+                 faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
+                 staging: staging, stagingColor: stagingColor)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
@@ -650,9 +658,13 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in if staging { enterStaging(id) } else { pickPalette(id) } },   // staging: tap another Colour → retarget
+                        onPick: { id in                          // staging: tap the SELECTED chip → exit; tap another → retarget
+                            if staging { if id == stagedConfig.colourID { exitStaging() } else { enterStaging(id) } }
+                            else { pickPalette(id) }
+                        },
                         onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
-                        onLongPress: enterStaging, stagingID: staging ? stagedConfig.colourID : nil)
+                        onLongPress: enterStaging,                // hold stays the drag/enter gesture — NOT an exit (user 2026-07-25)
+                        stagingID: staging ? stagedConfig.colourID : nil)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
