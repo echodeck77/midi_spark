@@ -884,6 +884,7 @@ struct ProcessorBox: View {
     var mode: Mode = .settings
     var glides: Bool = false                            // paired FULL → the morph fader glides (else hidden)
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
+    var onEditLive: ((@escaping (inout Colour) -> Void) -> Void)? = nil   // continuous slider path (no undo/tick)
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
     var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
@@ -894,6 +895,9 @@ struct ProcessorBox: View {
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
     private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
     private func setParam(_ f: @escaping (inout ColourParams) -> Void) { onEdit { f(&$0.paramsA) } }
+    // Continuous slider drags: skip the per-tick undo record + document copy (that churn stalls the gesture,
+    // which read as "the GATE slider does nothing"). Falls back to onEdit if no live path is wired.
+    private func setParamLive(_ f: @escaping (inout ColourParams) -> Void) { (onEditLive ?? onEdit) { f(&$0.paramsA) } }
 
     var body: some View {
         if mode == .selector { selectorBody } else { settingsBody }
@@ -960,13 +964,13 @@ struct ProcessorBox: View {
                     setParam { $0.phase = ArpPhase.allCases[i] } } }
             }
             field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
+                Slider(value: bind(p.gate ?? 0.6) { v in setParamLive { $0.gate = v } }, in: 0.05...1).tint(accent)
             }
         case .ratchet:
             field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
                 setParam { $0.count = [2,3,4,6,8][i] } } }
             field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
-                Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
+                Slider(value: bind(p.ramp ?? 0.5) { v in setParamLive { $0.ramp = v } }, in: 0...1).tint(accent)
             }
         case .passgate:
             field("PASSES") { HStack(spacing: 4) {
@@ -983,12 +987,12 @@ struct ProcessorBox: View {
             field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
                 setParam { $0.strumDir = StrumDir.allCases[i] } } }
             field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
-                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+                Slider(value: bind(p.spread ?? 0.1) { v in setParamLive { $0.spread = v } }, in: 0...1).tint(accent) }
             field("TILT \(Int((p.velTilt ?? 0) * 100))") {
-                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParamLive { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
         case .chance:
             field("PROBABILITY \(Int((p.probability ?? 1) * 100))%") {
-                Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
+                Slider(value: bind(p.probability ?? 1) { v in setParamLive { $0.probability = v } }, in: 0...1).tint(accent) }
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
             ForEach(0..<3, id: \.self) { k in

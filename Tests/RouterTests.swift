@@ -1248,6 +1248,25 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e1.ons.filter { $0.cable == 1 }.count, 0, "pass 1 no longer fires on A")
     }
 
+    // §3/§7: the ARP GATE shortens the emitted note (first note-on → its first note-off gets shorter).
+    func testArpGateControlsNoteLength() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        func firstNoteLength(gate: Double) -> Int64 {
+            var cs = arpColours()
+            cs[gold].paramsA.gate = gate
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter()
+            run(b, chord([60]), beats: 2, into: e)
+            guard let on = e.ons.first(where: { $0.cable == 0 && $0.note == 60 }),
+                  let off = e.offs.first(where: { $0.cable == 0 && $0.note == 60 && $0.sample > on.sample })
+            else { return -1 }
+            return off.sample - on.sample
+        }
+        let short = firstNoteLength(gate: 0.2), long = firstNoteLength(gate: 0.9)
+        XCTAssertGreaterThan(short, 0); XCTAssertGreaterThan(long, 0)
+        XCTAssertLessThan(short, long, "a smaller GATE must make a shorter note (short=\(short) long=\(long))")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!
