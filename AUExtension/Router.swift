@@ -628,32 +628,27 @@ final class Router {
         pool.rebuildSorted()
         diag.poolCount = pool.count
 
-        // ---- PREVIEW / cell audition SOLO (Phase 2): the staged VIRTUAL cell renders alone. On the
-        //      activation edge, flush every voice (entering = real cells go silent; leaving = they
-        //      resume next window). While active, ONLY the virtual cell emits — normal derivation and
-        //      audition are both skipped. Works stopped (free clock) and playing (live beat). ----
+        // ---- PREVIEW / cell audition SOLO (Phase 2): the staged VIRTUAL cell renders ALONE. On the
+        //      activation edge, flush every voice (entering = real cells go silent; leaving = they resume).
+        //      STOPPED preview = arp of the source pool on the free clock (below); PLAYING preview = the
+        //      virtual cell at the live column with the ROW-FEED (after effColumn, further down). ----
         if preview.active != prevPreviewActive {
             allNotesOff(atSample: renderSampleImmediate, out: out)
-            auditionStartSample = windowStart; auditionLastTick = -1        // re-origin the solo clock
+            auditionStartSample = windowStart; auditionLastTick = -1
+            for i in lastTick.indices { lastTick[i] = -1 }      // free the solo row's tick-dedup
             prevPreviewActive = preview.active
         }
-        if preview.active {
-            let mBeat = playing ? musicalOf(beatPos, stepBeats: S, a: a) : 0
-            previewRender(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
-                          playing: playing, liveBeat: mBeat, box: box, pool: pool, tempo: tempo,
-                          sampleRate: sampleRate, windowStart: windowStart, frameCount: frameCount,
-                          S: S, out: out, diag: &diag)
-            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
-            return
-        }
 
-        // ---- AUDITION (transport stopped): a held cell sounds its processor ALONE against the live
-        //      source — phase zeroed, input forced to source, all-open passgate, host tempo (§6.4 /
-        //      delta §5). The wasPlaying edge above already flushed any voices, so transport start
-        //      auto-releases the audition; release is handled inside auditionRender on target change. ----
+        // ---- AUDITION / stopped-PREVIEW (transport stopped) ----
         if !playing {
-            auditionRender(box: box, pool: pool, target: audition, tempo: tempo, sampleRate: sampleRate,
-                           timestampSample: timestampSample, frameCount: frameCount, S: S, out: out, diag: &diag)
+            if preview.active {
+                previewStopped(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
+                               box: box, pool: pool, tempo: tempo, sampleRate: sampleRate,
+                               windowStart: windowStart, frameCount: frameCount, out: out, diag: &diag)
+            } else {
+                auditionRender(box: box, pool: pool, target: audition, tempo: tempo, sampleRate: sampleRate,
+                               timestampSample: timestampSample, frameCount: frameCount, S: S, out: out, diag: &diag)
+            }
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
             return
         }
@@ -670,6 +665,18 @@ final class Router {
         let effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
         diag.effColumn = effColumn
         diag.pass = Int((mNow / cycleBeats).rounded(.down))        // TRUE pass — never remapped (§5b)
+
+        // PLAYING PREVIEW: the virtual cell renders SOLO at the live column — arp/ratchet/strum, with the
+        // ROW-FEED (⇐ROW n reads that row's cell-at-effColumn by derivation) when the staged input is a row.
+        if preview.active {
+            previewPlaying(colourIndex: preview.colourIndex, filter: preview.filter, busMask: preview.busMask,
+                           inputRow: preview.inputRow, effColumn: effColumn, box: box, pool: pool,
+                           beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample, windowStart: windowStart,
+                           windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
+                           out: out, diag: &diag)
+            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
+            return
+        }
 
         let active = topCell(in: effColumn, box)
         diag.activeCellRow = active?.row ?? -1
@@ -870,39 +877,101 @@ final class Router {
 
     // MARK: - PREVIEW / cell audition (Phase 2, design 2026-07-26)
 
-    /// Render the staged VIRTUAL cell SOLO — the CELL box PREVIEW button. `filter` = the staged input's
-    /// channel filter (a receiver's channel, 0 = OMNI). Emits through the staged `busMask`, RESPECTING
-    /// busEnabled (via emitOneBus) and BYPASSING CLAIM (`previewMode`). Clock = the live musical beat while
-    /// playing, else the free audition clock. Increment 1: ARP; ROW-FEED input + RATCHET/STRUM/chord-hold
-    /// = 1b (they fall through silently for now).
-    private func previewRender(colourIndex ci: Int, filter: Int, busMask: UInt8, playing: Bool, liveBeat: Double,
-                               box: SnapshotBox, pool: NotePool, tempo: Double, sampleRate: Double,
-                               windowStart: Int64, frameCount: UInt32, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+    /// STOPPED preview — the staged VIRTUAL cell as an ARP of the source pool on the free audition clock
+    /// (no playhead → no row-feed; `filter` = the staged receiver's channel, 0 = OMNI). Solo + CLAIM-bypass.
+    private func previewStopped(colourIndex ci: Int, filter: Int, busMask: UInt8, box: SnapshotBox, pool: NotePool,
+                                tempo: Double, sampleRate: Double, windowStart: Int64, frameCount: UInt32,
+                                out: MIDIEmitter?, diag: inout KernelDiag) {
         guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
         let colour = box.colours[ci]
         let beatsPerSample = tempo / 60.0 / sampleRate
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
-        let clockBeat = playing ? liveBeat : Double(windowStart - auditionStartSample) * beatsPerSample
+        let clockBeat = Double(windowStart - auditionStartSample) * beatsPerSample
         let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: false)
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        previewMode = true; defer { previewMode = false }
+        guard effectiveType(colour, t: t) == .arp else { return }
+        var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
+        let gate = effectiveGate(colour, t: t)
+        let octaves = effectiveOctaves(colour, t: t)
+        auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
+                      windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
+            let base = arpPickSource(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
+                                     pool: pool, filter: UInt8(clamping: filter))
+            guard base >= 0 else { return }
+            let n = base + transpose; guard n >= 0 && n <= 127 else { return }
+            emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, out: out, diag: &diag)
+        }
+    }
+
+    /// PLAYING preview (Increment 1b) — the staged VIRTUAL cell at the live column `effColumn`, SOLO. Mirrors
+    /// the per-row ARP/RATCHET/STRUM derivation for one virtual row: ⇐ROW n reads that row's sounding note by
+    /// derivation (parentSoundingNote); receiver/OMNI reads the filtered source pool. Uses tick slot row 0
+    /// (free during solo). busEnabled respected; CLAIM bypassed. (Chord-hold/mirror types = a later cut.)
+    private func previewPlaying(colourIndex ci: Int, filter: Int, busMask: UInt8, inputRow: Int, effColumn: Int,
+                               box: SnapshotBox, pool: NotePool, beatPos: Double, windowBeats: Double,
+                               windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                               cycleBeats: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
+        let colour = box.colours[ci]
+        let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: false)
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let vr = 0                                        // virtual tick-dedup row (free during solo; NOT the input ref)
+        // ROW-FEED: ⇐ROW n reads row n's sounding note — a POPULATED, non-muted row (the virtual cell is not
+        // in the grid, so referencing any row incl. row 0 is cycle-free). Empty/muted parent → source pool.
+        let parent = (inputRow >= 0 && inputRow < Snap.rows
+                      && box.cells[effColumn * Snap.rows + inputRow].colourIndex >= 0
+                      && !box.cells[effColumn * Snap.rows + inputRow].muted) ? inputRow : -1
+        let fed = parent >= 0
+        let f = UInt8(clamping: filter)
         previewMode = true; defer { previewMode = false }
         switch effectiveType(colour, t: t) {
         case .arp:
             var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
             let gate = effectiveGate(colour, t: t)
             let octaves = effectiveOctaves(colour, t: t)
-            auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
-                          windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
-                let base = arpPickSource(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
-                                         pool: pool, filter: UInt8(clamping: filter))
-                guard base >= 0 else { return }
+            iterateTicks(row: vr, effColumn: effColumn, sub: arpBeats, gateFraction: gate, beatPos: beatPos,
+                         windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
+                let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+                                      cycleBeats: cycleBeats, phase: colour.a.phase, runStartColumn: -1)
+                let base: Int
+                if fed {
+                    guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat, box: box,
+                                                      pool: pool, S: S, cycleBeats: cycleBeats) else { return }
+                    let oct = Int64(max(1, octaves)); base = up + 12 * Int(((pIdx % oct) + oct) % oct)
+                } else {
+                    base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f)
+                    guard base >= 0 else { return }
+                }
                 let n = base + transpose; guard n >= 0 && n <= 127 else { return }
-                emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT,
-                          windowEnd: windowEnd, out: out, diag: &diag)
+                emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, out: out, diag: &diag)
+            }
+        case .ratchet:
+            let repeats = effectiveRepeats(colour, t: t)
+            let ramp = effectiveRamp(colour, t: t)
+            let sub = S / Double(max(1, repeats))
+            iterateTicks(row: vr, effColumn: effColumn, sub: sub, gateFraction: 0.6, beatPos: beatPos,
+                         windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
+                let colStart = (mTickBeat / S).rounded(.down) * S
+                let repIdx = Int(((mTickBeat - colStart) / sub).rounded())
+                let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
+                if fed {
+                    guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat, box: box,
+                                                      pool: pool, S: S, cycleBeats: cycleBeats) else { return }
+                    let n = up + transpose; guard n >= 0 && n <= 127 else { return }
+                    emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                } else {
+                    let srcN = pool.srcCount(filter: f)
+                    for k in 0..<srcN {
+                        let n = Int(pool.srcAscending(k, filter: f)) + transpose
+                        guard n >= 0 && n <= 127 else { continue }
+                        emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                    }
+                }
             }
         default:
-            break   // Increment 1b: RATCHET / STRUM / chord-hold + the ROW-FEED input source
+            break   // STRUM / chord-hold / mirror types: a later cut (sustained reconcile like the real loop)
         }
     }
 

@@ -992,6 +992,26 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 0, "preview arps the source pool and is not blocked by CLAIM")
     }
 
+    // ROW-FEED (1b): input = ⇐ROW 0. The virtual cell reads row 0's sounding note by derivation, so it
+    // emits on its own bus (B) while row 0's real cell is soloed out.
+    func testPreviewRowFeedReadsParentRow() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // row 0 sounds
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, 0), beats: 8, into: e)   // preview → bus B, input ROW 0
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "row-feed: the virtual cell reads row 0")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "row 0's own cell is soloed out")
+    }
+
+    // ROW-FEED with an EMPTY parent row → falls back to the source pool (still sounds).
+    func testPreviewRowFeedEmptyParentFallsBackToSource() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { _ in }                          // empty grid
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, 3), beats: 8, into: e)   // input ROW 3 (empty)
+        XCTAssertGreaterThan(e.ons.count, 0, "empty parent → source-pool fallback still arps")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!
