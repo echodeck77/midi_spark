@@ -278,6 +278,16 @@ final class Router {
         return n
     }
 
+    /// a8 DUMP: a compact one-line fingerprint of every still-open voice — the readable "corpse" for the
+    /// assert-on-silence dump. Off the render hot path (called only when the silence invariant is violated).
+    func stuckVoiceFingerprint() -> String {
+        var parts: [String] = []
+        for v in voices where v.active {
+            parts.append("n\(v.note)/ch\(v.chan)/cbl\(v.cable)/bus\(v.bus)\(v.silent ? "·ghost" : "")")
+        }
+        return parts.isEmpty ? "none" : parts.joined(separator: " ")
+    }
+
     // MARK: - graph routing (delta §1)
 
     /// The resolved parent ROW of a cell's input, with the live reroute applied. Returns the

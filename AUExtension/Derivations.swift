@@ -156,6 +156,13 @@ struct PassthroughGate {
     /// Count of raw notes echoed and still awaiting their OFF (kept O(1) for the per-render silence check).
     private(set) var activeCount = 0
 
+    /// a8 DUMP: a one-line fingerprint of the still-held echoes (non-mutating; the assert-on-silence dump).
+    func heldFingerprint() -> String {
+        var parts: [String] = []
+        for i in 0..<active.count where active[i] { parts.append("ch\(i >> 7)/n\(i & 0x7F)") }
+        return parts.isEmpty ? "none" : parts.joined(separator: " ")
+    }
+
     /// The cable mask (0 = drop) for one raw MIDI event. Call once per event, in arrival order.
     mutating func mask(statusByte: UInt8, note: UInt8, velocity: UInt8, playing: Bool, auditionSuppressing: Bool) -> UInt8 {
         let hi = statusByte & 0xF0

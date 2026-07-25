@@ -11,6 +11,7 @@
 import Foundation
 import AudioToolbox
 import AVFoundation
+import os
 
 // KernelDiag moved to Diag.swift (Foundation-only) so Router can compile into the unit-test target.
 
@@ -61,6 +62,13 @@ final class Kernel {
     // a8 hang fix (2026-07-25): the passthrough echo is note-balanced through this gate so a note-OFF is
     // forwarded whenever its ON was — even if playing/audition flipped in between (else = a stuck note).
     private var passthroughGate = PassthroughGate()
+    // a8 assert-on-silence dump/trap: os_log surfaces the corpse in every build; DEBUG additionally traps
+    // (dump-before-trap, design side 2026-07-25). Flip `hardTrapOnStuckNote` to keep testing THROUGH a
+    // stuck note in a debug build (it still logs + self-heals). RELEASE never traps — never crash a gig.
+    private static let hangLog = OSLog(subsystem: "com.paulbarrett.MidiSpark", category: "hang")
+    #if DEBUG
+    private static let hardTrapOnStuckNote = true
+    #endif
     func setVelOverride(_ bus: Int, _ value: Int?) {
         guard bus >= 0 && bus < 4 else { return }
         let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
@@ -174,8 +182,13 @@ final class Kernel {
         diag.passthroughHeld = passthroughGate.activeCount
         if silenceInvariantViolated(playing: playing, heldInput: pool.count, auditioning: audition >= 0,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
+            // a8 DUMP-BEFORE-TRAP: read the corpse FIRST (before healing), so it is always legible.
+            let dump = "MidiSpark STUCK-NOTE: silence violated — voices=[\(router.stuckVoiceFingerprint())] "
+                     + "echoes=[\(passthroughGate.heldFingerprint())] (playing=\(playing) held=\(pool.count) audition=\(audition))"
+            os_log(.fault, log: Self.hangLog, "%{public}s", dump)        // RELEASE: soft — surfaces without crashing a gig
             diag.silenceViolated = true
             diag.panics &+= 1
+            // HEAL (the release safety net) — force silence; nothing legitimate can sound in this state.
             let now = Int64(timestamp.pointee.mSampleTime)
             router.allNotesOff(atSample: now, out: liveEmitter)          // close any leaked sequenced voices
             if let out = midiOut {                                       // flush stranded echoes as offs on All + Emit A
@@ -186,6 +199,9 @@ final class Kernel {
                 }
             }
             diag.activeVoiceCount = 0; diag.passthroughHeld = 0
+            #if DEBUG
+            if Self.hardTrapOnStuckNote { assertionFailure(dump) }       // DEBUG: crash into the (already-logged) corpse
+            #endif
         } else {
             diag.silenceViolated = false
         }

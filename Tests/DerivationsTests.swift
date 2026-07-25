@@ -484,6 +484,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(g.drainActive().isEmpty, "drain clears")
     }
 
+    // a8 dump: the held-echo fingerprint lists the awaiting-OFF notes and reads "none" when balanced.
+    func testGateHeldFingerprint() {
+        var g = PassthroughGate()
+        XCTAssertEqual(g.heldFingerprint(), "none")
+        _ = g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false)
+        _ = g.mask(statusByte: 0x91, note: 72, velocity: 100, playing: false, auditionSuppressing: false)
+        let fp = g.heldFingerprint()
+        XCTAssertTrue(fp.contains("ch0/n60"), fp)
+        XCTAssertTrue(fp.contains("ch1/n72"), fp)
+        _ = g.mask(statusByte: 0x80, note: 60, velocity: 0, playing: true, auditionSuppressing: false)
+        XCTAssertFalse(g.heldFingerprint().contains("n60"), "the released note leaves the fingerprint")
+    }
+
     // MARK: - silence invariant (a8 assert-on-silence)
 
     func testSilenceInvariantHoldsWhenTrulySilent() {
