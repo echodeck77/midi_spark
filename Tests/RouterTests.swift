@@ -1012,6 +1012,34 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 0, "empty parent → source-pool fallback still arps")
     }
 
+    // 1c: a STRUM colour previews (source chord strummed) and releases clean.
+    func testPreviewStrumSoundsAndReleasesClean() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .strum)
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "strum preview strums the source chord")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    // 1c: a chord-hold colour (HARMONIZE) previews (treated held chord, re-emitted per column) and releases clean.
+    func testPreviewChordHoldSoundsAndReleasesClean() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .harmonize)
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "harmonize preview holds the treated chord")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!

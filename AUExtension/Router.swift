@@ -83,6 +83,7 @@ final class Router {
     // (preview and audition are mutually exclusive). Ephemeral, never in the snapshot.
     private var previewMode = false
     private var prevPreviewActive = false
+    private var previewPrevColumn = -1        // the virtual cell's column-transition edge (strum reset / chord-hold re-emit)
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
     // treatment, vs. what is sounding now — reconciled each window so the sustained preview follows the
     // keys live. Fixed 128-note bitsets + per-note velocity; reused every window, no hot-path allocation.
@@ -636,6 +637,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             auditionStartSample = windowStart; auditionLastTick = -1
             for i in lastTick.indices { lastTick[i] = -1 }      // free the solo row's tick-dedup
+            previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             prevPreviewActive = preview.active
         }
 
@@ -926,7 +928,29 @@ final class Router {
         let fed = parent >= 0
         let f = UInt8(clamping: filter)
         previewMode = true; defer { previewMode = false }
-        switch effectiveType(colour, t: t) {
+        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: false,
+                            passMask: effectivePassMask(colour, t: t), pass: diag.pass)
+
+        // Virtual-cell COLUMN TRANSITION: truncate its voices at the boundary, reset per-column state, and
+        // (chord-hold types on SOURCE input) emit the treated held chord sustained to the column boundary.
+        if effColumn != previewPrevColumn {
+            let mNow = musicalOf(beatPos, stepBeats: S, a: a)
+            if anyVoiceActive() {
+                let boundaryMusical = (mNow / S).rounded(.down) * S
+                let off = max(0, (realOf(boundaryMusical, stepBeats: S, a: a) - beatPos) / beatsPerSample)
+                allNotesOff(atSample: windowStart + Int64(off), out: out)
+            }
+            previewPrevColumn = effColumn
+            lastTick[vr] = -1; strumProgress[vr] = 0
+            if !fed && (mode == .identity || mode == .chance || mode == .harmonize) {
+                previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, colour: colour, t: t,
+                                 transpose: transpose, filter: f, busMask: busMask, mNow: mNow, beatPos: beatPos,
+                                 beatsPerSample: beatsPerSample, S: S, a: a, windowStart: windowStart,
+                                 windowEnd: windowEnd, pool: pool, out: out, diag: &diag)
+            }
+        }
+
+        switch mode {
         case .arp:
             var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
             let gate = effectiveGate(colour, t: t)
@@ -970,8 +994,53 @@ final class Router {
                     }
                 }
             }
+        case .strum:
+            let spread = effectiveSpread(colour, t: t)
+            let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
+            let count = pool.srcCount(filter: f)   // STRUM is source-based (no row-feed, matching the real loop)
+            if count > 0 {
+                let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+                let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                while strumProgress[vr] < count {
+                    let j = strumProgress[vr]
+                    let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
+                    let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    if onsetSample >= windowEnd { break }
+                    strumProgress[vr] += 1
+                    let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
+                    let n = Int(pool.srcAscending(sortedIdx, filter: f)) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
+                    emitArtic(note: UInt8(n), busMask: busMask, onSample: max(onsetSample, windowStart),
+                              offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            }
         default:
-            break   // STRUM / chord-hold / mirror types: a later cut (sustained reconcile like the real loop)
+            break   // chord-hold handled at the transition above; a closed passgate is silent; fed-mirror = later cut
+        }
+    }
+
+    /// The virtual cell's CHORD-HOLD (identity / open-passgate / CHANCE / HARMONIZE on SOURCE input): the
+    /// per-cell body of `emitColumnHolds`, emitted once at the column transition, sustained to the boundary.
+    private func previewChordHold(isChance: Bool, isHarmonize: Bool, colour: SnapColour, t: Double, transpose: Int,
+                                  filter: UInt8, busMask: UInt8, mNow: Double, beatPos: Double, beatsPerSample: Double,
+                                  S: Double, a: Double, windowStart: Int64, windowEnd: Int64, pool: NotePool,
+                                  out: MIDIEmitter?, diag: inout KernelDiag) {
+        let colStart = (mNow / S).rounded(.down) * S
+        let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        let prob = isChance ? effectiveProbability(colour, t: t) : 1
+        let srcN = pool.srcCount(filter: filter)
+        for k in 0..<srcN {
+            let n = Int(pool.srcAscending(k, filter: filter)) + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            if isChance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
+            if isHarmonize {
+                emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: 0, storeArtics: false,
+                            busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd, out: out, diag: &diag)
+            } else {
+                emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, out: out, diag: &diag)
+            }
         }
     }
 
