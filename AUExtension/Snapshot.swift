@@ -39,6 +39,7 @@ struct SnapCell {
                                     // (a muted receiver; Snap.mutedSourceFilter). Resolved from the cell's
                                     // receiver at build time — MIDI-IN cells only; render just reads it.
     var resolvedReceiver: Int8 = -1 // delta §9 item 11: the receiver a MIDI-IN cell reads (0–3), else −1
+    var inputCableMask: UInt8 = 0b1111  // §item 11 INPUT CABLES: the receiver's cable bitmask (ANY = all); render just reads it
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)
@@ -83,10 +84,12 @@ final class SnapshotBox {
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
     let claimEmitter: Int8           // delta §6a: the one-claimant CLAIM emitter (0–3), or −1 = none
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
+    let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
-         claimEmitter: Int8 = -1, receiverChannels: [UInt8] = [0, 0, 0, 0]) {
+         claimEmitter: Int8 = -1, receiverChannels: [UInt8] = [0, 0, 0, 0],
+         receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -97,6 +100,7 @@ final class SnapshotBox {
         self.busEnabledMask = busEnabledMask
         self.claimEmitter = claimEmitter
         self.receiverChannels = receiverChannels
+        self.receiverCables = receiverCables
     }
 }
 

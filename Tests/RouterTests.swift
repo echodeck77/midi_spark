@@ -992,6 +992,42 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.count, 0, "preview arps the source pool and is not blocked by CLAIM")
     }
 
+    // §item 11 INPUT CABLES: a cell whose receiver is sourced from CABLE 2 hears only cable-2 notes.
+    func testCabledReceiverCellHearsOnlyItsCable() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 0
+        s.cells[0][0] = cell
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.receivers = [Receiver(name: "1", cable: 0b0010), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0, cable: 1)   // cable 1 — the cable-2 receiver must NOT hear it
+        pool.noteOn(67, velocity: 100, channel: 0, cable: 2)   // cable 2 — heard
+        let e = RecordingEmitter()
+        run(b, pool, beats: 8, into: e)
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(67), "the cable-2 receiver hears cable-2 notes")
+        XCTAssertFalse(notes.contains(60), "cable-1 notes are filtered out")
+        assertNothingLeftSounding(e)
+    }
+
+    // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
+    func testAnyReceiverHearsAllCables() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 0
+        s.cells[0][0] = cell
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]   // cable nil ⇒ ANY
+        let b = SnapshotBuilder.build(from: st)
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0, cable: 1)
+        pool.noteOn(67, velocity: 100, channel: 0, cable: 2)
+        let e = RecordingEmitter()
+        run(b, pool, beats: 8, into: e)
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(60) && notes.contains(67), "ANY hears every cable")
+    }
+
     // ROW-FEED (1b): input = ⇐ROW 0. The virtual cell reads row 0's sounding note by derivation, so it
     // emits on its own bus (B) while row 0's real cell is soloed out.
     func testPreviewRowFeedReadsParentRow() {

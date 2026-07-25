@@ -55,6 +55,7 @@ enum SnapshotBuilder {
                     sc.resolvedReceiver = Int8(ri)
                     sc.inputChannel = recs[ri].muted ? Snap.mutedSourceFilter
                                                      : UInt8(max(0, min(16, recs[ri].channel)))
+                    sc.inputCableMask = UInt8(recs[ri].cableResolved & 0b1111)   // §item 11 INPUT CABLES
                 } else {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
                 }
@@ -105,6 +106,7 @@ enum SnapshotBuilder {
         let claim: Int8 = (doc.claimEmitter.map { (0..<4).contains($0) ? Int8($0) : -1 }) ?? -1
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
         let recvCh = doc.receiversResolved.map { UInt8(max(0, min(16, $0.channel))) }
+        let recvCable = doc.receiversResolved.map { UInt8($0.cableResolved & 0b1111) }   // §item 11 INPUT CABLES
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -115,7 +117,8 @@ enum SnapshotBuilder {
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
                            claimEmitter: claim,
-                           receiverChannels: recvCh)
+                           receiverChannels: recvCh,
+                           receiverCables: recvCable)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

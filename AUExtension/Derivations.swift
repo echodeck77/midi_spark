@@ -18,6 +18,7 @@ import Foundation
 final class NotePool {
     private var vel = [UInt8](repeating: 0, count: 128)   // velocity by note (0 = not held)
     private var chan = [UInt8](repeating: 0, count: 128)  // originating channel by note
+    private var cbl = [UInt8](repeating: 0, count: 128)   // §item 11: originating input cable (1–4; 0 = untagged)
     private(set) var sorted = [UInt8](repeating: 0, count: 128)
     private(set) var count = 0
 
@@ -28,12 +29,12 @@ final class NotePool {
     private(set) var playedCount = 0
 
     func reset() {
-        for i in 0..<128 { vel[i] = 0; chan[i] = 0 }
+        for i in 0..<128 { vel[i] = 0; chan[i] = 0; cbl[i] = 0 }
         count = 0
         playedCount = 0
     }
 
-    func noteOn(_ note: UInt8, velocity: UInt8, channel: UInt8) {
+    func noteOn(_ note: UInt8, velocity: UInt8, channel: UInt8, cable: UInt8 = 0) {
         let n = Int(note)
         if velocity > 0 {
             if vel[n] == 0 {
@@ -42,6 +43,7 @@ final class NotePool {
             }
             vel[n] = velocity
             chan[n] = channel
+            cbl[n] = cable
         } else {
             noteOff(note)
         }
@@ -70,23 +72,26 @@ final class NotePool {
     // 0 = OMNI (all held notes) or 1–16 (only notes arriving on that channel; wire channel = filter−1).
     // OMNI paths return the existing OMNI views in O(1); a real filter scans (≤128, source reads only).
 
-    @inline(__always) private func matches(_ note: UInt8, _ filter: UInt8) -> Bool {
-        filter == 0 || chan[Int(note)] == filter - 1
+    // §item 11 INPUT CABLES: admission is CHANNEL and CABLE. `cableMask` (bit i = cable i+1) defaults to
+    // ANY (0b1111) so every existing call is unchanged; a cabled receiver passes its own mask.
+    @inline(__always) private func matches(_ note: UInt8, _ filter: UInt8, _ cableMask: Int) -> Bool {
+        (filter == 0 || chan[Int(note)] == filter - 1)
+            && receiverHearsCable(mask: cableMask, eventCable: Int(cbl[Int(note)]))
     }
 
     /// Count of held notes passing the filter.
-    func srcCount(filter: UInt8) -> Int {
-        if filter == 0 { return count }
+    func srcCount(filter: UInt8, cableMask: Int = 0b1111) -> Int {
+        if filter == 0 && cableMask == 0b1111 { return count }
         var n = 0
-        for i in 0..<count where matches(sorted[i], filter) { n += 1 }
+        for i in 0..<count where matches(sorted[i], filter, cableMask) { n += 1 }
         return n
     }
 
     /// The k-th ascending held note passing the filter (k in 0..<srcCount). 255 if out of range.
-    func srcAscending(_ k: Int, filter: UInt8) -> UInt8 {
-        if filter == 0 { return k < count ? sorted[k] : 255 }
+    func srcAscending(_ k: Int, filter: UInt8, cableMask: Int = 0b1111) -> UInt8 {
+        if filter == 0 && cableMask == 0b1111 { return k < count ? sorted[k] : 255 }
         var seen = 0
-        for i in 0..<count where matches(sorted[i], filter) {
+        for i in 0..<count where matches(sorted[i], filter, cableMask) {
             if seen == k { return sorted[i] }
             seen += 1
         }
@@ -94,10 +99,10 @@ final class NotePool {
     }
 
     /// The k-th press-order held note passing the filter (k in 0..<srcCount). 255 if out of range.
-    func srcPlayed(_ k: Int, filter: UInt8) -> UInt8 {
-        if filter == 0 { return k < playedCount ? order[k] : 255 }
+    func srcPlayed(_ k: Int, filter: UInt8, cableMask: Int = 0b1111) -> UInt8 {
+        if filter == 0 && cableMask == 0b1111 { return k < playedCount ? order[k] : 255 }
         var seen = 0
-        for i in 0..<playedCount where matches(order[i], filter) {
+        for i in 0..<playedCount where matches(order[i], filter, cableMask) {
             if seen == k { return order[i] }
             seen += 1
         }
@@ -267,8 +272,8 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 /// never reset the index. Returns -1 for an empty (filtered) pool. No channel is returned — past the
 /// input filter notes carry no channel (delta §7); emission stamps the bus channel.
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-                   pool: NotePool, filter: UInt8 = 0) -> Int {
-    let count = pool.srcCount(filter: filter)
+                   pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111) -> Int {
+    let count = pool.srcCount(filter: filter, cableMask: cableMask)
     guard count > 0 else { return -1 }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
@@ -297,8 +302,8 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     }
 
     // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered.
-    let note = (pat == .asPlayed) ? Int(pool.srcPlayed(pos % count, filter: filter))
-                                  : Int(pool.srcAscending(pos % count, filter: filter))
+    let note = (pat == .asPlayed) ? Int(pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask))
+                                  : Int(pool.srcAscending(pos % count, filter: filter, cableMask: cableMask))
     return note + 12 * (pos / count)
 }
 

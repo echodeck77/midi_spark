@@ -453,9 +453,9 @@ final class Router {
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
-            let srcN = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
+            let srcN = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))   // §7 source filter
             for k in 0..<srcN {
-                let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
+                let base = Int(pool.srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask)))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
@@ -516,7 +516,7 @@ final class Router {
                 return up + 12 * Int(((pIdx % oct) + oct) % oct) + transpose
             }
             let base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
-                                     pool: pool, filter: cell.inputChannel)   // MIDI IN → filtered source (§7)
+                                     pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))   // MIDI IN → filtered source (§7)
             return base >= 0 ? base + transpose : nil
         }
         if referencing {
@@ -752,7 +752,7 @@ final class Router {
                     } else {
                         base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
                                              pattern: colour.a.patternIndex, pool: pool,
-                                             filter: cell.inputChannel)   // §7 source filter
+                                             filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))   // §7 source filter
                         guard base >= 0 else { return }
                     }
                     let noteValue = base + transpose
@@ -795,9 +795,9 @@ final class Router {
                         }
                     } else {
                         // re-strike every held note passing the input-channel filter (§7)
-                        let srcN = pool.srcCount(filter: cell.inputChannel)
+                        let srcN = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
                         for k in 0..<srcN {
-                            let base = Int(pool.srcAscending(k, filter: cell.inputChannel))
+                            let base = Int(pool.srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask)))
                             let n = base + transpose
                             guard n >= 0 && n <= 127 else { continue }
                             storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
@@ -815,7 +815,7 @@ final class Router {
                 // (strumProgress counter, reset per column) — boundary-safe, each note fires once.
                 let spread = effectiveSpread(colour, t: t)
                 let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
-                let count = pool.srcCount(filter: cell.inputChannel)   // §7 source filter
+                let count = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))   // §7 source filter
                 if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
 
                 if count > 0 {
@@ -831,7 +831,7 @@ final class Router {
                         strumProgress[r] += 1
 
                         let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-                        let baseNote = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel))
+                        let baseNote = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask)))
                         let n = baseNote + transpose
                         guard n >= 0 && n <= 127 else { continue }
                         let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
@@ -1087,7 +1087,7 @@ final class Router {
             auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let base = arpPickSource(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
-                                         pattern: colour.a.patternIndex, pool: pool, filter: cell.inputChannel)
+                                         pattern: colour.a.patternIndex, pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
                 guard base >= 0 else { return }
                 let n = base + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
@@ -1101,9 +1101,9 @@ final class Router {
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let repIdx = ((Int(tick) % repeats) + repeats) % repeats
                 let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
-                let srcN = pool.srcCount(filter: cell.inputChannel)
+                let srcN = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
                 for k in 0..<srcN {
-                    let n = Int(pool.srcAscending(k, filter: cell.inputChannel)) + transpose
+                    let n = Int(pool.srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
@@ -1133,9 +1133,9 @@ final class Router {
         for i in 0..<128 { auditionDesired[i] = false }
         let type = effectiveType(colour, t: t)
         let prob = (type == .chance) ? effectiveProbability(colour, t: t) : 1
-        let srcN = pool.srcCount(filter: cell.inputChannel)         // §7 source filter, forced source
+        let srcN = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))         // §7 source filter, forced source
         for k in 0..<srcN {
-            let base = Int(pool.srcAscending(k, filter: cell.inputChannel)) + transpose
+            let base = Int(pool.srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))) + transpose
             guard base >= 0 && base <= 127 else { continue }
             switch type {
             case .harmonize:
@@ -1165,12 +1165,12 @@ final class Router {
                                windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
         let spread = effectiveSpread(colour, t: t)
-        let count = pool.srcCount(filter: cell.inputChannel)
+        let count = pool.srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
         for j in 0..<count {
             guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve)
             else { continue }                                   // this note's onset hasn't arrived yet
             let sortedIdx = strumSortedIndex(position: j, count: count, direction: colour.a.strumDir, pass: 0)
-            let n = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel)) + transpose
+            let n = Int(pool.srcAscending(sortedIdx, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))) + transpose
             guard n >= 0 && n <= 127 else { continue }
             auditionDesired[n] = true
             auditionVel[n] = strumVelocity(index: j, count: count, tilt: colour.a.velTilt, base: 96)

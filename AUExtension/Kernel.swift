@@ -96,6 +96,7 @@ final class Kernel {
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
     private var receiverChannels: [UInt8] = [0, 0, 0, 0]
+    private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
     func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32]) {
@@ -123,6 +124,7 @@ final class Kernel {
 
         guard let box = store?.acquire() else { return }
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
+        receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
         liveEmitter.out = midiOut       // sync the emission seam to the current host block, this render
@@ -167,9 +169,12 @@ final class Kernel {
                     let bytes = raw.bindMemory(to: UInt8.self)
                     let length = Int(midi.length)
                     if length >= 1 {
+                        // §item 11 INPUT CABLES: map the host cable (0-based) to 1-based (cables 1–4);
+                        // a single-input host delivers cable 0 → 1, which ANY receivers hear unchanged.
+                        let eventCable = Int(midi.cable) + 1
                         handleIncoming(bytes: bytes, length: length,
                                        sampleTime: midi.eventSampleTime,
-                                       playing: playing)
+                                       playing: playing, cable: eventCable)
                     }
                 }
             case .parameter, .parameterRamp:
@@ -236,17 +241,18 @@ final class Kernel {
     // MARK: - incoming MIDI (source pool + passthrough)
 
     private func handleIncoming(bytes: UnsafeBufferPointer<UInt8>, length: Int,
-                                sampleTime: AUEventSampleTime, playing: Bool) {
+                                sampleTime: AUEventSampleTime, playing: Bool, cable: Int = 0) {
         let status = bytes[0] & 0xF0
         let isNote = (status == 0x90 || status == 0x80)
         let channel = bytes[0] & 0x0F
         if status == 0x90, length >= 3 {
-            pool.noteOn(bytes[1], velocity: bytes[2], channel: channel)
+            pool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable))
             // delta §9 item 11 INPUT metering: attribute this note-on to EVERY receiver whose filter hears
-            // it (OMNI or channel match; wire ch = filter − 1). A vel-0 note-on is a note-off — skip it.
+            // it (§item 11: cable AND channel). A vel-0 note-on is a note-off — skip it.
             let vel = bytes[2]
             if vel > 0 {
-                for i in 0..<4 where receiverHears(filter: receiverChannels[i], channel: channel) {
+                for i in 0..<4 where receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
+                                  && receiverHears(filter: receiverChannels[i], channel: channel) {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
                 }
