@@ -888,7 +888,8 @@ struct ProcessorBox: View {
     let onMorph: (Double) -> Void
     var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
 
-    static let settingsHeight: CGFloat = 214            // fixed — sized for the arp field set (truncation-killer)
+    static let settingsHeight: CGFloat = 252            // fixed — sized for the arp field set PLUS the MORPH
+                                                        // fader (shown for a glide pair) — the truncation-killer
 
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
     private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
