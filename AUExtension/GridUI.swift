@@ -877,6 +877,37 @@ struct HeaderView: View {
 /// geometry; smaller types leave calm space. Single treatment (A/B tab retired, §9 item 5 — the partner
 /// Colour is "B"); MORPH glides toward the partner and shows only for a FULL pair. Transpose/morph are
 /// AUParameters (own callbacks); the rest go through editColour (writing paramsA).
+/// A parameter slider that drags smoothly against value-type document state. It tracks the drag in LOCAL
+/// @State (a `Binding(get:{ colour.paramsA.x })` reads a value SNAPSHOT — the thumb can't follow a drag),
+/// and commits LIVE per tick to the engine WITHOUT churning the parent's @State (that per-tick re-render
+/// otherwise interrupts the gesture — the "GATE slider does nothing" bug). The parent reconciles its mirror
+/// once, on release. The label shows the live drag value, else the model value.
+private struct ParamSlider: View {
+    let range: ClosedRange<Double>
+    let external: Double
+    let accent: Color
+    let title: (Double) -> String
+    let commit: (Double) -> Void
+    let release: () -> Void
+    @State private var v: Double = 0
+    @State private var dragging = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title(dragging ? v : external))
+                .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            Slider(value: $v, in: range, onEditingChanged: { editing in
+                dragging = editing
+                if editing { v = external } else { release() }   // seed at grab; reconcile on release
+            })
+            .tint(accent)
+            .onChange(of: v) { nv in if dragging { commit(nv) } }
+            .onAppear { v = external }
+            .onChange(of: external) { ne in if !dragging { v = ne } }   // stay synced to external edits
+        }
+    }
+}
+
 struct ProcessorBox: View {
     enum Mode { case selector, settings }
     let colour: Colour
@@ -884,7 +915,8 @@ struct ProcessorBox: View {
     var mode: Mode = .settings
     var glides: Bool = false                            // paired FULL → the morph fader glides (else hidden)
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
-    var onEditLive: ((@escaping (inout Colour) -> Void) -> Void)? = nil   // continuous slider path (no undo/tick)
+    var onParamLive: ((@escaping (inout ColourParams) -> Void) -> Void)? = nil   // slider drag: write live, no @State churn
+    var onParamRelease: (() -> Void)? = nil                                      // slider drag end: reconcile once
     let onTranspose: (Int) -> Void
     let onMorph: (Double) -> Void
     var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
@@ -895,9 +927,19 @@ struct ProcessorBox: View {
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
     private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
     private func setParam(_ f: @escaping (inout ColourParams) -> Void) { onEdit { f(&$0.paramsA) } }
-    // Continuous slider drags: skip the per-tick undo record + document copy (that churn stalls the gesture,
-    // which read as "the GATE slider does nothing"). Falls back to onEdit if no live path is wired.
-    private func setParamLive(_ f: @escaping (inout ColourParams) -> Void) { (onEditLive ?? onEdit) { f(&$0.paramsA) } }
+    // A drag-safe parameter slider (see ParamSlider): tracks the drag in LOCAL @State and commits live via
+    // onParamLive WITHOUT churning the parent's @State per tick (that re-render otherwise stalls the drag —
+    // the "GATE slider does nothing" bug). Reconciles once on release.
+    private func paramSlider(_ range: ClosedRange<Double>, _ external: Double,
+                             _ title: @escaping (Double) -> String,
+                             _ set: @escaping (inout ColourParams, Double) -> Void) -> some View {
+        ParamSlider(range: range, external: external, accent: accent, title: title,
+                    commit: { val in
+                        let mut: (inout ColourParams) -> Void = { set(&$0, val) }
+                        if let live = onParamLive { live(mut) } else { onEdit { mut(&$0.paramsA) } }
+                    },
+                    release: { onParamRelease?() })
+    }
 
     var body: some View {
         if mode == .selector { selectorBody } else { settingsBody }
@@ -963,15 +1005,11 @@ struct ProcessorBox: View {
                 field("PHASE") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
                     setParam { $0.phase = ArpPhase.allCases[i] } } }
             }
-            field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
-                Slider(value: bind(p.gate ?? 0.6) { v in setParamLive { $0.gate = v } }, in: 0.05...1).tint(accent)
-            }
+            paramSlider(0.05...1, p.gate ?? 0.6, { "GATE \(Int($0 * 100))%" }) { $0.gate = $1 }
         case .ratchet:
             field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
                 setParam { $0.count = [2,3,4,6,8][i] } } }
-            field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
-                Slider(value: bind(p.ramp ?? 0.5) { v in setParamLive { $0.ramp = v } }, in: 0...1).tint(accent)
-            }
+            paramSlider(0...1, p.ramp ?? 0.5, { "RAMP \(Int($0 * 100))%" }) { $0.ramp = $1 }
         case .passgate:
             field("PASSES") { HStack(spacing: 4) {
                 ForEach(0..<4, id: \.self) { i in
@@ -986,13 +1024,11 @@ struct ProcessorBox: View {
         case .strum:
             field("DIR") { seg(StrumDir.allCases.map(\.rawValue), sel: (p.strumDir ?? .up).rawValue) { i in
                 setParam { $0.strumDir = StrumDir.allCases[i] } } }
-            field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
-                Slider(value: bind(p.spread ?? 0.1) { v in setParamLive { $0.spread = v } }, in: 0...1).tint(accent) }
-            field("TILT \(Int((p.velTilt ?? 0) * 100))") {
-                Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParamLive { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            paramSlider(0...1, p.spread ?? 0.1, { "SPREAD \(Int($0 * 100))" }) { $0.spread = $1 }
+            // TILT maps the 0…1 slider to velTilt −1…+1 (0.5 = flat).
+            paramSlider(0...1, (p.velTilt ?? 0) / 2 + 0.5, { "TILT \(Int(($0 - 0.5) * 2 * 100))" }) { $0.velTilt = ($1 - 0.5) * 2 }
         case .chance:
-            field("PROBABILITY \(Int((p.probability ?? 1) * 100))%") {
-                Slider(value: bind(p.probability ?? 1) { v in setParamLive { $0.probability = v } }, in: 0...1).tint(accent) }
+            paramSlider(0...1, p.probability ?? 1, { "PROBABILITY \(Int($0 * 100))%" }) { $0.probability = $1 }
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
             ForEach(0..<3, id: \.self) { k in
@@ -1007,9 +1043,6 @@ struct ProcessorBox: View {
     private func typeShort(_ t: ProcessorType) -> String {
         switch t { case .arp: "ARP"; case .ratchet: "RTC"; case .passgate: "PASS"
         case .strum: "STRM"; case .chance: "CHNC"; case .harmonize: "HARM" }
-    }
-    private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
-        Binding(get: { v }, set: set)
     }
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 1) {

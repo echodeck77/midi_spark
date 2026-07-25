@@ -395,13 +395,13 @@ struct DiagView: View {
         au.editColour(brushIndex, f)
         docColours = au.uiColours()
     }
-    // Continuous slider drags (GATE/RAMP/SPREAD/TILT/PROBABILITY): edit live WITHOUT recording undo per tick —
-    // the per-tick document copy + undo push otherwise churns the view and stalls the drag gesture.
-    private func editBrushColourLive(_ f: @escaping (inout Colour) -> Void) {
-        guard let au else { return }
-        au.editColour(brushIndex, record: false, f)
-        docColours = au.uiColours()
+    // Continuous slider drags (GATE/RAMP/SPREAD/TILT/PROBABILITY): write the param LIVE (engine rebuilds and
+    // hears it) but do NOT touch docColours — that per-tick @State churn re-renders the desk mid-gesture and
+    // stalls the SwiftUI drag. ParamSlider tracks the thumb in its own @State; we reconcile once on release.
+    private func liveBrushParam(_ f: @escaping (inout ColourParams) -> Void) {
+        au?.editColour(brushIndex, record: false) { f(&$0.paramsA) }
     }
+    private func reconcileBrushColour() { docColours = au?.uiColours() ?? docColours }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
@@ -747,14 +747,14 @@ struct DiagView: View {
     @ViewBuilder private var processorSelector: some View {
         if let bc = brushColour {
             ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .selector, glides: brushGlides,
-                         onEdit: editBrushColour, onEditLive: editBrushColourLive,
+                         onEdit: editBrushColour, onParamLive: liveBrushParam, onParamRelease: reconcileBrushColour,
                          onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
         }
     }
     @ViewBuilder private var processorSettings: some View {
         if let bc = brushColour {
             ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .settings, glides: brushGlides,
-                         onEdit: editBrushColour, onEditLive: editBrushColourLive,
+                         onEdit: editBrushColour, onParamLive: liveBrushParam, onParamRelease: reconcileBrushColour,
                          onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
         }
     }
