@@ -63,6 +63,9 @@ struct DiagView: View {
     @State private var staging = false
     @State private var stagedConfig = StampConfig(colourID: "gold")
     @State private var cellPreview = false      // the CELL box PREVIEW toggle (Phase 1: UI state; engine routing = Phase 2)
+    // Hide-with-undo: a single tap HIDES a cell (muted, recoverable) and rings it in its own colour;
+    // re-tapping restores it; touching ANY other cell COMMITS the deletion (nil = none).
+    @State private var hiddenPending: GridView.GridPos? = nil
     // Live PREVIEW while dragging a staged cell over the grid: the staged cell is transiently placed at the
     // hovered position via the NON-undoable edit path, so it sounds IN CONTEXT (the LIVE LAW does the voice
     // transitions). `previewPos` = where it's placed; `previewUnder` = the cell it displaced (restored on
@@ -101,7 +104,14 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+
+    // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
+    private func commitHiddenPending() {
+        guard let au, let hp = hiddenPending else { return }
+        au.editScene { $0.cells[hp.col][hp.row] = nil }
+        hiddenPending = nil; scene = au.uiScene()
+    }
 
     // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
     // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
@@ -109,6 +119,7 @@ struct DiagView: View {
     // Forces EDIT on so it's always possible to re-enter after a drop drops us into PERFORM (bug fix
     // 2026-07-25); tapping a different chip while staging shifts focus to that Colour (same entry point).
     private func enterStaging(_ id: String) {
+        commitHiddenPending()                       // moving into cell-edit closes any open hide-undo window
         stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
         stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
         stagedCells = []                            // fresh session (also on retarget): nothing placed yet
@@ -121,6 +132,7 @@ struct DiagView: View {
     // fresh flashing cell there. From here it behaves like any staging session (place more / recolour / commit).
     private func enterStagingForCell(_ col: Int, _ row: Int) {
         guard let au, editing else { return }
+        commitHiddenPending()                       // long-pressing to stage closes any open hide-undo window
         let pos = GridView.GridPos(col: col, row: row)
         if let cell = scene.cells[col][row] {
             stagedConfig = StampConfig.from(cell); brush = cell.colourID     // adopt the cell's colour + routing
@@ -209,9 +221,10 @@ struct DiagView: View {
         applyStagedToPlaced()
     }
 
-    // Tap a cell. EDIT (user 2026-07-26): tap a POPULATED cell → STAGE it for editing (its settings load
-    // into the CELL box); while STAGING, tapping any populated/flashing cell COMMITS the flashing set and
-    // tapping an empty cell PLACES another staged cell. PERFORM: flip ALT.
+    // Tap a cell. EDIT (user 2026-07-26): while STAGING, tapping any populated/flashing cell COMMITS the
+    // flashing set and tapping an empty cell PLACES another staged cell. NOT staging → HIDE-with-undo:
+    // tap a visible cell to hide it (recoverable), re-tap to restore, touch another cell to commit the
+    // deletion. (Long-press, not tap, puts a cell into cell-edit.) PERFORM: flip ALT.
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
@@ -226,11 +239,17 @@ struct DiagView: View {
                 }
                 return
             }
-            if scene.cells[col][row] != nil {               // not staging: tap a populated cell → STAGE it for editing
-                enterStagingForCell(col, row)
-            } else {
-                selCol = col; selRow = row                  // empty = inert
+            if hiddenPending == pos {                        // re-tap the recently-hidden cell → restore
+                au.editScene { s in if var c = s.cells[col][row] { c.muted = false; s.cells[col][row] = c } }
+                hiddenPending = nil; selCol = col; selRow = row; scene = au.uiScene()
+                return
             }
+            commitHiddenPending()                           // touched a different cell → delete the prior pending-hidden one
+            if scene.cells[col][row] != nil {               // a visible populated cell → hide it (recoverable)
+                au.editScene { s in if var c = s.cells[col][row] { c.muted = true; s.cells[col][row] = c } }
+                hiddenPending = pos
+            }
+            selCol = col; selRow = row; scene = au.uiScene()
         } else {
             au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
                 guard var c = s.cells[col][row] else { return }
@@ -621,9 +640,11 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
+                 onLongPressStageCell: enterStagingForCell,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
-                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells)
+                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
+                 hiddenPending: hiddenPending)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
