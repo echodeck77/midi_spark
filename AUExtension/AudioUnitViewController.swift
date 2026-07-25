@@ -62,6 +62,12 @@ struct DiagView: View {
     // DEFERRED to the design spec — this scaffold is EDIT-only panel staging.
     @State private var staging = false
     @State private var stagedConfig = StampConfig(colourID: "gold")
+    // Live PREVIEW while dragging a staged cell over the grid: the staged cell is transiently placed at the
+    // hovered position via the NON-undoable edit path, so it sounds IN CONTEXT (the LIVE LAW does the voice
+    // transitions). `previewPos` = where it's placed; `previewUnder` = the cell it displaced (restored on
+    // move-away / cancel). Never persisted, never recorded for undo. Committed for real only on DROP.
+    @State private var previewPos: GridView.GridPos? = nil
+    @State private var previewUnder: Cell? = nil
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
     // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
@@ -87,7 +93,7 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { staging = false } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
 
     // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
     // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
@@ -103,6 +109,34 @@ struct DiagView: View {
 
     // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
     private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
+
+    private func exitStaging() { clearPreview(); staging = false }
+
+    // Live preview: move the transient staged cell to the hovered grid cell (or clear it off-grid). Restores
+    // whatever it displaces before moving, so the arrangement is never permanently altered until DROP.
+    private func updatePreview(_ point: CGPoint) {
+        guard let au, staging else { return }
+        let hover = cellAtGlobal(point)
+        if hover == previewPos { return }                     // same cell → nothing to do
+        if let pp = previewPos { au.editScene(record: false) { $0.cells[pp.col][pp.row] = previewUnder } }  // restore prior
+        if let h = hover {
+            let fresh = au.uiScene()
+            previewUnder = fresh.cells[h.col][h.row]           // remember what we're covering
+            let cell = stagedConfig.makeCell()                 // the staged cell (input + emitters + colour)
+            au.editScene(record: false) { $0.cells[h.col][h.row] = cell }
+            previewPos = h
+        } else {
+            previewPos = nil; previewUnder = nil
+        }
+        scene = au.uiScene()
+    }
+    // Remove any live preview, restoring the cell it displaced. No-op if nothing is previewing.
+    private func clearPreview() {
+        guard let au, let pp = previewPos else { return }
+        au.editScene(record: false) { $0.cells[pp.col][pp.row] = previewUnder }
+        previewPos = nil; previewUnder = nil
+        scene = au.uiScene()
+    }
     private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)) }
     private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0 }   // select FROM ROW (default row 1)
     private func stepStagedRow(_ delta: Int) {
@@ -230,13 +264,13 @@ struct DiagView: View {
         HStack(spacing: 10) {
             Image(systemName: "square.dashed").font(.system(size: 11, weight: .heavy))
             if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
-            Text("STAGING \(stagedConfig.colourID.uppercased()) — set input & emitters below")
+            Text("STAGING \(stagedConfig.colourID.uppercased()) — set input/emitters · drag to grid to place")
                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
             Spacer()
             Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .padding(.horizontal, 12).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.35)))
-                .contentShape(Rectangle()).onTapGesture { staging = false }
+                .contentShape(Rectangle()).onTapGesture { exitStaging() }
         }
         .foregroundColor(.black)
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -263,20 +297,28 @@ struct DiagView: View {
     private func paletteDragChanged(_ id: String, _ point: CGPoint) {
         guard editing else { return }                 // EDIT-only
         paletteDragColour = id; paletteDragPoint = point
+        if staging { updatePreview(point) }           // live-preview the staged cell at the hovered position
     }
     // Cell-edit staging: a chip drag is in flight while staging → the moving outline hands off to the grid.
     private var stagingDragging: Bool { staging && paletteDragPoint != nil }
 
     private func paletteDrop(_ id: String, _ point: CGPoint) {
+        let wasStaging = staging
         defer { paletteDragColour = nil; paletteDragPoint = nil }
-        guard editing, let au, let pos = cellAtGlobal(point) else { return }
-        if staging {                                  // STAGING drop: place the fully-configured pending cell
-            var c = stagedConfig.makeCell(); c.colourID = id   // staged input + emitters, colour from the dragged chip
-            au.editScene { $0.cells[pos.col][pos.row] = c }
-            brush = id; scene = au.uiScene(); docColours = au.uiColours()
-            staging = false; editing = false          // "once dropped, edit mode is off" → straight to PERFORM
+        guard let au else { return }
+        if wasStaging {                               // STAGING drop: clear the preview, then commit for real
+            clearPreview()                            // remove the transient placement (restores what it covered)
+            if editing, let pos = cellAtGlobal(point) {
+                var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
+                au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
+                brush = id; scene = au.uiScene(); docColours = au.uiColours()
+                staging = false; editing = false      // "once dropped, edit mode is off" → straight to PERFORM
+            } else {
+                scene = au.uiScene()                  // dropped off-grid → preview cleared, stay in staging
+            }
             return
         }
+        guard editing, let pos = cellAtGlobal(point) else { return }
         if scene.cells[pos.col][pos.row] != nil {     // POPULATED → recolour only (keep other settings)
             au.editScene { s in if var c = s.cells[pos.col][pos.row] { c.colourID = id; s.cells[pos.col][pos.row] = c } }
         } else {                                       // EMPTY → create from the template, shown FADED
