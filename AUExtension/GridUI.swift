@@ -83,7 +83,6 @@ struct GridView: View {
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
-    var faded: Set<GridPos> = []                     // §5: provisional (palette-created, unreviewed) cells → dimmed
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -270,8 +269,7 @@ struct GridView: View {
                 .allowsHitTesting(false)
             }
         }
-        // dim the cell being dragged; faded = provisional (palette-created, unreviewed until first edit)
-        .opacity(dragFrom == GridPos(col: col, row: row) ? 0.4 : (faded.contains(GridPos(col: col, row: row)) ? 0.45 : 1))
+        .opacity(dragFrom == GridPos(col: col, row: row) ? 0.4 : 1)   // dim the cell being dragged
         .contentShape(Rectangle())
         // delta §5: the whole pad is ONE tap target in both modes — EDIT opens the CELL EDITOR (the VC
         // routes onTap), PERFORM flips ALT. FROM/OUT popovers + the hold menu are retired (contents moved
@@ -492,192 +490,6 @@ struct ReceiversView: View {
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < peak.count, i < peakAt.count else { return 0 }
         return max(0, peak[i] * (1 - now.timeIntervalSince(peakAt[i]) / 0.15))
-    }
-}
-
-// MARK: - THE CELL EDITOR (delta §5 rev 2 FINAL) — one floating card, signal-path order
-
-/// The cell editor (delta §5): tap any cell in EDIT → this floating card, the cell's whole definition in
-/// SIGNAL-PATH ORDER (INPUT radio over receivers+rows → COLOUR + ALT partner → EMITTER toggles → ON stub
-/// → action row). Inspector, not modal: it stays open and RETARGETS when another cell is tapped (the
-/// parent swaps col/row); an EMPTY cell opens PRE-FILLED from the session template (ghosted) and commits
-/// on FIRST interaction. Live-law: edits to an active cell sound immediately (free by the mutation choke).
-struct CellEditorView: View {
-    let col: Int
-    let row: Int
-    let cell: Cell?                 // current cell; nil = pending/empty (template shown ghosted)
-    let pending: Bool
-    let template: StampConfig
-    let colours: [Colour]           // palette + the selected Colour's ALT partner
-    let receivers: [Receiver]
-    let occupiedRows: Set<Int>      // for the INPUT radio's dimmed-but-selectable rows
-    let blockedRows: Set<Int>       // self-row + anti-2-cycle (a row whose cell references THIS row)
-    let hasClipboard: Bool
-    let onColour: (String) -> Void
-    let onInput: (_ receiver: Int?, _ row: Int?) -> Void
-    let onToggleEmitter: (Bus) -> Void
-    let onClear: () -> Void
-    let onCopy: () -> Void
-    let onCopyToCells: () -> Void
-    let onPasteColour: () -> Void
-    let onPasteRouting: () -> Void
-    let onClose: () -> Void
-
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let letters: [Bus] = [.a, .b, .c, .d]
-
-    // Draft accessors — a pending (empty) cell shows the template until it commits.
-    private var draftColour: String { pending ? template.colourID : (cell?.colourID ?? template.colourID) }
-    private var draftInputRow: Int? { pending ? template.inputRow : cell?.inputRow }
-    private var draftReceiver: Int { pending ? template.inputReceiver : (cell?.inputReceiver ?? 0) }
-    private var draftBuses: Set<Bus> { pending ? template.buses : (cell?.buses ?? []) }
-    private var resolvedPartner: Int? {
-        guard let i = colourIDs.firstIndex(of: draftColour), i < colours.count else { return nil }
-        return colours[i].altColour
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            header
-            inputSection
-            colourSection
-            emitterSection
-            onStub
-            actionRow
-        }
-        .padding(12)
-        .frame(width: 296)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x14181F)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(amber.opacity(pending ? 0.5 : 0.25), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
-    }
-
-    private var header: some View {
-        HStack {
-            Text("CELL C\(col + 1)·R\(row + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.55))
-            if pending { Text("NEW").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(amber).padding(.horizontal, 4).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).stroke(amber.opacity(0.6))) }
-            Spacer()
-            Image(systemName: "xmark").font(.system(size: 11, weight: .heavy)).foregroundColor(.white.opacity(0.5))
-                .frame(width: 24, height: 24).contentShape(Rectangle()).onTapGesture(perform: onClose)
-        }
-    }
-
-    // 1. INPUT — a radio over {4 receivers + 8 rows}. Self + anti-2-cycle rows hard-disabled; unpopulated
-    //    rows dimmed-but-selectable (forward wiring); Receiver 1 is the clean default.
-    private var inputSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("INPUT")
-            HStack(spacing: 4) {
-                ForEach(0..<4, id: \.self) { r in
-                    let on = draftInputRow == nil && draftReceiver == r
-                    chip("R\(r + 1)", on: on, tint: cyan, dim: false) { onInput(r, nil) }
-                }
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
-                ForEach(0..<8, id: \.self) { r in
-                    let blocked = blockedRows.contains(r)
-                    let on = draftInputRow == r
-                    chip("ROW \(r + 1)", on: on, tint: amber, dim: !occupiedRows.contains(r), disabled: blocked) {
-                        if !blocked { onInput(nil, r) }
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. COLOUR — 4×4 palette + the ALT partner swatch (display; the pairing is edited at the desk ALT box).
-    private var colourSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                sectionLabel("COLOUR")
-                Spacer()
-                altSwatch
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 4) {
-                ForEach(0..<16, id: \.self) { i in
-                    let id = colourIDs[i]
-                    let on = id == draftColour
-                    RoundedRectangle(cornerRadius: 4).fill(Color(hex: colourHexes[i]))
-                        .frame(height: 20)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white, lineWidth: on ? 2 : 0))
-                        .opacity(on ? 1 : 0.7)
-                        .contentShape(Rectangle()).onTapGesture { onColour(id) }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var altSwatch: some View {
-        // The selected Colour's partner (altColour is a per-Colour property; shown here read-only).
-        Text("ALT").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-        if let p = resolvedPartner, p < colourHexes.count {
-            RoundedRectangle(cornerRadius: 3).fill(Color(hex: colourHexes[p])).frame(width: 16, height: 16)
-                .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.5), lineWidth: 1))
-        } else {
-            Text("—").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
-        }
-    }
-
-    // 3. EMITTERS — A–D TOGGLE row (multi-bus).
-    private var emitterSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("EMITTERS")
-            HStack(spacing: 6) {
-                ForEach(letters, id: \.self) { b in
-                    let on = draftBuses.contains(b)
-                    Text(b.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.7))
-                        .frame(maxWidth: .infinity).frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? cyan : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { onToggleEmitter(b) }
-                }
-            }
-        }
-    }
-
-    // 4. ON — ships collapsed (stub until the ON engine, Stage 5).
-    private var onStub: some View {
-        HStack {
-            sectionLabel("ON")
-            Text("—").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
-            Spacer()
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.2))
-        }
-        .padding(.vertical, 3)
-    }
-
-    private var actionRow: some View {
-        HStack(spacing: 5) {
-            actionButton("CLEAR", tint: Color(red: 0.95, green: 0.3, blue: 0.32), enabled: !pending, action: onClear)
-            actionButton("COPY", tint: .white.opacity(0.6), enabled: !pending, action: onCopy)
-            actionButton("STAMP…", tint: amber, enabled: !pending, action: onCopyToCells)
-            actionButton("P·COL", tint: cyan, enabled: hasClipboard, action: onPasteColour)
-            actionButton("P·RTE", tint: cyan, enabled: hasClipboard && !pending, action: onPasteRouting)
-        }
-    }
-
-    // MARK: pieces
-    private func sectionLabel(_ s: String) -> some View {
-        Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-    }
-    private func chip(_ label: String, on: Bool, tint: Color, dim: Bool, disabled: Bool = false,
-                      _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(disabled ? .white.opacity(0.15) : (on ? .black : .white.opacity(dim ? 0.35 : 0.8)))
-            .frame(maxWidth: .infinity).frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 4).fill(on ? tint : Color.white.opacity(disabled ? 0.02 : 0.07)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    private func actionButton(_ label: String, tint: Color, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced))
-            .foregroundColor(enabled ? tint : .white.opacity(0.15))
-            .frame(maxWidth: .infinity).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(enabled ? 0.08 : 0.03)))
-            .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
     }
 }
 

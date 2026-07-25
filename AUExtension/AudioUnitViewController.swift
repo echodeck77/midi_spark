@@ -48,13 +48,6 @@ struct DiagView: View {
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
-    // delta §5 (a5): the CELL EDITOR — target cell (-1 = closed), pending (empty, ghosted, uncommitted),
-    // the session template = clipboard (one stamp object), and STAMP MODE ("COPY TO CELLS…").
-    @State private var editorCol = -1
-    @State private var editorRow = -1
-    @State private var editorPending = false
-    @State private var template: StampConfig? = nil
-    @State private var stampMode = false
     @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
@@ -85,7 +78,6 @@ struct DiagView: View {
     @State private var gridFrame: CGRect = .zero
     @State private var paletteDragColour: String? = nil
     @State private var paletteDragPoint: CGPoint? = nil
-    @State private var fadedCells: Set<GridView.GridPos> = []
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -121,7 +113,6 @@ struct DiagView: View {
     private func enterStaging(_ id: String) {
         commitHiddenPending()                       // moving into cell-edit closes any open hide-undo window
         stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
-        stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
         stagedCells = []                            // fresh session (also on retarget): nothing placed yet
         editing = true                              // long-press always brings us into EDIT + staging
         staging = true
@@ -140,7 +131,6 @@ struct DiagView: View {
             stagedConfig.colourID = brush                                    // empty: stage the brush, place a fresh cell
             au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
         }
-        stampMode = false; editorClose()
         stagedCells = [pos]                                                  // this cell flashes + tracks staged edits
         editing = true; staging = true
         scene = au.uiScene(); docColours = au.uiColours()
@@ -258,88 +248,6 @@ struct DiagView: View {
             }
             scene = au.uiScene()
         }
-    }
-
-    // MARK: - Cell editor (delta §5) — commit-on-first-interaction, inspector retarget, template/stamp
-
-    private var currentTemplate: StampConfig { template ?? .bootstrap(colourID: brush) }
-
-    /// Apply an edit to the target cell. A PENDING (empty) cell is CREATED from the template on this first
-    /// interaction; an occupied cell is mutated in place. Committing also updates the template + desk brush.
-    private func editorApply(_ f: (inout Cell) -> Void) {
-        guard let au, editorCol >= 0 else { return }
-        if scene.cells[editorCol][editorRow] == nil {
-            var c = currentTemplate.makeCell(); f(&c)
-            au.editScene { $0.cells[editorCol][editorRow] = c }
-            editorPending = false
-        } else {
-            au.editScene { s in if var c = s.cells[editorCol][editorRow] { f(&c); s.cells[editorCol][editorRow] = c } }
-        }
-        scene = au.uiScene(); docColours = au.uiColours()
-        fadedCells.remove(GridView.GridPos(col: editorCol, row: editorRow))   // un-fade on FIRST COMMITTED CHANGE (2026-07-24)
-        if let c = scene.cells[editorCol][editorRow] { template = .from(c); brush = c.colourID }   // commit ⇒ template + desk
-    }
-
-    private func editorClear() {
-        guard let au, editorCol >= 0 else { return }
-        au.editScene { $0.cells[editorCol][editorRow] = nil }
-        scene = au.uiScene(); editorClose()                 // cleared → empty; empties aren't editor targets, so dismiss (2026-07-25)
-    }
-    private func editorCopy() { if let c = scene.cells[editorCol][editorRow] { template = .from(c) } }
-    private func editorCopyToCells() {                      // enter STAMP MODE, close the editor
-        if let c = scene.cells[editorCol][editorRow] { template = .from(c) }
-        stampMode = true; editorCol = -1
-    }
-    private func editorPasteColour()  { editorApply { $0.colourID = currentTemplate.colourID } }
-    private func editorPasteRouting() { editorApply { $0.inputRow = currentTemplate.inputRow
-                                                      $0.inputReceiver = currentTemplate.inputReceiver
-                                                      $0.buses = currentTemplate.buses } }
-    private func editorClose() { editorCol = -1; editorPending = false }
-
-    // INPUT radio helpers: which rows are occupied (dim) and which are blocked (self + anti-2-cycle).
-    private func occupiedRows(_ col: Int) -> Set<Int> {
-        Set((0..<8).filter { scene.cells[col][$0] != nil })
-    }
-    private func blockedRows(_ col: Int, _ thisRow: Int) -> Set<Int> {
-        var s: Set<Int> = [thisRow]                         // self-reference unexpressible
-        for r in 0..<8 where scene.cells[col][r]?.inputRow == thisRow { s.insert(r) }   // direct 2-cycle guard
-        return s
-    }
-
-    @ViewBuilder private var cellEditorCard: some View {
-        if editorCol >= 0, editorCol < 8, editorRow < 8 {
-            CellEditorView(
-                col: editorCol, row: editorRow,
-                cell: scene.cells[editorCol][editorRow],
-                pending: editorPending,
-                template: currentTemplate,
-                colours: docColours,
-                receivers: au?.uiReceivers() ?? [],
-                occupiedRows: occupiedRows(editorCol),
-                blockedRows: blockedRows(editorCol, editorRow),
-                hasClipboard: template != nil,
-                onColour: { id in editorApply { $0.colourID = id } },
-                onInput: { rec, row in editorApply { $0.inputRow = row; if let r = rec { $0.inputReceiver = r } } },
-                onToggleEmitter: { b in editorApply { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } } },
-                onClear: editorClear, onCopy: editorCopy, onCopyToCells: editorCopyToCells,
-                onPasteColour: editorPasteColour, onPasteRouting: editorPasteRouting, onClose: editorClose)
-        }
-    }
-
-    // delta §5 STAMP MODE: the non-negotiable banner. (Per-cell overwrite tint is a follow-up.)
-    private var stampBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "square.on.square").font(.system(size: 11, weight: .heavy))
-            Text("STAMPING — tap cells to apply").font(.system(size: 10, weight: .heavy, design: .monospaced))
-            Spacer()
-            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .padding(.horizontal, 12).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.35)))
-                .contentShape(Rectangle()).onTapGesture { stampMode = false }
-        }
-        .foregroundColor(.black)
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(Color(red: 0.98, green: 0.72, blue: 0.12))
     }
 
     // Cell-edit STAGING banner (user 2026-07-25) — the mode indicator + DONE exit. Cyan to match the
@@ -588,9 +496,6 @@ struct DiagView: View {
                     }
                     .padding(12)
                 }
-                // The single-tap CELL EDITOR pop-up was DROPPED (user 2026-07-25) — editing lives in
-                // cell-edit (staging) now, single tap hides/shows a cell. (STAMP banner kept.)
-                if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
                 if staging { VStack(spacing: 0) { stagingBanner; Spacer() } }
                 // §5 palette-to-grid: a chip ghost following the finger (positioned in the GeometryReader's
                 // local space = the global drag point minus the reader's global origin).
@@ -657,7 +562,7 @@ struct DiagView: View {
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  onLongPressStageCell: enterStagingForCell,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
-                 faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
+                 dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
                  staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
                  hiddenPending: hiddenPending)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
