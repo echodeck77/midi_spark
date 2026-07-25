@@ -653,8 +653,23 @@ struct DiagView: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? .clear : Color.white.opacity(0.12), lineWidth: 1))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)                 // press-and-hold: down = preview on, release = off
-                .onChanged { _ in cellPreview = true }
-                .onEnded { _ in cellPreview = false })
+                .onChanged { _ in if !cellPreview { cellPreview = true; startCellPreview() } }
+                .onEnded { _ in cellPreview = false; au?.clearPreview() })
+    }
+
+    // Increment 2: while PREVIEW is held, tell the engine the staged VIRTUAL cell (colour + input filter +
+    // bus mask) so it solos. Also suspends the drag's preview-in-place (PREVIEW wins, per the design).
+    // NOTE: audible only for an ARP colour with held notes (Increment 1 scope: arp of the source pool).
+    private func startCellPreview() {
+        guard let au else { return }
+        let ci = colourIDs.firstIndex(of: stagedConfig.colourID) ?? -1
+        var mask: UInt8 = 0
+        for b in stagedConfig.buses { mask |= (1 as UInt8) << b.cable }
+        // receiver input → its channel filter (0 = OMNI); row input's live feed is Increment 1b → OMNI source for now.
+        let filter = (stagedConfig.inputRow == nil && stagedConfig.inputReceiver < receivers.count)
+            ? receivers[stagedConfig.inputReceiver].channel : 0
+        au.setPreview(colourIndex: ci, filter: filter, busMask: mask, inputRow: stagedConfig.inputRow ?? -1)
+        clearPreview()   // suspend any in-place hover preview while PREVIEW is held
     }
 
     @ViewBuilder private var receiversBox: some View {
