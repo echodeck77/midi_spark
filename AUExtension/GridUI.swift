@@ -246,8 +246,8 @@ struct GridView: View {
                 RoundedRectangle(cornerRadius: 8).stroke(accentCyan, lineWidth: 2.5)
             }
         }
-        .overlay {                                          // staging: empty cells pulse a border → tap to place, but ONLY once ≥1 cell placed
-            if staging, cell == nil, !stagedCells.isEmpty {
+        .overlay {                                          // staging: EVERY empty cell pulses a border in the staged hue → tap to place
+            if staging, cell == nil {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.9)
                     RoundedRectangle(cornerRadius: 8).strokeBorder(stagingColor.opacity(0.2 + 0.7 * f), lineWidth: 2)

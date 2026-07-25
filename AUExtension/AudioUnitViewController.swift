@@ -697,21 +697,20 @@ struct DiagView: View {
         .marchingAnts(staging && !stagingDragging, color: stagingColor)
     }
 
-    // PREVIEW — cell audition, a momentary HOLD button (user 2026-07-26): active only while pressed.
-    // SUPPRESSED while a staging drag is over the grid (the drag's preview-in-place wins); resumes off-grid.
-    // Phase 1: UI state only. Phase 2 wires the routing (solo the staged cell + row-source-in-time).
+    // PREVIEW — cell audition, a momentary HOLD button (user 2026-07-26): active only while pressed, and it
+    // takes PRIORITY over the drag's preview-in-place (no longer suppressed during a grid drag). Phase 1: UI
+    // state only. Phase 2 wires the routing (solo the staged cell + row-source-in-time; wins over in-place).
     private var previewButton: some View {
-        let suppressed = stagingDragging
-        let active = cellPreview && !suppressed
+        let active = cellPreview
         return Text(active ? "PREVIEW ●" : "PREVIEW (hold)")
             .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(active ? .black : .white.opacity(suppressed ? 0.3 : 0.7))
+            .foregroundColor(active ? .black : .white.opacity(0.7))
             .frame(maxWidth: .infinity).frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 6).fill(active ? stagingColor : Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? .clear : Color.white.opacity(0.12), lineWidth: 1))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)                 // press-and-hold: down = preview on, release = off
-                .onChanged { _ in if !suppressed { cellPreview = true } }
+                .onChanged { _ in cellPreview = true }
                 .onEnded { _ in cellPreview = false })
     }
 
