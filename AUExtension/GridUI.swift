@@ -73,7 +73,7 @@ struct GridView: View {
     var editing: Bool = true    // EDIT: pad tap → CELL EDITOR. PERFORM: pad tap → ALT flip. (Both = one target.)
     var selCol: Int = -1
     var selRow: Int = -1
-    var onTap: ((Int, Int) -> Void)? = nil          // delta §5: the whole pad is ONE target → opens the CELL EDITOR (EDIT)
+    var onTap: ((Int, Int) -> Void)? = nil          // delta §5: whole-pad target → editor (EDIT, OCCUPIED cells only; empties inert)
     // AUDITION (§6.4 / delta §5): press-and-hold a cell (≈0.3s) → sound its processor alone while the
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil

@@ -125,8 +125,14 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
 - **THE CELL EDITOR (user spec 2026-07-23 rev 2 — supersedes the same-day
   drag-only spec AND the shipped tap-paint AND the separate FROM/OUT
   popovers AND the hold menu, all of which dissolve into ONE surface):**
-  in EDIT, **tap ANY cell (occupied or empty) → the CELL EDITOR pop-up** —
-  and its sections run in SIGNAL-PATH ORDER (user spec 2026-07-24), the
+  in EDIT, **tap an OCCUPIED cell → the CELL EDITOR pop-up** (user rev
+  2026-07-25 — supersedes the earlier "tap ANY cell"). **EMPTY-cell taps
+  are INERT**: an empty cell is never an editor target — empties are
+  populated by DRAG ONLY (palette-to-grid creates a faded cell; relocation
+  moves/swaps one in). This kills accidental cell creation and makes the
+  editor unambiguously an occupied-cell surface. (In-editor CLEAR therefore
+  DISMISSES — a cleared cell is empty, so it can't stay an editor target.)
+  The editor's sections run in SIGNAL-PATH ORDER (user spec 2026-07-24), the
   same order the cell wears its anatomy:
   **1. INPUT — radio (a cell has ONE source):** all four RECEIVERS + all
   eight ROWS. Self-row = hard-disabled (unexpressible, as ever). A row
@@ -172,21 +178,23 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   the editor keeps a session-scoped TEMPLATE = the LAST-COMMITTED cell's
   full configuration (colour + input + IN CH + emitters); bootstrap before
   any commit = the desk-selected Colour + simple routing (⇐MIDI, →A).
-  On an EMPTY cell the editor opens PRE-FILLED with the template as a
-  PENDING (ghosted) state — **the cell commits on FIRST INTERACTION, never
-  on open** (tap-away untouched creates nothing; inspecting empties is
-  free). Routing-first works as intended: toggle an emitter on an empty
-  cell and it commits with the template colour + that change. Committing
-  via the editor ALSO selects that Colour in the desk (one "current
-  colour" concept; rules 1 and 2 agree by construction thereafter).
-  Serial identical authoring = tap cell → tap the pre-highlighted chip to
-  confirm → next cell (two taps each; drag remains the one-gesture path).
-  The template is EPHEMERAL (session only, never persisted).
+  **The template is what NEW cells are born with** — the config stamped by
+  DRAG-creation (palette-to-grid `makeCell`) and STAMP MODE, and the source
+  for the split-paste actions. (REVISED 2026-07-25: the empty-cell tap
+  pre-fill / commit-on-first-interaction / PENDING-ghost path is RETIRED
+  with the empty-cell-taps-are-inert rule above — the editor no longer opens
+  on empties, so there is no pending state to commit; empties become cells
+  by DRAG, inheriting the template, then open in the editor as ordinary
+  occupied cells.) Committing an edit ALSO selects that Colour in the desk
+  (one "current colour" concept; rules 1 and 2 agree by construction).
+  Serial identical authoring = drag the chip across the empties (each lands
+  as a faded template cell), then tune with the editor. The template is
+  EPHEMERAL (session only, never persisted).
 - **CLIPBOARD = TEMPLATE — one STAMP object (user spec 2026-07-23):**
   written by (a) committing a cell via the editor and (b) COPY — even
   without pasting, COPY loads that cell's full configuration as the
-  going-forward default. Read by the split-paste actions and the
-  empty-cell pre-fill. One concept, two writers, two readers.
+  going-forward default. Read by the split-paste actions and DRAG-creation
+  (palette-to-grid `makeCell`). One concept, two writers, two readers.
 - **STAMP MODE — "COPY TO CELLS…" (user spec 2026-07-23 rev; the stamp
   made VISIBLE):** the editor's action row splits COPY into: **COPY**
   (quiet — loads the stamp for split-paste + pre-fill) and **COPY TO

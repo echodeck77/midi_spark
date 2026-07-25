@@ -93,9 +93,12 @@ struct DiagView: View {
                 au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
             } else {                                       // open / RETARGET the inspector on this cell
+                // Empty-cell taps are INERT in EDIT (user 2026-07-25): the editor is for OCCUPIED cells
+                // only; empties are populated by DRAG (palette-to-grid or relocation), never by tap.
+                guard scene.cells[col][row] != nil else { selCol = col; selRow = row; return }
                 fadedCells.remove(GridView.GridPos(col: col, row: row))   // §5: first visit clears the provisional fade
                 editorCol = col; editorRow = row
-                editorPending = (scene.cells[col][row] == nil)
+                editorPending = false
                 selCol = col; selRow = row
             }
         } else {
@@ -130,7 +133,7 @@ struct DiagView: View {
     private func editorClear() {
         guard let au, editorCol >= 0 else { return }
         au.editScene { $0.cells[editorCol][editorRow] = nil }
-        editorPending = true; scene = au.uiScene()          // cleared → empty, editor stays (template ghost)
+        scene = au.uiScene(); editorClose()                 // cleared → empty; empties aren't editor targets, so dismiss (2026-07-25)
     }
     private func editorCopy() { if let c = scene.cells[editorCol][editorRow] { template = .from(c) } }
     private func editorCopyToCells() {                      // enter STAMP MODE, close the editor
