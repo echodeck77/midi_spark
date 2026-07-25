@@ -727,155 +727,183 @@ final class Router {
                                 passMask: effectivePassMask(colour, t: t), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
-            if mode == .arp {
-                var arpBeats = effectiveRateBeats(colour, t: t)
-                let gate = effectiveGate(colour, t: t)
-                let octaves = effectiveOctaves(colour, t: t)
-                if arpBeats <= 0 { arpBeats = 0.25 }
-                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
-
-                iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
-                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
-                    let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
-                                          cycleBeats: cycleBeats, phase: colour.a.phase,
-                                          runStartColumn: cell.runStartColumn)
-
-                    // Input pick. MIDI IN → filtered source pool. Referencing → the parent's CURRENT
-                    // sounding note by derivation (window-independent, any row incl. downward;
-                    // cycle-guarded), octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
-                    let base: Int
-                    if fed {
-                        guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
-                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
-                        else { return }
-                        let oct = Int64(max(1, octaves))
-                        base = up + 12 * Int(((pIdx % oct) + oct) % oct)   // up already has parent transpose
-                    } else {
-                        base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                             pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
-                        guard base >= 0 else { return }
-                    }
-                    let noteValue = base + transpose
-                    guard noteValue >= 0 && noteValue <= 127 else { return }
-
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
-                    if emits {
-                        emitArtic(note: UInt8(noteValue), busMask: cell.busMask,
-                                  onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                                  out: out, diag: &diag)
-                    }
+            switch mode {
+            case .arp:
+                emitArpRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, parent: parent,
+                           fed: fed, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                           windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                           beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
+            case .ratchet:
+                emitRatchetRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, parent: parent,
+                               fed: fed, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
+            case .strum:
+                emitStrumRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, emits: emits,
+                             pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                             beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+            case .identity, .chance, .harmonize:
+                // Unfed identity/chance/harmonize have no tick content — their hold was emitted at the column
+                // transition; a referenced one mirrors the parent's ticks (+ this transpose).
+                if fed {
+                    emitMirrorRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, mode: mode,
+                                  parent: parent, emits: emits, windowEnd: windowEnd, out: out, diag: &diag)
                 }
-            } else if mode == .ratchet {
-                // RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato
-                // (0.6), with a velocity ramp. Not an arp (no index cycling) — every stab is the pool.
-                let repeats = effectiveRepeats(colour, t: t)
-                let ramp = effectiveRamp(colour, t: t)
-                let sub = S / Double(repeats)                          // one repeat every `sub` beats
-                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = sub }
-
-                iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
-                             beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                             beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
-                    let colStart = (mTickBeat / S).rounded(.down) * S
-                    let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
-                    let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
-
-                    if fed {
-                        // ratchet the parent's CURRENT sounding note (derivation, any row, cycle-guarded)
-                        guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
-                                                          box: box, pool: pool, S: S, cycleBeats: cycleBeats)
-                        else { return }
-                        let n = up + transpose
-                        guard n >= 0 && n <= 127 else { return }
-                        storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
-                        if emits {
-                            emitArtic(note: UInt8(n), busMask: cell.busMask,
-                                      onSample: onTime, offSample: offTime,
-                                      windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
-                        }
-                    } else {
-                        // re-strike every held note passing the input-channel filter (§7)
-                        let srcN = pool.srcCount(for: cell)
-                        for k in 0..<srcN {
-                            let base = Int(pool.srcAscending(k, for: cell))
-                            let n = base + transpose
-                            guard n >= 0 && n <= 127 else { continue }
-                            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
-                            if emits {
-                                emitArtic(note: UInt8(n), busMask: cell.busMask,
-                                          onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                                          velocity: vel, out: out, diag: &diag)
-                            }
-                        }
-                    }
-                }
-            } else if mode == .strum {
-                // STRUM (§3): stagger the source chord's onsets over `spread` beats from the column
-                // start, held to the column boundary. Emitted per-window as each note's onset arrives
-                // (strumProgress counter, reset per column) — boundary-safe, each note fires once.
-                let spread = effectiveSpread(colour, t: t)
-                let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
-                let count = pool.srcCount(for: cell)   // §7 source filter
-                if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
-
-                if count > 0 {
-                    let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
-                    let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
-                                             beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                    while strumProgress[r] < count {
-                        let j = strumProgress[r]
-                        let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
-                        let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
-                                                   beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                        if onsetSample >= windowEnd { break }        // onset lands in a later window
-                        strumProgress[r] += 1
-
-                        let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-                        let baseNote = Int(pool.srcAscending(sortedIdx, for: cell))
-                        let n = baseNote + transpose
-                        guard n >= 0 && n <= 127 else { continue }
-                        let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
-                        let onT = max(onsetSample, windowStart)
-                        storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
-                        if emits {
-                            emitArtic(note: UInt8(n), busMask: cell.busMask,
-                                      onSample: onT, offSample: offSample, windowEnd: windowEnd,
-                                      velocity: vel, out: out, diag: &diag)
-                        }
-                    }
-                }
-            } else if (mode == .identity || mode == .chance || mode == .harmonize) && fed {
-                // Identity/CHANCE/HARMONIZE referenced: MIRROR the parent's ticks (+ this transpose).
-                // CHANCE drops each note-on by probability; HARMONIZE expands each to voices.
-                // articBuf holds this-pass artics, so an UPWARD parent (already evaluated) mirrors
-                // correctly; a DOWNWARD parent's buffer is empty this pass → silent (unit-delay not
-                // yet double-buffered — no fixture needs it; backward taps use ARP references).
-                let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
-                let fr = parent
-                for k in 0..<articCount[fr] {
-                    let src = articBuf[fr * Router.articCap + k]
-                    let n = Int(src.note) + transpose
-                    guard n >= 0 && n <= 127 else { continue }
-                    if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
-                    if mode == .harmonize {
-                        emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: true,
-                                    busMask: emits ? cell.busMask : 0, on: src.onSample, off: src.offSample,
-                                    beat: src.beat, windowEnd: windowEnd, out: out, diag: &diag)
-                    } else {
-                        storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), beat: src.beat)
-                        if emits {
-                            emitArtic(note: UInt8(n), busMask: cell.busMask,
-                                      onSample: src.onSample, offSample: src.offSample,
-                                      windowEnd: windowEnd, out: out, diag: &diag)
-                        }
-                    }
-                }
+            case .silent:
+                break   // closed passgate → nothing this window
             }
-            // identity/chance-unfed: no tick content (their hold is emitted at the column transition)
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+    }
+
+    // MARK: - per-row tick emitters (the process() per-window content, one method per processor)
+
+    /// ARP (§3): index the input each tick — MIDI IN → filtered source pool; referencing → the parent's
+    /// CURRENT sounding note by derivation, octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
+    private func emitArpRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+                            parent: Int, fed: Bool, emits: Bool, box: SnapshotBox, pool: NotePool,
+                            effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
+                            windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
+                            out: MIDIEmitter?, diag: inout KernelDiag) {
+        var arpBeats = effectiveRateBeats(colour, t: t)
+        let gate = effectiveGate(colour, t: t)
+        let octaves = effectiveOctaves(colour, t: t)
+        if arpBeats <= 0 { arpBeats = 0.25 }
+        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
+
+        iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
+                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                     beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
+            let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
+                                  cycleBeats: cycleBeats, phase: colour.a.phase,
+                                  runStartColumn: cell.runStartColumn)
+            let base: Int
+            if fed {
+                guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
+                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                else { return }
+                let oct = Int64(max(1, octaves))
+                base = up + 12 * Int(((pIdx % oct) + oct) % oct)   // up already has parent transpose
+            } else {
+                base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
+                                     pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
+                guard base >= 0 else { return }
+            }
+            let noteValue = base + transpose
+            guard noteValue >= 0 && noteValue <= 127 else { return }
+            storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
+            if emits {
+                emitArtic(note: UInt8(noteValue), busMask: cell.busMask,
+                          onSample: onTime, offSample: offTime, windowEnd: windowEnd, out: out, diag: &diag)
+            }
+        }
+    }
+
+    /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
+    /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
+    private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+                                parent: Int, fed: Bool, emits: Bool, box: SnapshotBox, pool: NotePool,
+                                effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
+                                windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
+                                out: MIDIEmitter?, diag: inout KernelDiag) {
+        let repeats = effectiveRepeats(colour, t: t)
+        let ramp = effectiveRamp(colour, t: t)
+        let sub = S / Double(repeats)                          // one repeat every `sub` beats
+        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = sub }
+
+        iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
+                     beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                     beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
+            let colStart = (mTickBeat / S).rounded(.down) * S
+            let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
+            let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
+            if fed {
+                guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
+                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                else { return }
+                let n = up + transpose
+                guard n >= 0 && n <= 127 else { return }
+                storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
+                if emits {
+                    emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onTime, offSample: offTime,
+                              windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            } else {
+                let srcN = pool.srcCount(for: cell)            // re-strike every held note passing the filter (§7)
+                for k in 0..<srcN {
+                    let n = Int(pool.srcAscending(k, for: cell)) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
+                    if emits {
+                        emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onTime, offSample: offTime,
+                                  windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                    }
+                }
+            }
+        }
+    }
+
+    /// STRUM (§3): stagger the source chord's onsets over `spread` beats from the column start, held to the
+    /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
+    private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+                              emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
+                              beatsPerSample: Double, S: Double, a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        let spread = effectiveSpread(colour, t: t)
+        let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
+        let count = pool.srcCount(for: cell)   // §7 source filter
+        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
+        guard count > 0 else { return }
+
+        let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+        let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
+                                 beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        while strumProgress[r] < count {
+            let j = strumProgress[r]
+            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
+            let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
+                                       beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            if onsetSample >= windowEnd { break }        // onset lands in a later window
+            strumProgress[r] += 1
+
+            let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
+            let n = Int(pool.srcAscending(sortedIdx, for: cell)) + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
+            let onT = max(onsetSample, windowStart)
+            storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
+            if emits {
+                emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offSample,
+                          windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+            }
+        }
+    }
+
+    /// Identity / CHANCE / HARMONIZE referenced: MIRROR the parent's ticks (+ this transpose). CHANCE drops
+    /// each note-on by probability; HARMONIZE expands each to voices. articBuf holds this-pass artics, so an
+    /// UPWARD parent mirrors correctly; a DOWNWARD parent's buffer is empty this pass → silent (backward taps
+    /// use ARP references — no fixture needs the unit-delay double-buffer).
+    private func emitMirrorRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+                               mode: CellMode, parent fr: Int, emits: Bool, windowEnd: Int64,
+                               out: MIDIEmitter?, diag: inout KernelDiag) {
+        let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
+        for k in 0..<articCount[fr] {
+            let src = articBuf[fr * Router.articCap + k]
+            let n = Int(src.note) + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            if mode == .chance && !chancePasses(beat: src.beat, note: n, probability: prob) { continue }
+            if mode == .harmonize {
+                emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: true,
+                            busMask: emits ? cell.busMask : 0, on: src.onSample, off: src.offSample,
+                            beat: src.beat, windowEnd: windowEnd, out: out, diag: &diag)
+            } else {
+                storeArtic(row: r, on: src.onSample, off: src.offSample, note: UInt8(n), beat: src.beat)
+                if emits {
+                    emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: src.onSample,
+                              offSample: src.offSample, windowEnd: windowEnd, out: out, diag: &diag)
+                }
+            }
+        }
     }
 
     // MARK: - PREVIEW / cell audition (Phase 2, design 2026-07-26)
