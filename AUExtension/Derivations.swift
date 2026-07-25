@@ -422,6 +422,21 @@ func onSceneAudible(_ on: OnConfig, pass: Int) -> Bool {
     return true
 }
 
+// MARK: - ON HOLD (§9 item 1) — momentary treatments while a cell is press-held (PERFORM). Ephemeral
+// (audition-class): the held cell is an overlay, never a document write. SPRING = the overlay clears on
+// release; LATCH (3c) will keep it until §5c HOLD. These are the alt/octave treatments (3a); FREEZE /
+// MORPH-SCRUB / SLICE-CYCLE follow in 3b.
+
+/// ON HOLD = ALT: flip the held cell to its B-state while held.
+func holdAlt(base: Bool, on: OnConfig, held: Bool) -> Bool {
+    (held && on.hold == .alt) ? !base : base
+}
+
+/// ON HOLD = OCT: shift the held cell's notes an octave (± per octUp) while held; 0 otherwise.
+func holdOctaveShift(on: OnConfig, held: Bool) -> Int {
+    (held && on.hold == .oct) ? (on.octUp ? 12 : -12) : 0
+}
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)

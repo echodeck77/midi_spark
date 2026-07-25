@@ -587,6 +587,7 @@ final class Router {
                  audition: Int = -1,
                  laneMask: UInt8 = 0,
                  velOverride: UInt32 = 0,
+                 heldCell: Int = -1,
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -722,9 +723,13 @@ final class Router {
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
+            // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
+            let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
             // §9 item 1: ON ARRIVE (ALT-ALTERNATE / MORPH-DRIFT) folds into t as a pure function of the pass.
-            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: diag.pass)
+            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
+                                         baseAlt: holdAlt(base: cell.alt, on: colour.on, held: held), arrivals: diag.pass)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+                          + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
             let fed = parent >= 0
             let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,

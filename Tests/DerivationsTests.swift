@@ -338,6 +338,21 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual([1, 2, 5, 6].map { onSceneAudible(on, pass: $0) }, [false, true, true, false])
     }
 
+    // MARK: - ON HOLD (§9 item 1) — momentary held-cell treatments
+
+    func testHoldAltAndOctave() {
+        var on = OnConfig(); on.hold = .alt
+        XCTAssertFalse(holdAlt(base: false, on: on, held: false))          // not held → inert
+        XCTAssertTrue(holdAlt(base: false, on: on, held: true))            // held + ALT → flips
+        XCTAssertFalse(holdAlt(base: true, on: on, held: true))
+        on.hold = .oct
+        XCTAssertFalse(holdAlt(base: false, on: on, held: true))           // a non-alt hold doesn't flip alt
+        on.octUp = true;  XCTAssertEqual(holdOctaveShift(on: on, held: true), 12)   // OCT up
+        on.octUp = false; XCTAssertEqual(holdOctaveShift(on: on, held: true), -12)  // OCT down
+        XCTAssertEqual(holdOctaveShift(on: on, held: false), 0)            // not held → no shift
+        on.hold = .freeze; XCTAssertEqual(holdOctaveShift(on: on, held: true), 0)   // a non-oct hold → no shift
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {

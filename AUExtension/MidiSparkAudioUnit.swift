@@ -76,6 +76,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
 
+    /// §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM — its ON HOLD
+    /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
+    func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }
+
     /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
     /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
     /// Ephemeral, never persisted — the momentary "whisper/slam a bus" gesture, not the parked scale-fader.

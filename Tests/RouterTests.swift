@@ -1293,6 +1293,31 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(passOns(2), 0, "pass 3 — the cell enters and sounds")
     }
 
+    // §9 item 1 ON HOLD (3a, integration): while a cell is press-held with ON HOLD = OCT up, its notes shift
+    // an octave; not held, they play normally.
+    func testOnHoldOctaveShiftsHeldCell() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours()
+        var on = OnConfig(); on.hold = .oct; on.octUp = true; cs[gold].on = on
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = index 0
+        func notes(held: Bool) -> Set<UInt8> {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let wb = Double(frames) * tempo / 60.0 / sr
+            var beat = 0.0, ts = 0.0
+            while beat < 2.0 {
+                router.process(box: b, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, heldCell: held ? 0 : -1, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        XCTAssertTrue(notes(held: false).contains(60), "not held: the arp sounds note 60")
+        XCTAssertFalse(notes(held: false).contains(72), "not held: no octave shift")
+        XCTAssertTrue(notes(held: true).contains(72), "held (ON HOLD=OCT up): 60 shifts to 72")
+        XCTAssertFalse(notes(held: true).contains(60), "held: the un-shifted note is gone")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!

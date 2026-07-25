@@ -64,6 +64,10 @@ final class Kernel {
     // read on the render thread. Ephemeral like auditionTarget; the UI clears it on stop / EDIT switch.
     private var laneMask: UInt8 = 0
     func setLaneMask(_ mask: UInt8) { laneMask = mask }
+    // §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM. Ephemeral like
+    // laneMask; the UI sets it while a cell is held and clears it on release / stop / EDIT switch.
+    private var heldCell: Int32 = -1
+    func setHoldCell(_ cell: Int) { heldCell = Int32(cell) }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -209,7 +213,7 @@ final class Kernel {
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
-                        velOverride: velOverride,
+                        velOverride: velOverride, heldCell: Int(heldCell),
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 
