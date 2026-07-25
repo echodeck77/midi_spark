@@ -448,7 +448,7 @@ final class Router {
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
-            let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
+            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
             let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
                                 passMask: effectivePassMask(colour, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
@@ -494,7 +494,7 @@ final class Router {
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
         let referencing = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
-        let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
+        let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
         let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
                             passMask: effectivePassMask(colour, t: t), pass: pass)
         if mode == .silent { return nil }      // e.g. a closed passgate sounds nothing
@@ -719,7 +719,8 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
-            let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
+            // §9 item 1: ON ARRIVE (ALT-ALTERNATE / MORPH-DRIFT) folds into t as a pure function of the pass.
+            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: diag.pass)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
             let fed = parent >= 0

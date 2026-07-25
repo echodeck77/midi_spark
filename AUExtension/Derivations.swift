@@ -371,6 +371,42 @@ func peakHoldLevel(peak: Double, since: Date, now: Date, hold: Double = 0.15) ->
     return max(0, peak * (1 - now.timeIntervalSince(since) / hold))
 }
 
+// MARK: - ON ARRIVE (§9 item 1) — temporal treatments as PURE derivations of the arrival counter
+
+// "Arrivals" = the number of times the playhead has reached this cell's column since transport start (once
+// per pass, so arrivals == the true pass counter). EVERY-N advances the effect once every N arrivals. All
+// pure functions of (config, arrivals) — no accumulation, no render-thread writes (derive-vs-mutate law).
+
+/// ALT-ALTERNATE: flip the cell's ALT bit every EVERY-N arrivals. arrivals 0 (first pass) = the base state.
+func arriveAlt(base: Bool, on: OnConfig, arrivals: Int) -> Bool {
+    guard on.arrive == .altAlternate, arrivals >= 0 else { return base }
+    let n = max(1, on.arriveEvery)
+    return base != ((arrivals / n) & 1 == 1)          // XOR the base with the flip parity
+}
+
+/// MORPH-DRIFT: advance the morph position by driftPct% every EVERY-N arrivals, wrapped (↻ sawtooth) or
+/// bounced (⇄ triangle) into [0,1]. arrivals 0 = the base morph.
+func arriveMorph(base: Double, on: OnConfig, arrivals: Int) -> Double {
+    guard on.arrive == .morphDrift, arrivals >= 0 else { return base }
+    let n = max(1, on.arriveEvery)
+    let pos = base + Double(arrivals / n) * (Double(on.driftPct) / 100.0)
+    switch on.driftMode {
+    case .loop:                                       // sawtooth 0→1→0
+        return pos - floor(pos)
+    case .pingpong:                                   // triangle 0→1→0→1
+        var ph = pos.truncatingRemainder(dividingBy: 2); if ph < 0 { ph += 2 }
+        return ph <= 1 ? ph : 2 - ph
+    }
+}
+
+/// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
+/// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
+@inline(__always)
+func effectiveTWithArrive(_ c: SnapColour, baseMorph: Double, baseAlt: Bool, arrivals: Int) -> Double {
+    effectiveT(c, morph: arriveMorph(base: baseMorph, on: c.on, arrivals: arrivals),
+               alt: arriveAlt(base: baseAlt, on: c.on, arrivals: arrivals))
+}
+
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
 
 /// UMP message word count by Message Type (top nibble of word0), per the UMP spec — lets the parser

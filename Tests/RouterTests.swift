@@ -1187,6 +1187,39 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(receiverHears(filter: b.receiverChannels[0], channel: 0), "match-nothing → hears no channel")
     }
 
+    // §9 item 1 ON ARRIVE (integration): ALT-ALTERNATE on a swap pair (A = open passgate → sounds,
+    // B = closed passgate → silent) flips the cell's sounding every pass. Proves the derivation is wired
+    // into the render (pass 0 = base A, pass 1 = flipped B).
+    func testArriveAltAlternateFlipsSoundingAcrossPasses() {
+        let gold = colourIDs.firstIndex(of: "gold")!, orange = colourIDs.firstIndex(of: "orange")!
+        var cs = arpColours()
+        cs[gold] = Colour(colourID: "gold", type: .passgate)
+        cs[gold].paramsA.passes = [true, true, true, true]         // A: open → holds the chord
+        var on = OnConfig(); on.arrive = .altAlternate; on.arriveEvery = 1; cs[gold].on = on
+        cs[orange] = Colour(colourID: "orange", type: .passgate)
+        cs[orange].paramsA.passes = [false, false, false, false]   // B (partner): closed → silent
+        cs[gold].altColour = orange
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+
+        let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr
+        let cycle = Double(Snap.cols) * b.stepBeats
+        let pool = chord([60, 64, 67])
+        func runRange(_ lo: Double, _ hi: Double, into e: RecordingEmitter) {
+            var beat = lo, ts = (lo / wb) * Double(frames)
+            while beat < hi {
+                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        let e0 = RecordingEmitter(); runRange(0, cycle, into: e0)             // pass 0 → A open
+        let e1 = RecordingEmitter(); runRange(cycle, 2 * cycle, into: e1)     // pass 1 → ALT flips to B closed
+        XCTAssertGreaterThan(e0.ons.count, 0, "pass 0 (A: open passgate) sounds the held chord")
+        XCTAssertEqual(e1.ons.count, 0, "pass 1 (ALT-ALTERNATE → B: closed passgate) is silent")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!

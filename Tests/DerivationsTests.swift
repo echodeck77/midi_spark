@@ -280,6 +280,37 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(c.b0, 0xD5); XCTAssertEqual(c.b1, 127); XCTAssertEqual(c.len, 2)
     }
 
+    // MARK: - ON ARRIVE (§9 item 1) — pure temporal derivations
+
+    func testArriveAltAlternateFlipsEveryN() {
+        var on = OnConfig(); on.arrive = .altAlternate; on.arriveEvery = 1
+        XCTAssertEqual([0, 1, 2, 3].map { arriveAlt(base: false, on: on, arrivals: $0) }, [false, true, false, true])
+        // base true just inverts the sequence.
+        XCTAssertEqual([0, 1, 2].map { arriveAlt(base: true, on: on, arrivals: $0) }, [true, false, true])
+        // EVERY-2: flips every second arrival.
+        on.arriveEvery = 2
+        XCTAssertEqual([0, 1, 2, 3, 4].map { arriveAlt(base: false, on: on, arrivals: $0) }, [false, false, true, true, false])
+        // A non-alt-alternate config is inert.
+        on.arrive = .morphDrift
+        XCTAssertFalse(arriveAlt(base: false, on: on, arrivals: 3))
+    }
+
+    func testArriveMorphDriftLoopAndPingpong() {
+        var on = OnConfig(); on.arrive = .morphDrift; on.arriveEvery = 1; on.driftPct = 25
+        on.driftMode = .loop                                      // sawtooth: 0 .25 .5 .75 0 .25 …
+        for (i, want) in [0, 0.25, 0.5, 0.75, 0.0, 0.25].enumerated() {
+            XCTAssertEqual(arriveMorph(base: 0, on: on, arrivals: i), want, accuracy: 1e-9)
+        }
+        on.driftMode = .pingpong                                 // triangle: 0 .25 .5 .75 1 .75 .5 .25 0
+        for (i, want) in [0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25, 0.0].enumerated() {
+            XCTAssertEqual(arriveMorph(base: 0, on: on, arrivals: i), want, accuracy: 1e-9)
+        }
+        // arrivals 0 = the base morph, always; a non-drift config is inert.
+        XCTAssertEqual(arriveMorph(base: 0.4, on: on, arrivals: 0), 0.4, accuracy: 1e-9)
+        on.arrive = .dice
+        XCTAssertEqual(arriveMorph(base: 0.4, on: on, arrivals: 5), 0.4, accuracy: 1e-9)
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {
