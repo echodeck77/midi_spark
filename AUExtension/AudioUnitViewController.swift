@@ -258,9 +258,19 @@ struct DiagView: View {
         guard editing else { return }                 // EDIT-only
         paletteDragColour = id; paletteDragPoint = point
     }
+    // Cell-edit staging: a chip drag is in flight while staging → the moving outline hands off to the grid.
+    private var stagingDragging: Bool { staging && paletteDragPoint != nil }
+
     private func paletteDrop(_ id: String, _ point: CGPoint) {
         defer { paletteDragColour = nil; paletteDragPoint = nil }
         guard editing, let au, let pos = cellAtGlobal(point) else { return }
+        if staging {                                  // STAGING drop: place the fully-configured pending cell
+            var c = stagedConfig.makeCell(); c.colourID = id   // staged input + emitters, colour from the dragged chip
+            au.editScene { $0.cells[pos.col][pos.row] = c }
+            brush = id; scene = au.uiScene(); docColours = au.uiColours()
+            staging = false; editing = false          // "once dropped, edit mode is off" → straight to PERFORM
+            return
+        }
         if scene.cells[pos.col][pos.row] != nil {     // POPULATED → recolour only (keep other settings)
             au.editScene { s in if var c = s.cells[pos.col][pos.row] { c.colourID = id; s.cells[pos.col][pos.row] = c } }
         } else {                                       // EMPTY → create from the template, shown FADED
@@ -508,6 +518,7 @@ struct DiagView: View {
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
+            .marchingAnts(stagingDragging, cornerRadius: 8)   // staging: the outline hands off to the grid mid-drag
     }
 
     private var hint: some View {
@@ -563,7 +574,7 @@ struct DiagView: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging)
+        .marchingAnts(staging && !stagingDragging)   // hands off to the grid while a staging drag is in flight
     }
 
     @ViewBuilder private var receiversBox: some View {
@@ -579,7 +590,7 @@ struct DiagView: View {
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging)
+        .marchingAnts(staging && !stagingDragging)   // hands off to the grid while a staging drag is in flight
     }
 
     private var colourBox: some View {
@@ -592,7 +603,7 @@ struct DiagView: View {
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                         onPick: { pickPalette($0) }, onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
-                        onLongPress: enterStaging)
+                        onLongPress: enterStaging, stagingID: staging ? stagedConfig.colourID : nil)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

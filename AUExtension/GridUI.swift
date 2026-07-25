@@ -1194,6 +1194,7 @@ struct PaletteView: View {
     var onChipDrag: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drag (id, global point)
     var onChipDrop: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drop (id, global point)
     var onLongPress: ((String) -> Void)? = nil            // cell-edit staging: long-press → stage a cell of this Colour
+    var stagingID: String? = nil                          // cell-edit staging: the staged chip pulses + wears the moving outline
 
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
@@ -1220,9 +1221,11 @@ struct PaletteView: View {
                     .fill(Color(hex: colourHexes[i]))
                     .frame(height: 22)
                     .overlay { if let a = activity(id) { chipSweep(a) } }   // §6b activity playhead
+                    .overlay { if stagingID == id { stagedPulse } }         // staging: pulse original↔black to draw the eye back
                     .overlay(RoundedRectangle(cornerRadius: 3)
                         .stroke(id == brush ? Color.white : Color.white.opacity(0.12),
                                 lineWidth: id == brush ? 2 : 0.5))
+                    .marchingAnts(stagingID == id, cornerRadius: 3)         // staging: the same moving outline, on the staged chip
                     .contentShape(Rectangle())
                     .onTapGesture { onPick(id) }
                     .simultaneousGesture(                        // §5: drag a chip onto the grid (min-dist so tap is safe)
@@ -1236,6 +1239,17 @@ struct PaletteView: View {
             }
         }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
+    }
+
+    // Staging pulse — the staged chip breathes from its original colour to black (~0.85s) to pull the eye
+    // back to the long-press gesture. A black overlay whose opacity rides a cosine; pure UI.
+    private var stagedPulse: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let f = 0.5 - 0.5 * cos(t * 2 * .pi / 0.85)
+            RoundedRectangle(cornerRadius: 3).fill(Color.black).opacity(f * 0.85)
+        }
+        .allowsHitTesting(false)
     }
 
     private func chipSweep(_ a: (faint: Bool, alt: Bool)) -> some View {
@@ -1268,19 +1282,23 @@ private let stagingAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
 struct MarchingAnts: ViewModifier {
     var active: Bool
     var color: Color
+    var cornerRadius: CGFloat = 6
+    var lineWidth: CGFloat = 2
     @State private var phase: CGFloat = 0
     func body(content: Content) -> some View {
         content.overlay {
             if active {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(color, style: StrokeStyle(lineWidth: 2, dash: [7, 4], dashPhase: phase))
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(color, style: StrokeStyle(lineWidth: lineWidth, dash: [7, 4], dashPhase: phase))
                     .onAppear { withAnimation(.linear(duration: 0.55).repeatForever(autoreverses: false)) { phase = -11 } }
             }
         }
     }
 }
 extension View {
-    func marchingAnts(_ active: Bool, color: Color = stagingCyan) -> some View { modifier(MarchingAnts(active: active, color: color)) }
+    func marchingAnts(_ active: Bool, color: Color = stagingCyan, cornerRadius: CGFloat = 6, lineWidth: CGFloat = 2) -> some View {
+        modifier(MarchingAnts(active: active, color: color, cornerRadius: cornerRadius, lineWidth: lineWidth))
+    }
 }
 
 /// RECEIVERS panel in cell-edit state: pick the pending cell's INPUT. R1–R4 select a receiver
