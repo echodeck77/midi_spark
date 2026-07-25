@@ -76,7 +76,6 @@ struct DiagView: View {
     // Hide-with-undo (user 2026-07-25): a single tap HIDES a cell (muted, recoverable) and marks it with a
     // ring in its own colour; re-tapping restores it; touching ANY other cell COMMITS the deletion. This is
     // the just-hidden cell in its undo window (nil = none).
-    @State private var hiddenPending: GridView.GridPos? = nil
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
     // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
@@ -102,14 +101,7 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
-
-    // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
-    private func commitHiddenPending() {
-        guard let au, let hp = hiddenPending else { return }
-        au.editScene { $0.cells[hp.col][hp.row] = nil }
-        hiddenPending = nil; scene = au.uiScene()
-    }
+    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
 
     // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
     // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
@@ -117,7 +109,6 @@ struct DiagView: View {
     // Forces EDIT on so it's always possible to re-enter after a drop drops us into PERFORM (bug fix
     // 2026-07-25); tapping a different chip while staging shifts focus to that Colour (same entry point).
     private func enterStaging(_ id: String) {
-        commitHiddenPending()                       // moving into cell-edit closes any open hide-undo window
         stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
         stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
         stagedCells = []                            // fresh session (also on retarget): nothing placed yet
@@ -130,7 +121,6 @@ struct DiagView: View {
     // fresh flashing cell there. From here it behaves like any staging session (place more / recolour / commit).
     private func enterStagingForCell(_ col: Int, _ row: Int) {
         guard let au, editing else { return }
-        commitHiddenPending()                       // long-pressing to stage closes any open hide-undo window
         let pos = GridView.GridPos(col: col, row: row)
         if let cell = scene.cells[col][row] {
             stagedConfig = StampConfig.from(cell); brush = cell.colourID     // adopt the cell's colour + routing
@@ -219,44 +209,27 @@ struct DiagView: View {
         applyStagedToPlaced()
     }
 
-    // Tap a cell. EDIT: paint an empty cell / RECOLOUR an occupied one with the brush (delta §5).
-    // PERFORM: flip an occupied cell to/from its ALT (B) state (engine-backed `alt`). Empty cells
-    // ignore perform taps. (MUTE/BYP and the tap-action selector were removed pending the perform spec.)
+    // Tap a cell. EDIT (user 2026-07-26): tap a POPULATED cell → STAGE it for editing (its settings load
+    // into the CELL box); while STAGING, tapping any populated/flashing cell COMMITS the flashing set and
+    // tapping an empty cell PLACES another staged cell. PERFORM: flip ALT.
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
+            let pos = GridView.GridPos(col: col, row: row)
             if staging {
-                let pos = GridView.GridPos(col: col, row: row)
-                if stagedCells.contains(pos) {               // tap a FLASHING cell → COMMIT ALL + leave cell-edit
-                    exitStaging()                            // the flashing cells already hold the staged values; commit = stop flashing
-                    return
+                if scene.cells[col][row] == nil {            // EMPTY → place another staged (flashing) cell
+                    au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
+                    stagedCells.insert(pos)
+                    selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
+                } else {                                     // POPULATED (flashing or other) → commit the flashing set + leave cell-edit
+                    exitStaging()
                 }
-                guard scene.cells[col][row] == nil else { return }   // other populated cells ignored (panels are in cell-edit)
-                au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }   // tap an EMPTY cell → place another flashing cell
-                stagedCells.insert(pos)                      // a placed cell: pulses + tracks staged edits
-                selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
                 return
             }
-            if stampMode {                                 // delta §5 STAMP MODE: apply the stamp, no editor
-                au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
-                fadedCells.remove(GridView.GridPos(col: col, row: row))   // a deliberate stamp is a committed change → un-fade
-                selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
+            if scene.cells[col][row] != nil {               // not staging: tap a populated cell → STAGE it for editing
+                enterStagingForCell(col, row)
             } else {
-                // Single tap in EDIT (user 2026-07-25, replaces the editor pop-up): HIDE-with-undo. Tapping a
-                // visible cell hides it (muted, recoverable) and rings it in its own colour; re-tapping the
-                // same cell RESTORES it; touching ANY OTHER cell COMMITS the pending deletion. Empty = inert.
-                let pos = GridView.GridPos(col: col, row: row)
-                if hiddenPending == pos {                        // re-tap the recently-hidden cell → restore
-                    au.editScene { s in if var c = s.cells[col][row] { c.muted = false; s.cells[col][row] = c } }
-                    hiddenPending = nil; selCol = col; selRow = row; scene = au.uiScene()
-                    return
-                }
-                commitHiddenPending()                           // touched a different cell → delete the prior pending-hidden one
-                if scene.cells[col][row] != nil {               // a visible populated cell → hide it (recoverable)
-                    au.editScene { s in if var c = s.cells[col][row] { c.muted = true; s.cells[col][row] = c } }
-                    hiddenPending = pos
-                }
-                selCol = col; selRow = row; scene = au.uiScene()
+                selCol = col; selRow = row                  // empty = inert
             }
         } else {
             au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
@@ -369,11 +342,16 @@ struct DiagView: View {
         .background(Color(red: 0.15, green: 0.88, blue: 0.94))
     }
 
-    // delta §5 drag-and-drop (EDIT): relocate a cell — move onto an empty slot, swap onto an occupied one.
-    // A document edit (undoable via editScene); references move as-is (fields sacred).
+    // Relocate a cell (user 2026-07-26): long-press then drag → MOVE it to the target, OVERWRITING even a
+    // populated cell; the source empties. Undoable. If the moved cell was flashing, its flash follows it.
     private func moveCell(_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) {
-        guard let au else { return }
-        au.editScene { $0.swapCells(from, to) }
+        guard let au, from.col != to.col || from.row != to.row else { return }
+        au.editScene { s in
+            s.cells[to.col][to.row] = s.cells[from.col][from.row]   // overwrite the target
+            s.cells[from.col][from.row] = nil                        // source empties
+        }
+        let f = GridView.GridPos(col: from.col, row: from.row), t = GridView.GridPos(col: to.col, row: to.row)
+        if stagedCells.remove(f) != nil { stagedCells.insert(t) }    // the flash moves with the cell
         scene = au.uiScene()
     }
 
@@ -643,11 +621,9 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 onLongPressCellEdit: enterStagingForCell,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
-                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
-                 hiddenPending: hiddenPending)
+                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
@@ -721,20 +697,22 @@ struct DiagView: View {
         .marchingAnts(staging && !stagingDragging, color: stagingColor)
     }
 
-    // PREVIEW — cell audition. Phase 1: UI toggle only. SUPPRESSED while a staging drag is over the grid
-    // (so the drag's preview-in-place wins); the toggle state persists, so it RESUMES off-grid. Phase 2
-    // wires the routing (solo the staged cell + row-source-in-time).
+    // PREVIEW — cell audition, a momentary HOLD button (user 2026-07-26): active only while pressed.
+    // SUPPRESSED while a staging drag is over the grid (the drag's preview-in-place wins); resumes off-grid.
+    // Phase 1: UI state only. Phase 2 wires the routing (solo the staged cell + row-source-in-time).
     private var previewButton: some View {
         let suppressed = stagingDragging
         let active = cellPreview && !suppressed
-        return Text(active ? "PREVIEW ●" : "PREVIEW")
+        return Text(active ? "PREVIEW ●" : "PREVIEW (hold)")
             .font(.system(size: 11, weight: .heavy, design: .monospaced))
             .foregroundColor(active ? .black : .white.opacity(suppressed ? 0.3 : 0.7))
             .frame(maxWidth: .infinity).frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 6).fill(active ? stagingColor : Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? .clear : Color.white.opacity(0.12), lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { if !suppressed { cellPreview.toggle() } }
+            .gesture(DragGesture(minimumDistance: 0)                 // press-and-hold: down = preview on, release = off
+                .onChanged { _ in if !suppressed { cellPreview = true } }
+                .onEnded { _ in cellPreview = false })
     }
 
     @ViewBuilder private var receiversBox: some View {

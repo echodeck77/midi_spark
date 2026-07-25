@@ -78,7 +78,6 @@ struct GridView: View {
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil
     var onAuditionEnd: (() -> Void)? = nil
-    var onLongPressCellEdit: ((Int, Int) -> Void)? = nil    // EDIT: hold a cell → enter cell-edit (staging) for it
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
@@ -88,7 +87,6 @@ struct GridView: View {
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
-    var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -199,8 +197,7 @@ struct GridView: View {
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
-        let raw = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
-        let cell = (raw?.muted == true) ? nil : raw    // a HIDDEN (muted) cell renders as EMPTY (disappeared); a tap toggles it back
+        let cell = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
         let parent = parentOf(col, row)
@@ -225,12 +222,9 @@ struct GridView: View {
             }
         }
         .frame(maxWidth: .infinity).frame(height: cellHeight)
-        .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
+        .overlay {                                          // border: no-dest > selection > active > idle
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
-            if GridPos(col: col, row: row) == hiddenPending, let hc = raw {
-                // recently-HIDDEN (undo window): a ring in the hidden cell's own colour — tap to restore, touch elsewhere to delete
-                RoundedRectangle(cornerRadius: 8).stroke(colourColor(hc.colourID) ?? accentAmber, lineWidth: 2.5)
-            } else if noDest && !isSel {
+            if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
             } else {
@@ -276,28 +270,29 @@ struct GridView: View {
         // delta §5: the whole pad is ONE tap target in both modes — EDIT opens the CELL EDITOR (the VC
         // routes onTap), PERFORM flips ALT. FROM/OUT popovers + the hold menu are retired (contents moved
         // into the editor). Body-hold still auditions (stopped).
+        // TAP → onTap (EDIT: stage/commit; PERFORM: ALT flip). LONG-PRESS then DRAG (user 2026-07-26):
+        // EDIT relocates the cell (overwrite target, staged or not); PERFORM auditions on the hold. The
+        // long-press must complete before the drag, so a quick tap can never start a relocate.
         .onTapGesture { onTap?(col, row) }
-        // In EDIT the hold is bounded (14 < the drag's 16) so a relocate DRAG cancels it — hold-STILL stages,
-        // drag relocates. PERFORM keeps the device-verified unbounded audition hold.
-        .onLongPressGesture(minimumDuration: 0.3, maximumDistance: editing ? 14 : .infinity) {
-            if editing { onLongPressCellEdit?(col, row) }   // EDIT: hold → enter cell-edit (staging) for this cell
-            else { onAuditionStart?(col, row) }             // PERFORM: hold → audition (stopped)
-        } onPressingChanged: { pressing in
-            if !pressing && !holdLatch && !editing { onAuditionEnd?() }   // release → stop audition (PERFORM only)
-        }
-        // §5 drag-and-drop (EDIT only, NOT while staging): MOVEMENT begins the drag. Drop on an empty slot =
-        // move; on an occupied slot = swap (via the VC). PERFORM / staging: inert (guarded out).
         .simultaneousGesture(
-            DragGesture(minimumDistance: 16, coordinateSpace: .named("grid"))
-                .onChanged { v in
-                    guard editing, !staging, cell != nil else { return }
-                    if dragFrom == nil { dragFrom = GridPos(col: col, row: row); onAuditionEnd?() }
-                    dragTo = cellAt(location: v.location)
+            LongPressGesture(minimumDuration: 0.3)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("grid")))
+                .onChanged { value in
+                    guard case .second(true, let drag) = value else { return }   // long-press done → picked up
+                    if editing {
+                        guard cell != nil else { return }
+                        if dragFrom == nil { dragFrom = GridPos(col: col, row: row) }
+                        if let d = drag { dragTo = cellAt(location: d.location) }
+                    } else {
+                        onAuditionStart?(col, row)                                // PERFORM: hold → audition (idempotent)
+                    }
                 }
-                .onEnded { v in
+                .onEnded { value in
                     defer { dragFrom = nil; dragTo = nil }
-                    guard editing, !staging, let from = dragFrom, let to = cellAt(location: v.location), to != from else { return }
-                    onMoveCell?((from.col, from.row), (to.col, to.row))
+                    if !editing { if !holdLatch { onAuditionEnd?() }; return }
+                    guard case .second(true, let drag?) = value, let from = dragFrom,
+                          let to = cellAt(location: drag.location), to != from else { return }
+                    onMoveCell?((from.col, from.row), (to.col, to.row))           // relocate (overwrite)
                 }
         )
     }
