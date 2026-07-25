@@ -284,6 +284,40 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   confirms nothing; a single ghost inspected-not-configured stays
   honestly marked).
   All of it undo-covered — no confirmations anywhere (the undo law).
+  **③ STAGING — the considered creation path (design-side fragment 2026-07-25,
+  amended to as-built `2a1dd4d`→`5fb5211`).** EDIT-only. **Long-press (0.45s) a
+  palette chip → STAGING mode**: the RECEIVERS and EMITTERS panels restage as
+  the PENDING CELL's config (input picker = R1–R4 radio + a FROM ROW tile with
+  ± stepper; A–D bus toggles), wearing a **marching-ants outline in the staged
+  Colour's hue**; the staged chip pulses colour↔black. **THE ONE-STAMP LAW:
+  staging EDITS THE SESSION TEMPLATE** — one stamp object (writers: editor
+  commits, COPY, staging edits; readers: split-paste, quick-drag, the staged
+  drop). Recall across enter/exit = the template persisting; only the colour is
+  set fresh by the long-press. [Per-colour staging slots REJECTED: one stamp,
+  two ceremonies.]
+  **THREE-PHASE LIVE-AUDIO LAW:** ① STAGING: the panels are a config surface
+  ONLY — the live rig plays on its real settings throughout; ② DRAGGING: the
+  outline hands off to the grid, panels revert to live display; the hovered
+  position SOUNDS the staged cell IN CONTEXT via transient placement (LIVE LAW
+  + invariant-4 machinery; non-undoable edit path; the covered cell restores on
+  every move; **the preview is EXCLUDED from fullState encoding** — a host
+  autosave mid-hover must never persist it; the flight recorder captures it, it
+  was audible); ③ DROP commits the real cell (undoable) and clears the preview.
+  **POST-DROP END-STATE (user rev 2026-07-25, SUPERSEDES the fragment's original
+  "drop flips EDIT→PERFORM"): STAY in cell-edit** — placing does not leave
+  staging. Once ≥1 cell is placed, every EMPTY cell PULSES a border in the
+  staged hue and **tapping an empty cell places the staged cell there too**;
+  each PLACED cell pulses colour↔black like its chip. The placed cells are the
+  SELECTED SET — **receiver/emitter edits propagate LIVE to all of them** (input
+  source + buses). EXIT via the colour selector: **tap or double-tap the
+  SELECTED (pulsing) chip** returns to normal EDIT; tapping a DIFFERENT chip
+  retargets the colour (fresh selected set). **HOLD is NOT an exit** — it stays
+  the drag/enter gesture so drag-and-drop remains available.
+  **THE DROP ARRIVES CONFIRMED, never faded, and OVERWRITES unconditionally**:
+  the fade marks *sketching* — quick-drag sketches (faded), staging considers
+  (confirmed). [Polish, later: an occupied-target hover tint from stamp amber.]
+  HANG NOTE: preview exercises the voice-transition system per hover-move —
+  deliberately NOT gated behind a8; preview-induced hangs are a8 quarry.
 
 ## 6. Desk (closes the §6.9 layout-pass task)
 
@@ -1276,7 +1310,22 @@ every answer at once.
      meters — the desk gains input metering); (b) receiver toggle = INPUT
      MUTE (kill a keyboard live); (c) RECORD's source = a receiver;
      (d) the MPE-merge insurance becomes a PER-RECEIVER property (the MPE
-     front door). **THE RECEIVER TAB — feature set (2026-07-24; LAW: receiver features
+     front door). **INPUT CABLES (user 2026-07-25 — the output-cable symmetry completed):**
+     a receiver's SOURCE = **CABLE (1–4 | ANY) × CHANNEL (filter | OMNI)**;
+     the AU declares FOUR named input cables mirroring the receivers.
+     Default cable=ANY preserves today's behaviour (migration no-op;
+     single-input hosts unchanged — the multi-host QA pass gains a
+     checkbox). Two keyboards on two ports, both OMNI = channel gymnastics
+     die. ENGINE: one comparison in the receiver filter; transport work
+     (reading cable/group off incoming events) RIDES THE UMP SPIKE (item
+     7) — one task, two justifications. **MPE-merge improves**: per-cable,
+     an MPE controller gets a PRIVATE stream and merges cleanly beside a
+     plain keyboard (the spray-trap existed only under stream-sharing).
+     ONE DECISION (lean recorded): channel-wide passthrough follows
+     **RECEIVER 1's source** (the primary performer's expression; union
+     rejected — doubled CCs). Surfaces as a CABLE selector on the
+     receiver tab (rig-class ✓). Sequencing: after a8, with the spike.
+     **THE RECEIVER TAB — feature set (2026-07-24; LAW: receiver features
      must be RIG-class — about the CONTROLLER, never the music; musical
      transforms belong to Colours, which is WHY receivers are
      document-level):** ① CHANNEL (defining) · ② RANGE (lo/hi bounds —
