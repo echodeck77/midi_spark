@@ -260,64 +260,49 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   **② PALETTE-TO-GRID:** hold a palette chip, drag onto the grid. Onto a
   POPULATED cell = RECOLOUR ONLY (all other settings kept — the
   split-paste philosophy as a gesture). Onto an EMPTY cell = create,
-  seeded from the SESSION TEMPLATE (one creation rule everywhere),
-  **shown FADED — the provisional/unreviewed state** — until the user
-  confirms it with a committed change in the editor (see the UN-FADE RULE
-  below; opening/inspecting does NOT clear the fade).
-  **Faded cells PLAY (ratified)** — they derive and sound immediately (the
-  LIVE LAW; sketching while running is audible); the fade is the
-  deviations-announce law applied to creation: "present, sounding,
-  unreviewed."
-  **③ GHOST BATCH EDITING (user rule 2026-07-24):** when MULTIPLE ghost
-  cells of a colour exist (faded, routing unconfirmed) and the editor
-  opens on one, **it applies to ALL ghosts of that colour BY DEFAULT** —
-  sketch with drags, configure once. Header announces scope ("EDITING 5
-  GHOST CELLS · GOLD") with a **THIS CELL ONLY** escape toggle. All
-  sections apply to the batch (input, emitters, colour = recolours the
-  family, ON, and the action row — batch-CLEAR wipes the sketch,
-  undo-covered). **THE BATCH BOUNDARY IS THE FADE**: only unreviewed
-  cells batch, so configured work can never be surprise-edited — the
-  safety rule and the visual state are the same fact. Retargeting:
-  another same-colour ghost = same batch; a configured cell or other
-  colour = exits to single editing.
-  **UN-FADE RULE (unified, revising "clears on first visit"): ghosts
-  un-fade on the FIRST COMMITTED CHANGE, never on open** — looking is
-  free, touching confirms (a batch opened and dismissed untouched
-  confirms nothing; a single ghost inspected-not-configured stays
-  honestly marked).
+  seeded from the SESSION TEMPLATE (one creation rule everywhere). Every
+  creation ARRIVES CONFIRMED and plays immediately (the LIVE LAW).
+  [RETIRED before ratification (`b90783b`): the FADED/provisional cell
+  state, the UN-FADE RULE, and GHOST BATCH EDITING — the faded/unreviewed
+  state was removed from the app entirely; every creation arrives
+  confirmed. Batch editing of a colour SURVIVES as staging's SELECTED SET
+  (below): edits propagate live to the flashing placed cells.]
   All of it undo-covered — no confirmations anywhere (the undo law).
-  **③ STAGING — the considered creation path (design-side fragment 2026-07-25,
-  amended to as-built `2a1dd4d`→`5fb5211`).** EDIT-only. **Long-press (0.45s) a
-  palette chip → STAGING mode**: the RECEIVERS and EMITTERS panels restage as
-  the PENDING CELL's config (input picker = R1–R4 radio + a FROM ROW tile with
-  ± stepper; A–D bus toggles), wearing a **marching-ants outline in the staged
-  Colour's hue**; the staged chip pulses colour↔black. **THE ONE-STAMP LAW:
-  staging EDITS THE SESSION TEMPLATE** — one stamp object (writers: editor
-  commits, COPY, staging edits; readers: split-paste, quick-drag, the staged
-  drop). Recall across enter/exit = the template persisting; only the colour is
-  set fresh by the long-press. [Per-colour staging slots REJECTED: one stamp,
-  two ceremonies.]
-  **THREE-PHASE LIVE-AUDIO LAW:** ① STAGING: the panels are a config surface
-  ONLY — the live rig plays on its real settings throughout; ② DRAGGING: the
-  outline hands off to the grid, panels revert to live display; the hovered
-  position SOUNDS the staged cell IN CONTEXT via transient placement (LIVE LAW
-  + invariant-4 machinery; non-undoable edit path; the covered cell restores on
-  every move; **the preview is EXCLUDED from fullState encoding** — a host
-  autosave mid-hover must never persist it; the flight recorder captures it, it
-  was audible); ③ DROP commits the real cell (undoable) and clears the preview.
-  **POST-DROP END-STATE (user rev 2026-07-25, SUPERSEDES the fragment's original
-  "drop flips EDIT→PERFORM"): STAY in cell-edit** — placing does not leave
-  staging. Once ≥1 cell is placed, every EMPTY cell PULSES a border in the
-  staged hue and **tapping an empty cell places the staged cell there too**;
-  each PLACED cell pulses colour↔black like its chip. The placed cells are the
-  SELECTED SET — **receiver/emitter edits propagate LIVE to all of them** (input
-  source + buses). EXIT via the colour selector: **tap or double-tap the
-  SELECTED (pulsing) chip** returns to normal EDIT; tapping a DIFFERENT chip
-  retargets the colour (fresh selected set). **HOLD is NOT an exit** — it stays
-  the drag/enter gesture so drag-and-drop remains available.
-  **THE DROP ARRIVES CONFIRMED, never faded, and OVERWRITES unconditionally**:
-  the fade marks *sketching* — quick-drag sketches (faded), staging considers
-  (confirmed). [Polish, later: an occupied-target hover tint from stamp amber.]
+  **③ STAGING — the considered creation path (as-built consolidation, 2026-07-26;
+  supersedes all earlier staging text).** EDIT-only. **THREE ENTRANCES:**
+  long-press a palette CHIP (stage by colour) · long-press an EMPTY cell (stage
+  the currently selected Colour — by place) · DRAG a chip (stage + preview-in-place).
+  **Cell-edit is ONE box — the CELL box** — below the colour grid, shown only
+  while staging: **INPUT (receivers radio + ROW selector) · the ON section (five
+  accordion rows per §9 item 1) · OUTPUT (A–D toggles) · a wide PREVIEW button.**
+  The live RECEIVERS/EMITTERS panels stay live (they are never repurposed);
+  signal-path order preserved inside the box. Staging wears a **marching-ants
+  outline in the staged Colour's hue**; the staged chip pulses colour↔black.
+  **THE ONE-STAMP LAW stands**: staging edits the single stamp object (writers:
+  editor commits, COPY, staging edits; readers: split-paste, quick-drag, the
+  staged drop; recall across enter/exit = the template persisting, only the
+  colour set fresh by the long-press). [Per-colour staging slots REJECTED: one
+  stamp, two ceremonies.] Edits propagate LIVE to the flashing SELECTED SET;
+  placed cells pulse colour↔black like the staged chip; after ≥1 placement,
+  every EMPTY cell pulses a border in the staged hue and **tapping it places the
+  staged cell there too**. EXIT = tap/double-tap the SELECTED (pulsing) chip
+  (a DIFFERENT chip retargets the colour, fresh selected set; **HOLD is NOT an
+  exit** — it stays the drag/enter gesture). Placement ARRIVES CONFIRMED and
+  OVERWRITES occupied targets unconditionally (user device-calls; undo covers —
+  no confirmations anywhere). [Polish, later: an occupied-target hover tint from
+  stamp amber.]
+  **DRAG PREVIEW-IN-PLACE:** while dragging, the outline hands off to the grid,
+  panels revert to live display; the hovered position SOUNDS the staged cell IN
+  CONTEXT via transient placement (LIVE LAW + invariant-4 machinery; non-undoable
+  edit path; the covered cell restores on every move; **excluded from fullState
+  encoding** — a host autosave mid-hover must never persist it); DROP commits the
+  real cell (undoable) and clears the preview.
+  **GESTURES (device-confirmed):** single-TAP a populated cell = HIDE-with-undo
+  (coloured ring; re-tap restores; touching elsewhere commits the clear) ·
+  LONG-PRESS a populated cell = enter cell-edit AND arm a relocate (keep dragging
+  → move, overwriting the target).
+  [RETIRED with the faded state (`b90783b`): the SKETCH/faded language, the
+  UN-FADE RULE, GHOST BATCH EDITING — every creation arrives confirmed.]
   HANG NOTE: preview exercises the voice-transition system per hover-move —
   deliberately NOT gated behind a8; preview-induced hangs are a8 quarry.
   **PREVIEW / CELL AUDITION — Phase 2 engine design (design-side 2026-07-26; GUI shipped as a momentary
@@ -1354,8 +1339,9 @@ every answer at once.
      per-source REFCOUNTED pool membership (the MPE-merge mechanism widened —
      same pitch from two sources = one entry while either holds); MERGE-THEN-TREAT
      (one transform set per receiver; per-source treatment = two receivers); ONE
-     LATCH per receiver. Passthrough: a multi-source R1 passes its full set's
-     channel-wide expression.
+     LATCH per receiver (any source's chord replaces; shared-receiver fights are
+     documented, not solved). Passthrough: a multi-source R1 passes its full
+     set's channel-wide expression.
      Default cable=ANY preserves today's behaviour (migration no-op;
      single-input hosts unchanged — the multi-host QA pass gains a
      checkbox). Two keyboards on two ports, both OMNI = channel gymnastics
