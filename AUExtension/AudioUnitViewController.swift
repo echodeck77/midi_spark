@@ -596,7 +596,9 @@ struct DiagView: View {
     }
 
     private var hint: some View {
-        Text(editing
+        Text(flowVariation > 0
+             ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · watch-only · TAP a cell → TRACE its path · FLOW button → next view"
+             : editing
              ? "EDIT · TAP cell → hide (tap again to restore) · HOLD cell → cell-edit · drag a colour → place"
              : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
