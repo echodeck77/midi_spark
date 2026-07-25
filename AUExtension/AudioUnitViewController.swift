@@ -87,6 +87,7 @@ struct DiagView: View {
     @State private var stepIndex = 2
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
+    @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
@@ -564,10 +565,19 @@ struct DiagView: View {
                    onToggleMode: toggleMode,
                    canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
                    onUndo: undo, onRedo: redo,
-                   holdLatch: holdLatch, onToggleHold: toggleHold)
+                   holdLatch: holdLatch, onToggleHold: toggleHold,
+                   flowVariation: flowVariation, onCycleFlow: { flowVariation = (flowVariation + 1) % 6 })
     }
 
-    private func gridBlock(_ cellHeight: CGFloat) -> some View {
+    @ViewBuilder private func gridBlock(_ cellHeight: CGFloat) -> some View {
+        if flowVariation > 0 {
+            // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
+            FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
+                     busChannels: busChannels, busEnabled: busEnabled,
+                     playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak)
+                .frame(maxWidth: .infinity).frame(height: cellHeight * 8 + 64)
+        } else {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: editing,
@@ -582,6 +592,7 @@ struct DiagView: View {
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
             .marchingAnts(stagingDragging, color: stagingColor, cornerRadius: 8)   // staging: the outline hands off to the grid mid-drag
+        }
     }
 
     private var hint: some View {

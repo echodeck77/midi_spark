@@ -793,6 +793,8 @@ struct HeaderView: View {
     var onRedo: () -> Void = {}
     var holdLatch = false               // delta §5c — PERFORM-mode HOLD (the sustain pedal for gestures)
     var onToggleHold: () -> Void = {}
+    var flowVariation = 0               // FLOW view (item 10): 0 = grid; 1…5 = visualisation variations
+    var onCycleFlow: () -> Void = {}
 
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
     private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
@@ -844,6 +846,14 @@ struct HeaderView: View {
                 Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(accent)
                     .frame(width: 90)
             }
+
+            // FLOW view (item 10) — cycles the visualisation variations (0 = grid; 1–5 = views)
+            Text(flowVariation == 0 ? "FLOW" : FlowView.names[min(max(flowVariation, 0), FlowView.names.count - 1)])
+                .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(flowVariation == 0 ? .white.opacity(0.55) : .black)
+                .padding(.horizontal, 9).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 4).fill(flowVariation == 0 ? Color.white.opacity(0.08) : accent))
+                .contentShape(Rectangle()).onTapGesture { onCycleFlow() }
 
             Spacer()
 
