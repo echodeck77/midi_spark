@@ -1225,7 +1225,7 @@ struct PaletteView: View {
                     .overlay(RoundedRectangle(cornerRadius: 3)
                         .stroke(id == brush ? Color.white : Color.white.opacity(0.12),
                                 lineWidth: id == brush ? 2 : 0.5))
-                    .marchingAnts(stagingID == id, cornerRadius: 3)         // staging: the same moving outline, on the staged chip
+                    .marchingAnts(stagingID == id, color: Color(hex: colourHexes[i]), cornerRadius: 3)   // staging: moving outline in the Colour's own hue
                     .contentShape(Rectangle())
                     .onTapGesture { onPick(id) }
                     .simultaneousGesture(                        // §5: drag a chip onto the grid (min-dist so tap is safe)

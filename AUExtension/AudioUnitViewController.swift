@@ -91,12 +91,18 @@ struct DiagView: View {
 
     // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
     // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
+    // Long-press a Colour (from EITHER mode) OR tap a Colour while staging → stage a cell of that Colour.
+    // Forces EDIT on so it's always possible to re-enter after a drop drops us into PERFORM (bug fix
+    // 2026-07-25); tapping a different chip while staging shifts focus to that Colour (same entry point).
     private func enterStaging(_ id: String) {
-        guard editing else { return }
-        stagedConfig.colourID = id; brush = id      // set the staged colour + reflect it in the desk
+        stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
         stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
+        editing = true                              // long-press always brings us into EDIT + staging
         staging = true
     }
+
+    // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
+    private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
     private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)) }
     private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0 }   // select FROM ROW (default row 1)
     private func stepStagedRow(_ delta: Int) {
@@ -518,7 +524,7 @@ struct DiagView: View {
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
-            .marchingAnts(stagingDragging, cornerRadius: 8)   // staging: the outline hands off to the grid mid-drag
+            .marchingAnts(stagingDragging, color: stagingColor, cornerRadius: 8)   // staging: the outline hands off to the grid mid-drag
     }
 
     private var hint: some View {
@@ -574,7 +580,7 @@ struct DiagView: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging && !stagingDragging)   // hands off to the grid while a staging drag is in flight
+        .marchingAnts(staging && !stagingDragging, color: stagingColor)   // hands off to the grid while a staging drag is in flight
     }
 
     @ViewBuilder private var receiversBox: some View {
@@ -590,7 +596,7 @@ struct DiagView: View {
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging && !stagingDragging)   // hands off to the grid while a staging drag is in flight
+        .marchingAnts(staging && !stagingDragging, color: stagingColor)   // hands off to the grid while a staging drag is in flight
     }
 
     private var colourBox: some View {
@@ -602,7 +608,8 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { pickPalette($0) }, onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
+                        onPick: { id in if staging { enterStaging(id) } else { pickPalette(id) } },   // staging: tap another Colour → retarget
+                        onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
                         onLongPress: enterStaging, stagingID: staging ? stagedConfig.colourID : nil)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
