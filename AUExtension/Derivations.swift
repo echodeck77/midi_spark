@@ -399,6 +399,17 @@ func arriveMorph(base: Double, on: OnConfig, arrivals: Int) -> Double {
     }
 }
 
+/// EMITTER-ROTATE: rotate the cell's 4-bit emitter mask (A–D) left one position every EVERY-N arrivals,
+/// so the firing emitter(s) walk A→B→C→D→A across passes. Preserves the count of lit emitters; inert unless
+/// the treatment is assigned and the mask is non-empty.
+func arriveBusMask(base: UInt8, on: OnConfig, arrivals: Int) -> UInt8 {
+    guard on.arrive == .emitterRotate, arrivals >= 0, base != 0 else { return base }
+    let n = max(1, on.arriveEvery)
+    let shift = (arrivals / n) & 3                        // 0…3 positions
+    let m = base & 0x0F
+    return ((m << shift) | (m >> (4 - shift))) & 0x0F     // rotate-left within the low 4 bits
+}
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)

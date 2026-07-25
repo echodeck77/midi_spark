@@ -1220,6 +1220,34 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e1.ons.count, 0, "pass 1 (ALT-ALTERNATE → B: closed passgate) is silent")
     }
 
+    // §9 item 1 ON ARRIVE (integration): EMITTER-ROTATE walks the firing cable each pass — a cell on
+    // emitter A (cable 1) rotates to B (cable 2) on the next pass.
+    func testArriveEmitterRotateWalksCablesAcrossPasses() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours()
+        var on = OnConfig(); on.arrive = .emitterRotate; on.arriveEvery = 1; cs[gold].on = on
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // fires on A
+        let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr
+        let cycle = Double(Snap.cols) * b.stepBeats
+        let pool = chord([60, 64, 67])
+        func runRange(_ lo: Double, _ hi: Double, into e: RecordingEmitter) {
+            var beat = lo, ts = (lo / wb) * Double(frames)
+            while beat < hi {
+                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        let e0 = RecordingEmitter(); runRange(0, cycle, into: e0)
+        let e1 = RecordingEmitter(); runRange(cycle, 2 * cycle, into: e1)
+        XCTAssertGreaterThan(e0.ons.filter { $0.cable == 1 }.count, 0, "pass 0 fires on emitter A (cable 1)")
+        XCTAssertEqual(e0.ons.filter { $0.cable == 2 }.count, 0, "pass 0 does not fire on B")
+        XCTAssertGreaterThan(e1.ons.filter { $0.cable == 2 }.count, 0, "pass 1 rotates to emitter B (cable 2)")
+        XCTAssertEqual(e1.ons.filter { $0.cable == 1 }.count, 0, "pass 1 no longer fires on A")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!

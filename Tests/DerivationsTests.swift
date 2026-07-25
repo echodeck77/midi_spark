@@ -311,6 +311,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arriveMorph(base: 0.4, on: on, arrivals: 5), 0.4, accuracy: 1e-9)
     }
 
+    func testArriveEmitterRotateWalksEmittersAcrossPasses() {
+        var on = OnConfig(); on.arrive = .emitterRotate; on.arriveEvery = 1
+        XCTAssertEqual([0, 1, 2, 3, 4].map { arriveBusMask(base: 0b0001, on: on, arrivals: $0) },
+                       [0b0001, 0b0010, 0b0100, 0b1000, 0b0001])   // A→B→C→D→A
+        XCTAssertEqual(arriveBusMask(base: 0b0101, on: on, arrivals: 1), 0b1010)   // A+C rotate together → B+D
+        on.arriveEvery = 2                                          // holds two passes per step
+        XCTAssertEqual([0, 1, 2, 3].map { arriveBusMask(base: 0b0001, on: on, arrivals: $0) },
+                       [0b0001, 0b0001, 0b0010, 0b0010])
+        on.arrive = .altAlternate                                  // a non-rotate config is inert
+        XCTAssertEqual(arriveBusMask(base: 0b0001, on: on, arrivals: 3), 0b0001)
+        on.arrive = .emitterRotate                                 // an empty mask stays empty
+        XCTAssertEqual(arriveBusMask(base: 0, on: on, arrivals: 3), 0)
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {
