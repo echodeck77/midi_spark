@@ -117,6 +117,23 @@ struct DiagView: View {
 
     private func exitStaging() { clearPreview(); staging = false; stagedCells = [] }
 
+    // Selecting a DIFFERENT Colour while staging recolours every FLASHING cell to it (keeping their staged
+    // routing) and stages that Colour going forward — the flashing set persists, it does not reset.
+    private func recolorStaged(_ id: String) {
+        guard let au else { return }
+        stagedConfig.colourID = id; brush = id
+        if !stagedCells.isEmpty {
+            au.editScene { s in
+                for p in stagedCells {
+                    guard var c = s.cells[p.col][p.row] else { continue }
+                    c.colourID = id
+                    s.cells[p.col][p.row] = c
+                }
+            }
+            scene = au.uiScene(); docColours = au.uiColours()
+        }
+    }
+
     // A receiver/emitter edit while staging live-updates every cell placed this session (the "selected
     // cells") — input source + output buses; the staged Colour is unchanged within a session.
     private func applyStagedToPlaced() {
@@ -176,11 +193,14 @@ struct DiagView: View {
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
         if editing {
-            if staging {                                   // cell-edit staging: tap an EMPTY cell → place the staged cell too
+            if staging {
                 let pos = GridView.GridPos(col: col, row: row)
-                guard scene.cells[col][row] == nil else { return }   // populated cells ignored (panels are in cell-edit)
-                au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
-                fadedCells.remove(pos)                       // deliberately configured → confirmed, not faded
+                if stagedCells.contains(pos) {               // tap a FLASHING cell → COMMIT ALL + leave cell-edit
+                    exitStaging()                            // the flashing cells already hold the staged values; commit = stop flashing
+                    return
+                }
+                guard scene.cells[col][row] == nil else { return }   // other populated cells ignored (panels are in cell-edit)
+                au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }   // tap an EMPTY cell → place another flashing cell
                 stagedCells.insert(pos)                      // a placed cell: pulses + tracks staged edits
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
                 return
@@ -327,38 +347,28 @@ struct DiagView: View {
     }
     private func paletteDragChanged(_ id: String, _ point: CGPoint) {
         guard editing else { return }                 // EDIT-only
+        if !staging { enterStaging(id) }              // a QUICK drag enters cell-edit for this colour (unifies with long-press+drag)
         paletteDragColour = id; paletteDragPoint = point
-        if staging { updatePreview(point) }           // live-preview the staged cell at the hovered position
+        updatePreview(point)                          // staging now true → live-preview the staged cell at the hover
     }
     // Cell-edit staging: a chip drag is in flight while staging → the moving outline hands off to the grid.
     private var stagingDragging: Bool { staging && paletteDragPoint != nil }
 
+    // A palette drop is ALWAYS a staging drop now (the drag entered staging above): clear the preview, then
+    // commit the flashing cell. No faded/ghost path — quick-drag and long-press+drag both stage.
     private func paletteDrop(_ id: String, _ point: CGPoint) {
-        let wasStaging = staging
         defer { paletteDragColour = nil; paletteDragPoint = nil }
-        guard let au else { return }
-        if wasStaging {                               // STAGING drop: clear the preview, then commit for real
-            clearPreview()                            // remove the transient placement (restores what it covered)
-            if editing, let pos = cellAtGlobal(point) {
-                var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
-                au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
-                stagedCells.insert(pos)                             // a placed cell: pulses + tracks staged edits
-                brush = id; scene = au.uiScene(); docColours = au.uiColours()
-                // STAY in cell-edit (user 2026-07-25): empty cells now pulse; tap them / drag again to place more.
-            } else {
-                scene = au.uiScene()                  // dropped off-grid → preview cleared, stay in staging
-            }
-            return
+        guard let au, staging else { return }
+        clearPreview()                                // remove the transient placement (restores what it covered)
+        if editing, let pos = cellAtGlobal(point) {
+            var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
+            au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
+            stagedCells.insert(pos)                             // a placed FLASHING cell: pulses + tracks staged edits
+            brush = id; scene = au.uiScene(); docColours = au.uiColours()
+            // STAY in cell-edit: empty cells now pulse; tap them / drag again to place more; tap a flashing cell to commit.
+        } else {
+            scene = au.uiScene()                      // dropped off-grid → preview cleared, stay in staging
         }
-        guard editing, let pos = cellAtGlobal(point) else { return }
-        if scene.cells[pos.col][pos.row] != nil {     // POPULATED → recolour only (keep other settings)
-            au.editScene { s in if var c = s.cells[pos.col][pos.row] { c.colourID = id; s.cells[pos.col][pos.row] = c } }
-        } else {                                       // EMPTY → create from the template, shown FADED
-            var c = currentTemplate.makeCell(); c.colourID = id
-            au.editScene { $0.cells[pos.col][pos.row] = c }
-            fadedCells.insert(pos)                     // provisional until the user opens the editor
-        }
-        brush = id; scene = au.uiScene(); docColours = au.uiColours()
     }
 
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
@@ -683,8 +693,8 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in                          // staging: tap the SELECTED chip → exit; tap another → retarget
-                            if staging { if id == stagedConfig.colourID { exitStaging() } else { enterStaging(id) } }
+                        onPick: { id in                          // staging: tap SELECTED chip → exit; tap ANOTHER → recolour the flashing set
+                            if staging { if id == stagedConfig.colourID { exitStaging() } else { recolorStaged(id) } }
                             else { pickPalette(id) }
                         },
                         onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,

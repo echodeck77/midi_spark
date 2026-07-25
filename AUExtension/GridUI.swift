@@ -1310,13 +1310,17 @@ struct MarchingAnts: ViewModifier {
     var color: Color
     var cornerRadius: CGFloat = 6
     var lineWidth: CGFloat = 2
-    @State private var phase: CGFloat = 0
     func body(content: Content) -> some View {
         content.overlay {
             if active {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(color, style: StrokeStyle(lineWidth: lineWidth, dash: [7, 4], dashPhase: phase))
-                    .onAppear { withAnimation(.linear(duration: 0.55).repeatForever(autoreverses: false)) { phase = -11 } }
+                // Drive the dash phase off the clock (TimelineView), not withAnimation — animating
+                // StrokeStyle.dashPhase via withAnimation doesn't march reliably; a per-frame phase does.
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                    let period = 0.6                                   // seconds per 11pt dash cycle (7 on + 4 off)
+                    let phase = -11 * CGFloat(tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period)
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .strokeBorder(color, style: StrokeStyle(lineWidth: lineWidth, dash: [7, 4], dashPhase: phase))
+                }
             }
         }
     }
