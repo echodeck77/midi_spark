@@ -139,7 +139,10 @@ struct DiagView: View {
     // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
     private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
 
-    private func exitStaging() { clearPreview(); staging = false; stagedCells = [] }
+    private func exitStaging() {
+        clearPreview(); staging = false; stagedCells = []
+        setHold(false); cellPreview = false; au?.clearPreview()   // drop any latched cell preview + the HOLD
+    }
 
     // Selecting a DIFFERENT Colour while staging recolours every FLASHING cell to it (keeping their staged
     // routing) and stages that Colour going forward — the flashing set persists, it does not reset.
@@ -327,6 +330,7 @@ struct DiagView: View {
             au?.clearAudition(); abox.target = nil
             au?.setLaneMask(0); laneMask = 0     // §5c: the latched lap set drops too (velocity springs
                                                  // back via OutputsView's onChange(holdLatch))
+            if cellPreview { cellPreview = false; au?.clearPreview() }   // §5c: a latched cell PREVIEW drops too
         }
     }
     private func toggleHold() { setHold(!holdLatch) }
@@ -633,7 +637,7 @@ struct DiagView: View {
                           altPaired: stagedAltPaired, morphCompatible: brushGlides, stochastic: stagedStochastic,
                           onEdit: editStagedOn)
             StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
-            previewButton
+            HStack(spacing: 6) { previewButton; previewHoldChip }
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
@@ -654,7 +658,18 @@ struct DiagView: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)                 // press-and-hold: down = preview on, release = off
                 .onChanged { _ in if !cellPreview { cellPreview = true; startCellPreview() } }
-                .onEnded { _ in cellPreview = false; au?.clearPreview() })
+                .onEnded { _ in if !holdLatch { cellPreview = false; au?.clearPreview() } })   // §5c HOLD → LATCH (stays on)
+    }
+
+    // §5c HOLD in the CELL box — the sustain pedal for the PREVIEW spring: while ON, releasing PREVIEW
+    // latches it (hands-free audition); toggling HOLD off (or leaving cell-edit) drops it.
+    private var previewHoldChip: some View {
+        Text("HOLD").font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(holdLatch ? .black : .white.opacity(0.6))
+            .padding(.horizontal, 8).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 6).fill(holdLatch ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(holdLatch ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { toggleHold() }
     }
 
     // Increment 2: while PREVIEW is held, tell the engine the staged VIRTUAL cell (colour + input filter +
