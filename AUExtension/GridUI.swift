@@ -1422,24 +1422,152 @@ struct StagingEmittersView: View {
     }
 }
 
-/// ON section (cell-edit state) — the per-cell TRIGGER controls, below the emitters. PLACEHOLDER for now:
-/// the five blessed sections (§9 item 1) as inert stub pills until the ON engine is built (queued after a8).
+/// ON section (§9 item 1) — the five per-Colour trigger rows in an accordion. GUI iteration 1: assignments
+/// are stored INERT (no engine execution yet). Greying is contextual (ALT/MORPH/DICE families + the always-
+/// grey RING·CHOP / AUTO-ARM); a grey chip surfaces its teaching subtext and changes nothing.
 struct OnSectionView: View {
-    private let sections = ["TAP", "HOLD", "ARRIVE", "LEAVE", "SCENE"]
+    let config: OnConfig
+    let altPaired: Bool          // the staged Colour has an ALT partner
+    let morphCompatible: Bool    // …and it can morph toward it
+    let stochastic: Bool         // CHANCE type or random-pattern ARP (for DICE)
+    let onEdit: (@escaping (inout OnConfig) -> Void) -> Void
+
+    @State private var expanded: Int? = nil
+    @State private var greyMsg: String? = nil
+    private let altSub = "needs an ALT pair — set one in COLOUR"
+    private let morphSub = "needs a compatible ALT pair"
+    private let diceSub = "needs a stochastic Colour (CHANCE / random ARP)"
+    private let ringSub = "with the tail rule"
+    private let armSub = "RECORD Colours — no RECORD type yet"
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text("ON").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text("cell triggers · placeholder").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
+                Text("cell triggers").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
             }
-            HStack(spacing: 4) {
-                ForEach(sections, id: \.self) { s in
-                    Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                        .frame(maxWidth: .infinity).frame(height: 24)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05)))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            row(0, "ON TAP", config.tapSummary) { tapBody }
+            row(1, "ON HOLD", config.holdSummary) { holdBody }
+            row(2, "ON ARRIVE", config.arriveSummary) { arriveBody }
+            row(3, "ON LEAVE", config.leaveSummary) { leaveBody }
+            row(4, "ON SCENE", config.sceneSummary) { sceneBody }
+            if let m = greyMsg { Text(m).font(.system(size: 7, design: .monospaced)).foregroundColor(stagingAmber) }
+        }
+    }
+
+    // One accordion row: a header (title + summary / "＋") that toggles expansion, and the expanded body.
+    @ViewBuilder private func row<Content: View>(_ i: Int, _ title: String, _ summary: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(title).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                Spacer()
+                if summary.isEmpty { Text("＋").font(.system(size: 10, weight: .heavy)).foregroundColor(.white.opacity(0.25)) }
+                else { Text(summary).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7) }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { expanded = (expanded == i) ? nil : i; greyMsg = nil }
+            if expanded == i { content() }
+        }
+        .padding(.bottom, 2)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1) }
+    }
+
+    private func chip(_ label: String, on: Bool, grey: Bool = false, sub: String? = nil, _ act: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced))
+            .foregroundColor(grey ? .white.opacity(0.22) : (on ? .black : .white.opacity(0.7)))
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .padding(.horizontal, 3).frame(maxWidth: .infinity).frame(height: 20)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on && !grey ? stagingCyan : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(on && !grey ? .clear : Color.white.opacity(0.1), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { if grey { greyMsg = sub } else { greyMsg = nil; act() } }
+    }
+    private func footer(_ t: String) -> some View {
+        Text(t).font(.system(size: 6.5, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.28))
+    }
+    private func stepper(_ label: String, _ value: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 4) {
+            footer(label)
+            Image(systemName: "minus").font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.6))
+                .frame(width: 16, height: 16).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { set(max(lo, value - 1)) }
+            Text("\(value)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(stagingCyan).frame(minWidth: 16)
+            Image(systemName: "plus").font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.6))
+                .frame(width: 16, height: 16).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
+        }
+    }
+
+    // ON TAP
+    private var tapBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) { ForEach(OnTap.allCases, id: \.self) { c in
+                chip(c.rawValue, on: config.tap == c, grey: c == .alt && !altPaired, sub: altSub) { onEdit { $0.tap = c } } } }
+            if config.tap != .none {
+                HStack(spacing: 3) { footer("when"); ForEach(OnTapWhen.allCases, id: \.self) { w in
+                    chip(w.rawValue, on: config.tapWhen == w) { onEdit { $0.tapWhen = w } } } }
+                HStack(spacing: 3) { footer("for "); ForEach(OnTapFor.allCases, id: \.self) { f in
+                    chip(f.rawValue, on: config.tapFor == f) { onEdit { $0.tapFor = f } } } }
+            }
+        }
+    }
+    // ON HOLD
+    private var holdBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) { ForEach(OnHold.allCases, id: \.self) { c in
+                let grey = (c == .alt && !altPaired) || (c == .morphScrub && !morphCompatible)
+                chip(c.rawValue, on: config.hold == c, grey: grey, sub: c == .alt ? altSub : morphSub) { onEdit { $0.hold = c } } } }
+            if config.hold != .none {
+                HStack(spacing: 3) { footer("rel"); ForEach(OnHoldRelease.allCases, id: \.self) { r in
+                    chip(r.rawValue, on: config.holdRelease == r) { onEdit { $0.holdRelease = r } } } }
+                if config.hold == .sliceCycle {
+                    HStack(spacing: 3) { footer("size"); ForEach(SliceSize.allCases, id: \.self) { s in
+                        chip(s.rawValue, on: config.sliceSize == s) { onEdit { $0.sliceSize = s } } } }
                 }
+                if config.hold == .oct {
+                    HStack(spacing: 3) { footer("oct"); chip("+", on: config.octUp) { onEdit { $0.octUp = true } }; chip("−", on: !config.octUp) { onEdit { $0.octUp = false } } }
+                }
+            }
+        }
+    }
+    // ON ARRIVE
+    private var arriveBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) { ForEach(OnArrive.allCases, id: \.self) { c in
+                let grey = (c == .altAlternate && !altPaired) || (c == .morphDrift && !morphCompatible) || (c == .dice && !stochastic)
+                let sub = c == .altAlternate ? altSub : (c == .morphDrift ? morphSub : diceSub)
+                chip(c.rawValue, on: config.arrive == c, grey: grey, sub: sub) { onEdit { $0.arrive = c } } } }
+            if config.arrive != .none {
+                stepper("every", config.arriveEvery, 1, 4) { v in onEdit { $0.arriveEvery = v } }
+                if config.arrive == .morphDrift {
+                    HStack(spacing: 3) {
+                        stepper("drift%", config.driftPct, 0, 100) { v in onEdit { $0.driftPct = v } }
+                        chip("↻", on: config.driftMode == .loop) { onEdit { $0.driftMode = .loop } }
+                        chip("⇄", on: config.driftMode == .pingpong) { onEdit { $0.driftMode = .pingpong } }
+                    }
+                }
+            }
+        }
+    }
+    // ON LEAVE
+    private var leaveBody: some View {
+        HStack(spacing: 3) { ForEach(OnLeave.allCases, id: \.self) { c in
+            chip(c.rawValue, on: config.leave == c, grey: c == .ringChop, sub: ringSub) { onEdit { $0.leave = c } } } }
+    }
+    // ON SCENE (checklist)
+    private var sceneBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) {
+                chip("☐ ENTER", on: config.sceneEntrance) { onEdit { $0.sceneEntrance.toggle() } }
+                if config.sceneEntrance { stepper("pass", config.entrancePass, 1, 16) { v in onEdit { $0.entrancePass = v } } }
+            }
+            HStack(spacing: 3) {
+                chip("☐ EXIT", on: config.sceneExit) { onEdit { $0.sceneExit.toggle() } }
+                if config.sceneExit { stepper("pass", config.exitPass, 1, 16) { v in onEdit { $0.exitPass = v } } }
+            }
+            HStack(spacing: 3) {
+                chip("☐ RESET MORPH", on: config.sceneResetMorph) { onEdit { $0.sceneResetMorph.toggle() } }
+                chip("☐ AUTO-ARM", on: config.sceneAutoArm, grey: true, sub: armSub) { }
             }
         }
     }

@@ -462,6 +462,21 @@ struct DiagView: View {
         guard let c = brushColour, let p = c.altColour, p >= 0, p < docColours.count else { return false }
         return docColours[p].type == c.type
     }
+    // ON-section greying inputs (staged Colour = brush during staging): has an ALT partner; is stochastic.
+    private var stagedAltPaired: Bool {
+        guard let c = brushColour, let p = c.altColour, p >= 0, p < docColours.count else { return false }
+        return true
+    }
+    private var stagedStochastic: Bool {
+        guard let c = brushColour else { return false }
+        return c.type == .chance || (c.type == .arp && c.paramsA.pattern == .random)
+    }
+    // Write the staged Colour's ON config; per-Colour so it propagates to the whole flashing set, undo-covered.
+    private func editStagedOn(_ mutate: @escaping (inout OnConfig) -> Void) {
+        guard let au else { return }
+        au.editColour(brushIndex) { c in var on = c.on ?? OnConfig(); mutate(&on); c.on = on }
+        docColours = au.uiColours()
+    }
 
     private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
         guard let au else { return }
@@ -709,7 +724,9 @@ struct DiagView: View {
             StagingInputView(inputRow: stagedConfig.inputRow, inputReceiver: stagedConfig.inputReceiver,
                              receivers: receivers, onPickReceiver: setStagedReceiver,
                              onPickRow: pickStagedRow, onStepRow: stepStagedRow)
-            OnSectionView()                          // placeholder until the ON section is built out (per the design spec)
+            OnSectionView(config: brushColour?.onResolved ?? OnConfig(),
+                          altPaired: stagedAltPaired, morphCompatible: brushGlides, stochastic: stagedStochastic,
+                          onEdit: editStagedOn)
             StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
             previewButton
         }
