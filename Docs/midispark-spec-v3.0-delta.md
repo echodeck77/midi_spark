@@ -1347,6 +1347,15 @@ every answer at once.
      front door). **INPUT CABLES (user 2026-07-25 — the output-cable symmetry completed):**
      a receiver's SOURCE = **CABLE (1–4 | ANY) × CHANNEL (filter | OMNI)**;
      the AU declares FOUR named input cables mirroring the receivers.
+     **SCHEMA = BITMASK (amendment 2026-07-26): store `Receiver.cable` as an
+     OptionSet/bitmask** (ANY = all bits; v1 stepper writes single bits or all).
+     Cost now nil; buys SUBSET-MULTI receivers (cables {1,3}) later as a UI-only
+     upgrade, no migration. Cells: zero implications (pools are sets). Front door:
+     per-source REFCOUNTED pool membership (the MPE-merge mechanism widened —
+     same pitch from two sources = one entry while either holds); MERGE-THEN-TREAT
+     (one transform set per receiver; per-source treatment = two receivers); ONE
+     LATCH per receiver. Passthrough: a multi-source R1 passes its full set's
+     channel-wide expression.
      Default cable=ANY preserves today's behaviour (migration no-op;
      single-input hosts unchanged — the multi-host QA pass gains a
      checkbox). Two keyboards on two ports, both OMNI = channel gymnastics
