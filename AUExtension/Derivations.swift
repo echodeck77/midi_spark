@@ -331,6 +331,15 @@ func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
     filter == 0 || filter == channel + 1
 }
 
+/// INPUT CABLES admission (§item 11): does a receiver whose cable BITMASK is `mask` (bit i = cable i+1)
+/// hear an event arriving on `eventCable` (1–4)? ANY = all bits set. An out-of-range/unknown cable (0 or
+/// >4 — e.g. a single-input host that doesn't tag, or legacy) is heard by everyone (compatibility). This
+/// is the cable comparison that sits AHEAD of the channel filter; the full admission is `cable AND channel`.
+@inline(__always) func receiverHearsCable(mask: Int, eventCable: Int) -> Bool {
+    guard eventCable >= 1 && eventCable <= 4 else { return true }
+    return (mask & (1 << (eventCable - 1))) != 0
+}
+
 @inline(__always)
 func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -> CellMode {
     if bypassed { return .identity }                       // §3: bypass = identity processor

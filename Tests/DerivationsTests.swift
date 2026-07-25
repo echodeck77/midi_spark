@@ -191,6 +191,24 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(receiverHears(filter: 1, channel: 1))   // filter 1 = wire channel 0, not 1
     }
 
+    // §item 11 INPUT CABLES: the cable admission (bitmask; ANY = all bits) — sits ahead of the channel filter.
+    func testReceiverHearsCable() {
+        let any = 0b1111
+        // ANY (nil → all bits via cableResolved) hears every cable — today's behaviour, byte-for-byte.
+        for c in 1...4 { XCTAssertTrue(receiverHearsCable(mask: any, eventCable: c)) }
+        // A single-cable receiver hears only its cable.
+        XCTAssertTrue(receiverHearsCable(mask: 0b0010, eventCable: 2))
+        XCTAssertFalse(receiverHearsCable(mask: 0b0010, eventCable: 1))
+        XCTAssertFalse(receiverHearsCable(mask: 0b0010, eventCable: 3))
+        // Subset-multi (cables {1,3}) — the reserved future capability.
+        XCTAssertTrue(receiverHearsCable(mask: 0b0101, eventCable: 1))
+        XCTAssertFalse(receiverHearsCable(mask: 0b0101, eventCable: 2))
+        XCTAssertTrue(receiverHearsCable(mask: 0b0101, eventCable: 3))
+        // Unknown/untagged cable (0 or >4: a single-input host, or legacy) → heard by everyone.
+        XCTAssertTrue(receiverHearsCable(mask: 0b0010, eventCable: 0))
+        XCTAssertTrue(receiverHearsCable(mask: 0b0001, eventCable: 9))
+    }
+
     // MARK: NotePool (§2.5)
 
     func testPoolSortsAndCounts() {

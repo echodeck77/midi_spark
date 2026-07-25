@@ -110,6 +110,21 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.receivers?[1].muted, true)
     }
 
+    // §item 11 INPUT CABLES: a pre-cable Receiver (no `cable` key) decodes → nil ⇒ ANY (hears every cable).
+    func testReceiverWithoutCableDecodesToANY() throws {
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Receiver(name: "Keys", channel: 1))) as! [String: Any]
+        dict.removeValue(forKey: "cable")                                     // simulate a pre-cable document
+        let back = try JSONDecoder().decode(Receiver.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertNil(back.cable)
+        XCTAssertEqual(back.cableResolved, 0b1111, "missing cable ⇒ ANY (hears every cable) — migration no-op")
+    }
+    func testReceiverCableRoundTrips() throws {
+        var r = Receiver(name: "Keys"); r.cable = 0b0101                       // cables {1,3}
+        let back = try JSONDecoder().decode(Receiver.self, from: try JSONEncoder().encode(r))
+        XCTAssertEqual(back.cable, 0b0101)
+        XCTAssertEqual(back.cableResolved, 0b0101)
+    }
+
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
         // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.
         var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
