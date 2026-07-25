@@ -227,13 +227,13 @@ struct DiagView: View {
                 au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
                 fadedCells.remove(GridView.GridPos(col: col, row: row))   // a deliberate stamp is a committed change → un-fade
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
-            } else {                                       // open / RETARGET the inspector on this cell
-                // Empty-cell taps are INERT in EDIT (user 2026-07-25): the editor is for OCCUPIED cells
-                // only; empties are populated by DRAG (palette-to-grid or relocation), never by tap.
+            } else {
+                // Single tap on a POPULATED cell → HIDE / SHOW (user 2026-07-25, replaces the editor pop-up):
+                // toggle `muted` — the cell disappears from the grid (renders empty, sounds nothing) and a
+                // second tap brings it back with the same settings. Empty cells are inert.
                 guard scene.cells[col][row] != nil else { selCol = col; selRow = row; return }
-                editorCol = col; editorRow = row          // opening does NOT un-fade (un-fade rule 2026-07-24)
-                editorPending = false
-                selCol = col; selRow = row
+                au.editScene { s in if var c = s.cells[col][row] { c.muted.toggle(); s.cells[col][row] = c } }
+                selCol = col; selRow = row; scene = au.uiScene()
             }
         } else {
             au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
@@ -526,9 +526,12 @@ struct DiagView: View {
                         HStack(alignment: .top, spacing: 10) {
                             VStack(spacing: 8) {
                                 gridBlock(cellH)
-                                HStack(spacing: 8) {                      // aligned to the grid's edges
+                                HStack(alignment: .top, spacing: 8) {     // aligned to the grid's edges
                                     receiversBox.frame(maxWidth: .infinity)
-                                    emittersBox.frame(maxWidth: .infinity)
+                                    VStack(spacing: 8) {                  // ON section stacks under the emitters during cell-edit
+                                        emittersBox
+                                        if staging { onBox }
+                                    }.frame(maxWidth: .infinity)
                                 }
                                 hint
                             }
@@ -553,11 +556,10 @@ struct DiagView: View {
                     }
                     .padding(12)
                 }
-                // delta §5: STAMP banner (top) + the floating CELL EDITOR card (top-leading, near the grid).
-                // The card leaves most cells tappable so tapping another cell RETARGETS the open inspector.
+                // The single-tap CELL EDITOR pop-up was DROPPED (user 2026-07-25) — editing lives in
+                // cell-edit (staging) now, single tap hides/shows a cell. (STAMP banner kept.)
                 if stampMode { VStack(spacing: 0) { stampBanner; Spacer() } }
                 if staging { VStack(spacing: 0) { stagingBanner; Spacer() } }
-                if editorCol >= 0 { cellEditorCard.padding(.top, stampMode ? 92 : 52).padding(.leading, 14) }
                 // §5 palette-to-grid: a chip ghost following the finger (positioned in the GeometryReader's
                 // local space = the global drag point minus the reader's global origin).
                 if let id = paletteDragColour, let pt = paletteDragPoint {
@@ -667,7 +669,7 @@ struct DiagView: View {
         return HStack(alignment: .top, spacing: gap) {
             VStack(spacing: gap) { colourBox; altPanel }.frame(width: avail * 0.25)
             VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.50)
-            VStack(spacing: gap) { receiversBox; emittersBox }.frame(width: avail * 0.25)
+            VStack(spacing: gap) { receiversBox; emittersBox; if staging { onBox } }.frame(width: avail * 0.25)
         }
     }
 
@@ -685,6 +687,15 @@ struct DiagView: View {
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
         .marchingAnts(staging && !stagingDragging, color: stagingColor)   // hands off to the grid while a staging drag is in flight
+    }
+
+    // ON section (cell-edit state) — appears BELOW the emitters during staging, moving border, placeholder
+    // controls until the ON engine (queued after a8). Shown only while staging.
+    private var onBox: some View {
+        OnSectionView()
+            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+            .marchingAnts(staging && !stagingDragging, color: stagingColor)
     }
 
     @ViewBuilder private var receiversBox: some View {

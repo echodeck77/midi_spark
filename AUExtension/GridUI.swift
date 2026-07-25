@@ -198,7 +198,8 @@ struct GridView: View {
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
-        let cell = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
+        let raw = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
+        let cell = (raw?.muted == true) ? nil : raw    // a HIDDEN (muted) cell renders as EMPTY (disappeared); a tap toggles it back
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
         let parent = parentOf(col, row)
@@ -1406,6 +1407,29 @@ struct StagingEmittersView: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? stagingCyan : Color.white.opacity(0.05)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? .clear : Color.white.opacity(0.12), lineWidth: 1))
                         .contentShape(Rectangle()).onTapGesture { onToggle(i) }
+                }
+            }
+        }
+    }
+}
+
+/// ON section (cell-edit state) — the per-cell TRIGGER controls, below the emitters. PLACEHOLDER for now:
+/// the five blessed sections (§9 item 1) as inert stub pills until the ON engine is built (queued after a8).
+struct OnSectionView: View {
+    private let sections = ["TAP", "HOLD", "ARRIVE", "LEAVE", "SCENE"]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("ON").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("cell triggers · placeholder").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
+            }
+            HStack(spacing: 4) {
+                ForEach(sections, id: \.self) { s in
+                    Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity).frame(height: 24)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05)))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
             }
         }
