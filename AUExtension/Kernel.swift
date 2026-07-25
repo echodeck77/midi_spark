@@ -270,8 +270,14 @@ final class Kernel {
         // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.
         let pNote = length >= 2 ? bytes[1] : 0
         let pVel  = length >= 3 ? bytes[2] : 0
-        let mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
+        var mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
                                         playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive)
+        // §item 11: the CC/PB/AT passthrough FOLLOWS RECEIVER 1's SOURCE — only forward a non-note event R1
+        // hears (its cable + channel). Default R1 (ANY cable, OMNI channel) passes everything, as today.
+        if !isNote && !(receiverHearsCable(mask: Int(receiverCables[0]), eventCable: cable)
+                        && receiverHears(filter: receiverChannels[0], channel: channel)) {
+            mask = 0
+        }
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }

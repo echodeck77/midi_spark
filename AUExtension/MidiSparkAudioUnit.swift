@@ -93,6 +93,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
     func uiReceivers() -> [Receiver] { document.receiversResolved }
     func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
+    func setReceiverCable(_ i: Int, _ mask: Int?)  { editReceiver(i) { $0.cable = mask } }   // §item 11 INPUT CABLES
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
     func toggleReceiverMPE(_ i: Int)              { editReceiver(i) { $0.mpeMerge.toggle() } }
     private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {

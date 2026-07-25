@@ -413,10 +413,22 @@ struct ReceiversView: View {
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
     let onToggleMPE: (Int) -> Void
+    var onSetCable: (Int, Int?) -> Void = { _, _ in }   // §item 11: set a receiver's input cable (nil = ANY)
 
     private var hues: [Color] { receiverHues }
     private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
     private func wrap(_ ch: Int) -> Int { ch < 0 ? 16 : (ch > 16 ? 0 : ch) }   // OMNI(0)…16, wraps
+    // §item 11 INPUT CABLES: the v1 stepper cycles ANY · 1 · 2 · 3 · 4 (single cable or ANY).
+    private func cableLabel(_ mask: Int?) -> String {
+        guard let m = mask, m != 0b1111, m != 0 else { return "ANY" }
+        for c in 1...4 where m == (1 << (c - 1)) { return "\(c)" }
+        return "…"                                       // a subset (future UI) — the v1 stepper never makes one
+    }
+    private func cableStep(_ mask: Int?, _ delta: Int) -> Int? {
+        let cur = (mask.flatMap { m in (1...4).first { m == (1 << ($0 - 1)) } }) ?? 0   // 0 = ANY, else cable N
+        let next = ((cur + delta) % 5 + 5) % 5
+        return next == 0 ? nil : (1 << (next - 1))       // nil ⇒ ANY; else the single-cable bit
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -439,7 +451,14 @@ struct ReceiversView: View {
                     .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
             }
             if editing {
-                HStack(spacing: 2) {
+                HStack(spacing: 2) {                                // CABLE filter (ANY · 1–4) — §item 11
+                    stepBtn("chevron.down") { onSetCable(i, cableStep(rec.cable, -1)) }
+                    Text("IN \(cableLabel(rec.cable))")
+                        .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity)
+                    stepBtn("chevron.up") { onSetCable(i, cableStep(rec.cable, +1)) }
+                }
+                HStack(spacing: 2) {                                // CHANNEL filter (OMNI · 1–16)
                     stepBtn("chevron.down") { onSetChannel(i, wrap(rec.channel - 1)) }
                     Text(rec.channel == 0 ? "OMNI" : "\(rec.channel)")
                         .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
