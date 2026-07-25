@@ -132,11 +132,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Edit a Colour's NON-AUParameter fields (type, pattern, rate, octaves, gate, phase, count,
     /// passes, strum, chance, harmonize) → rebuild. Transpose/morph are AUParameters — use the
     /// dedicated setters below so host automation stays in sync.
-    func editColour(_ index: Int, record: Bool = true, _ mutate: (inout Colour) -> Void) {
+    func editColour(_ index: Int, _ mutate: (inout Colour) -> Void) {
         guard index >= 0, index < document.colours.count else { return }
-        if record { undoStack.record(document) }               // a6: discrete Colour edit. Continuous slider
-        mutate(&document.colours[index])                       // drags pass record:false (no per-tick doc copy /
-        scheduleRebuild()                                      // undo spam — that churn stalls the drag gesture).
+        undoStack.record(document)                              // a6: discrete Colour edit
+        mutate(&document.colours[index])
+        scheduleRebuild()
     }
 
     /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
