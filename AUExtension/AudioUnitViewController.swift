@@ -750,9 +750,26 @@ struct DiagView: View {
     }
 
     // Dev-only: the canned TestSessions loader (portrait scroll; not part of the release strip).
+    // a8 stuck-note monitor (dev): the open-voices dump + the assert-on-silence self-heal count. PANICS > 0
+    // means a stuck note was caught and force-cleared in the provably-silent state — a latent bug to chase.
+    private var stuckNoteMonitor: some View {
+        let panicked = d.panics > 0
+        return HStack(spacing: 10) {
+            Text("VOICES \(d.activeVoiceCount)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            Text("HELD \(d.poolCount)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            Text("ECHO \(d.passthroughHeld)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            Text("PANICS \(d.panics)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(panicked ? .black : .white.opacity(0.55))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(panicked ? Color(red: 0.98, green: 0.35, blue: 0.3) : Color.clear))
+            Spacer()
+        }
+    }
+
     private var devLoader: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("TEST SESSIONS (dev)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            stuckNoteMonitor
             ScrollView(.horizontal, showsIndicators: false) {
               HStack(spacing: 6) {
                 ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in

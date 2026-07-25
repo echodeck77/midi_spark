@@ -31,4 +31,10 @@ struct KernelDiag {
     var activeCellParent: Int8 = -1    // v3.0 resolvedParent of the active cell (−1 = MIDI IN)
     var activeVoiceCount = 0           // instances in the poly voice table (per bus × ch × note)
     var distinctSounding = 0           // distinct (bus,ch,note) on the wire; < voices when notes collide
+    // a8 hang detection (2026-07-25): the ASSERT-ON-SILENCE net. `passthroughHeld` = raw notes echoed &
+    // awaiting their off; `silenceViolated` = voices/echoes lingered in the provably-silent state (stopped,
+    // no held input, no audition) = a stuck note; `panics` counts the self-heal all-notes-off that cleared it.
+    var passthroughHeld = 0
+    var silenceViolated = false
+    var panics: UInt64 = 0
 }

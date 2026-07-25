@@ -153,6 +153,8 @@ func passthroughCableMask(isNote: Bool, playing: Bool, auditionSuppressing: Bool
 /// velocity 0 is a note-OFF. Pure/Foundation-only so the render loop owns one and unit tests drive it.
 struct PassthroughGate {
     private var active = [Bool](repeating: false, count: 16 * 128)   // (channel<<7 | note): ON forwarded, awaiting OFF
+    /// Count of raw notes echoed and still awaiting their OFF (kept O(1) for the per-render silence check).
+    private(set) var activeCount = 0
 
     /// The cable mask (0 = drop) for one raw MIDI event. Call once per event, in arrival order.
     mutating func mask(statusByte: UInt8, note: UInt8, velocity: UInt8, playing: Bool, auditionSuppressing: Bool) -> UInt8 {
@@ -163,21 +165,34 @@ struct PassthroughGate {
         let idx = (Int(statusByte) & 0x0F) << 7 | (Int(note) & 0x7F)
         if hi == 0x80 || velocity == 0 {                            // note-OFF (incl. vel-0 note-on)
             let forward = active[idx]                               // forward iff we forwarded its ON
-            active[idx] = false
+            if active[idx] { active[idx] = false; activeCount -= 1 }
             return forward ? 0b0000_0011 : 0
         }
         let m = passthroughCableMask(isNote: true, playing: playing, auditionSuppressing: auditionSuppressing)
-        active[idx] = (m != 0)                                      // remember, so the matching OFF follows
+        let want = (m != 0)                                         // remember, so the matching OFF follows
+        if want != active[idx] { active[idx] = want; activeCount += want ? 1 : -1 }
         return m
     }
 
-    /// PANIC / reset: the indices of every note still awaiting its OFF (for an all-notes-off flush), then
-    /// clears them. The render side can emit note-offs for these on a transport reset to guarantee silence.
+    /// PANIC / reset: the (channel, note) of every note still awaiting its OFF (for an all-notes-off flush),
+    /// then clears them. The render side emits note-offs for these to guarantee silence.
     mutating func drainActive() -> [(channel: UInt8, note: UInt8)] {
+        guard activeCount > 0 else { return [] }
         var out: [(UInt8, UInt8)] = []
         for i in 0..<active.count where active[i] { out.append((UInt8(i >> 7), UInt8(i & 0x7F))); active[i] = false }
+        activeCount = 0
         return out
     }
+}
+
+/// ASSERT-ON-SILENCE (a8, 2026-07-25) — the plugin must be SILENT when nothing legitimately sounds:
+/// transport stopped, no held input, no audition. Any voice or echoed note still open in THAT state is a
+/// stuck note. Returns true = the invariant is VIOLATED. Pure, so it's the unit-testable core of the
+/// render-side self-check (which then self-heals with an all-notes-off — safe, since nothing real sounds).
+func silenceInvariantViolated(playing: Bool, heldInput: Int, auditioning: Bool,
+                              activeVoices: Int, passthroughHeld: Int) -> Bool {
+    guard !playing, heldInput == 0, !auditioning else { return false }   // something may legitimately sound
+    return activeVoices > 0 || passthroughHeld > 0
 }
 
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every

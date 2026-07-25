@@ -484,6 +484,44 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(g.drainActive().isEmpty, "drain clears")
     }
 
+    // MARK: - silence invariant (a8 assert-on-silence)
+
+    func testSilenceInvariantHoldsWhenTrulySilent() {
+        XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,
+                                                activeVoices: 0, passthroughHeld: 0), "clean silence")
+    }
+    func testSilenceInvariantCatchesLeakedVoice() {
+        XCTAssertTrue(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,
+                                               activeVoices: 1, passthroughHeld: 0), "a voice open in dead silence = stuck")
+    }
+    func testSilenceInvariantCatchesStrandedEcho() {
+        XCTAssertTrue(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: false,
+                                               activeVoices: 0, passthroughHeld: 1), "an echo held in dead silence = stuck")
+    }
+    func testSilenceInvariantIgnoresLegitimateSound() {
+        // playing → the sequencer legitimately sounds
+        XCTAssertFalse(silenceInvariantViolated(playing: true, heldInput: 0, auditioning: false,
+                                                activeVoices: 5, passthroughHeld: 0))
+        // keys held while stopped → passthrough echoes are expected
+        XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 3, auditioning: false,
+                                                activeVoices: 0, passthroughHeld: 3))
+        // auditioning → the audition legitimately sounds
+        XCTAssertFalse(silenceInvariantViolated(playing: false, heldInput: 0, auditioning: true,
+                                                activeVoices: 2, passthroughHeld: 0))
+    }
+
+    // The gate's activeCount tracks held echoes and returns to zero after their offs.
+    func testGateActiveCountBalances() {
+        var g = PassthroughGate()
+        _ = g.mask(statusByte: 0x90, note: 60, velocity: 100, playing: false, auditionSuppressing: false)
+        _ = g.mask(statusByte: 0x90, note: 64, velocity: 100, playing: false, auditionSuppressing: false)
+        XCTAssertEqual(g.activeCount, 2)
+        _ = g.mask(statusByte: 0x80, note: 60, velocity: 0, playing: true, auditionSuppressing: false)   // off across a transition
+        XCTAssertEqual(g.activeCount, 1, "the off still clears its tracking even when not forwarded-by-state")
+        _ = g.mask(statusByte: 0x80, note: 64, velocity: 0, playing: false, auditionSuppressing: false)
+        XCTAssertEqual(g.activeCount, 0)
+    }
+
     // MARK: - column sweep fraction (mutation-line / §6b chip playhead)
 
     func testColumnSweepFractionSwingAwareSpansTheRealColumn() {

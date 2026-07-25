@@ -167,6 +167,28 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride,
                         out: liveEmitter, diag: &diag)
+
+        // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
+        //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —
+        //      safe by construction here (nothing real is playing) — and count the self-heal for the poll.
+        diag.passthroughHeld = passthroughGate.activeCount
+        if silenceInvariantViolated(playing: playing, heldInput: pool.count, auditioning: audition >= 0,
+                                    activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
+            diag.silenceViolated = true
+            diag.panics &+= 1
+            let now = Int64(timestamp.pointee.mSampleTime)
+            router.allNotesOff(atSample: now, out: liveEmitter)          // close any leaked sequenced voices
+            if let out = midiOut {                                       // flush stranded echoes as offs on All + Emit A
+                for (chan, note) in passthroughGate.drainActive() {
+                    passthroughScratch[0] = 0x80 | chan; passthroughScratch[1] = note; passthroughScratch[2] = 0
+                    _ = out(now, 0, 3, &passthroughScratch)
+                    _ = out(now, 1, 3, &passthroughScratch)
+                }
+            }
+            diag.activeVoiceCount = 0; diag.passthroughHeld = 0
+        } else {
+            diag.silenceViolated = false
+        }
     }
 
     /// True when the audition target is a cell that WILL sound (occupied, non-muted, non-bypassed, with
