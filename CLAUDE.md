@@ -14,13 +14,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
    - An UPDATED version of a doc I hold (this CLAUDE.md, a `Docs/*` file) → **MERGE** its changes
      into my copy (reconcile, don't blindly overwrite — we edit in parallel, so watch for reverts).
    - A NEW document → **ADD** it to the right place (`Docs/`, etc.).
-   - After processing a file, **DELETE it** from `_dear_claude_code/` (it's consumed).
-2. **REPLY via `_dear_claude/`**: first **EMPTY `_dear_claude/`**, then write ONE findings/decisions
-   file (what I merged, what I built, key decisions + rationale, open questions) plus the
-   **recently-changed source** for review.
-   - **CONSTRAINTS (2026-07-25): keep it FLAT (no subdirectories) and ≤ 20 files total** — Claude's
-     document read limit is 20. Bundle source into a SINGLE file (`SOURCE-SNAPSHOT.md`, each `.swift`
-     under an H2 header) rather than shipping loose files, so FINDINGS + bundle = 2 documents.
+   - After processing a file, **DELETE it** from `_dear_claude_code/` (it's consumed), and **RECORD
+     which files I read** so my next message can ACKNOWLEDGE them back to the partner (symmetry:
+     he applies the same delete-on-acknowledgment rule to his outbox that I apply to mine).
+2. **REPLY via `_dear_claude/` — but only when there's something of IMMEDIATE VALUE** (a merge that
+   changed something, a real answer, a decision, a blocker). **Do NOT write a ceremonial/empty
+   reply.** Silence is a valid response.
+   - **DELETE-ON-ACKNOWLEDGMENT (2026-07-25): do NOT pre-empty the outbox.** Outbox files STAY until
+     the partner has explicitly acknowledged reading them (he lists which files he read in his
+     messages). Only then delete the acknowledged files. This makes the manual, human-relayed channel
+     lossless — nothing is cleared before it's confirmed received. **Ask the partner, in each reply,
+     to tell me which files he read.**
+   - **CONSTRAINTS: keep it FLAT (no subdirectories) and ≤ 20 files total** — Claude's document read
+     limit is 20. Bundle source into a SINGLE file (`SOURCE-SNAPSHOT.md`, each `.swift` under an H2
+     header) rather than shipping loose files, so FINDINGS + bundle = 2 documents.
 3. Keep the tracked side clean: commit only real repo changes (`.gitignore`, docs, code) — the
    inbox/outbox contents are transient and untracked.
 
