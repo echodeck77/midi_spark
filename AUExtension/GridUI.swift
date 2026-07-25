@@ -88,6 +88,7 @@ struct GridView: View {
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
+    var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -224,9 +225,12 @@ struct GridView: View {
             }
         }
         .frame(maxWidth: .infinity).frame(height: cellHeight)
-        .overlay {                                          // border: no-dest > selection > active > idle
+        .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
-            if noDest && !isSel {
+            if GridPos(col: col, row: row) == hiddenPending, let hc = raw {
+                // recently-HIDDEN (undo window): a ring in the hidden cell's own colour — tap to restore, touch elsewhere to delete
+                RoundedRectangle(cornerRadius: 8).stroke(colourColor(hc.colourID) ?? accentAmber, lineWidth: 2.5)
+            } else if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
             } else {

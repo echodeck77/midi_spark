@@ -72,6 +72,10 @@ struct DiagView: View {
     // chip), gate the empty-cell flash (empties only invite once ≥1 is placed), and are the "selected
     // cells" that live-reflect receiver/emitter edits. Cleared on enter/retarget/exit. View-local.
     @State private var stagedCells: Set<GridView.GridPos> = []
+    // Hide-with-undo (user 2026-07-25): a single tap HIDES a cell (muted, recoverable) and marks it with a
+    // ring in its own colour; re-tapping restores it; touching ANY other cell COMMITS the deletion. This is
+    // the just-hidden cell in its undo window (nil = none).
+    @State private var hiddenPending: GridView.GridPos? = nil
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
     // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
@@ -97,7 +101,14 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+
+    // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
+    private func commitHiddenPending() {
+        guard let au, let hp = hiddenPending else { return }
+        au.editScene { $0.cells[hp.col][hp.row] = nil }
+        hiddenPending = nil; scene = au.uiScene()
+    }
 
     // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
     // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
@@ -105,6 +116,7 @@ struct DiagView: View {
     // Forces EDIT on so it's always possible to re-enter after a drop drops us into PERFORM (bug fix
     // 2026-07-25); tapping a different chip while staging shifts focus to that Colour (same entry point).
     private func enterStaging(_ id: String) {
+        commitHiddenPending()                       // moving into cell-edit closes any open hide-undo window
         stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
         stampMode = false; editorClose()            // staging owns the panels — clear conflicting modes
         stagedCells = []                            // fresh session (also on retarget): nothing placed yet
@@ -117,6 +129,7 @@ struct DiagView: View {
     // fresh flashing cell there. From here it behaves like any staging session (place more / recolour / commit).
     private func enterStagingForCell(_ col: Int, _ row: Int) {
         guard let au, editing else { return }
+        commitHiddenPending()                       // long-pressing to stage closes any open hide-undo window
         let pos = GridView.GridPos(col: col, row: row)
         if let cell = scene.cells[col][row] {
             stagedConfig = StampConfig.from(cell); brush = cell.colourID     // adopt the cell's colour + routing
@@ -228,11 +241,20 @@ struct DiagView: View {
                 fadedCells.remove(GridView.GridPos(col: col, row: row))   // a deliberate stamp is a committed change → un-fade
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
             } else {
-                // Single tap on a POPULATED cell → HIDE / SHOW (user 2026-07-25, replaces the editor pop-up):
-                // toggle `muted` — the cell disappears from the grid (renders empty, sounds nothing) and a
-                // second tap brings it back with the same settings. Empty cells are inert.
-                guard scene.cells[col][row] != nil else { selCol = col; selRow = row; return }
-                au.editScene { s in if var c = s.cells[col][row] { c.muted.toggle(); s.cells[col][row] = c } }
+                // Single tap in EDIT (user 2026-07-25, replaces the editor pop-up): HIDE-with-undo. Tapping a
+                // visible cell hides it (muted, recoverable) and rings it in its own colour; re-tapping the
+                // same cell RESTORES it; touching ANY OTHER cell COMMITS the pending deletion. Empty = inert.
+                let pos = GridView.GridPos(col: col, row: row)
+                if hiddenPending == pos {                        // re-tap the recently-hidden cell → restore
+                    au.editScene { s in if var c = s.cells[col][row] { c.muted = false; s.cells[col][row] = c } }
+                    hiddenPending = nil; selCol = col; selRow = row; scene = au.uiScene()
+                    return
+                }
+                commitHiddenPending()                           // touched a different cell → delete the prior pending-hidden one
+                if scene.cells[col][row] != nil {               // a visible populated cell → hide it (recoverable)
+                    au.editScene { s in if var c = s.cells[col][row] { c.muted = true; s.cells[col][row] = c } }
+                    hiddenPending = pos
+                }
                 selCol = col; selRow = row; scene = au.uiScene()
             }
         } else {
@@ -626,7 +648,8 @@ struct DiagView: View {
                  onLongPressCellEdit: enterStagingForCell,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
-                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells)
+                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
+                 hiddenPending: hiddenPending)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
