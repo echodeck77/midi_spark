@@ -62,6 +62,7 @@ struct DiagView: View {
     // DEFERRED to the design spec — this scaffold is EDIT-only panel staging.
     @State private var staging = false
     @State private var stagedConfig = StampConfig(colourID: "gold")
+    @State private var cellPreview = false      // the CELL box PREVIEW toggle (Phase 1: UI state; engine routing = Phase 2)
     // Live PREVIEW while dragging a staged cell over the grid: the staged cell is transiently placed at the
     // hovered position via the NON-undoable edit path, so it sounds IN CONTEXT (the LIVE LAW does the voice
     // transitions). `previewPos` = where it's placed; `previewUnder` = the cell it displaced (restored on
@@ -548,12 +549,9 @@ struct DiagView: View {
                         HStack(alignment: .top, spacing: 10) {
                             VStack(spacing: 8) {
                                 gridBlock(cellH)
-                                HStack(alignment: .top, spacing: 8) {     // aligned to the grid's edges
+                                HStack(spacing: 8) {                      // aligned to the grid's edges
                                     receiversBox.frame(maxWidth: .infinity)
-                                    VStack(spacing: 8) {                  // ON section stacks under the emitters during cell-edit
-                                        emittersBox
-                                        if staging { onBox }
-                                    }.frame(maxWidth: .infinity)
+                                    emittersBox.frame(maxWidth: .infinity)
                                 }
                                 hint
                             }
@@ -658,7 +656,7 @@ struct DiagView: View {
 
     private var hint: some View {
         Text(editing
-             ? "EDIT · TAP cell → editor · HOLD cell → cell-edit · drag/long-press a colour → place"
+             ? "EDIT · TAP cell → hide (tap again to restore) · HOLD cell → cell-edit · drag a colour → place"
              : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -672,6 +670,7 @@ struct DiagView: View {
     private var identityColumn: some View {
         VStack(spacing: 8) {
             colourBox
+            if staging { cellBox }         // cell-edit surface, directly below the COLOUR grid
             altPanel
             processorSelector
             processorSettings
@@ -690,51 +689,59 @@ struct DiagView: View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap * 2)
         return HStack(alignment: .top, spacing: gap) {
-            VStack(spacing: gap) { colourBox; altPanel }.frame(width: avail * 0.25)
+            VStack(spacing: gap) { colourBox; if staging { cellBox }; altPanel }.frame(width: avail * 0.25)
             VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.50)
-            VStack(spacing: gap) { receiversBox; emittersBox; if staging { onBox } }.frame(width: avail * 0.25)
+            VStack(spacing: gap) { receiversBox; emittersBox }.frame(width: avail * 0.25)
         }
     }
 
-    @ViewBuilder private var emittersBox: some View {
-        Group {
-            if staging {                              // cell-edit state: the pending cell's OUTPUT buses
-                StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
-            } else {
-                OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                            emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
-                            onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
-                            onVelOverride: setVelOverride, onClaim: setClaim)
-            }
-        }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging && !stagingDragging, color: stagingColor)   // hands off to the grid while a staging drag is in flight
-    }
-
-    // ON section (cell-edit state) — appears BELOW the emitters during staging, moving border, placeholder
-    // controls until the ON engine (queued after a8). Shown only while staging.
-    private var onBox: some View {
-        OnSectionView()
-            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+    private var emittersBox: some View {
+        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
+                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
+                    onVelOverride: setVelOverride, onClaim: setClaim)
+            .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-            .marchingAnts(staging && !stagingDragging, color: stagingColor)
     }
 
-    @ViewBuilder private var receiversBox: some View {
-        Group {
-            if staging {                              // cell-edit state: the pending cell's INPUT source
-                StagingInputView(inputRow: stagedConfig.inputRow, inputReceiver: stagedConfig.inputReceiver,
-                                 receivers: receivers, onPickReceiver: setStagedReceiver,
-                                 onPickRow: pickStagedRow, onStepRow: stepStagedRow)
-            } else {
-                ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                              onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
-            }
+    // THE CELL BOX (user 2026-07-26) — cell-edit's single surface, below the COLOUR grid, shown only in
+    // staging. Top→bottom: INPUT (receivers radio + ROW) · ON section · OUTPUT (A–D) · a wide PREVIEW toggle.
+    // Moving border like the other cell-edit affordances; hands off to the grid during a drag.
+    @ViewBuilder private var cellBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StagingInputView(inputRow: stagedConfig.inputRow, inputReceiver: stagedConfig.inputReceiver,
+                             receivers: receivers, onPickReceiver: setStagedReceiver,
+                             onPickRow: pickStagedRow, onStepRow: stepStagedRow)
+            OnSectionView()                          // placeholder until the ON section is built out (per the design spec)
+            StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
+            previewButton
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging && !stagingDragging, color: stagingColor)   // hands off to the grid while a staging drag is in flight
+        .marchingAnts(staging && !stagingDragging, color: stagingColor)
+    }
+
+    // PREVIEW — cell audition. Phase 1: UI toggle only. SUPPRESSED while a staging drag is over the grid
+    // (so the drag's preview-in-place wins); the toggle state persists, so it RESUMES off-grid. Phase 2
+    // wires the routing (solo the staged cell + row-source-in-time).
+    private var previewButton: some View {
+        let suppressed = stagingDragging
+        let active = cellPreview && !suppressed
+        return Text(active ? "PREVIEW ●" : "PREVIEW")
+            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(active ? .black : .white.opacity(suppressed ? 0.3 : 0.7))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 6).fill(active ? stagingColor : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? .clear : Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { if !suppressed { cellPreview.toggle() } }
+    }
+
+    @ViewBuilder private var receiversBox: some View {
+        ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
+                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute, onToggleMPE: toggleReceiverMPE)
+            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
     private var colourBox: some View {
