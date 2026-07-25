@@ -124,9 +124,7 @@ struct DiagView: View {
         au.editScene { s in
             for p in stagedCells {
                 guard var c = s.cells[p.col][p.row] else { continue }
-                c.inputRow = stagedConfig.inputRow
-                c.inputReceiver = stagedConfig.inputReceiver
-                c.buses = stagedConfig.buses
+                stagedConfig.applyRouting(to: &c)
                 s.cells[p.col][p.row] = c
             }
         }
@@ -145,9 +143,10 @@ struct DiagView: View {
             previewUnder = fresh.cells[h.col][h.row]           // remember what we're covering
             let cell = stagedConfig.makeCell()                 // the staged cell (input + emitters + colour)
             au.editScene(record: false) { $0.cells[h.col][h.row] = cell }
+            au.setPreviewOverlay(col: h.col, row: h.row, under: previewUnder)   // fullState strips this
             previewPos = h
         } else {
-            previewPos = nil; previewUnder = nil
+            previewPos = nil; previewUnder = nil; au.clearPreviewOverlay()
         }
         scene = au.uiScene()
     }
@@ -155,7 +154,7 @@ struct DiagView: View {
     private func clearPreview() {
         guard let au, let pp = previewPos else { return }
         au.editScene(record: false) { $0.cells[pp.col][pp.row] = previewUnder }
-        previewPos = nil; previewUnder = nil
+        previewPos = nil; previewUnder = nil; au.clearPreviewOverlay()
         scene = au.uiScene()
     }
     private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)); applyStagedToPlaced() }

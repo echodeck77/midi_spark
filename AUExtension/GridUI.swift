@@ -249,7 +249,7 @@ struct GridView: View {
         .overlay {                                          // staging: empty cells pulse a border → tap to place, but ONLY once ≥1 cell placed
             if staging, cell == nil, !stagedCells.isEmpty {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                    let f = 0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 0.9)
+                    let f = stagingPulseFraction(tl.date, period: 0.9)
                     RoundedRectangle(cornerRadius: 8).strokeBorder(stagingColor.opacity(0.2 + 0.7 * f), lineWidth: 2)
                 }
                 .allowsHitTesting(false)
@@ -258,7 +258,7 @@ struct GridView: View {
         .overlay {                                          // staging: a PLACED cell pulses colour↔black, like its palette chip
             if stagedCells.contains(GridPos(col: col, row: row)) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                    let f = 0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 0.85)
+                    let f = stagingPulseFraction(tl.date, period: 0.85)
                     RoundedRectangle(cornerRadius: 8).fill(Color.black).opacity(f * 0.72)
                 }
                 .allowsHitTesting(false)
@@ -1266,8 +1266,7 @@ struct PaletteView: View {
     // back to the long-press gesture. A black overlay whose opacity rides a cosine; pure UI.
     private var stagedPulse: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            let f = 0.5 - 0.5 * cos(t * 2 * .pi / 0.85)
+            let f = stagingPulseFraction(tl.date, period: 0.85)
             RoundedRectangle(cornerRadius: 3).fill(Color.black).opacity(f * 0.85)
         }
         .allowsHitTesting(false)
@@ -1297,6 +1296,12 @@ struct PaletteView: View {
 
 private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
 private let stagingAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+
+/// A 0→1→0 breathing fraction for the staging pulses (chip, empty-cell border, placed-cell fill) — one
+/// cosine so every pulse shares the same rhythm. `period` in seconds.
+func stagingPulseFraction(_ date: Date, period: Double) -> Double {
+    0.5 - 0.5 * cos(date.timeIntervalSinceReferenceDate * 2 * .pi / period)
+}
 
 /// Marching-ants animated dashed border — the "prominent moving outline" marking a panel in cell-edit
 /// state. Pure UI (an animated dashPhase); no render-path involvement.

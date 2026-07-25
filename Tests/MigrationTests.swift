@@ -276,4 +276,51 @@ final class StampConfigTests: XCTestCase {
         XCTAssertEqual(t.inputReceiver, 0)       // Receiver 1
         XCTAssertEqual(t.buses, [.a])            // → A
     }
+    // applyRouting overwrites input + buses but LEAVES the colour (staging live-propagation to placed cells).
+    func testApplyRoutingKeepsColour() {
+        var c = Cell(colourID: "rose", buses: [.a]); c.inputRow = nil; c.inputReceiver = 0
+        var t = StampConfig(colourID: "ignored"); t.inputRow = 5; t.inputReceiver = 3; t.buses = [.c, .d]
+        t.applyRouting(to: &c)
+        XCTAssertEqual(c.colourID, "rose", "colour is not part of routing")
+        XCTAssertEqual(c.inputRow, 5)
+        XCTAssertEqual(c.inputReceiver, 3)
+        XCTAssertEqual(c.buses, [.c, .d])
+    }
+}
+
+// MARK: - fullState preview-exclusion (staging: a host autosave mid-hover must not persist the preview)
+
+final class PreviewOverlayTests: XCTestCase {
+    private func doc(with cell: Cell?, at col: Int, _ row: Int) -> PluginState {
+        var d = PluginState.factory()
+        d.scenes[d.activeScene].cells[col][row] = cell
+        return d
+    }
+    func testRestoringCellReplacesActiveSceneCell() {
+        let preview = Cell(colourID: "gold")
+        let d = doc(with: preview, at: 3, 4)                    // preview cell sitting in the document
+        let restored = d.restoringCell(col: 3, row: 4, to: nil) // encode with the covered (empty) cell
+        XCTAssertNil(restored.scenes[restored.activeScene].cells[3][4], "preview stripped for encoding")
+        XCTAssertEqual(d.scenes[d.activeScene].cells[3][4]?.colourID, "gold", "the live document is untouched")
+    }
+    func testRestoringCellRestoresACoveredCell() {
+        let covered = Cell(colourID: "cyan")
+        var d = doc(with: Cell(colourID: "gold"), at: 1, 1)     // preview covering a cyan cell
+        let restored = d.restoringCell(col: 1, row: 1, to: covered)
+        XCTAssertEqual(restored.scenes[restored.activeScene].cells[1][1]?.colourID, "cyan")
+        _ = d
+    }
+    func testRestoringCellOutOfRangeIsNoOp() {
+        let d = PluginState.factory()
+        XCTAssertEqual(d.restoringCell(col: 9, row: 0, to: nil), d)
+        XCTAssertEqual(d.restoringCell(col: 0, row: 99, to: nil), d)
+    }
+    // The end-to-end guarantee: encode with an active overlay yields the restored cell, not the preview.
+    func testEncodeWithOverlayDropsPreview() throws {
+        let d = doc(with: Cell(colourID: "gold"), at: 2, 2)     // gold preview live in the doc
+        let encodeDoc = d.restoringCell(col: 2, row: 2, to: nil)
+        let data = try JSONEncoder().encode(encodeDoc)
+        let decoded = try JSONDecoder().decode(PluginState.self, from: data)
+        XCTAssertNil(decoded.scenes[decoded.activeScene].cells[2][2], "the reloaded preset has no preview cell")
+    }
 }

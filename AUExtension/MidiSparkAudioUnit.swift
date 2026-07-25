@@ -354,10 +354,18 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // MARK: - fullState = the host-level Preset (§1: the only thing called a preset)
     private static let stateKey = "com.paulbarrett.midispark.document"
 
+    // Staging live-preview overlay (main thread): while a staged cell is transiently placed on the grid
+    // for the in-context preview, this records where + the cell it displaced, so fullState encodes the
+    // RESTORED cell — a host autosave mid-hover must never persist the transient preview into a preset.
+    private var previewOverlay: (col: Int, row: Int, under: Cell?)? = nil
+    func setPreviewOverlay(col: Int, row: Int, under: Cell?) { previewOverlay = (col, row, under) }
+    func clearPreviewOverlay() { previewOverlay = nil }
+
     public override var fullState: [String: Any]? {
         get {
             var state = super.fullState ?? [:]
-            if let data = try? JSONEncoder().encode(document) { state[Self.stateKey] = data }
+            let encodeDoc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
+            if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
         }
         set {

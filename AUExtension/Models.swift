@@ -200,6 +200,18 @@ struct PluginState: Codable, Equatable {
         return (0..<4).map { $0 < r.count ? r[$0] : Receiver(name: "\($0 + 1)") }
     }
 
+    /// A copy with one ACTIVE-scene cell forced to `cell` (nil = empty). Used to STRIP the live staging
+    /// preview from the encoded preset: the preview is placed into the document transiently (so it sounds
+    /// in context), so a host autosave landing mid-hover must encode the RESTORED cell, never the preview.
+    /// Bounds-guarded → returns self unchanged for an out-of-range address.
+    func restoringCell(col: Int, row: Int, to cell: Cell?) -> PluginState {
+        guard activeScene >= 0, activeScene < scenes.count,
+              col >= 0, col < 8, row >= 0, row < scenes[activeScene].cells[col].count else { return self }
+        var s = self
+        s.scenes[activeScene].cells[col][row] = cell
+        return s
+    }
+
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
     /// test session). Mapping (migration-tree-routing.md §1): a cell fed under the old model — i.e.
@@ -308,7 +320,12 @@ struct StampConfig: Equatable {
     }
     /// A fresh cell carrying this config (perform state defaulted).
     func makeCell() -> Cell {
-        var c = Cell(colourID: colourID); c.inputRow = inputRow; c.inputReceiver = inputReceiver; c.buses = buses; return c
+        var c = Cell(colourID: colourID); applyRouting(to: &c); return c
+    }
+    /// Overwrite a cell's ROUTING (input source + output buses) from this config; colour + perform
+    /// state untouched. Shared by `makeCell` and the staging live-propagation to the placed cells.
+    func applyRouting(to c: inout Cell) {
+        c.inputRow = inputRow; c.inputReceiver = inputReceiver; c.buses = buses
     }
 }
 
