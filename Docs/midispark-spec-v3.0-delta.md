@@ -246,9 +246,11 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   audition (stopped, as spec'd); moving the finger BEGINS THE DRAG and
   cancels the audition; staying put keeps listening ("hold to hear it,
   drag to move it" — no timing windows). Onto an EMPTY target = move;
-  onto an OCCUPIED target = **SWAP (ratified)** — the cells trade places,
-  lossless, undoable; the grid becomes rearrangeable tiles (overwrite
-  rejected: it would be the only untinted destructive gesture).
+  onto an OCCUPIED target = **OVERWRITE (user device-call 2026-07-26,
+  supersedes the earlier SWAP ratification)** — the moved cell replaces the
+  target (undo-covered; swap rejected in practice: the armed-relocate
+  gesture made swap feel like a misfire). (Relocate is now armed by a
+  long-press, then drag; a quick tap can never move a cell.)
   **MOVES NEVER REWRITE REFERENCES** (fields sacred): WITHIN-row drags
   (column changes) are completely reference-safe — references are
   row-level; CROSS-row drags mean the old row's children resolve against
@@ -318,6 +320,22 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   (confirmed). [Polish, later: an occupied-target hover tint from stamp amber.]
   HANG NOTE: preview exercises the voice-transition system per hover-move —
   deliberately NOT gated behind a8; preview-induced hangs are a8 quarry.
+  **PREVIEW / CELL AUDITION — Phase 2 engine design (design-side 2026-07-26; GUI shipped as a momentary
+  HOLD button in the CELL box, engine parked until here):** preview = a VIRTUAL CELL rendered through the
+  audition pathway + a SOLO gate — three existing pieces compose, nothing new invented.
+  ① VIRTUAL CELL: the staged config evaluated as if it were an active cell AT THE PLAYHEAD'S CURRENT
+  COLUMN on the live beat (effective-params resolve, normal derivation, audition's render path).
+  Ephemeral/engine-side, never in the document (audition is the right chassis → no fullState concern).
+  ② ROW FEED: staged input = ⇐ROW n → the virtual cell's pool = row n's cell-at-current-column's SOUNDING
+  SET (the existing persistent-voice evaluation, consulted live; the parent changes column by column as
+  the playhead moves — that IS hearing the staged cell against the arrangement in time). Receiver input =
+  the receiver's live pool (incl. latch).
+  ③ SOLO gate: while PREVIEW is held, normal emission is suppressed at the emission boundary and ONLY the
+  virtual cell emits. **PREVIEW WINS over preview-in-place** (suspend the transient hover placement while
+  held; restore on release). MOMENTARY (audition's hold grammar); §5c HOLD can latch it.
+  ④ busEnabled/CLAIM (fork 4, v1): the virtual cell emits through its STAGED buses **respecting
+  busEnabled** (a muted emitter stays silent), **bypassing roles/CLAIM entirely** (solo = no other-emitter
+  context). Stopped-transport preview allowed (runs on the audition clock, as audition does today).
 
 ## 6. Desk (closes the §6.9 layout-pass task)
 
