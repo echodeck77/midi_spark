@@ -949,7 +949,12 @@ every answer at once.
        flips at midpoint, arriving in-groove. Candidate PARTIAL pairs by
        expected grace: ARP↔RATCHET (showcase), PASSGATE↔CHANCE
        (structure↔dice), STRUM↔ARP, HARMONIZE↔* (marginal). SHIP FULL+SWAP
-       FIRST; a fader that sounds broken at 0.3 poisons the ones that work.
+       FIRST; a fader that sounds broken at 0.3 poisons the ones that
+       work. (AS-BUILT v1 note 2026-07-25: SWAP flips type/passMask;
+       non-interpolated enum fields — pattern/phase/strumDir/curve/
+       velTilt — stay the BASE Colour's in exotic cross-type pairs; a v1
+       limitation, blessed pairs fully covered. morphMaster #300 RETIRED,
+       user call — per-Colour 200+i is the automation surface.)
      - **RESCUED by colour-level pairing:** morph position is per-Colour →
        param addresses 200+i STAY LIVE (automation surface intact; only the
        address *meaning* updates: morph toward the partner); the 16-strip
@@ -1070,7 +1075,9 @@ every answer at once.
        discrete — it never goes "through" a processor):**
        (1) PASSTHROUGH = the player's hand (v1; = the CLAUDE.md OPEN
        DECISION on channel-wide message mirroring). (2) CONTROL SOURCE:
-       incoming wheel → morphMaster / a Colour's morph / velocity faders —
+       incoming wheel → a Colour's morph (200+i; morphMaster #300 RETIRED
+       as-built 2026-07-25, address registered per invariant 5) /
+       velocity faders —
        cheapest big win; a sprung pitch wheel IS morph-scrub with hardware
        spring physics. Kernel/param territory, not a processor. (3)
        **GENERATED bend — a BEND processor**: emits bend curves DERIVED
@@ -1333,7 +1340,8 @@ every answer at once.
        fader + SPRING; with HOLD = latched duck, released by the global
        drop). **THE CHARACTER FADER: pair the master insert's Colour** —
        HARMONIZE-5th↔octave = voicing character on one fader;
-       CHANCE-100↔30 = a DENSITY master; morphMaster at address 300 =
+       CHANCE-100↔30 = a DENSITY master; the MASTER INSERT Colour's own
+       morph address (200+i; morphMaster retired) =
        AUM rides the whole instrument's character over the song's arc.
        FUTURE: master-MOD = the DJ filter (one CC sweep, every synth,
        together) · master-ECHO = the global send · wildcard: master-ARP
