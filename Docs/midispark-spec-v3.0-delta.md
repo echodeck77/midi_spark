@@ -260,7 +260,8 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   split-paste philosophy as a gesture). Onto an EMPTY cell = create,
   seeded from the SESSION TEMPLATE (one creation rule everywhere),
   **shown FADED — the provisional/unreviewed state** — until the user
-  taps it, opening the cell editor; the fade clears on that first visit.
+  confirms it with a committed change in the editor (see the UN-FADE RULE
+  below; opening/inspecting does NOT clear the fade).
   **Faded cells PLAY (ratified)** — they derive and sound immediately (the
   LIVE LAW; sketching while running is audible); the fade is the
   deviations-announce law applied to creation: "present, sounding,

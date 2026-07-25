@@ -91,13 +91,13 @@ struct DiagView: View {
         if editing {
             if stampMode {                                 // delta §5 STAMP MODE: apply the stamp, no editor
                 au.editScene { $0.cells[col][row] = currentTemplate.makeCell() }
+                fadedCells.remove(GridView.GridPos(col: col, row: row))   // a deliberate stamp is a committed change → un-fade
                 selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
             } else {                                       // open / RETARGET the inspector on this cell
                 // Empty-cell taps are INERT in EDIT (user 2026-07-25): the editor is for OCCUPIED cells
                 // only; empties are populated by DRAG (palette-to-grid or relocation), never by tap.
                 guard scene.cells[col][row] != nil else { selCol = col; selRow = row; return }
-                fadedCells.remove(GridView.GridPos(col: col, row: row))   // §5: first visit clears the provisional fade
-                editorCol = col; editorRow = row
+                editorCol = col; editorRow = row          // opening does NOT un-fade (un-fade rule 2026-07-24)
                 editorPending = false
                 selCol = col; selRow = row
             }
@@ -127,6 +127,7 @@ struct DiagView: View {
             au.editScene { s in if var c = s.cells[editorCol][editorRow] { f(&c); s.cells[editorCol][editorRow] = c } }
         }
         scene = au.uiScene(); docColours = au.uiColours()
+        fadedCells.remove(GridView.GridPos(col: editorCol, row: editorRow))   // un-fade on FIRST COMMITTED CHANGE (2026-07-24)
         if let c = scene.cells[editorCol][editorRow] { template = .from(c); brush = c.colourID }   // commit ⇒ template + desk
     }
 
