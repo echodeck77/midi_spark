@@ -1,6 +1,6 @@
 //  MidiSparkAudioUnit.swift
 //  AUv3 MIDI processor (aumi). Spec v2.8.
-//  Declares four MIDI outputs (§2/§8), the 35-parameter table with stable addresses (§8/§13.5),
+//  Declares five MIDI outputs (§7b: All + Emit A–D), the 35-parameter table with stable addresses (§8/§13.5),
 //  fullState as the host-level Preset (§1/§9), and wires the render kernel.
 
 import Foundation
@@ -193,7 +193,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
-    // MARK: - Four MIDI outputs — the load-bearing line (§8). AUM shows these as four sources.
+    // MARK: - Five MIDI outputs — the load-bearing line (§7b/§8). AUM shows these as five sources.
     // delta §7b: FIVE cables — All (0) carries every emitter channel-distinguished; A–D (1–4) each
     // carry their own stream. Static; serves single-cable and multi-out hosts simultaneously.
     // Labels kept short (AUM prepends "MidiSpark @Mn:n "); "All" sorts before the "Emit ·" group in
@@ -318,7 +318,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func loadTestSession(_ session: TestSessions.Session) {
         dispatchPrecondition(condition: .onQueue(.main))
         document = session.make()
-        document.migrateLegacyRoutingIfNeeded()   // fill inputRow (dormant until the commit-3 router flip)
+        document.migrateLegacyRoutingIfNeeded()   // fill inputRow from legacy stack (now the live routing field)
         loadedTestSession = session.id
 
         // Tree writes re-enter implementorValueObserver (each calling scheduleRebuild), so

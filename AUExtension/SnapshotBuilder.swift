@@ -63,19 +63,6 @@ enum SnapshotBuilder {
             }
         }
 
-        // ---- isTapped (delta §1): does any OTHER cell in the column reference this row? Used by the
-        //      reference-aware no-destination warning. resolvedParent is −1 for MIDI-IN cells, so it
-        //      never matches a real row index. ----
-        for c in 0..<Snap.cols {
-            for r in 0..<Snap.rows {
-                var tapped = false
-                for rr in 0..<Snap.rows where Int(cells[c * Snap.rows + rr].resolvedParent) == r {
-                    tapped = true; break
-                }
-                cells[c * Snap.rows + r].isTapped = tapped
-            }
-        }
-
         // ---- LEGATO run starts (§3.5/§7 v2.4): same colour + same ROW + contiguous COLUMNS.
         //      Wiring/perform state irrelevant to run identity (§1.1); computed for every cell.
         for r in 0..<Snap.rows {

@@ -843,16 +843,4 @@ struct DiagView: View {
             }
         }
     }
-
-    private func row(_ label: String, _ main: String, _ sub: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4)).frame(width: 110, alignment: .leading)
-            Text(main).font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.9))
-            Text(sub).font(.system(size: 9, design: .monospaced))
-                .foregroundColor(Color(red: 0.15, green: 0.88, blue: 0.94).opacity(0.8))
-            Spacer()
-        }
-    }
 }

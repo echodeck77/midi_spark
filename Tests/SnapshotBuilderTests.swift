@@ -208,14 +208,4 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.cells[0].inputChannel, 3)
     }
 
-    func testIsTappedFlag() {
-        let b = box(colours(customizing: 0) { _ in }) { s in
-            s.cells[0][0] = Cell(colourID: "gold")                          // parent — tapped by rows 1 & 2
-            s.cells[0][1] = Cell(colourID: "gold", inputRow: 0)
-            s.cells[0][2] = Cell(colourID: "gold", inputRow: 0)             // fan-out
-            s.cells[0][3] = Cell(colourID: "gold")                          // referenced by nobody
-        }
-        XCTAssertTrue(b.cells[0 * Snap.rows + 0].isTapped)                  // two children reference it
-        XCTAssertFalse(b.cells[0 * Snap.rows + 3].isTapped)                 // untapped
-    }
 }

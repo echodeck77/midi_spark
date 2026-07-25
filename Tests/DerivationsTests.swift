@@ -266,7 +266,81 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(umpToLegacy((0x4 << 28) | (0x0 << 20), 0))
     }
 
+    func testUmpMidi2PitchBendAndChannelPressure() {
+        // Pitch bend (0xE): the 32-bit value downscales to 14-bit, split LSB/MSB into two 7-bit bytes.
+        let pb: UInt32 = (0x4 << 28) | (0x1 << 24) | (0xE << 20) | (2 << 16)   // group 1, ch 2
+        guard let b = umpToLegacy(pb, 0x8000_0000) else { return XCTFail("pitch-bend nil") }
+        XCTAssertEqual(b.b0, 0xE2)                          // status | channel 2
+        XCTAssertEqual(b.b1, 0)                             // v14 = 0x2000 (centre) → LSB 0
+        XCTAssertEqual(b.b2, 64)                            //                       → MSB 64
+        XCTAssertEqual(b.len, 3); XCTAssertEqual(b.group, 1)
+        // Channel pressure (0xD): 32-bit → 7-bit, a 2-byte legacy message.
+        let cp: UInt32 = (0x4 << 28) | (0xD << 20) | (5 << 16)   // ch 5
+        guard let c = umpToLegacy(cp, 0xFFFF_FFFF) else { return XCTFail("pressure nil") }
+        XCTAssertEqual(c.b0, 0xD5); XCTAssertEqual(c.b1, 127); XCTAssertEqual(c.len, 2)
+    }
+
+    // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
+
+    func testPeakHoldLevelDecaysLinearly() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 1000)
+        XCTAssertEqual(peakHoldLevel(peak: 1.0, since: t0, now: t0, hold: 0.15), 1.0, accuracy: 1e-9)               // at the peak
+        XCTAssertEqual(peakHoldLevel(peak: 1.0, since: t0, now: t0.addingTimeInterval(0.075), hold: 0.15), 0.5, accuracy: 1e-6) // half-way
+        XCTAssertEqual(peakHoldLevel(peak: 1.0, since: t0, now: t0.addingTimeInterval(0.30), hold: 0.15), 0.0, accuracy: 1e-9)  // clamped ≥ 0
+        XCTAssertEqual(peakHoldLevel(peak: 1.0, since: t0, now: t0, hold: 0), 0.0, accuracy: 1e-9)                 // no divide-by-zero
+    }
+
     // MARK: NotePool (§2.5)
+
+    // §item 11 INPUT CABLES: the source-filter methods gate on the cable mask as well as the channel.
+    func testSrcCountAndAscendingHonourCableMask() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0, cable: 1)
+        p.noteOn(64, velocity: 100, channel: 0, cable: 2)
+        p.noteOn(67, velocity: 100, channel: 0, cable: 2)
+        p.rebuildSorted()
+        XCTAssertEqual(p.srcCount(filter: 0, cableMask: 0b0010), 2)          // only the two cable-2 notes
+        XCTAssertEqual(p.srcAscending(0, filter: 0, cableMask: 0b0010), 64)
+        XCTAssertEqual(p.srcAscending(1, filter: 0, cableMask: 0b0010), 67)
+        XCTAssertEqual(p.srcAscending(2, filter: 0, cableMask: 0b0010), 255) // out of range
+        XCTAssertEqual(p.srcCount(filter: 0, cableMask: 0b1111), 3)          // ANY hears every cable
+        XCTAssertEqual(p.srcCount(filter: 0, cableMask: 0b0001), 1)          // cable-1 mask → the one cable-1 note
+    }
+
+    func testMatchesRequiresBothChannelAndCable() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0, cable: 1)   // wire ch 0 (filter 1), cable 1
+        p.noteOn(64, velocity: 100, channel: 4, cable: 2)   // wire ch 4 (filter 5), cable 2
+        p.rebuildSorted()
+        XCTAssertEqual(p.srcAscending(0, filter: 1, cableMask: 0b0001), 60)  // right channel AND right cable
+        XCTAssertEqual(p.srcCount(filter: 1, cableMask: 0b0010), 0)          // right channel, wrong cable → nothing
+        XCTAssertEqual(p.srcCount(filter: 5, cableMask: 0b0001), 0)          // right cable, wrong channel → nothing
+        XCTAssertEqual(p.srcAscending(0, filter: 5, cableMask: 0b0010), 64)  // channel 5 + cable 2
+    }
+
+    func testAsPlayedHonoursCableMask() {
+        let p = NotePool()
+        p.noteOn(67, velocity: 100, channel: 0, cable: 2)   // press order: 67 …
+        p.noteOn(60, velocity: 100, channel: 0, cable: 1)   //              60 (different cable) …
+        p.noteOn(64, velocity: 100, channel: 0, cable: 2)   //              64
+        p.rebuildSorted()
+        XCTAssertEqual(p.srcPlayed(0, filter: 0, cableMask: 0b0010), 67)     // press-order through cable 2 skips 60
+        XCTAssertEqual(p.srcPlayed(1, filter: 0, cableMask: 0b0010), 64)
+        XCTAssertEqual(p.srcPlayed(2, filter: 0, cableMask: 0b0010), 255)
+    }
+
+    // The for:cell convenience reads BOTH filter fields off the SnapCell (the render-loop dedup).
+    func testSrcCountForCellReadsBothChannelAndCable() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 2, cable: 1)   // wire ch 2 (filter 3), cable 1
+        p.noteOn(64, velocity: 100, channel: 2, cable: 2)   // wire ch 2, cable 2
+        p.rebuildSorted()
+        var cell = SnapCell()
+        cell.inputChannel = 3            // filter 3 = wire channel 2
+        cell.inputCableMask = 0b0001     // cable 1 only
+        XCTAssertEqual(p.srcCount(for: cell), 1)
+        XCTAssertEqual(p.srcAscending(0, for: cell), 60)
+    }
 
     func testPoolSortsAndCounts() {
         let p = pool([67, 60, 64])

@@ -109,6 +109,16 @@ final class NotePool {
         return 255
     }
 
+    // §item 11: convenience readers — pull BOTH filter fields (channel + cable) off a SnapCell in one
+    // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
+    // pairing. The base filter-taking methods stay for the preview/audition paths (which force a filter).
+    func srcCount(for cell: SnapCell) -> Int {
+        srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+    }
+    func srcAscending(_ k: Int, for cell: SnapCell) -> UInt8 {
+        srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+    }
+
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental
     /// count, matching the pre-split behaviour).
     func rebuildSorted() {
@@ -307,6 +317,14 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     return note + 12 * (pos / count)
 }
 
+/// §item 11 convenience — same as above, reading the (channel + cable) filter straight off a SnapCell
+/// so the render loop's arp source-picks can't drift the pairing. The preview/audition paths keep the
+/// explicit-`filter:` form (they force a source, not the cell's).
+func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> Int {
+    arpPickSource(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
+                  pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+}
+
 // MARK: - Processor dispatch (§3/§4)
 
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
@@ -343,6 +361,14 @@ func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
 @inline(__always) func receiverHearsCable(mask: Int, eventCable: Int) -> Bool {
     guard eventCable >= 1 && eventCable <= 4 else { return true }
     return (mask & (1 << (eventCable - 1))) != 0
+}
+
+/// UI peak-hold decay (delta §6a metering): a level fading linearly from `peak` to 0 over `hold`
+/// seconds since `since`. Shared by the RECEIVERS input meters and the EMITTERS output meters — the
+/// UI owns the decay (the engine feed is read-and-clear). Clamped ≥ 0 so a stale timestamp reads dark.
+func peakHoldLevel(peak: Double, since: Date, now: Date, hold: Double = 0.15) -> Double {
+    guard hold > 0 else { return 0 }
+    return max(0, peak * (1 - now.timeIntervalSince(since) / hold))
 }
 
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)

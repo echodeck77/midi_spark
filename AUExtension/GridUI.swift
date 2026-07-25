@@ -510,7 +510,7 @@ struct ReceiversView: View {
     }
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < peak.count, i < peakAt.count else { return 0 }
-        return max(0, peak[i] * (1 - now.timeIntervalSince(peakAt[i]) / 0.15))
+        return peakHoldLevel(peak: peak[i], since: peakAt[i], now: now)
     }
 }
 
@@ -720,7 +720,7 @@ struct OutputsView: View {
     }
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < emitPeak.count, i < emitPeakAt.count else { return 0 }
-        return max(0, emitPeak[i] * (1 - now.timeIntervalSince(emitPeakAt[i]) / 0.15))   // ~150ms peak-hold decay
+        return peakHoldLevel(peak: emitPeak[i], since: emitPeakAt[i], now: now)   // ~150ms peak-hold decay
     }
 }
 

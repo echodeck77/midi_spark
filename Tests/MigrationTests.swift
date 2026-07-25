@@ -391,5 +391,14 @@ final class OnConfigTests: XCTestCase {
         XCTAssertEqual(c.sceneSummary, "ENTER 3 · EXIT 7")
         c.leave = .exitStab
         XCTAssertEqual(c.leaveSummary, "EXIT STAB")
+        // OCT hold appends a direction; a non-drift arrive skips the drift facet; all scene parts compose.
+        c.hold = .oct; c.octUp = true
+        XCTAssertTrue(c.holdSummary.hasSuffix(" · +"), "OCT up shows +")
+        c.octUp = false
+        XCTAssertTrue(c.holdSummary.hasSuffix(" · −"), "OCT down shows −")
+        c.arrive = .dice; c.arriveEvery = 3
+        XCTAssertEqual(c.arriveSummary, "DICE · every 3")   // no drift facet on a non-drift arrive
+        c.sceneResetMorph = true; c.sceneAutoArm = true
+        XCTAssertEqual(c.sceneSummary, "ENTER 3 · EXIT 7 · RESET MORPH · AUTO-ARM")
     }
 }

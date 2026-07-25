@@ -32,9 +32,6 @@ enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
 enum TapAction: String, Codable, CaseIterable {
     case alt = "ALT", byp = "BYP", mute = "MUTE"
-    static func cycle(_ a: TapAction) -> TapAction {
-        let all = allCases; return all[(all.firstIndex(of: a)! + 1) % all.count]
-    }
 }
 enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
 
@@ -303,7 +300,8 @@ struct PluginState: Codable, Equatable {
     /// test session). Mapping (migration-tree-routing.md §1): a cell fed under the old model — i.e.
     /// the cell ABOVE is occupied and its `stack` is on — references that row (`inputRow = r-1`);
     /// everything else is MIDI IN (nil). `srcMix` has no v3 equivalent and is dropped (logged).
-    /// The old fields are LEFT in place — the router still reads `stack` until the commit-3 flip.
+    /// The old `stack`/`srcMix` fields are LEFT in place but are read ONLY by this migration now —
+    /// the commit-3 flip made `resolvedParent` the live routing path (the router no longer reads `stack`).
     mutating func migrateLegacyRoutingIfNeeded() {
         if formatVersion < 3 {
             var droppedSrcMix = 0

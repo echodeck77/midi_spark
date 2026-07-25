@@ -1076,6 +1076,105 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // STOPPED preview (transport stopped) — the desk-preview path. Every other preview test runs playing;
+    // this exercises previewStopped's free-clock arp over the source pool, and a clean release.
+    func testStoppedPreviewArpsSourcePoolAndReleasesClean() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1),
+                                         beats: 8, into: e, playing: false)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "stopped preview free-clock arps the source pool on bus B")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    // Stopped preview handles only the time-varying ARP path (a chord-hold colour's stopped preview is a later
+    // cut); a non-arp colour is silent when the transport is stopped.
+    func testStoppedPreviewNonArpColourIsSilent() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .harmonize)
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0001, -1), beats: 8, into: e, playing: false)
+        XCTAssertEqual(e.ons.count, 0, "a chord-hold colour is silent under stopped preview")
+    }
+
+    // PLAYING preview, RATCHET: the virtual cell repeats the source chord on its staged bus, releasing clean.
+    func testPreviewRatchetSoundsAndReleasesClean() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .ratchet)
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "ratchet preview repeats the source chord on bus B")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    // PLAYING preview, RATCHET with ROW-FEED: the virtual ratchet cell reads row 0's sounding note (an arp cell),
+    // repeating it on bus B while row 0's own cell is soloed out.
+    func testPreviewRatchetRowFeedReadsParentRow() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .ratchet)   // "orange" stays arp
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "orange", buses: [.a]) }
+        let e = RecordingEmitter()
+        runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, 0), beats: 8, into: e)   // ratchet virtual fed from row 0
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "ratchet row-feed reads row 0 and repeats it on bus B")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "row 0's own cell is soloed out")
+    }
+
+    // 1c: CHANCE chord-hold preview gates by probability — p=1 sounds the held chord, p=0 is silent.
+    func testPreviewChanceChordHoldGatesAndReleasesClean() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .chance); cs[gold].paramsA.probability = 1
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "chance p=1 holds the source chord on bus B")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+
+        var cs0 = arpColours(); cs0[gold] = Colour(colourID: "gold", type: .chance); cs0[gold].paramsA.probability = 0
+        let b0 = box(colours: cs0) { _ in }
+        let eNone = RecordingEmitter()
+        runPreview(b0, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: eNone)
+        XCTAssertEqual(eNone.ons.count, 0, "chance p=0 previews to silence")
+    }
+
+    // 1c: an all-open PASSGATE (= identity chord-hold) sustains the held chord on the staged bus, releasing clean.
+    func testPreviewIdentityChordHoldSustains() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        var cs = arpColours(); cs[gold] = Colour(colourID: "gold", type: .passgate)
+        cs[gold].paramsA.passes = [true, true, true, true]   // all-open → identity chord-hold
+        let b = box(colours: cs) { _ in }
+        let e = RecordingEmitter()
+        let (router, _, ts) = runPreview(b, chord([60, 64, 67]), (true, gold, 0, 0b0010, -1), beats: 8, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 2 }.map { $0.note }), [60, 64, 67], "an all-open passgate sustains the held chord on bus B")
+        var diag = KernelDiag()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 8, tempo: 120, sampleRate: 48_000,
+                       timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    // §item 11: the builder resolves each receiver's cable bitmask onto the box AND onto its subscriber cells.
+    func testReceiverCableResolvesIntoSnapCellAndBox() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 1
+        s.cells[0][0] = cell
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2", cable: 0b0101), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.cells[0 * Snap.rows + 0].inputCableMask, 0b0101, "cell subscribing to receiver 2 gets its cable mask")
+        XCTAssertEqual(b.receiverCables, [0b1111, 0b0101, 0b1111, 0b1111], "all four receiver cables land on the box (ANY default)")
+    }
+
     // The activation + deactivation edges flush — no stuck notes when PREVIEW is released.
     func testPreviewLeavesNothingStuckOnRelease() {
         let gold = colourIDs.firstIndex(of: "gold")!
