@@ -78,6 +78,7 @@ struct GridView: View {
     // transport is stopped; release ends it. Fires in both modes; the engine only sounds it when stopped.
     var onAuditionStart: ((Int, Int) -> Void)? = nil
     var onAuditionEnd: (() -> Void)? = nil
+    var onLongPressCellEdit: ((Int, Int) -> Void)? = nil    // EDIT: hold a cell → enter cell-edit (staging) for it
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
@@ -271,24 +272,26 @@ struct GridView: View {
         // routes onTap), PERFORM flips ALT. FROM/OUT popovers + the hold menu are retired (contents moved
         // into the editor). Body-hold still auditions (stopped).
         .onTapGesture { onTap?(col, row) }
-        .onLongPressGesture(minimumDuration: 0.3, maximumDistance: .infinity) {
-            onAuditionStart?(col, row)                      // fires ONCE at ~0.3s while holding → audition
+        // In EDIT the hold is bounded (14 < the drag's 16) so a relocate DRAG cancels it — hold-STILL stages,
+        // drag relocates. PERFORM keeps the device-verified unbounded audition hold.
+        .onLongPressGesture(minimumDuration: 0.3, maximumDistance: editing ? 14 : .infinity) {
+            if editing { onLongPressCellEdit?(col, row) }   // EDIT: hold → enter cell-edit (staging) for this cell
+            else { onAuditionStart?(col, row) }             // PERFORM: hold → audition (stopped)
         } onPressingChanged: { pressing in
-            if !pressing && !holdLatch { onAuditionEnd?() }  // release → stop, UNLESS §5c HOLD latches it
+            if !pressing && !holdLatch && !editing { onAuditionEnd?() }   // release → stop audition (PERFORM only)
         }
-        // §5 drag-and-drop (EDIT only): MOVEMENT begins the drag and cancels the audition ("hold to hear
-        // it, drag to move it" — minimumDistance 16 means a tap/still-hold never triggers this). Drop on an
-        // empty slot = move; on an occupied slot = swap (via the VC). PERFORM: inert (guarded out).
+        // §5 drag-and-drop (EDIT only, NOT while staging): MOVEMENT begins the drag. Drop on an empty slot =
+        // move; on an occupied slot = swap (via the VC). PERFORM / staging: inert (guarded out).
         .simultaneousGesture(
             DragGesture(minimumDistance: 16, coordinateSpace: .named("grid"))
                 .onChanged { v in
-                    guard editing, cell != nil else { return }
+                    guard editing, !staging, cell != nil else { return }
                     if dragFrom == nil { dragFrom = GridPos(col: col, row: row); onAuditionEnd?() }
                     dragTo = cellAt(location: v.location)
                 }
                 .onEnded { v in
                     defer { dragFrom = nil; dragTo = nil }
-                    guard editing, let from = dragFrom, let to = cellAt(location: v.location), to != from else { return }
+                    guard editing, !staging, let from = dragFrom, let to = cellAt(location: v.location), to != from else { return }
                     onMoveCell?((from.col, from.row), (to.col, to.row))
                 }
         )

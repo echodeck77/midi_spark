@@ -112,6 +112,24 @@ struct DiagView: View {
         staging = true
     }
 
+    // Long-press a GRID CELL in EDIT → enter cell-edit for it: adopt its config as the staged config and
+    // make it a FLASHING cell (exactly the dropped-in-staging state). An empty cell stages the brush + a
+    // fresh flashing cell there. From here it behaves like any staging session (place more / recolour / commit).
+    private func enterStagingForCell(_ col: Int, _ row: Int) {
+        guard let au, editing else { return }
+        let pos = GridView.GridPos(col: col, row: row)
+        if let cell = scene.cells[col][row] {
+            stagedConfig = StampConfig.from(cell); brush = cell.colourID     // adopt the cell's colour + routing
+        } else {
+            stagedConfig.colourID = brush                                    // empty: stage the brush, place a fresh cell
+            au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
+        }
+        stampMode = false; editorClose()
+        stagedCells = [pos]                                                  // this cell flashes + tracks staged edits
+        editing = true; staging = true
+        scene = au.uiScene(); docColours = au.uiColours()
+    }
+
     // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
     private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
 
@@ -603,6 +621,7 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: editing,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
+                 onLongPressCellEdit: enterStagingForCell,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  faded: fadedCells, dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
                  staging: staging, stagingColor: stagingColor, stagedCells: stagedCells)
@@ -614,7 +633,7 @@ struct DiagView: View {
 
     private var hint: some View {
         Text(editing
-             ? "EDIT · TAP cell → editor (input · colour · emitters) · HOLD cell → audition (stopped)"
+             ? "EDIT · TAP cell → editor · HOLD cell → cell-edit · drag/long-press a colour → place"
              : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
