@@ -296,6 +296,13 @@ struct PluginState: Codable, Equatable {
     var flattenAmount: [Int]? = nil
     /// The four FLATTEN amounts (0…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
     var flattenAmountResolved: [Int] { let a = flattenAmount ?? []; return (0..<4).map { $0 < a.count ? max(0, min(100, a[$0])) : 0 } }
+    // emitter role family: ALT — turn-taking. ALT-lit emitters form ONE group; notes fanning to the group
+    // alternate among its members in position order (2 = ping-pong, 3–4 = round-robin). Persisted. `altMask`
+    // = the group; `altCount` = per-emitter notes-per-turn (1…8, default 1). Optional → old docs decode nil.
+    var altMask: UInt8? = nil
+    var altCount: [Int]? = nil
+    /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
+    var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

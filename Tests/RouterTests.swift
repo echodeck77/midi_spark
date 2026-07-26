@@ -1680,4 +1680,42 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 1), [96],
                        "the sounding FLATTEN emitter keeps its own natural velocity")
     }
+
+    // MARK: - emitter ALT (role family) — turn-taking among the ALT group
+
+    private func altBox(_ altMask: UInt8, _ count: [Int]) -> SnapshotBox {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])   // one arp fanning to BOTH A and B
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.altMask = altMask; st.altCount = count
+        return SnapshotBuilder.build(from: st)
+    }
+    private func altCableCounts(_ box: SnapshotBox) -> (Int, Int) {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return (e.ons.filter { $0.cable == 1 }.count, e.ons.filter { $0.cable == 2 }.count)
+    }
+
+    func testAltTurnTakingPingPongsAndHonoursCount() {
+        // Without ALT, a cell fanning to A+B emits EVERY note on BOTH — c1 == c2 == N.
+        let (n1, n2) = altCableCounts(altBox(0, [1, 1, 1, 1]))
+        XCTAssertEqual(n1, n2); XCTAssertGreaterThan(n1, 0)
+        // ALT ping-pong (count 1 each): each note routes to ONE member, alternating → balanced, and c1+c2 == N.
+        let (a1, a2) = altCableCounts(altBox(0b0011, [1, 1, 1, 1]))
+        XCTAssertGreaterThan(a1, 0); XCTAssertGreaterThan(a2, 0)
+        XCTAssertLessThanOrEqual(abs(a1 - a2), 1, "ping-pong balances the turns")
+        XCTAssertEqual(a1 + a2, n1, "each note routes to ONE group member, not both")
+        // COUNT: A holds the turn for 2 notes, B for 1 → A gets roughly twice B's turns.
+        let (b1, b2) = altCableCounts(altBox(0b0011, [2, 1, 1, 1]))
+        XCTAssertGreaterThan(b1, b2, "A (count 2) takes more turns than B (count 1)")
+    }
 }

@@ -631,6 +631,10 @@ struct OutputsView: View {
     var flattenAmount: [Int] = [0, 0, 0, 0]
     var onToggleFlatten: (Int) -> Void = { _ in }
     var onFlattenAmount: (Int, Int) -> Void = { _, _ in }
+    var altMask: UInt8 = 0                                 // role family: ALT (turn-taking) group
+    var altCount: [Int] = [1, 1, 1, 1]
+    var onToggleAlt: (Int) -> Void = { _ in }
+    var onAltCount: (Int, Int) -> Void = { _, _ in }
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
@@ -697,10 +701,14 @@ struct OutputsView: View {
         let oct = i < octave.count ? octave[i] : 0
         let flatOn = flattenMask & (1 << UInt8(i)) != 0
         let flatAmt = i < flattenAmount.count ? flattenAmount[i] : 0
+        let altOn = altMask & (1 << UInt8(i)) != 0
+        let altN = i < altCount.count ? altCount[i] : 1
         return VStack(spacing: 2) {
             claimRadio(i)
             roleButton(i, label: "FLAT", on: flatOn, value: flatAmt, maxValue: 100,
                        onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
+            roleButton(i, label: "ALT", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
+                       onToggle: { onToggleAlt(i) }, onDrag: { onAltCount(i, max(1, $0)) })
             HStack(spacing: 2) {
                 octBtn("OCT−") { onOct(i, -1) }
                 octBtn("OCT+") { onOct(i, +1) }

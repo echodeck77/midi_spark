@@ -164,6 +164,28 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// emitter role family: ALT — turn-taking group (persisted). `setAlt` toggles membership; `setAltCount`
+    /// sets an emitter's notes-per-turn (1…8).
+    func uiAltMask() -> UInt8 { document.altMask ?? 0 }
+    func uiAltCount() -> [Int] { document.altCountResolved }
+    func setAlt(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.altMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.altMask = m
+        }
+    }
+    func setAltCount(_ bus: Int, _ count: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var c = d.altCount ?? d.altCountResolved
+            if c.count < 4 { c += Array(repeating: 1, count: 4 - c.count) }
+            c[bus] = max(1, min(8, count))
+            d.altCount = c
+        }
+    }
+
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
     func uiThruReceiver() -> Int { document.thruReceiverResolved }

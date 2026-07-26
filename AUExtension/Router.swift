@@ -76,6 +76,19 @@ final class Router {
         for v in voices where v.active && !v.silent && v.bus == b { return true }
         return false
     }
+    // emitter role family: ALT — turn-taking. `altSequence` is the expanded turn order (each group member,
+    // position order, repeated its notes-per-turn); `altTurn` is the running note counter over the group.
+    // A note fanning to the group routes to sequence[altTurn % len] (the others in the group stay silent),
+    // then the counter advances. Reset on the transport edge. previewMode bypasses (no role context).
+    private var altMask: UInt8 = 0
+    private var altSequence: [UInt8] = []
+    private var altTurn = 0
+    private func rebuildAltSequence(_ count: [UInt8]) {
+        altSequence.removeAll(keepingCapacity: true)
+        for bus in 0..<4 where altMask & (1 << UInt8(bus)) != 0 {
+            for _ in 0..<Int(max(1, count[bus])) { altSequence.append(UInt8(bus)) }
+        }
+    }
     // delta §6a metering feed (EVENT-driven, not beat-derived): per-emitter peak velocity + event count
     // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
     private var meterPeakVel = [UInt8](repeating: 0, count: 4)
@@ -398,6 +411,18 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
+        // role family ALT: if this articulation fans to the ALT group, route it to the ONE current turn-holder
+        // among the group (position order, notes-per-turn), leaving non-group emitters untouched; then advance
+        // the turn. If the holder isn't in THIS fan-out's group members, route to the lowest present member (no
+        // lost notes — a partial fan-out edge). previewMode bypasses.
+        var busMask = busMask
+        let altGroup = busMask & altMask
+        if altGroup != 0 && !previewMode && !altSequence.isEmpty {
+            let holder = altSequence[altTurn % altSequence.count]
+            let pick: UInt8 = (altGroup & (1 << holder)) != 0 ? (1 << holder) : (altGroup & (~altGroup + 1))
+            busMask = (busMask & ~altMask) | pick
+            altTurn += 1
+        }
         // §6a CLAIM: emit the CLAIMANT bus FIRST when this articulation fans to it, so its ownership trace
         // (the silent ghost opened in emitOneBus) is in the table before any non-claimant in the same
         // fan-out checks — co-onset suppression is then order-independent. Uncontested fan-out: bus order.
@@ -709,6 +734,8 @@ final class Router {
         claimEmitter = box.claimEmitter             // §6a CLAIM: the exclusive-rights emitter, this render
         flattenMask = box.flattenMask               // role family: FLATTEN ducking set, this render
         flattenAmount = box.flattenAmount
+        altMask = box.altMask                       // role family: ALT turn-taking group, this render
+        rebuildAltSequence(box.altCount)
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
@@ -740,6 +767,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
+            altTurn = 0                                  // role family ALT: the turn counter resets with transport
             wasPlaying = playing
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so

@@ -55,6 +55,8 @@ struct DiagView: View {
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
     @State private var flattenMask: UInt8 = 0                         // role family: FLATTEN set (persisted)
     @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
+    @State private var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
+    @State private var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
@@ -433,6 +435,8 @@ struct DiagView: View {
         thruReceiver = au.uiThruReceiver()
         flattenMask = au.uiFlattenMask()
         flattenAmount = au.uiFlattenAmount()
+        altMask = au.uiAltMask()
+        altCount = au.uiAltCount()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -580,6 +584,16 @@ struct DiagView: View {
         au?.setFlattenAmount(i, amount)
         flattenAmount = au?.uiFlattenAmount() ?? flattenAmount
     }
+    // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
+    private func toggleAlt(_ i: Int) {
+        let on = altMask & (1 << UInt8(i)) != 0
+        au?.setAlt(i, !on)
+        altMask = au?.uiAltMask() ?? altMask
+    }
+    private func setAltCnt(_ i: Int, _ count: Int) {
+        au?.setAltCount(i, count)
+        altCount = au?.uiAltCount() ?? altCount
+    }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
@@ -682,6 +696,8 @@ struct DiagView: View {
             let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }
             let fm = au.uiFlattenMask();   if fm != flattenMask { flattenMask = fm }
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
+            let am = au.uiAltMask();       if am != altMask { altMask = am }
+            let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
@@ -817,7 +833,9 @@ struct DiagView: View {
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
                     octave: emitterOctave, onOct: nudgeEmitterOctave,
                     flattenMask: flattenMask, flattenAmount: flattenAmount,
-                    onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount)
+                    onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount,
+                    altMask: altMask, altCount: altCount,
+                    onToggleAlt: toggleAlt, onAltCount: setAltCnt)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

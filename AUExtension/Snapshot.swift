@@ -85,6 +85,8 @@ final class SnapshotBox {
     let claimEmitter: Int8           // delta §6a: the one-claimant CLAIM emitter (0–3), or −1 = none
     let flattenMask: UInt8           // emitter role family: bit i = emitter i ducks OTHER emitters while it sounds
     let flattenAmount: [UInt8]       // 4 per-emitter FLATTEN amounts (0…100 %)
+    let altMask: UInt8               // emitter role family: the ALT turn-taking group (bits A–D)
+    let altCount: [UInt8]            // 4 per-emitter ALT notes-per-turn (1…8)
     let thruReceiver: Int8           // receiver strip: the THRU-pip receiver (0–3) passthrough follows (default 0 = R1)
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
     let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
@@ -92,6 +94,7 @@ final class SnapshotBox {
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
          claimEmitter: Int8 = -1, flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
+         altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]) {
         self.generation = generation
@@ -105,6 +108,8 @@ final class SnapshotBox {
         self.claimEmitter = claimEmitter
         self.flattenMask = flattenMask
         self.flattenAmount = flattenAmount
+        self.altMask = altMask
+        self.altCount = altCount
         self.thruReceiver = thruReceiver
         self.receiverChannels = receiverChannels
         self.receiverCables = receiverCables
