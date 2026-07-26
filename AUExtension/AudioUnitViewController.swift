@@ -54,6 +54,7 @@ struct DiagView: View {
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
+    @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
@@ -512,9 +513,16 @@ struct DiagView: View {
         soloReceiverMask ^= UInt8(1 << i)
         au?.setSoloReceiverMask(soloReceiverMask)
     }
+    // receiver strip: ±octave nudge (±1 per tap, clamp ±3). Ephemeral, composes with the colour transpose.
+    private func nudgeReceiverOctave(_ i: Int, _ delta: Int) {
+        guard (0..<4).contains(i) else { return }
+        receiverOctave[i] = max(-3, min(3, receiverOctave[i] + delta))
+        au?.setInputOctave(i, receiverOctave[i])
+    }
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
     private func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
+        receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0) }
     }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
@@ -815,7 +823,8 @@ struct DiagView: View {
                       thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
-                      soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo)
+                      soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
+                      octave: receiverOctave, onOct: nudgeReceiverOctave)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

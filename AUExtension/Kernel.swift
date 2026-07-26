@@ -80,6 +80,14 @@ final class Kernel {
     // receiver strip: the additive input SOLO set (bits R1–R4), ephemeral. Cleared by the UI on stop / EDIT.
     private var soloReceiverMask: UInt8 = 0
     func setSoloReceiverMask(_ mask: UInt8) { soloReceiverMask = mask }
+    // receiver strip: per-receiver ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
+    private var inputOctave: UInt32 = 0
+    func setInputOctave(_ recv: Int, _ oct: Int) {
+        guard recv >= 0 && recv < 4 else { return }
+        let byte = UInt32(UInt8(bitPattern: Int8(max(-3, min(3, oct))))) & 0xFF
+        let shift = UInt32(recv) * 8
+        inputOctave = (inputOctave & ~(0xFF << shift)) | (byte << shift)
+    }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -229,7 +237,7 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
-                        soloReceiverMask: soloReceiverMask,
+                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 

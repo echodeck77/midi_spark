@@ -87,6 +87,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setTapMuteMask(_ mask: UInt64) { kernel.setTapMuteMask(mask) }
     func setSoloEmitterMask(_ mask: UInt8) { kernel.setSoloEmitterMask(mask) }
     func setSoloReceiverMask(_ mask: UInt8) { kernel.setSoloReceiverMask(mask) }   // receiver strip: input SOLO set
+    func setInputOctave(_ recv: Int, _ oct: Int) { kernel.setInputOctave(recv, oct) }   // receiver strip: ±octave nudge
 
     /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
     /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.

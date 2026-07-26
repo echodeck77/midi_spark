@@ -127,6 +127,15 @@ final class Router {
     private func soloSilenced(_ cell: SnapCell) -> Bool {
         soloReceiverMask != 0 && cell.resolvedReceiver >= 0 && (soloReceiverMask & (1 << UInt8(cell.resolvedReceiver))) == 0
     }
+    // receiver strip: an ephemeral ±octave nudge per receiver (−3…+3), packed one signed byte each. Composes
+    // with the cell's colour transpose at the per-cell transpose local (a PLAYING control; 0 in stopped
+    // audition). A note pushed past 0…127 by the sum is dropped by the per-emit guard (intended).
+    private var inputOctave: UInt32 = 0
+    private func octaveShift(_ recv: Int8) -> Int {
+        guard recv >= 0 else { return 0 }
+        let byte = UInt8((inputOctave >> (UInt32(recv) * 8)) & 0xFF)
+        return Int(Int8(bitPattern: byte)) * 12
+    }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -476,6 +485,7 @@ final class Router {
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             let srcN = pool.srcCount(for: cell)   // §7 source filter
@@ -515,6 +525,7 @@ final class Router {
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+                      + octaveShift(cell.resolvedReceiver)     // receiver strip: input OCT nudge (rides a referenced parent too)
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
         let referencing = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
@@ -614,12 +625,14 @@ final class Router {
                  tapMuteMask: UInt64 = 0,
                  soloEmitterMask: UInt8 = 0,
                  soloReceiverMask: UInt8 = 0,
+                 inputOctave: UInt32 = 0,
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
         self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
+        self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -762,6 +775,7 @@ final class Router {
                                          baseAlt: holdAlt(base: baseAlt, on: colour.on, held: held), arrivals: diag.pass)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
                           + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
+                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
             let fed = parent >= 0
             let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,

@@ -1452,4 +1452,53 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 2), 0, "child of an excluded root ⇒ B silent")
         XCTAssertGreaterThan(soloOns(b, solo: 0b0001, cable: 2), 0, "solo the root's R1 ⇒ B sounds")
     }
+
+    // MARK: - receiver OCT nudge (receiver strip) — ephemeral ±octave, composes with colour transpose
+
+    private func packOct(_ recv: Int, _ oct: Int) -> UInt32 { UInt32(UInt8(bitPattern: Int8(oct))) << (UInt32(recv) * 8) }
+    private func octNotes(_ box: SnapshotBox, inputOctave: UInt32, cable: UInt8) -> Set<UInt8> {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, inputOctave: inputOctave, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
+    }
+
+    func testReceiverOctaveShiftsSubscribers() {
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        XCTAssertTrue(octNotes(b, inputOctave: 0, cable: 1).contains(60), "base ⇒ 60 sounds")
+        let up = octNotes(b, inputOctave: packOct(0, 1), cable: 1)
+        XCTAssertTrue(up.contains(72), "+1 oct on R1 ⇒ 60 becomes 72")
+        XCTAssertFalse(up.contains(60), "the base 60 is gone once shifted")
+        XCTAssertTrue(octNotes(b, inputOctave: packOct(0, -1), cable: 1).contains(48), "−1 oct ⇒ 48")
+        // a nudge on a DIFFERENT receiver leaves this cell untouched
+        XCTAssertTrue(octNotes(b, inputOctave: packOct(1, 2), cable: 1).contains(60), "R2's nudge doesn't move an R1 cell")
+    }
+
+    func testReceiverOctaveComposesWithColourTranspose() {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!].transpose = 2      // +2 semitones on the colour
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: cs, scenes: [s]); st.receivers = (0..<4).map { Receiver(name: "\($0 + 1)") }
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 1).contains(74), "+2 semis + 1 oct ⇒ 60→74")
+    }
+
+    func testReceiverOctaveInheritedThroughChainedFeed() {
+        // gold ⇐R1 → A, cyan feeds off row 0 → B. +1 oct on R1 lifts gold's note; B (mirroring the parent)
+        // inherits the shift through the chain even though B's own receiver is −1.
+        let b = receiverBox {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
+        }
+        XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 2).contains(72), "child inherits the root's +1 oct")
+    }
 }
