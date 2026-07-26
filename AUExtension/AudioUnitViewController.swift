@@ -532,11 +532,7 @@ struct DiagView: View {
                     VStack(spacing: 8) {
                         header
                         HStack(alignment: .top, spacing: 10) {
-                            VStack(spacing: 8) {
-                                receiversBox                             // signal flow: RECEIVERS above the grid
-                                gridRegion()                             // …GRID fills the leftover (never clips the bands)
-                                emittersBox                              // …EMITTERS below it
-                            }
+                            signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
                             ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
                         }
                         sceneStrip
@@ -548,9 +544,7 @@ struct DiagView: View {
                     // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
                     VStack(spacing: 8) {
                         header
-                        receiversBox                           // signal flow: RECEIVERS above the grid
-                        gridRegion()                           // …GRID fills the leftover (never clips the bands)
-                        emittersBox                            // …EMITTERS below it
+                        signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
                         colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                         sceneStrip
                         devLoader
@@ -623,11 +617,18 @@ struct DiagView: View {
     // §6d TWO FLOWS: the grid FILLS the leftover the bands don't claim (this GeometryReader), so the signal
     // flow always FITS without scrolling and the emitter band (CLAIM/faders) is never clipped — the bands keep
     // their full natural height, the grid takes the rest. Cells stay compact (≤48); reclaiming grid room is
-    // the FOLD's job (next), not shrinking cells. GridView height = 9·cellH (key row + 8 rows, all equal) + 24.
-    private func gridRegion() -> some View {
+    // §6d TWO FLOWS signal column: RECEIVERS (4 grid-rows tall, 50% width, centred) → GRID → EMITTERS (same),
+    // filling the available height as 17 equal rows (4 receiver + 9 grid [key + 8] + 4 emitter). The bands are
+    // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
+    private func signalColumn(_ appWidth: CGFloat) -> some View {
         GeometryReader { g in
-            gridBlock(max(22, min(48, (g.size.height - 24) / 9)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            let cell = max(20, min(52, (g.size.height - 30) / 17))
+            let bandW = appWidth * 0.5, bandH = cell * 4
+            VStack(spacing: 3) {
+                receiversBox.frame(width: bandW, height: bandH).frame(maxWidth: .infinity)   // 50% wide, centred, 4 rows
+                gridBlock(cell)
+                emittersBox.frame(width: bandW, height: bandH).frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -807,6 +808,7 @@ struct DiagView: View {
                 Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
                     .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
             }
+            stuckNoteMonitor   // diagnostics moved here (the ALT box is a temporary home — it retires in a future design)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
@@ -904,7 +906,6 @@ struct DiagView: View {
     private var devLoader: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("TEST SESSIONS (dev)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            stuckNoteMonitor
             ScrollView(.horizontal, showsIndicators: false) {
               HStack(spacing: 6) {
                 ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
