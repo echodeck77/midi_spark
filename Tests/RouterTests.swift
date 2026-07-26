@@ -396,6 +396,61 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.drainMeters().events[0], 0, "a disabled emitter never meters")
     }
 
+    // MARK: - item 4 VELOCITY MARKS — the per-note (velocity, source-colour) ring drained by drainMarks()
+
+    func testDrainMarksStampsSourceColourAndReadClears() {
+        // An arp on the GOLD cell (colourIndex 0) → bus A. Each note-on leaves a mark carrying its velocity
+        // and the emitting cell's colourIndex — the source tint the strip meter draws.
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<8 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let m = router.drainMarks()
+        XCTAssertFalse(m[0].isEmpty, "bus A collected velocity marks")
+        XCTAssertTrue(m[0].allSatisfy { $0.col == 0 }, "each mark is tinted by the source Colour (gold = index 0)")
+        XCTAssertTrue(m[0].allSatisfy { $0.vel > 0 }, "each mark carries the note-on velocity")
+        XCTAssertEqual([m[1].count, m[2].count, m[3].count], [0, 0, 0], "silent emitters collect no marks")
+        XCTAssertTrue(router.drainMarks()[0].isEmpty, "drain read-and-clears")
+    }
+
+    func testDrainMarksFansSameTintToEveryBus() {
+        // A cell fanning to A+B stamps the SAME source colourIndex on both buses' marks.
+        let wine = Int8(colourIDs.firstIndex(of: "wine")!)
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "wine", buses: [.a, .b]) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<8 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let m = router.drainMarks()
+        XCTAssertFalse(m[0].isEmpty || m[1].isEmpty, "both A and B collected marks")
+        XCTAssertTrue((m[0] + m[1]).allSatisfy { $0.col == wine }, "every fanned mark shares the source tint")
+    }
+
+    func testDrainMarksRingCapsAtEight() {
+        // A ratchet floods bus A with note-ons; the per-emitter ring saturates at 8 marks per drain.
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<48 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "the ratchet emitted more than a ring's worth")
+        XCTAssertEqual(router.drainMarks()[0].count, 8, "…but the mark ring saturates at 8 per emitter")
+    }
+
     func testAuditionRespectsDisabledEmitter() {
         // Cross-feature: audition a cell routed to a DISABLED emitter (B) → silent (the §6a gate is at
         // the emission boundary, so audition respects it too).
@@ -523,6 +578,21 @@ final class RouterTests: XCTestCase {
         run(b, chord([60]), beats: 16, into: e)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A holds 60")
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 65 }.count, 0, "B keeps 65 — the claimant isn't sounding it")
+        assertNothingLeftSounding(e)
+    }
+
+    func testClaimSuppressesSamePitchClassAcrossOctaves() {
+        // delta §6a pitch-class match: A holds 60 (C3); B holds 72 (C4, transpose +12) — the SAME pitch class,
+        // a different MIDI note. A claims → B's octave-double is suppressed (the claimant owns its harmony;
+        // octave doubling across synths is the mud exclusivity exists to prevent).
+        let b = claimBox(claimColours(transposeB: 12), claim: 0) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // held 60 (C3) on A — the claimant
+            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // held 72 (C4) on B — same class, one octave up
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A holds C3")
+        XCTAssertTrue(e.ons.filter { $0.cable == 2 && $0.note == 72 }.isEmpty, "B yields C4 — same pitch class as the claimed C3")
         assertNothingLeftSounding(e)
     }
 

@@ -438,7 +438,6 @@ struct ReceiversView: View {
     let editing: Bool
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
-    var marks: [[VelMark]] = [[], [], [], []]           // item 4: floating input velocity marks (strip hue)
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
     let onSetChannel: (Int, Int) -> Void
@@ -1094,28 +1093,19 @@ private struct ColumnHoldOverlay: UIViewRepresentable {
 }
 
 struct HeaderView: View {
-    let stepIndex: Int          // into StepRate.allCases
-    let swing: Int              // 50…75
     let playing: Bool
     let pass: Int
-    let beat: Double
     let tempo: Double
-    let build: String
     let editing: Bool           // EDIT vs PERFORM mode
-    let onStep: (Int) -> Void
-    let onSwing: (Int) -> Void
     let onToggleMode: () -> Void
     var canUndo = false                 // delta §5 / a6 — EDIT-mode undo/redo
     var canRedo = false
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
-    var holdLatch = false               // delta §5c — PERFORM-mode HOLD (the sustain pedal for gestures)
-    var onToggleHold: () -> Void = {}
-    var flowVariation = 0               // FLOW view (item 10): 0 = grid; 1…5 = visualisation variations
-    var onCycleFlow: () -> Void = {}
     var onSecretTap: () -> Void = {}    // dev-build: a hidden long-press on the logotype reveals the T-session loader
+    // STEP · SWING · HOLD moved to the CONTROLS flank; FLOW to the VISUALIZATION flank; the build stamp was
+    // retired — so the header carries only the logotype, mode toggle, undo/redo, and the PASS/bpm readout.
 
-    private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
     private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)          // EDIT
 

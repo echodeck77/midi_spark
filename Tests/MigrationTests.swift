@@ -53,7 +53,8 @@ final class MigrationTests: XCTestCase {
     func testFactoryIsV3Consistent() {
         let f = PluginState.factory()
         XCTAssertEqual(f.formatVersion, 4)                       // v3 graph + receivers
-        XCTAssertEqual(f.receivers?.count, 4)                    // four OMNI receivers seeded
+        XCTAssertEqual(f.receivers?.count, 4)                    // four receivers seeded
+        XCTAssertEqual(f.receivers?.map { $0.channel }, [1, 2, 3, 4], "default routing: receivers filter ch 1–4")
         // factory: vermilion at (2,0) stacked, magenta at (2,1) → magenta references row 0
         XCTAssertEqual(f.scenes[0].cells[2][1]?.inputRow, 0)
         XCTAssertNil(f.scenes[0].cells[0][0]?.inputRow)          // an unfed top cell
@@ -233,6 +234,44 @@ final class MigrationTests: XCTestCase {
         d.colours[0].typeB = nil                                // pretend a later edit cleared procB
         d.migrateColourPairsIfNeeded()                          // gated on v<5 → must NOT re-fold
         XCTAssertNil(d.colours[0].typeB, "version gate stops a second fold")
+    }
+
+    func testColourPairMigrationSkipsSelfAndOutOfRangePartner() {
+        // The partner guard (pi != i, 0 ≤ pi < count): a Colour pointing at itself or a bogus index yields no procB.
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 4
+        d.colours[0].altColour = 0                               // points at itself
+        d.colours[1].altColour = 99                              // out of range
+        d.migrateColourPairsIfNeeded()
+        XCTAssertNil(d.colours[0].typeB, "a self-referencing pair produces no procB")
+        XCTAssertNil(d.colours[1].typeB, "an out-of-range partner produces no procB")
+        XCTAssertEqual(d.formatVersion, 5, "the version still advances")
+    }
+
+    // MARK: - Optional resolved accessors — nil = old-doc default; the clamps guard the render path
+    // (SnapshotBuilder maps these into UInt8, so an unclamped >255 amount would trap).
+
+    func testFlattenAmountResolvedClampsAndFillsShort() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.flattenAmount = nil
+        XCTAssertEqual(d.flattenAmountResolved, [0, 0, 0, 0], "nil ⇒ all off")
+        d.flattenAmount = [150, -5, 50]                          // over / under / short
+        XCTAssertEqual(d.flattenAmountResolved, [100, 0, 50, 0], "clamped to 0…100 and the short array pads with 0")
+    }
+
+    func testAltCountResolvedClampsAndFillsShort() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.altCount = nil
+        XCTAssertEqual(d.altCountResolved, [1, 1, 1, 1], "nil ⇒ one note per turn")
+        d.altCount = [0, 20, 2]                                  // under / over / short
+        XCTAssertEqual(d.altCountResolved, [1, 8, 2, 1], "clamped to 1…8 and the short array pads with 1")
+    }
+
+    func testMasterKeyResolvedClampsAndDefaults() {
+        var s = SceneState.empty()
+        s.masterKey = nil;  XCTAssertEqual(s.masterKeyResolved, 0, "nil ⇒ no transpose")
+        s.masterKey = 20;   XCTAssertEqual(s.masterKeyResolved, 12, "clamped to +12")
+        s.masterKey = -20;  XCTAssertEqual(s.masterKeyResolved, -12, "clamped to −12")
     }
 
     // Regression: the persisted receiver config (channel/cable/mute) + THRU pip must survive the fullState

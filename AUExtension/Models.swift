@@ -458,6 +458,10 @@ struct PluginState: Codable, Equatable {
         // built straight from factory() (no migrate pass), so without this the cells would keep inputReceiver=nil
         // and bypass receiver MUTE (delta §9 item 11).
         state.synthesizeReceiversIfNeeded()
+        // Default routing: the four receivers filter input channels 1–4 (mirroring the 1–4 output stamp), so a
+        // fresh session is a clean channel-per-lane rig rather than four identical OMNI inputs. Only the factory
+        // default changes here — old-doc migration keeps synthesizing OMNI pads (never invents absent filters).
+        for i in state.receivers!.indices { state.receivers![i].channel = i + 1 }
         return state
     }
 }

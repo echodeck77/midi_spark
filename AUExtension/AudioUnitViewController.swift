@@ -634,15 +634,6 @@ struct DiagView: View {
     /// Build stamp = the extension binary's link time. Not a compile-date macro (Swift has none);
     /// the executable's mtime is written at link, so it answers the real question — "is AUM running
     /// THIS build, or a cached older one?" (README: AU registration caches aggressively).
-    private static let buildStamp: String = {
-        let bundle = Bundle(for: MidiSparkAudioUnit.self)
-        let url = bundle.executableURL ?? bundle.bundleURL
-        let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd HH:mm"
-        fmt.timeZone = .current
-        return date.map(fmt.string(from:)) ?? "unknown"
-    }()
 
     var body: some View {
         GeometryReader { geo in
@@ -753,16 +744,11 @@ struct DiagView: View {
     // MARK: - layout pieces
 
     private var header: some View {
-        HeaderView(stepIndex: stepIndex, swing: swing, playing: d.playing, pass: d.pass,
-                   beat: d.beat, tempo: d.tempo, build: Self.buildStamp,
+        HeaderView(playing: d.playing, pass: d.pass, tempo: d.tempo,
                    editing: editing,
-                   onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                   onSwing: { au?.setSwing($0); refreshTiming() },
                    onToggleMode: toggleMode,
                    canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
                    onUndo: undo, onRedo: redo,
-                   holdLatch: holdLatch, onToggleHold: toggleHold,
-                   flowVariation: flowVariation, onCycleFlow: { flowVariation = (flowVariation + 1) % 6 },
                    onSecretTap: secretDevTap)
     }
 
@@ -1009,7 +995,7 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                      marks: recvMarks, heldVels: recvHeld, thruReceiver: thruReceiver,
+                      heldVels: recvHeld, thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,

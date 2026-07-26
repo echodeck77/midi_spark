@@ -80,30 +80,33 @@ final class Kernel {
     // receiver strip: the additive input SOLO set (bits R1–R4), ephemeral. Cleared by the UI on stop / EDIT.
     private var soloReceiverMask: UInt8 = 0
     func setSoloReceiverMask(_ mask: UInt8) { soloReceiverMask = mask }
+    // Splice one byte into `lane` (0–3) of a packed UInt32 strip, leaving the other three lanes intact.
+    // The clamp/bit-pattern of the byte stays at each call site; this is only the mask-and-splice.
+    private static func packLane(_ packed: UInt32, _ lane: Int, _ byte: UInt8) -> UInt32 {
+        let shift = UInt32(lane) * 8
+        return (packed & ~(0xFF << shift)) | (UInt32(byte) << shift)
+    }
     // receiver strip: per-receiver ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
     private var inputOctave: UInt32 = 0
     func setInputOctave(_ recv: Int, _ oct: Int) {
         guard recv >= 0 && recv < 4 else { return }
-        let byte = UInt32(UInt8(bitPattern: Int8(max(-3, min(3, oct))))) & 0xFF
-        let shift = UInt32(recv) * 8
-        inputOctave = (inputOctave & ~(0xFF << shift)) | (byte << shift)
+        let byte = UInt8(bitPattern: Int8(max(-3, min(3, oct))))
+        inputOctave = Kernel.packLane(inputOctave, recv, byte)
     }
     // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
     // receiver (0 = none, 1–127 = flatten). Ephemeral; the UI springs it back to 0 on slider release.
     private var inputVelOverride: UInt32 = 0
     func setInputVelOverride(_ recv: Int, _ value: Int?) {
         guard recv >= 0 && recv < 4 else { return }
-        let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
-        let shift = UInt32(recv) * 8
-        inputVelOverride = (inputVelOverride & ~(0xFF << shift)) | (byte << shift)
+        let byte = UInt8(value.map { max(1, min(127, $0)) } ?? 0)
+        inputVelOverride = Kernel.packLane(inputVelOverride, recv, byte)
     }
     // emitter strip: per-emitter output ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
     private var emitterOctave: UInt32 = 0
     func setEmitterOctave(_ bus: Int, _ oct: Int) {
         guard bus >= 0 && bus < 4 else { return }
-        let byte = UInt32(UInt8(bitPattern: Int8(max(-3, min(3, oct))))) & 0xFF
-        let shift = UInt32(bus) * 8
-        emitterOctave = (emitterOctave & ~(0xFF << shift)) | (byte << shift)
+        let byte = UInt8(bitPattern: Int8(max(-3, min(3, oct))))
+        emitterOctave = Kernel.packLane(emitterOctave, bus, byte)
     }
     // master panel: the momentary master velocity FADER (0 = none, 1–127 = force over all output). Ephemeral;
     // the UI springs it back on release. Plus PANIC — a one-shot all-notes-off + voice flush, hang-kit-logged.
@@ -157,9 +160,8 @@ final class Kernel {
     #endif
     func setVelOverride(_ bus: Int, _ value: Int?) {
         guard bus >= 0 && bus < 4 else { return }
-        let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
-        let shift = UInt32(bus) * 8
-        velOverride = (velOverride & ~(0xFF << shift)) | (byte << shift)
+        let byte = UInt8(value.map { max(1, min(127, $0)) } ?? 0)
+        velOverride = Kernel.packLane(velOverride, bus, byte)
     }
 
     // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).

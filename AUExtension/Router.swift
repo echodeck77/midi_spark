@@ -63,8 +63,8 @@ final class Router {
     // main-write/render-read stays race-safe (an aligned UInt32, like heldColumns).
     private var velOverride: UInt32 = 0
     // §6a CLAIM (persisted, one-claimant RADIO): the emitter with exclusive rights (−1 = none). When set,
-    // a NON-claimant emitting a pitch that is already sounding on the claimant is suppressed (own cable +
-    // its All copy) — the claimant keeps that pitch, others get the residue. Suppress, never defer.
+    // a NON-claimant emitting a PITCH CLASS (note % 12) already sounding on the claimant is suppressed (own
+    // cable + its All copy) — the claimant keeps that harmony, others get the residue. Suppress, never defer.
     private var claimEmitter: Int8 = -1
     // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter (bit set) has anything
     // sounding, OTHER emitters' NEW note-ons are velocity-scaled by that emitter's amount. Persisted; refreshed
@@ -234,6 +234,13 @@ final class Router {
         return v.isNaN ? fallback : v
     }
 
+    /// The per-cell base transpose: the TRANSPOSE param (override slot 2+ci), rounded to a semitone.
+    /// Callers ADD the receiver/hold octave addends themselves — those differ per site (the preview/
+    /// audition sites deliberately omit the receiver octave), so they must NOT be folded in here.
+    private func colourTranspose(_ ci: Int, _ colour: SnapColour) -> Int {
+        colourTranspose(ci, colour)
+    }
+
     /// A real document edit publishes a fresh snapshot generation → it is the new truth, so drop
     /// the render-side overrides and let the two param routes agree again (§7). Call once per render,
     /// BEFORE applying this render's parameter events.
@@ -368,14 +375,17 @@ final class Router {
         return false
     }
 
-    // §6a CLAIM: does the claimant currently OWN `note`? Answered from the claimant's persistent SILENT
-    // ghost (emitOneBus opens one per claimant note, enabled or muted), which survives the audible
-    // voice's immediate close — so this is correct for short notes too. Used at the emission boundary to
-    // suppress the same pitch on non-claimant emitters.
+    // §6a CLAIM: does the claimant currently OWN `note`'s PITCH CLASS? Matched on note % 12 (delta §6a,
+    // user fix 2026-07-24): a claimed C3 suppresses ALL C's — every octave — on the other emitters, so the
+    // claimant owns its HARMONY and the residue is different pitch classes, not octave doubles (octave
+    // doubling across synths is exactly the mud exclusivity exists to prevent). Answered from the claimant's
+    // persistent SILENT ghost (emitOneBus opens one per claimant note, enabled or muted), which survives the
+    // audible voice's immediate close — so this is correct for short notes too. Used at the emission boundary.
     private func pitchSoundingOnClaimant(_ note: UInt8) -> Bool {
         guard claimEmitter >= 0 else { return false }
         let cb = UInt8(claimEmitter)
-        for v in voices where v.active && v.silent && v.bus == cb && v.note == note { return true }
+        let pc = note % 12
+        for v in voices where v.active && v.silent && v.bus == cb && v.note % 12 == pc { return true }
         return false
     }
 
@@ -607,7 +617,7 @@ final class Router {
                                 passMask: effectivePassMask(colour, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
-            let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+            let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
@@ -647,7 +657,7 @@ final class Router {
         let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
                             passMask: effectivePassMask(colour, t: t), pass: pass)
         guard mode == .identity else { return nil }   // chord-hold this column (open passgate resolves to .identity)
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded()) + octaveShift(cell.resolvedReceiver)
+        let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
         return (cell.inputChannel, Int(cell.inputCableMask), transpose)
     }
 
@@ -669,7 +679,7 @@ final class Router {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: a latched root feeds the frozen chord
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let transpose = colourTranspose(ci, colour)
                       + octaveShift(cell.resolvedReceiver)     // receiver strip: input OCT nudge (rides a referenced parent too)
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
         let referencing = parent >= 0
@@ -958,7 +968,7 @@ final class Router {
             // §9 item 1: ON ARRIVE (ALT-ALTERNATE / MORPH-DRIFT) folds into t as a pure function of the pass.
             let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
                                          baseAlt: holdAlt(base: baseAlt, on: colour.on, held: held), arrivals: diag.pass)
-            let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+            let transpose = colourTranspose(ci, colour)
                           + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
@@ -1175,7 +1185,7 @@ final class Router {
         let windowEnd = windowStart + Int64(frameCount)
         let clockBeat = Double(windowStart - auditionStartSample) * beatsPerSample
         let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: false)
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let transpose = colourTranspose(ci, colour)
         previewMode = true; defer { previewMode = false }
         guard effectiveType(colour, t: t) == .arp else { return }
         var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
@@ -1202,7 +1212,7 @@ final class Router {
         guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
         let colour = box.colours[ci]
         let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: false)
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let transpose = colourTranspose(ci, colour)
         let vr = 0                                        // virtual tick-dedup row (free during solo; NOT the input ref)
         // ROW-FEED: ⇐ROW n reads row n's sounding note — a POPULATED, non-muted row (the virtual cell is not
         // in the grid, so referencing any row incl. row 0 is cycle-free). Empty/muted parent → source pool.
@@ -1361,7 +1371,7 @@ final class Router {
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
         let t = effectiveT(colour, morph: over(18 + ci, colour.morph), alt: cell.alt)
-        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
+        let transpose = colourTranspose(ci, colour)
 
         switch effectiveType(colour, t: t) {
         case .arp:
