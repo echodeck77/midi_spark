@@ -102,6 +102,10 @@ struct DiagView: View {
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
+    @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
+    #if DEBUG
+    @State private var vizShowDiag = false     // dev: the VIZ slot flips to the DIAG face (design item 2)
+    #endif
     @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
@@ -762,10 +766,10 @@ struct DiagView: View {
             let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
             let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
             VStack(spacing: 3) {
-                HStack(spacing: 6) {                          // [CONTROLS] · RECEIVERS · [diagnostics]
+                HStack(spacing: 6) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION]
                     controlsView.frame(maxWidth: .infinity)
                     receiversBox.frame(width: half)
-                    diagBox.frame(maxWidth: .infinity)
+                    vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
                 HStack(spacing: 6) {                          // [colour picker] · EMITTERS · [MASTER]
@@ -834,6 +838,59 @@ struct DiagView: View {
             if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
             processorPanels.frame(maxWidth: .infinity)
         }
+    }
+
+    // VISUALIZATION tenant (design item 2): the top-right flank — the picture IS the button. A compact live
+    // FLOW thumbnail (intensity OFF/SUBTLE/SHOWCASE); TAP = open/close full FLOW, LONG-PRESS = cycle the view.
+    // The header FLOW button retired into this. In DEBUG the slot flips to the DIAG face.
+    private var vizView: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text("FLOW").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(flowVariation > 0 ? Color(red: 0.15, green: 0.88, blue: 0.94) : .white.opacity(0.45))
+                Spacer(minLength: 0)
+                vizChip(["OFF", "SUBTLE", "SHOW"][vizIntensity], lit: false) { vizIntensity = (vizIntensity + 1) % 3 }
+                #if DEBUG
+                vizChip("DIAG", lit: vizShowDiag) { vizShowDiag.toggle() }
+                #endif
+            }
+            vizContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .contentShape(Rectangle())
+                .onTapGesture { flowVariation = flowVariation > 0 ? 0 : 1 }                 // door: open/close full FLOW
+                .onLongPressGesture { flowVariation = flowVariation > 0 ? (flowVariation % 5 + 1) : 1 }   // cycle the view
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+    @ViewBuilder private var vizContent: some View {
+        #if DEBUG
+        if vizShowDiag { diagBox } else { vizPicture }
+        #else
+        vizPicture
+        #endif
+    }
+    @ViewBuilder private var vizPicture: some View {
+        if vizIntensity == 0 {                       // OFF: a static door, still tappable
+            ZStack {
+                RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.04))
+                Text("FLOW ▸").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            }
+        } else {                                     // SUBTLE/SHOWCASE: the live mini visualiser (watch-only)
+            FlowView(variation: max(1, flowVariation), scene: scene, colours: docColours, receivers: receivers,
+                     busChannels: busChannels, busEnabled: busEnabled,
+                     playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak)
+                .allowsHitTesting(false)
+        }
+    }
+    private func vizChip(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 6.5, weight: .heavy, design: .monospaced))
+            .foregroundColor(lit ? .black : .white.opacity(0.5))
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
     // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of

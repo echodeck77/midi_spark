@@ -1104,13 +1104,7 @@ struct HeaderView: View {
                 }
             }
 
-            // FLOW view (item 10) — cycles the visualisation variations (0 = grid; 1–5 = views)
-            Text(flowVariation == 0 ? "FLOW" : FlowView.names[min(max(flowVariation, 0), FlowView.names.count - 1)])
-                .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(flowVariation == 0 ? .white.opacity(0.55) : .black)
-                .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 4).fill(flowVariation == 0 ? Color.white.opacity(0.08) : accent))
-                .contentShape(Rectangle()).onTapGesture { onCycleFlow() }
+            // FLOW retired into the VISUALIZATION flank thumbnail (item 2 — the picture is the button).
 
             Spacer()
 
