@@ -900,6 +900,7 @@ struct HeaderView: View {
     var onToggleHold: () -> Void = {}
     var flowVariation = 0               // FLOW view (item 10): 0 = grid; 1…5 = visualisation variations
     var onCycleFlow: () -> Void = {}
+    var onSecretTap: () -> Void = {}    // dev-build: a hidden long-press on the logotype reveals the T-session loader
 
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]   // StepRate.allCases order
     private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
@@ -909,6 +910,7 @@ struct HeaderView: View {
         HStack(alignment: .center, spacing: 12) {
             Text("8×8 STATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
                 .foregroundColor(.white.opacity(0.85))
+                .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
 
             // EDIT / PERFORM mode (§6.1/6.2)
             HStack(spacing: 2) {

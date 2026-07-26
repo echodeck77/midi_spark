@@ -102,6 +102,7 @@ struct DiagView: View {
     @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
     @State private var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
     @State private var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
+    @State private var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
     private enum TapKind { case alt, mute, solo }
@@ -642,6 +643,9 @@ struct DiagView: View {
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
+                #if DEBUG
+                if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
+                #endif
             }
         }
         .onReceive(timer) { _ in
@@ -692,7 +696,16 @@ struct DiagView: View {
                    canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
                    onUndo: undo, onRedo: redo,
                    holdLatch: holdLatch, onToggleHold: toggleHold,
-                   flowVariation: flowVariation, onCycleFlow: { flowVariation = (flowVariation + 1) % 6 })
+                   flowVariation: flowVariation, onCycleFlow: { flowVariation = (flowVariation + 1) % 6 },
+                   onSecretTap: secretDevTap)
+    }
+
+    // Dev-build only: a 1.2s long-press on the "8×8 STATE" logotype toggles the hidden T-session loader
+    // overlay (the canned rigs for device passes). No-op in release — the loader never ships on the product face.
+    private func secretDevTap() {
+        #if DEBUG
+        showDevLoader.toggle()
+        #endif
     }
 
     // §6d TWO FLOWS: the grid FILLS the leftover the bands don't claim (this GeometryReader), so the signal
@@ -969,6 +982,28 @@ struct DiagView: View {
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 3).fill(panicked ? Color(red: 0.98, green: 0.35, blue: 0.3) : Color.clear))
             Spacer()
+        }
+    }
+
+    // Dev-build only: the hidden overlay revealed by a long-press on the logotype — the canned T-session
+    // loader + the stuck-note monitor, for device passes. Tap the scrim (or ✕) to dismiss. Never in release.
+    private var devLoaderOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea().onTapGesture { showDevLoader = false }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("DEV — TEST SESSIONS").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                    Spacer()
+                    Text("✕").font(.system(size: 16, weight: .heavy)).foregroundColor(.white.opacity(0.7))
+                        .padding(.horizontal, 8).contentShape(Rectangle()).onTapGesture { showDevLoader = false }
+                }
+                devLoader
+                stuckNoteMonitor
+            }
+            .padding(18)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.12), lineWidth: 1))
+            .padding(24)
         }
     }
 
