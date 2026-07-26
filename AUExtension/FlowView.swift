@@ -282,7 +282,7 @@ extension FlowView {
             if !on { continue }
             let ctr = cellCenter(fc.col, fc.row, grid)
             var hops: [(a: CGPoint, b: CGPoint, cp: CGPoint, bus: Int)] = []
-            if let rc = fc.srcReceiver { let a = recvPt(rc); hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2, y: (a.y+ctr.y)/2), -1)) }
+            if let rc = fc.srcReceiver { let a = recvPt(rc); hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2, y: (a.y+ctr.y)/2), -2)) }   // MIDI-IN hop (bus −2)
             if let sr = fc.srcRow, let p = all.first(where: { $0.col == fc.col && $0.row == sr }) {
                 let a = cellCenter(p.col, p.row, grid); let bow: CGFloat = sr > fc.row ? -34 : 34
                 hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2 + bow, y: (a.y+ctr.y)/2), -1)) }
@@ -294,6 +294,17 @@ extension FlowView {
                 var gp = Path(); gp.move(to: h.a); gp.addQuadCurve(to: h.b, control: h.cp)
                 ctx.stroke(gp, with: .color(fc.hue.opacity(silentOut ? 0.08 : 0.22)), lineWidth: 1)
                 guard playing, !silentOut else { continue }
+                // MIDI-IN hop (bus −2): the RAW input to the processor is the held chord — a SUSTAINED signal,
+                // not the processor's rhythm. Draw a STEADY continuous stream (evenly-spaced dots drifting at a
+                // constant rate) in the cell's Colour; the rhythm appears only on the OUTPUT hop, after the cell.
+                if h.bus == -2 {
+                    let n = 7, phase = b.truncatingRemainder(dividingBy: 1) / Double(n)
+                    for k in 0..<n {
+                        let t = (Double(k) / Double(n) + phase).truncatingRemainder(dividingBy: 1)
+                        glowDot(ctx, bez(h.a, h.b, h.cp, CGFloat(t)), 1.7, fc.hue, 0.7)
+                    }
+                    continue
+                }
                 for k in 0..<fc.ticks {
                     let tt = frac * Double(fc.ticks) - Double(k)
                     guard tt >= 0, tt <= 1 else { continue }
