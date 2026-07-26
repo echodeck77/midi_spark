@@ -31,6 +31,10 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     }
 }
 
+/// delta item 8: a lifted processor on the clipboard — {type, params, transpose} — COPY'd from one panel,
+/// PASTE'able onto any other (A or B, any Colour); a different type retypes the target.
+struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpose: Int }
+
 /// Live diagnostics: what the kernel is actually seeing, at 4 Hz.
 /// Interpreting it:
 ///  · PARAM EVENTS rising while you turn a mapped knob → host uses render-side events (kernel handles).
@@ -48,7 +52,7 @@ struct DiagView: View {
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
-    @State private var altTargeting = false     // delta §9 item 5: the desk ALT box is picking a partner Colour
+    @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
     // only the colour is set fresh by whichever chip is long-pressed. The drag-to-grid + live preview is
@@ -430,16 +434,13 @@ struct DiagView: View {
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
     private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
     private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
-    // delta §9 item 5: does the brush Colour's pairing GLIDE? (paired + same type = FULL). Gates the morph fader.
+    // delta item 8: does the brush Colour's procB GLIDE? (has B + same type as A = FULL). Gates the morph fader.
     private var brushGlides: Bool {
-        guard let c = brushColour, let p = c.altColour, p >= 0, p < docColours.count else { return false }
-        return docColours[p].type == c.type
+        guard let c = brushColour, let tb = c.typeB else { return false }
+        return tb == c.type
     }
-    // ON-section greying inputs (staged Colour = brush during staging): has an ALT partner; is stochastic.
-    private var stagedAltPaired: Bool {
-        guard let c = brushColour, let p = c.altColour, p >= 0, p < docColours.count else { return false }
-        return true
-    }
+    // ON-section greying input (staged Colour = brush during staging): has a second processor (procB).
+    private var stagedAltPaired: Bool { brushColour?.hasProcB ?? false }
     private var stagedStochastic: Bool {
         guard let c = brushColour else { return false }
         return c.type == .chance || (c.type == .arp && c.paramsA.pattern == .random)
@@ -459,6 +460,28 @@ struct DiagView: View {
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
+
+    // delta item 8: the processor CLIPBOARD — COPY lifts a face's {type, params, transpose}; PASTE drops it
+    // onto ANY panel (A or B, any Colour), retyping the target if the clipboard is a different type.
+    private func copyProc(_ face: ProcessorBox.Face) {
+        guard let c = brushColour else { return }
+        if face == .b {
+            guard let tb = c.typeB else { return }                       // nothing to copy from a B-less panel
+            procClipboard = ProcClip(type: tb, params: c.paramsB, transpose: c.transposeBResolved)
+        } else {
+            procClipboard = ProcClip(type: c.type, params: c.paramsA, transpose: c.transpose)
+        }
+    }
+    private func pasteProc(_ face: ProcessorBox.Face) {
+        guard let clip = procClipboard else { return }
+        if face == .b {
+            editBrushColour { $0.typeB = clip.type; $0.paramsB = clip.params; $0.transposeB = clip.transpose }
+        } else {
+            au?.setColourType(brushIndex, clip.type)                     // switchType (per-type stash) + tree sync
+            au?.setColourTranspose(brushIndex, clip.transpose)
+            editBrushColour { $0.paramsA = clip.params }                 // refreshes docColours
+        }
+    }
     private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     private var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 
@@ -682,20 +705,19 @@ struct DiagView: View {
     private var identityColumn: some View {
         VStack(spacing: 8) {
             if staging { cellBox }         // COLOUR moved to the emitter row; cell-edit surface stays here
-            processorSelector
-            processorSettings
+            processorPanels                // procA | procB, side by side
         }
     }
 
-    // §6d TWO FLOWS (portrait): the COLOUR flow — the treatment axis, separate from the signal flow (whose
-    // RECEIVERS/EMITTERS bands now flank the grid above). Two columns: COLOUR/ALT · SELECTOR/SETTINGS. The
-    // settings panel is sized for the largest field set, so truncation dies by geometry (fixed frame).
+    // delta item 8 (portrait): the COLOUR flow — the treatment axis, separate from the signal flow (whose
+    // RECEIVERS/EMITTERS bands flank the grid above). The two PROCESSOR PANELS (procA | procB) sit here; each
+    // is a fixed frame sized for the largest field set, so truncation dies by geometry.
     private func colourFlowBand(_ width: CGFloat, _ height: CGFloat) -> some View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap)
         return HStack(alignment: .top, spacing: gap) {
             if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
-            VStack(spacing: gap) { processorSelector; processorSettings }.frame(maxWidth: .infinity)
+            processorPanels.frame(maxWidth: .infinity)
         }
     }
 
@@ -823,75 +845,28 @@ struct DiagView: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // §6d: ALT is now its own panel (delta §9 item 5) — the pairing home, a palette-cell-sized button
-    // (empty dashed slot when unpaired) + the targeting hint. Tap → target; then pick a palette Colour.
-    private var altPanel: some View {
-        let partner = (brushIndex >= 0 && brushIndex < docColours.count) ? docColours[brushIndex].altColour : nil
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text("ALT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Spacer()
-                altBox(partner: partner)
-            }
-            if altTargeting {
-                Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
-                    .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
-            }
-        }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-
-    // §6d PROCESSOR SELECTOR / SETTINGS — the split inline panels (the §6c popup is gone).
-    @ViewBuilder private var processorSelector: some View {
+    // delta item 8 PROCESSOR PANELS — procA and procB side by side, each a self-contained face editor with
+    // its own COPY (+ PASTE when the clipboard holds a processor).
+    @ViewBuilder private var processorPanels: some View {
         if let bc = brushColour {
-            ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .selector, glides: brushGlides,
-                         onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
-        }
-    }
-    @ViewBuilder private var processorSettings: some View {
-        if let bc = brushColour {
-            ProcessorBox(colour: bc, colourIndex: brushIndex, mode: .settings, glides: brushGlides,
-                         onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph, onSetType: setBrushType)
-        }
-    }
-
-    // delta §9 item 5: the ALT box beside the palette — shows the current Colour's PARTNER (or +). Tap to
-    // enter targeting; then pick a palette Colour to pair (re-pick the current partner to unpair).
-    private func altBox(partner: Int?) -> some View {
-        HStack(spacing: 3) {
-            Text("ALT").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(altTargeting ? .black : .white.opacity(0.5))
-            if let p = partner, p < colourHexes.count {
-                RoundedRectangle(cornerRadius: 2).fill(Color(hex: colourHexes[p])).frame(width: 12, height: 12)
-                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.5), lineWidth: 1))
-            } else {
-                // empty slot waiting to be filled — a dashed outline (brighter while targeting)
-                RoundedRectangle(cornerRadius: 2).fill(Color.black.opacity(0.15)).frame(width: 12, height: 12)
-                    .overlay(RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(altTargeting ? Color.black.opacity(0.6) : Color.white.opacity(0.35),
-                                      style: StrokeStyle(lineWidth: 1, dash: [2, 1.5])))
+            HStack(alignment: .top, spacing: 8) {
+                ProcessorBox(colour: bc, colourIndex: brushIndex, face: .a,
+                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                             onSetTypeA: setBrushType, canPaste: procClipboard != nil,
+                             onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) })
+                    .frame(maxWidth: .infinity)
+                ProcessorBox(colour: bc, colourIndex: brushIndex, face: .b,
+                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                             canPaste: procClipboard != nil,
+                             onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) })
+                    .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 4).fill(altTargeting ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
-        .contentShape(Rectangle()).onTapGesture { altTargeting.toggle() }
     }
 
-    // Palette tap: normally selects the desk brush; while ALT-targeting it sets the brush Colour's partner
-    // (re-picking the current partner unpairs; self-pick is ignored).
-    private func pickPalette(_ id: String) {
-        guard let bi = colourIDs.firstIndex(of: brush) else { return }
-        if altTargeting {
-            altTargeting = false
-            guard let pi = colourIDs.firstIndex(of: id), pi != bi else { return }
-            let current = (bi < docColours.count) ? docColours[bi].altColour : nil
-            au?.editColour(bi) { $0.altColour = (current == pi ? nil : pi) }   // re-pick same ⇒ unpair
-            docColours = au?.uiColours() ?? docColours
-        } else {
-            brush = id
-        }
-    }
+    // Palette tap selects the desk brush (delta item 8 retired the ALT-targeting pairing gesture — a second
+    // processor is now made on the B panel, not by pairing to another Colour).
+    private func pickPalette(_ id: String) { brush = id }
 
     // SCENE strip — the 16 factory scenes (Docs/factory-scenes.md), full-width along the bottom.
     private var sceneStrip: some View {

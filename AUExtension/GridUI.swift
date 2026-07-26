@@ -890,83 +890,96 @@ struct HeaderView: View {
     }
 }
 
-/// PROCESSOR panels (delta §6d): edit the SELECTED Colour (= the palette brush), split into a SELECTOR
-/// (type + one-line description) and SETTINGS (the full param set, INLINE — the §6c popup is dropped).
-/// SETTINGS is a FIXED frame sized for the largest (arp) field set, so the portrait truncation dies by
-/// geometry; smaller types leave calm space. Single treatment (A/B tab retired, §9 item 5 — the partner
-/// Colour is "B"); MORPH glides toward the partner and shows only for a FULL pair. Transpose/morph are
-/// AUParameters (own callbacks); the rest go through editColour (writing paramsA).
+/// A PROCESSOR PANEL (delta item 8, TWO-PROCESSOR Colours): one self-contained editor for ONE face of the
+/// selected Colour (= the palette brush) — the A face or the optional B face. Title row (PROCESSOR A/B +
+/// COPY, and PASTE when the clipboard holds a processor) · type selector (A = 6 types; B = OFF + 6, OFF =
+/// B-less) · TRANSPOSE + the full param set INLINE + (B only) the MORPH fader when B is a FULL glide.
+/// FIXED frame sized for the largest (arp) field set, so truncation dies by geometry. A transpose/morph are
+/// AUParameters (own callbacks); B's transpose + all params go through editColour. COPY/PASTE let any panel
+/// lift a processor and drop it onto any other (cross-type paste retypes the target).
 struct ProcessorBox: View {
-    enum Mode { case selector, settings }
+    enum Face { case a, b }
     let colour: Colour
     let colourIndex: Int
-    var mode: Mode = .settings
-    var glides: Bool = false                            // paired FULL → the morph fader glides (else hidden)
+    var face: Face = .a
     let onEdit: (@escaping (inout Colour) -> Void) -> Void
-    let onTranspose: (Int) -> Void
+    let onTranspose: (Int) -> Void                      // A face: transpose is an AUParameter
     let onMorph: (Double) -> Void
-    var onSetType: ((ProcessorType) -> Void)? = nil     // type switch isolates transpose per type
+    var onSetTypeA: ((ProcessorType) -> Void)? = nil    // A face: switchType via the AU (per-type stash)
+    var canPaste: Bool = false                          // clipboard non-empty ⇒ show PASTE
+    var onCopy: () -> Void = {}
+    var onPaste: () -> Void = {}
 
-    static let settingsHeight: CGFloat = 252            // fixed — sized for the arp field set PLUS the MORPH
-                                                        // fader (shown for a glide pair) — the truncation-killer
+    static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
+    private var isB: Bool { face == .b }
     private var accent: Color { colourColor(colour.colourID) ?? .gray }
-    private var p: ColourParams { colour.paramsA }      // single treatment now (A/B retired — partner is B)
-    private func setParam(_ f: @escaping (inout ColourParams) -> Void) { onEdit { f(&$0.paramsA) } }
+    private var faceType: ProcessorType? { isB ? colour.typeB : colour.type }   // B may be nil = B-less
+    private var p: ColourParams { isB ? colour.paramsB : colour.paramsA }
+    private var faceTranspose: Int { isB ? colour.transposeBResolved : colour.transpose }
+    private var glides: Bool { colour.typeB == colour.type }   // FULL morph ⇔ B is the same type as A
+    private func setParam(_ f: @escaping (inout ColourParams) -> Void) {
+        onEdit { c in if isB { f(&c.paramsB) } else { f(&c.paramsA) } }
+    }
 
     var body: some View {
-        if mode == .selector { selectorBody } else { settingsBody }
-    }
-
-    // §6d PROCESSOR SELECTOR — the type + the legible one-line description.
-    private var selectorBody: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Text("PROCESSOR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text(colour.colourID.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-            }
-            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in onSetType?(ProcessorType.allCases[i]) }
-            Text(descriptionLine).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-        }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-
-    // §6d PROCESSOR SETTINGS — the full param set INLINE, in a fixed frame sized for the largest type.
-    private var settingsBody: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("SETTINGS").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            field("TRANSPOSE \(colour.transpose > 0 ? "+" : "")\(colour.transpose)") {
-                stepper(colour.transpose, -24, 24) { onTranspose($0) }
-            }
-            typeParams()
-            if glides {                                  // "the fader never lies" — morph only shows when it glides
-                field("MORPH \(Int(colour.morph * 100))%  → ALT") {
-                    Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+            titleRow
+            typeSelector
+            if let ft = faceType {
+                field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
+                    stepper(faceTranspose, -24, 24) { v in
+                        if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
+                    }
                 }
+                typeParams(ft)
+                if isB && glides {                       // morph glides A↔B; only meaningful for a FULL B
+                    field("MORPH \(Int(colour.morph * 100))%  → B") {
+                        Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+                    }
+                }
+            } else {
+                Text("no B — pick a type or PASTE to add a second processor")
+                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).padding(.top, 4)
             }
             Spacer(minLength: 0)
         }
-        .padding(8).frame(height: Self.settingsHeight, alignment: .top).clipped()
+        .padding(8).frame(height: Self.panelHeight, alignment: .top).clipped()
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // A one-line description of the current treatment (shared investment with the cell-editor summary).
-    private var descriptionLine: String {
-        switch colour.type {
-        case .arp: return "\(p.pattern?.rawValue ?? "UP") · \(p.rate?.rawValue ?? "1/16") · \(p.octaves ?? 1)oct"
-        case .ratchet: return "×\(p.count ?? 3) repeats"
-        case .passgate: return "passes " + (p.passes ?? [true,true,true,true]).map { $0 ? "1" : "0" }.joined()
-        case .strum: return "\((p.strumDir ?? .up).rawValue) · spread \(Int((p.spread ?? 0.1) * 100))"
-        case .chance: return "\(Int((p.probability ?? 1) * 100))% pass"
-        case .harmonize:
-            let iv = (p.harmIntervals ?? [0,0,0]).filter { $0 != 0 }
-            return iv.isEmpty ? "unison" : "voices " + iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: ",")
+    private var titleRow: some View {
+        HStack(spacing: 5) {
+            Text(isB ? "PROCESSOR B" : "PROCESSOR A")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            Spacer()
+            if faceType != nil { pill("COPY", onCopy) }
+            if canPaste { pill("PASTE", onPaste) }
         }
     }
 
-    @ViewBuilder private func typeParams() -> some View {
-        switch colour.type {
+    // A face = the 6 types; B face = OFF (B-less) + the 6 types (pick a type to create B, OFF to remove it).
+    @ViewBuilder private var typeSelector: some View {
+        if isB {
+            seg(["OFF"] + ProcessorType.allCases.map { typeShort($0) }, sel: colour.typeB.map { typeShort($0) } ?? "OFF") { i in
+                if i == 0 { onEdit { $0.typeB = nil } } else { onEdit { $0.typeB = ProcessorType.allCases[i - 1] } }
+            }
+        } else {
+            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in
+                onSetTypeA?(ProcessorType.allCases[i])
+            }
+        }
+    }
+
+    private func pill(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 3).fill(accent.opacity(0.18)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    @ViewBuilder private func typeParams(_ ft: ProcessorType) -> some View {
+        switch ft {
         case .arp:
             field("PATTERN") { seg(ArpPattern.allCases.map(\.rawValue), sel: p.pattern?.rawValue ?? "UP") { i in
                 setParam { $0.pattern = ArpPattern.allCases[i] } } }
