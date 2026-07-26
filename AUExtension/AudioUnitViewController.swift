@@ -762,8 +762,8 @@ struct DiagView: View {
             let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
             let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
             VStack(spacing: 3) {
-                HStack(spacing: 6) {                          // [placeholder] · RECEIVERS · [diagnostics]
-                    placeholderBox.frame(maxWidth: .infinity)
+                HStack(spacing: 6) {                          // [CONTROLS] · RECEIVERS · [diagnostics]
+                    controlsView.frame(maxWidth: .infinity)
                     receiversBox.frame(width: half)
                     diagBox.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
@@ -834,6 +834,15 @@ struct DiagView: View {
             if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
             processorPanels.frame(maxWidth: .infinity)
         }
+    }
+
+    // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
+    // the (now slimmed) header.
+    private var controlsView: some View {
+        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch, editing: editing,
+                     onStep: { au?.setStepRateIndex($0); refreshTiming() },
+                     onSwing: { au?.setSwing($0); refreshTiming() },
+                     onToggleHold: toggleHold)
     }
 
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
