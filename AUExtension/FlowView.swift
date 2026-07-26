@@ -102,6 +102,7 @@ struct FlowView: View {
     // the PLAN (derived routing); these draw where notes TRULY went — so suppression shows as a missing pulse.
     var emitMarks: [[VelMark]] = [[], [], [], []]
     var recvMarks: [[VelMark]] = [[], [], [], []]
+    var receiverSounding: [Double] = [0, 0, 0, 0]   // duration: intensity of each receiver's CURRENTLY-HELD chord (0 = none)
 
     // beat extrapolation between the 4 Hz polls — identical to the grid playhead.
     @State private var lastBeat: Double = 0
@@ -297,8 +298,12 @@ extension FlowView {
                 // in the RECEIVER's Colour (raw input has no processor Colour), a soft highlight gliding for life.
                 if h.bus == -2 {
                     let rhue = receiverHue(h.recv)
-                    ctx.stroke(gp, with: .color(rhue.opacity(playing ? 0.75 : 0.4)), lineWidth: 2.4)
-                    if playing { glowDot(ctx, bez(h.a, h.b, h.cp, CGFloat(b.truncatingRemainder(dividingBy: 1))), 2.2, rhue, 0.85) }
+                    let snd = (h.recv >= 0 && h.recv < receiverSounding.count) ? receiverSounding[h.recv] : 0
+                    ctx.stroke(gp, with: .color(rhue.opacity(0.15)), lineWidth: 1)   // faint guide: the potential input path
+                    if snd > 0 {                                                     // the held chord is DOWN → a bright line, its presence = the note's duration
+                        ctx.stroke(gp, with: .color(rhue.opacity(0.5 + 0.4 * snd)), lineWidth: 2 + 2 * snd)
+                        if playing { glowDot(ctx, bez(h.a, h.b, h.cp, CGFloat(b.truncatingRemainder(dividingBy: 1))), 2 + 2 * snd, rhue, 0.85) }
+                    }
                     continue
                 }
                 ctx.stroke(gp, with: .color(fc.hue.opacity(silentOut ? 0.08 : 0.22)), lineWidth: 1)

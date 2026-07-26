@@ -104,6 +104,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainReceiverActivity() }
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
+    func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }

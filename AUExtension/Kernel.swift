@@ -187,6 +187,28 @@ final class Kernel {
         for i in 0..<4 { out.append(Array(recvMarkVel[i][0..<recvMarkCount[i]])); recvMarkCount[i] = 0 }
         return out
     }
+    // SOUNDING SNAPSHOT (duration): per receiver, the velocities of the notes CURRENTLY HELD in the pool that
+    // pass its filter. Refreshed each render into a fixed buffer (display-only, best-effort like the meters);
+    // the UI reads it so a held-chord line/mark shows WHILE the chord is down and vanishes on release. A muted
+    // receiver (filter ≥ 17) matches nothing → empty, as it should.
+    private var recvHeldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
+    private var recvHeldCount = [Int](repeating: 0, count: 4)
+    func pollReceiverSounding() -> [[UInt8]] {
+        var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldVel[i][0..<recvHeldCount[i]])) }
+        return out
+    }
+    private func updateReceiverSounding() {
+        pool.rebuildSorted()
+        for i in 0..<4 {
+            recvHeldCount[i] = 0
+            let filter = receiverChannels[i], cable = Int(receiverCables[i])
+            let n = pool.srcCount(filter: filter, cableMask: cable)
+            for k in 0..<n where recvHeldCount[i] < 12 {
+                let note = pool.srcAscending(k, filter: filter, cableMask: cable)
+                recvHeldVel[i][recvHeldCount[i]] = pool.velocity(note); recvHeldCount[i] += 1
+            }
+        }
+    }
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
@@ -285,6 +307,7 @@ final class Kernel {
 
         // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
         updateLatchedPools()
+        updateReceiverSounding()        // duration feed: snapshot the currently-held input notes per receiver
         // ---- hand off to the router (columns, arp, emission, note tracker) ----
         router.process(box: box, pool: pool,
                         playing: playing, beatPos: beatPos, tempo: tempo,

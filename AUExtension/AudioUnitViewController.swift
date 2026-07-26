@@ -98,6 +98,7 @@ struct DiagView: View {
     @State private var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
     @State private var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
+    @State private var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
     @State private var docColours: [Colour] = []
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
@@ -737,6 +738,9 @@ struct DiagView: View {
             }
             if markE != emitMarks { emitMarks = markE }
             if markR != recvMarks { recvMarks = markR }
+            // duration: the currently-held input notes per receiver (present-while-held → the MIDI-IN line + hold-while-ringing marks)
+            let held = au.pollReceiverSounding().map { $0.map { Double($0) / 127.0 } }
+            if held != recvHeld { recvHeld = held }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
@@ -802,7 +806,7 @@ struct DiagView: View {
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks)
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks, receiverSounding: recvHeld.map { $0.max() ?? 0 })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
@@ -897,7 +901,7 @@ struct DiagView: View {
             FlowView(variation: max(1, flowVariation), scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks)
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks, receiverSounding: recvHeld.map { $0.max() ?? 0 })
                 .allowsHitTesting(false)
         }
     }
@@ -1005,7 +1009,7 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                      marks: recvMarks, thruReceiver: thruReceiver,
+                      marks: recvMarks, heldVels: recvHeld, thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,

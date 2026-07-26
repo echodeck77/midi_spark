@@ -67,6 +67,7 @@ final class NotePool {
     }
 
     @inline(__always) func played(at index: Int) -> UInt8 { order[index] }   // AS-PLAYED lookup
+    @inline(__always) func velocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }   // held velocity (0 = not held)
 
     // MARK: - input-channel filter (delta §7): a MIDI-IN cell hears only its channel. `filter` is
     // 0 = OMNI (all held notes) or 1–16 (only notes arriving on that channel; wire channel = filter−1).
