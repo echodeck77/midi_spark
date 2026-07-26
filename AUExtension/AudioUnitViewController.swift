@@ -861,7 +861,8 @@ struct DiagView: View {
     private var vizView: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                Text("FLOW").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                Text(flowVariation > 0 ? FlowView.names[min(flowVariation, FlowView.names.count - 1)] : "FLOW")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
                     .foregroundColor(flowVariation > 0 ? Color(red: 0.15, green: 0.88, blue: 0.94) : .white.opacity(0.45))
                 Spacer(minLength: 0)
                 vizChip(["OFF", "SUBTLE", "SHOW"][vizIntensity], lit: false) { vizIntensity = (vizIntensity + 1) % 3 }
@@ -873,8 +874,8 @@ struct DiagView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .contentShape(Rectangle())
-                .onTapGesture { flowVariation = flowVariation > 0 ? 0 : 1 }                 // door: open/close full FLOW
-                .onLongPressGesture { flowVariation = flowVariation > 0 ? (flowVariation % 5 + 1) : 1 }   // cycle the view
+                .onTapGesture { flowVariation = (flowVariation + 1) % 6 }   // cycle: grid → FLOW/CONSTELLATION/SCOPE/WATERFALL/RADAR → grid
+                .onLongPressGesture { flowVariation = 0 }                   // long-press → back to the grid
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
