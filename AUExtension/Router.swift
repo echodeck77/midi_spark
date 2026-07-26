@@ -141,6 +141,14 @@ final class Router {
     // of the cell being articulated (render is single-threaded, so one field suffices) — read in emitOneBus.
     private var inputVelOverride: UInt32 = 0
     private var currentInputRecv: Int8 = -1
+    // emitter strip: an ephemeral ±octave nudge per emitter (−3…+3), packed one signed byte each. Applied at
+    // the emission boundary to the OUTGOING note (the receiver OCT's output-side mirror); a note pushed past
+    // 0…127 is dropped. Cleared on stop.
+    private var emitterOctave: UInt32 = 0
+    private func emitterOctaveShift(_ bus: Int) -> Int {
+        let byte = UInt8((emitterOctave >> (UInt32(bus) * 8)) & 0xFF)
+        return Int(Int8(bitPattern: byte)) * 12
+    }
     // receiver strip LATCH: while a receiver is armed (bit set), its subscribers read a FROZEN pool (the
     // captured chord) instead of the live one — the Kernel maintains the frozen pools + hands them in.
     private var latchMask: UInt8 = 0
@@ -409,6 +417,12 @@ final class Router {
     @discardableResult
     private func emitOneBus(_ bus: Int, note: UInt8, velocity: UInt8,
                             onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?) -> Int {
+        // emitter strip OCT: shift the OUTGOING note by this emitter's ±octave overlay (0 = none). A note
+        // pushed off 0…127 is dropped. Applied FIRST so CLAIM/metering/refcount all key on the real output
+        // pitch. `note` is shadowed to the shifted value for the remainder.
+        let sn = Int(note) + emitterOctaveShift(bus)
+        guard sn >= 0 && sn <= 127 else { return -1 }
+        let note = UInt8(sn)
         if claimEmitter >= 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
             if bus == Int(claimEmitter) {
                 // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks the
@@ -652,6 +666,7 @@ final class Router {
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
                  inputVelOverride: UInt32 = 0,
+                 emitterOctave: UInt32 = 0,
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
@@ -662,6 +677,7 @@ final class Router {
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
         self.inputVelOverride = inputVelOverride   // receiver strip: per-receiver input-velocity override
+        self.emitterOctave = emitterOctave         // emitter strip: per-emitter output ±octave nudge
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools

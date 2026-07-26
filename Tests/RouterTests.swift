@@ -1599,4 +1599,42 @@ final class RouterTests: XCTestCase {
                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - emitter OUTPUT OCT nudge (emitter strip) — shifts the outgoing note, keyed on the bus
+
+    private func packEmitOct(_ bus: Int, _ oct: Int) -> UInt32 { UInt32(UInt8(bitPattern: Int8(oct))) << (UInt32(bus) * 8) }
+    private func emitOctNotes(_ box: SnapshotBox, emitterOctave: UInt32, cable: UInt8, chordNotes: [UInt8] = [60, 64, 67]) -> Set<UInt8> {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord(chordNotes); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, emitterOctave: emitterOctave, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
+    }
+
+    func testEmitterOctaveShiftsOutputKeyedOnBus() {
+        // gold → E1 (cable 1), cyan → E2 (cable 2). +1 oct on E1 lifts E1's output; E2 is untouched.
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])
+        }
+        XCTAssertTrue(emitOctNotes(b, emitterOctave: 0, cable: 1).contains(60), "base ⇒ 60 on E1")
+        let up = emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 1)
+        XCTAssertTrue(up.contains(72) && !up.contains(60), "+1 oct on E1 ⇒ 60→72")
+        XCTAssertTrue(emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 2).contains(60), "E2 (bus 1) unshifted")
+    }
+
+    func testEmitterOctaveDropsOutOfRangeNotes() {
+        // a high note pushed past 127 by the shift is dropped (no voice, no stuck note).
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        XCTAssertTrue(emitOctNotes(b, emitterOctave: 0, cable: 1, chordNotes: [120]).contains(120), "120 sounds at base")
+        XCTAssertTrue(emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 1, chordNotes: [120]).isEmpty,
+                      "120 + 12 = 132 > 127 ⇒ dropped")
+    }
 }

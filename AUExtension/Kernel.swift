@@ -97,6 +97,14 @@ final class Kernel {
         let shift = UInt32(recv) * 8
         inputVelOverride = (inputVelOverride & ~(0xFF << shift)) | (byte << shift)
     }
+    // emitter strip: per-emitter output ±octave nudge (−3…+3), packed one signed byte each. Ephemeral (weather).
+    private var emitterOctave: UInt32 = 0
+    func setEmitterOctave(_ bus: Int, _ oct: Int) {
+        guard bus >= 0 && bus < 4 else { return }
+        let byte = UInt32(UInt8(bitPattern: Int8(max(-3, min(3, oct))))) & 0xFF
+        let shift = UInt32(bus) * 8
+        emitterOctave = (emitterOctave & ~(0xFF << shift)) | (byte << shift)
+    }
     // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
     // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
     // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
@@ -270,6 +278,7 @@ final class Kernel {
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
+                        emitterOctave: emitterOctave,
                         latchMask: latchArmMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)

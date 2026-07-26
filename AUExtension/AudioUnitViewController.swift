@@ -101,6 +101,7 @@ struct DiagView: View {
     @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
     @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
     @State private var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
+    @State private var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
     private enum TapKind { case alt, mute, solo }
@@ -130,6 +131,15 @@ struct DiagView: View {
         guard (0..<4).contains(i) else { return }
         emitterFootSolo ^= UInt8(1 << i)
         refreshTapMasks()
+    }
+    // emitter strip: output ±octave nudge (±1 per tap, clamp ±3). Ephemeral weather — clears on transport stop.
+    private func nudgeEmitterOctave(_ i: Int, _ delta: Int) {
+        guard (0..<4).contains(i) else { return }
+        emitterOctave[i] = max(-3, min(3, emitterOctave[i] + delta))
+        au?.setEmitterOctave(i, emitterOctave[i])
+    }
+    private func clearEmitterPerform() {
+        emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
     // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
@@ -644,6 +654,7 @@ struct DiagView: View {
                 if holdLatch { setHold(false) }
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
+                clearEmitterPerform()                                     // emitter strip: output OCT = weather
             }
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
@@ -774,7 +785,8 @@ struct DiagView: View {
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim,
-                    soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo)
+                    soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
+                    octave: emitterOctave, onOct: nudgeEmitterOctave)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
