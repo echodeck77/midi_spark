@@ -289,6 +289,13 @@ struct PluginState: Codable, Equatable {
     // Persisted (a document property, unlike the ephemeral velocity override); optional so old docs
     // decode as nil. Suppression lives at the emission boundary against the live voice table.
     var claimEmitter: Int? = nil
+    // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter has anything sounding, OTHER
+    // emitters' NEW note-ons arrive velocity-scaled by its amount (0…100%). Persisted (structure). Optional →
+    // old docs decode nil (off). `flattenMask` = which emitters duck; `flattenAmount` = per-emitter amount.
+    var flattenMask: UInt8? = nil
+    var flattenAmount: [Int]? = nil
+    /// The four FLATTEN amounts (0…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
+    var flattenAmountResolved: [Int] { let a = flattenAmount ?? []; return (0..<4).map { $0 < a.count ? max(0, min(100, a[$0])) : 0 } }
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

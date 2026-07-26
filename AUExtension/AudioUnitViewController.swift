@@ -53,6 +53,8 @@ struct DiagView: View {
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
+    @State private var flattenMask: UInt8 = 0                         // role family: FLATTEN set (persisted)
+    @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
@@ -429,6 +431,8 @@ struct DiagView: View {
         busEnabled = au.uiBusEnabled()
         claim = au.uiClaim()
         thruReceiver = au.uiThruReceiver()
+        flattenMask = au.uiFlattenMask()
+        flattenAmount = au.uiFlattenAmount()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -566,6 +570,16 @@ struct DiagView: View {
         claim = au.uiClaim()
         thruReceiver = au.uiThruReceiver()
     }
+    // role family: FLATTEN (persisted) — tap toggles the emitter into the ducking set; drag sets its amount %.
+    private func toggleFlatten(_ i: Int) {
+        let on = flattenMask & (1 << UInt8(i)) != 0
+        au?.setFlatten(i, !on)
+        flattenMask = au?.uiFlattenMask() ?? flattenMask
+    }
+    private func setFlatAmount(_ i: Int, _ amount: Int) {
+        au?.setFlattenAmount(i, amount)
+        flattenAmount = au?.uiFlattenAmount() ?? flattenAmount
+    }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
@@ -666,6 +680,8 @@ struct DiagView: View {
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let cl = au.uiClaim();         if cl != claim { claim = cl }
             let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }
+            let fm = au.uiFlattenMask();   if fm != flattenMask { flattenMask = fm }
+            let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
@@ -799,7 +815,9 @@ struct DiagView: View {
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim,
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
-                    octave: emitterOctave, onOct: nudgeEmitterOctave)
+                    octave: emitterOctave, onOct: nudgeEmitterOctave,
+                    flattenMask: flattenMask, flattenAmount: flattenAmount,
+                    onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

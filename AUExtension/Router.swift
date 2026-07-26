@@ -66,6 +66,16 @@ final class Router {
     // a NON-claimant emitting a pitch that is already sounding on the claimant is suppressed (own cable +
     // its All copy) — the claimant keeps that pitch, others get the residue. Suppress, never defer.
     private var claimEmitter: Int8 = -1
+    // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter (bit set) has anything
+    // sounding, OTHER emitters' NEW note-ons are velocity-scaled by that emitter's amount. Persisted; refreshed
+    // from the box each render. Stateless — a pure query of the live voice table at admission time.
+    private var flattenMask: UInt8 = 0
+    private var flattenAmount: [UInt8] = [0, 0, 0, 0]
+    private func emitterSounding(_ bus: Int) -> Bool {
+        let b = UInt8(bus)
+        for v in voices where v.active && !v.silent && v.bus == b { return true }
+        return false
+    }
     // delta §6a metering feed (EVENT-driven, not beat-derived): per-emitter peak velocity + event count
     // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
     private var meterPeakVel = [UInt8](repeating: 0, count: 4)
@@ -454,7 +464,17 @@ final class Router {
         // §6a PERFORM momentary override: while a strip's slider is touched, flatten every NEW note-on on
         // that emitter to the slider value (own cable + its All copy). 0 = untouched → natural velocity.
         let ov = UInt8((velOverride >> (UInt32(bus) * 8)) & 0xFF)
-        let v = ov != 0 ? ov : base
+        var v = ov != 0 ? ov : base
+        // role family FLATTEN: while ANOTHER emitter with FLATTEN set is sounding, duck this NEW note-on by the
+        // strongest such amount. Existing/sounding notes are untouched (the shipped no-lurch rule); the bloom
+        // back is instant because it's a per-note-on query of the live voice table. previewMode bypasses.
+        if flattenMask != 0 && !previewMode {
+            var duck = 0
+            for k in 0..<4 where k != bus && (flattenMask & (1 << UInt8(k))) != 0 && emitterSounding(k) {
+                duck = max(duck, Int(flattenAmount[k]))
+            }
+            if duck > 0 { v = UInt8(max(1, Int(v) * (100 - duck) / 100)) }
+        }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
@@ -687,6 +707,8 @@ final class Router {
         busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
         self.velOverride = velOverride              // §6a PERFORM velocity override, this render
         claimEmitter = box.claimEmitter             // §6a CLAIM: the exclusive-rights emitter, this render
+        flattenMask = box.flattenMask               // role family: FLATTEN ducking set, this render
+        flattenAmount = box.flattenAmount
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)

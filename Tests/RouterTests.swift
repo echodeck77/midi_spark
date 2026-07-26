@@ -1637,4 +1637,47 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(emitOctNotes(b, emitterOctave: packEmitOct(0, 1), cable: 1, chordNotes: [120]).isEmpty,
                       "120 + 12 = 132 > 127 ⇒ dropped")
     }
+
+    // MARK: - emitter FLATTEN (role family) — activity ducking, admission-time velocity scale
+
+    private func flattenBox(_ flattenMask: UInt8, _ amount: [Int]) -> SnapshotBox {
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .passgate; cs[gi].paramsA.passes = [true, true, true, true]   // A holds the chord (sounds)
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // → Emit A (cable 1): the sounding held chord
+        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // → Emit B (cable 2): an arp of NEW note-ons
+        var st = PluginState(colours: cs, scenes: [s])
+        st.flattenMask = flattenMask; st.flattenAmount = amount
+        return SnapshotBuilder.build(from: st)
+    }
+    private func velsForCable(_ box: SnapshotBox, cable: UInt8) -> Set<UInt8> {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == cable }.map { $0.vel })
+    }
+
+    func testFlattenDucksOtherEmittersWhileSounding() {
+        // A (passgate, holds) FLATTENs at 50%; B's new arp notes arrive velocity-scaled to 48 (96·50%).
+        XCTAssertTrue(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 2).contains(48),
+                      "A flatten 50% ⇒ B's new notes duck to 48")
+        XCTAssertEqual(velsForCable(flattenBox(0, [50, 0, 0, 0]), cable: 2), [96], "no flatten ⇒ B natural (96)")
+        XCTAssertEqual(velsForCable(flattenBox(0b0010, [0, 50, 0, 0]), cable: 2), [96],
+                       "an emitter's own FLATTEN never ducks itself — only OTHER emitters")
+    }
+
+    func testFlattenDoesNotDuckTheSoundingEmitter() {
+        // A holds and FLATTENs; A's OWN held notes are never lurched — its cable-1 velocity stays natural.
+        XCTAssertEqual(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 1), [96],
+                       "the sounding FLATTEN emitter keeps its own natural velocity")
+    }
 }

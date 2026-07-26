@@ -110,6 +110,8 @@ enum SnapshotBuilder {
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
                            claimEmitter: claim,
+                           flattenMask: doc.flattenMask ?? 0,
+                           flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
                            thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
                            receiverCables: recvCable)

@@ -627,9 +627,14 @@ struct OutputsView: View {
     var onToggleSolo: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                       // E-2: ephemeral output ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }            // (emitter, ±1)
+    var flattenMask: UInt8 = 0                             // role family: FLATTEN (activity ducking) set
+    var flattenAmount: [Int] = [0, 0, 0, 0]
+    var onToggleFlatten: (Int) -> Void = { _ in }
+    var onFlattenAmount: (Int, Int) -> Void = { _, _ in }
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
+    @State private var roleDragBase: [Int?] = [nil, nil, nil, nil]   // role-button param value captured at drag start
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let letters = ["A", "B", "C", "D"]             // emitters A–D (box title MIDI OUTPUT disambiguates from inputs)
@@ -690,8 +695,12 @@ struct OutputsView: View {
     // gated behind the single-CLAIM device pass — spec 2026-07-26); their slots join here once CLAIM is trusted.
     private func roleColumn(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
+        let flatOn = flattenMask & (1 << UInt8(i)) != 0
+        let flatAmt = i < flattenAmount.count ? flattenAmount[i] : 0
         return VStack(spacing: 2) {
             claimRadio(i)
+            roleButton(i, label: "FLAT", on: flatOn, value: flatAmt, maxValue: 100,
+                       onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
             HStack(spacing: 2) {
                 octBtn("OCT−") { onOct(i, -1) }
                 octBtn("OCT+") { onOct(i, +1) }
@@ -701,6 +710,30 @@ struct OutputsView: View {
                 .foregroundColor(oct != 0 ? amber : .white.opacity(0.3))
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
+    }
+
+    // A ROLE BUTTON — the shared grammar for the role family: TAP toggles `on`; a VERTICAL DRAG sets its one
+    // parameter (relative to the value at drag start; up = more). Shows "LABEL n" when on and the value ≠ 0.
+    private func roleButton(_ i: Int, label: String, on: Bool, value: Int, maxValue: Int,
+                            onToggle: @escaping () -> Void, onDrag: @escaping (Int) -> Void) -> some View {
+        Text(on && value != 0 ? "\(label) \(value)" : label)
+            .font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.65))
+            .frame(maxWidth: .infinity).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber : Color.white.opacity(0.08)))
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    if roleDragBase[i] == nil { roleDragBase[i] = value }
+                    if abs(v.translation.height) > 4 {
+                        onDrag(max(0, min(maxValue, (roleDragBase[i] ?? value) + Int(-v.translation.height / 2))))
+                    }
+                }
+                .onEnded { v in
+                    let wasDrag = abs(v.translation.height) > 4
+                    roleDragBase[i] = nil
+                    if !wasDrag { onToggle() }
+                })
     }
     private func octBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))

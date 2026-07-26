@@ -142,6 +142,28 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// emitter role family: FLATTEN — activity ducking (persisted). `uiFlatten*` read; `setFlatten` toggles an
+    /// emitter into/out of the ducking set; `setFlattenAmount` sets its 0…100 % scale.
+    func uiFlattenMask() -> UInt8 { document.flattenMask ?? 0 }
+    func uiFlattenAmount() -> [Int] { document.flattenAmountResolved }
+    func setFlatten(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.flattenMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.flattenMask = m
+        }
+    }
+    func setFlattenAmount(_ bus: Int, _ amount: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.flattenAmount ?? d.flattenAmountResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = max(0, min(100, amount))
+            d.flattenAmount = a
+        }
+    }
+
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
     func uiThruReceiver() -> Int { document.thruReceiverResolved }
