@@ -447,6 +447,34 @@ re-enable path required for device passes). WIP: flank tenants open; the
 FOLD (4b) and the mixer perform faces (item 3) pending atop this geometry;
 receiver cable steppers to return on the strip's EDIT face.
 
+**THE TWO-PANEL MODEL (user re-spec, AS-BUILT 2026-07-26 — supersedes the
+A|B toggle):** procA and procB render as TWO SELF-CONTAINED PANELS side by
+side, each a full face editor. **COPY sits on each panel's title row; PASTE
+appears only when the clipboard holds a processor and works on ANY panel of
+ANY Colour — a different type RETYPES the target.** Consequences: COPY-A→B is
+just copy+paste; **cross-Colour processor transplants come free** (the compare
+workflow lives here: copy A, paste to B, mangle B, listen across). procB's
+type selector LEADS WITH OFF (OFF = B-less; picking a type creates B, OFF
+removes it). The MORPH fader lives in the B panel, shown only for FULL glides
+(same type as A). The ALT box is gone; morph + ON ALT/MORPH availability grey
+off "has procB" only. PASTE LAWS (pinned): one undoable step; same-type paste
+= params replace (no retype churn); the processor clipboard is SEPARATE from
+the cell stamp (two clipboards, two domains — never merge them).
+
+**THE PROCESSOR TYPE HEADER — design direction (2026-07-26, NOT YET BUILT;
+the user-flagged redesign):** kill the segment row; the type becomes the
+panel's TITLE, and the title IS the picker. Title row: `[mini-glyph] ARP ▾ ·
+COPY · PASTE` — the current type always visible with its item-10 parametric
+mini-glyph. **Tap the name → a compact picker popover**: one row per type
+(`glyph · NAME · one-line description` — the §6c legible description survives
+here as the teaching surface); B's picker leads with **OFF — "no B-side"**,
+A's has no OFF. Rationale: type-switching is CONFIG-rare — the *current* type
+matters every glance (the title gives it), the *alternatives* only mid-decision
+(the popover, with descriptions the seven cramped segments never had room for).
+Scales for free (roster/EXTERNAL types add picker rows, not segment squeeze).
+Ties into the LIVING EMBLEMS ferry (animated per-type glyphs; picker rows
+demonstrate on a shared beat).
+
 ### 6c. THE PROCESSOR WINDOW — **REVISED 2026-07-24: the popup
 ### requirement is DROPPED** ("didn't work as well as hoped" — user, off
 ### the v61 board). Settings return INLINE (see §6d). This section

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>8x8 State — living processor emblems (mockup)</title>
+<style>
+  body{background:#0b0d10;color:#cfd6dd;font-family:ui-monospace,Menlo,monospace;
+       display:flex;flex-wrap:wrap;gap:18px;justify-content:center;padding:26px}
+  h2{width:100%;text-align:center;color:#8a94a0;font-size:13px;margin:0 0 4px}
+  .tile{width:196px;background:#12151b;border:1px solid #2a313a;border-radius:12px;
+        padding:14px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .tile b{color:#e8edf2;letter-spacing:.12em}
+  .tile span{color:#5a636d;font-size:10.5px;text-align:center;line-height:1.45}
+  svg{width:120px;height:84px}
+  .g{fill:#FFC53D}.s{stroke:#FFC53D}
+  /* ARP — the climb */
+  .arp d{}
+  .arp circle{opacity:.18;animation:arp 1.6s infinite}
+  .arp circle:nth-child(2){animation-delay:.2s}.arp circle:nth-child(3){animation-delay:.4s}
+  .arp circle:nth-child(4){animation-delay:.6s}.arp circle:nth-child(5){animation-delay:.8s}
+  @keyframes arp{0%,24%{opacity:.18}6%,18%{opacity:1}}
+  /* RTC — the stutter comb */
+  .rtc rect{opacity:.2;animation:rtc 1.2s infinite}
+  .rtc rect:nth-child(2){animation-delay:.15s}.rtc rect:nth-child(3){animation-delay:.3s}
+  .rtc rect:nth-child(4){animation-delay:.45s}
+  @keyframes rtc{0%,50%{opacity:.2}8%,30%{opacity:1}}
+  /* PASS — the gate */
+  .pass .pulse{animation:pass 2.4s infinite linear}
+  @keyframes pass{0%{transform:translateX(0);opacity:1}
+    45%{transform:translateX(52px);opacity:1}
+    50%{transform:translateX(56px);opacity:0}
+    100%{transform:translateX(56px);opacity:0}}
+  .pass .blocked{animation:blocked 2.4s infinite linear;animation-delay:1.2s}
+  @keyframes blocked{0%{transform:translateX(0);opacity:1}
+    40%{transform:translateX(34px);opacity:1}
+    46%{transform:translateX(38px) scale(1.4);opacity:0}
+    100%{transform:translateX(38px);opacity:0}}
+  /* STRM — the fan */
+  .strm line{stroke-dasharray:40;stroke-dashoffset:40;animation:strm 1.8s infinite}
+  .strm line:nth-child(2){animation-delay:.08s}.strm line:nth-child(3){animation-delay:.16s}
+  .strm line:nth-child(4){animation-delay:.24s}.strm line:nth-child(5){animation-delay:.32s}
+  @keyframes strm{0%{stroke-dashoffset:40}14%{stroke-dashoffset:0}55%{stroke-dashoffset:0;opacity:1}
+    70%,100%{stroke-dashoffset:0;opacity:.25}}
+  /* CHNC — the dice field */
+  .chnc circle{animation:chnc 2s infinite}
+  .chnc circle:nth-child(1){animation-delay:0s}.chnc circle:nth-child(2){animation-delay:.6s}
+  .chnc circle:nth-child(3){animation-delay:1.1s}.chnc circle:nth-child(4){animation-delay:.3s}
+  .chnc circle:nth-child(5){animation-delay:1.5s}.chnc circle:nth-child(6){animation-delay:.9s}
+  @keyframes chnc{0%,100%{opacity:.15}10%,26%{opacity:1}36%{opacity:.15}}
+  /* HARM — the bloom */
+  .harm circle{transform-origin:60px 42px;animation:harm 2.2s infinite}
+  .harm circle:nth-child(2){animation-delay:.12s}.harm circle:nth-child(3){animation-delay:.24s}
+  @keyframes harm{0%{transform:translateY(0);opacity:0}
+    12%{opacity:1}45%{transform:translateY(-1px);opacity:1}
+    70%,100%{transform:translateY(0);opacity:.2}}
+  .off svg{opacity:.35}
+</style>
+</head>
+<body>
+<h2>LIVING EMBLEMS — each icon performs its processor (picker rows animate on the shared beat; titles sit static-or-alive per budget)</h2>
+
+<div class="tile"><svg class="arp" viewBox="0 0 120 84">
+  <circle class="g" cx="18" cy="66" r="7"/><circle class="g" cx="39" cy="54" r="7"/>
+  <circle class="g" cx="60" cy="42" r="7"/><circle class="g" cx="81" cy="30" r="7"/>
+  <circle class="g" cx="102" cy="18" r="7"/></svg>
+  <b>ARP</b><span>the climb — dots light in pattern order at the rate (parametric: step count = octaves, direction = pattern)</span></div>
+
+<div class="tile"><svg class="rtc" viewBox="0 0 120 84">
+  <rect class="g" x="14" y="26" width="18" height="32" rx="4"/>
+  <rect class="g" x="40" y="26" width="18" height="32" rx="4"/>
+  <rect class="g" x="66" y="26" width="18" height="32" rx="4"/>
+  <rect class="g" x="92" y="26" width="18" height="32" rx="4"/></svg>
+  <b>RTC</b><span>the stutter comb — one bar split into teeth, firing in a burst (tooth count = ×N)</span></div>
+
+<div class="tile"><svg class="pass" viewBox="0 0 120 84">
+  <rect x="62" y="18" width="5" height="48" rx="2" fill="#3a4450"/>
+  <rect x="62" y="34" width="5" height="16" rx="2" class="g"/>
+  <circle class="g pulse" cx="14" cy="42" r="6"/>
+  <circle class="blocked" cx="14" cy="60" r="6" fill="#5a636d"/></svg>
+  <b>PASS</b><span>the gate — pulses approach; scheduled ones pass through the opening, off-schedule ones break on the fence</span></div>
+
+<div class="tile"><svg class="strm" viewBox="0 0 120 84">
+  <line class="s" x1="24" y1="70" x2="58" y2="16" stroke-width="6" stroke-linecap="round"/>
+  <line class="s" x1="42" y1="72" x2="72" y2="20" stroke-width="6" stroke-linecap="round"/>
+  <line class="s" x1="60" y1="74" x2="86" y2="24" stroke-width="6" stroke-linecap="round"/>
+  <line class="s" x1="78" y1="76" x2="100" y2="28" stroke-width="6" stroke-linecap="round"/>
+  <line class="s" x1="96" y1="78" x2="114" y2="32" stroke-width="6" stroke-linecap="round"/></svg>
+  <b>STRM</b><span>the fan — strokes sweep in a fast cascade (spread = the strum time; count = chord size)</span></div>
+
+<div class="tile"><svg class="chnc" viewBox="0 0 120 84">
+  <circle class="g" cx="24" cy="26" r="7"/><circle class="g" cx="60" cy="20" r="7"/>
+  <circle class="g" cx="96" cy="28" r="7"/><circle class="g" cx="30" cy="58" r="7"/>
+  <circle class="g" cx="64" cy="62" r="7"/><circle class="g" cx="94" cy="56" r="7"/></svg>
+  <b>CHNC</b><span>the dice field — dots flicker in and out unpredictably (density = probability; a new hand every pass)</span></div>
+
+<div class="tile"><svg class="harm" viewBox="0 0 120 84">
+  <circle class="g" cx="60" cy="62" r="8"/>
+  <circle class="g" cx="60" cy="42" r="7" opacity=".7"/>
+  <circle class="g" cx="60" cy="22" r="6" opacity=".5"/></svg>
+  <b>HARM</b><span>the bloom — one note grows its stack upward (dots = the interval set)</span></div>
+
+<div class="tile off"><svg viewBox="0 0 120 84">
+  <circle cx="60" cy="42" r="22" fill="none" stroke="#5a636d" stroke-width="3" stroke-dasharray="6 7"/></svg>
+  <b>OFF</b><span>no B-side — the dashed empty (B panel's picker only)</span></div>
+
+</body>
+</html>
