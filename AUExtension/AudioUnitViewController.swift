@@ -96,6 +96,8 @@ struct DiagView: View {
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
     @State private var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
+    @State private var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
+    @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State private var docColours: [Colour] = []
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
@@ -722,6 +724,19 @@ struct DiagView: View {
             for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 {
                 receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
             }
+            // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
+            let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), mnow = Date()
+            var markE = emitMarks, markR = recvMarks
+            for i in 0..<4 {
+                markE[i] = markE[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
+                for m in emk[i] { markE[i].append(VelMark(vel: Double(m.vel) / 127.0, col: m.col, born: mnow)) }
+                if markE[i].count > 6 { markE[i] = Array(markE[i].suffix(6)) }
+                markR[i] = markR[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
+                for v in rmk[i] { markR[i].append(VelMark(vel: Double(v) / 127.0, col: -1, born: mnow)) }
+                if markR[i].count > 6 { markR[i] = Array(markR[i].suffix(6)) }
+            }
+            if markE != emitMarks { emitMarks = markE }
+            if markR != recvMarks { recvMarks = markR }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
@@ -905,13 +920,14 @@ struct DiagView: View {
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
     private var masterView: some View {
         MasterView(mute: masterMute, key: masterKey,
-                   peak: emitPeak.max() ?? 0, peakAt: emitPeakAt.max() ?? .distantPast, holdLatch: holdLatch,
+                   peak: emitPeak.max() ?? 0, peakAt: emitPeakAt.max() ?? .distantPast,
+                   marks: Array(emitMarks.flatMap { $0 }.suffix(8)), holdLatch: holdLatch,
                    onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks, claim: claim, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim,
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
@@ -988,7 +1004,7 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
-                      thruReceiver: thruReceiver,
+                      marks: recvMarks, thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,

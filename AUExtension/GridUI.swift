@@ -408,6 +408,25 @@ struct GridView: View {
     }
 }
 
+// MARK: - Velocity marks (design item 4) — the strip meter is floating marks, not a bottom-fill
+
+/// A floating velocity MARK: a note-on drawn at its velocity height, fading ~250ms. `col` is the source
+/// colourIndex — emitters tint by the source Colour, −1 = the strip's own hue (receivers / master).
+struct VelMark: Equatable { let vel: Double; let col: Int8; let born: Date }
+
+/// Draw a strip's velocity marks — horizontal ticks at each mark's velocity height, opacity fading over
+/// ~250ms. Behind a TimelineView (the caller animates by passing `now`). `hueFor` maps a mark to its colour.
+func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Color) -> some View {
+    GeometryReader { g in
+        ForEach(Array(marks.enumerated()), id: \.offset) { _, m in
+            let op = max(0, 1 - now.timeIntervalSince(m.born) / 0.25)
+            Rectangle().fill(hueFor(m.col).opacity(op))
+                .frame(height: 2)
+                .position(x: g.size.width / 2, y: g.size.height * (1 - CGFloat(max(0, min(1, m.vel)))))
+        }
+    }
+}
+
 // MARK: - RECEIVERS panel (delta §9 item 11) — the input twin of the EMITTERS panel
 
 /// The four MIDI receivers as a strip panel above COLOUR: name + a cable stepper + a channel filter
@@ -419,6 +438,7 @@ struct ReceiversView: View {
     let editing: Bool
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
+    var marks: [[VelMark]] = [[], [], [], []]           // item 4: floating input velocity marks (strip hue)
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
@@ -571,11 +591,11 @@ struct ReceiversView: View {
             GeometryReader { g in
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
-                    Rectangle().fill(hues[i].opacity(touched ? 1 : 0.85))
-                        .frame(height: g.size.height * CGFloat(level))
-                    if touched {
-                        Rectangle().fill(Color.white).frame(height: 1.5)
-                            .offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    if touched {                                   // OVERRIDE: the fill bottom-to-finger + set-point
+                        Rectangle().fill(hues[i]).frame(height: g.size.height * CGFloat(level))
+                        Rectangle().fill(Color.white).frame(height: 1.5).offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    } else {                                       // item 4: floating input velocity marks (strip hue)
+                        velMarkLayer(i < marks.count ? marks[i] : [], now: tl.date) { _ in hues[i] }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -617,6 +637,7 @@ struct OutputsView: View {
     let editing: Bool
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
+    var marks: [[VelMark]] = [[], [], [], []]                             // item 4: floating output velocity marks (Colour-tinted)
     var claim: Int? = nil                                                  // §6a CLAIM: the exclusive emitter, or nil
     var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
     let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i (both modes)
@@ -795,7 +816,7 @@ struct OutputsView: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
                 let touched = faderVel[i] != nil
                 let level = touched ? Double(faderVel[i]!) / 127.0 : decayed(i, now: tl.date)
-                faderBody(i: i, level: level, touched: touched, enabled: enabled)
+                faderBody(i: i, level: level, touched: touched, enabled: enabled, now: tl.date)
             }
             .contentShape(Rectangle())
             .gesture(
@@ -830,22 +851,26 @@ struct OutputsView: View {
             .onTapGesture { onClaim(i) }
     }
 
-    private func faderBody(i: Int, level: Double, touched: Bool, enabled: Bool) -> some View {
+    // OVERRIDE (touched) = the LED-ladder FILL bottom-to-finger + set-point; PASSIVE (idle) = item-4 floating
+    // velocity MARKS, each tinted in its source cell's Colour (who struck, how hard). Disabled = greyed.
+    private func faderBody(i: Int, level: Double, touched: Bool, enabled: Bool, now: Date) -> some View {
         let segs = 8
         let lit = Int((Double(segs) * level).rounded(.up))
-        return VStack(spacing: 2) {
-            ForEach(0..<segs, id: \.self) { row in
-                let j = segs - 1 - row                       // draw top→bottom, segment 0 at the base
-                let isLit = enabled && j < lit
-                let hot = j >= segs - 2                       // top two segments = "hot" (amber)
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(isLit ? (hot ? amber : cyan) : Color.white.opacity(enabled ? 0.08 : 0.04))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .center) {
-                        if touched && j == lit - 1 {          // bright set-point line on the top lit segment
-                            Rectangle().fill(Color.white).frame(height: 2)
-                        }
+        return ZStack {
+            if touched {
+                VStack(spacing: 2) {
+                    ForEach(0..<segs, id: \.self) { row in
+                        let j = segs - 1 - row
+                        let isLit = enabled && j < lit
+                        let hot = j >= segs - 2
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(isLit ? (hot ? amber : cyan) : Color.white.opacity(enabled ? 0.08 : 0.04))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay(alignment: .center) { if j == lit - 1 { Rectangle().fill(Color.white).frame(height: 2) } }
                     }
+                }
+            } else if enabled {
+                velMarkLayer(i < marks.count ? marks[i] : [], now: now) { col in emitterHue(col) }
             }
         }
         .padding(4)
@@ -857,6 +882,10 @@ struct OutputsView: View {
                 .foregroundColor(holdLatch && touched ? amber : .white.opacity(touched ? 0.7 : 0.25))  // §5c HELD cue
                 .padding(.bottom, 1)
         }
+    }
+    // item 4: a mark's tint = its source cell's Colour (−1 / out of range → the emitter cyan).
+    private func emitterHue(_ col: Int8) -> Color {
+        (col >= 0 && Int(col) < colourIDs.count) ? (colourColor(colourIDs[Int(col)]) ?? cyan) : cyan
     }
 
     private func decayed(_ i: Int, now: Date) -> Double {
@@ -874,6 +903,7 @@ struct MasterView: View {
     let key: Int
     var peak: Double = 0                                   // the sum meter (max of the emitter peaks)
     var peakAt: Date = .distantPast
+    var marks: [VelMark] = []                              // item 4: the sum's velocity marks (Colour-tinted, capped)
     var holdLatch: Bool = false
     let onMute: () -> Void
     let onPanic: () -> Void
@@ -920,10 +950,13 @@ struct MasterView: View {
             GeometryReader { g in
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
-                    Rectangle().fill((touched ? amber : cyan).opacity(touched ? 1 : 0.85))
-                        .frame(height: g.size.height * CGFloat(level))
-                    if touched {
+                    if touched {                                   // OVERRIDE: the fill over the sum + set-point
+                        Rectangle().fill(amber).frame(height: g.size.height * CGFloat(level))
                         Rectangle().fill(Color.white).frame(height: 1.5).offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    } else {                                       // item 4: the sum's velocity marks (Colour-tinted)
+                        velMarkLayer(marks, now: tl.date) { col in
+                            (col >= 0 && Int(col) < colourIDs.count) ? (colourColor(colourIDs[Int(col)]) ?? cyan) : cyan
+                        }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4)).contentShape(Rectangle())
