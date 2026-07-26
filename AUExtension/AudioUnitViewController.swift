@@ -57,6 +57,8 @@ struct DiagView: View {
     @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State private var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
     @State private var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
+    @State private var masterMute = false                           // master panel: global emission kill (persisted)
+    @State private var masterKey = 0                                // master panel: per-scene transpose (persisted)
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
@@ -437,6 +439,8 @@ struct DiagView: View {
         flattenAmount = au.uiFlattenAmount()
         altMask = au.uiAltMask()
         altCount = au.uiAltCount()
+        masterMute = au.uiMasterMute()
+        masterKey = au.uiMasterKey()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -594,6 +598,11 @@ struct DiagView: View {
         au?.setAltCount(i, count)
         altCount = au?.uiAltCount() ?? altCount
     }
+    // master panel: MUTE (persisted, tap) / PANIC (long-press) / KEY ± (persisted per-scene) / the momentary fader.
+    private func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
+    private func masterPanic() { au?.masterPanic() }
+    private func nudgeMasterKey(_ d: Int) { au?.nudgeMasterKey(d); masterKey = au?.uiMasterKey() ?? masterKey }
+    private func setMasterVel(_ v: Int?) { au?.setMasterVelOverride(v) }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
@@ -698,6 +707,8 @@ struct DiagView: View {
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
+            let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
+            let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
@@ -757,10 +768,10 @@ struct DiagView: View {
                     diagBox.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
-                HStack(spacing: 6) {                          // [colour picker] · EMITTERS · [placeholder]
+                HStack(spacing: 6) {                          // [colour picker] · EMITTERS · [MASTER]
                     colourBox.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half)
-                    placeholderBox.frame(maxWidth: .infinity)
+                    masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
             }
         }
@@ -823,6 +834,13 @@ struct DiagView: View {
             if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
             processorPanels.frame(maxWidth: .infinity)
         }
+    }
+
+    // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
+    private var masterView: some View {
+        MasterView(mute: masterMute, key: masterKey,
+                   peak: emitPeak.max() ?? 0, peakAt: emitPeakAt.max() ?? .distantPast, holdLatch: holdLatch,
+                   onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
     private var emittersBox: some View {

@@ -865,6 +865,91 @@ struct OutputsView: View {
     }
 }
 
+/// MASTER PANEL (design item 3) — the bottom-right console corner, anatomy mirroring the strips: the SUM
+/// METER behind a master velocity FADER (momentary-absolute over all output; spring / §5c HOLD-latch) beside
+/// a feature column — MUTE (tap = kill · long-press = PANIC) · KEY −/+ (per-scene transpose). REVERT + INS are
+/// reserved seats (snapshot + wire work). Fader = weather; MUTE/KEY = structure. NO SOLO (solo against nothing).
+struct MasterView: View {
+    let mute: Bool
+    let key: Int
+    var peak: Double = 0                                   // the sum meter (max of the emitter peaks)
+    var peakAt: Date = .distantPast
+    var holdLatch: Bool = false
+    let onMute: () -> Void
+    let onPanic: () -> Void
+    let onKey: (Int) -> Void
+    var onVelOverride: (Int?) -> Void = { _ in }
+
+    @State private var faderVel: Int? = nil
+    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+    static let controlHeight: CGFloat = 92
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("MASTER").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            HStack(alignment: .top, spacing: 3) {
+                fader.frame(width: 16).frame(maxHeight: .infinity)
+                VStack(spacing: 2) {
+                    Text(mute ? "MUTED" : "MUTE").font(.system(size: 7, weight: .heavy, design: .monospaced))
+                        .foregroundColor(mute ? .black : .white.opacity(0.7))
+                        .frame(maxWidth: .infinity).frame(height: 16)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(mute ? red : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 0.6) { onPanic() }
+                        .simultaneousGesture(TapGesture().onEnded { onMute() })
+                    HStack(spacing: 2) { keyBtn("KEY−") { onKey(-1) }; keyBtn("KEY+") { onKey(+1) } }
+                    Text(key == 0 ? "KEY 0" : "KEY \(key > 0 ? "+" : "")\(key)")
+                        .font(.system(size: 7, weight: .heavy, design: .monospaced))
+                        .foregroundColor(key != 0 ? amber : .white.opacity(0.3))
+                    HStack(spacing: 2) { seat("REVERT"); seat("INS") }   // reserved seats (item 7 / item 14)
+                    Spacer(minLength: 0)
+                }.frame(maxWidth: .infinity)
+            }.frame(height: Self.controlHeight)
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // The master fader: idle shows the sum meter; touched forces velocity over ALL output (spring / HOLD-latch).
+    private var fader: some View {
+        let touched = faderVel != nil
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            let level = touched ? Double(faderVel ?? 0) / 127.0 : peakHoldLevel(peak: peak, since: peakAt, now: tl.date)
+            GeometryReader { g in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
+                    Rectangle().fill((touched ? amber : cyan).opacity(touched ? 1 : 0.85))
+                        .frame(height: g.size.height * CGFloat(level))
+                    if touched {
+                        Rectangle().fill(Color.white).frame(height: 1.5).offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 4)).contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                    let frac = 1.0 - min(1, max(0, v.location.y / g.size.height))
+                    faderVel = max(1, Int(frac * 127)); onVelOverride(faderVel)
+                }.onEnded { _ in
+                    if holdLatch { return }
+                    faderVel = nil; onVelOverride(nil)
+                })
+            }
+        }
+    }
+    private func keyBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func seat(_ label: String) -> some View {   // a reserved (inert) seat — dim, non-interactive
+        Text(label).font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.22))
+            .frame(maxWidth: .infinity).frame(height: 13)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.03)))
+    }
+}
+
 /// HEADER (delta §6): logotype · STEP rate · SWING · PASS/transport readout. STEP/SWING are the
 /// scene-level timing controls (AUParameters 0/1) — the only in-plugin way to set them.
 /// §5b COLUMN-SUBSET LAP — the multi-column HOLD gesture. A `UIView` (not a SwiftUI gesture) because
