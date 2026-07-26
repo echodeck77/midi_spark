@@ -865,10 +865,11 @@ struct HeaderView: View {
 
             Spacer()
 
-            Text(playing ? String(format: "PASS %d · %.1f bpm", pass + 1, tempo) : "stopped")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(playing ? accent : .white.opacity(0.4))
-            Text("build \(build)").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            if playing {
+                Text(String(format: "PASS %d · %.1f bpm", pass + 1, tempo))
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(accent)
+            }
         }
     }
 

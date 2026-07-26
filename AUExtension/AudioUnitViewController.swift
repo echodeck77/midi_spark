@@ -531,11 +531,11 @@ struct DiagView: View {
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
                     VStack(spacing: 8) {
                         header
+                        sceneStrip                                   // below the header, above the signal flow
                         HStack(alignment: .top, spacing: 10) {
                             signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
                             ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
                         }
-                        sceneStrip
                     }
                     .padding(12)
                 } else {
@@ -544,9 +544,9 @@ struct DiagView: View {
                     // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
                     VStack(spacing: 8) {
                         header
+                        sceneStrip                             // below the header, above the signal flow
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
                         colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
-                        sceneStrip
                     }
                     .padding(12)
                 }
@@ -621,8 +621,8 @@ struct DiagView: View {
     // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
     private func signalColumn(_ appWidth: CGFloat) -> some View {
         GeometryReader { g in
-            let cell = max(20, min(52, (g.size.height - 30) / 17))
-            let bandH = cell * 4, half = g.size.width * 0.5   // band = 50% of the GRID width; flanks split the rest (≈25% each)
+            let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
+            let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
             VStack(spacing: 3) {
                 HStack(spacing: 6) {                          // [placeholder] · RECEIVERS · [diagnostics]
                     placeholderBox.frame(maxWidth: .infinity)
@@ -682,7 +682,6 @@ struct DiagView: View {
     private var identityColumn: some View {
         VStack(spacing: 8) {
             if staging { cellBox }         // COLOUR moved to the emitter row; cell-edit surface stays here
-            altPanel
             processorSelector
             processorSettings
         }
@@ -695,8 +694,8 @@ struct DiagView: View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap)
         return HStack(alignment: .top, spacing: gap) {
-            VStack(spacing: gap) { if staging { cellBox }; altPanel }.frame(width: avail * 0.34)   // COLOUR moved to the emitter row
-            VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.66)
+            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
+            VStack(spacing: gap) { processorSelector; processorSettings }.frame(maxWidth: .infinity)
         }
     }
 
