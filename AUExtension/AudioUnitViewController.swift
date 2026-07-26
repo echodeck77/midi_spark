@@ -526,19 +526,17 @@ struct DiagView: View {
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 if landscape {
-                    // §6d landscape: grid on top with a grid-aligned RECEIVERS│EMITTERS band directly
-                    // below it (50/50); the right quarter is the identity column (COLOUR→ALT→SELECTOR→
-                    // SETTINGS). Cells clamp to leave room for the band + header + strip.
-                    let cellH = max(26, min(50, (geo.size.height - 300) / 8))
+                    // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
+                    // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
+                    // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
+                    let cellH = max(24, min(46, (geo.size.height - 360) / 8))
                     VStack(spacing: 8) {
                         header
                         HStack(alignment: .top, spacing: 10) {
                             VStack(spacing: 8) {
+                                receiversBox                             // signal flow: RECEIVERS above the grid
                                 gridBlock(cellH)
-                                HStack(spacing: 8) {                      // aligned to the grid's edges
-                                    receiversBox.frame(maxWidth: .infinity)
-                                    emittersBox.frame(maxWidth: .infinity)
-                                }
+                                emittersBox                              // …EMITTERS below it
                                 hint
                             }
                             ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
@@ -547,16 +545,18 @@ struct DiagView: View {
                     }
                     .padding(12)
                 } else {
-                    // §6d portrait: grid on top, then the 25/50/25 × 2 band (COLOUR/ALT · SELECTOR/
-                    // SETTINGS · RECEIVERS/EMITTERS), then the scene strip + dev loader. The band is
-                    // fixed-height (sized for the inline SETTINGS panel); the GRID absorbs the rest.
+                    // §6d TWO FLOWS (portrait): the same signal-flow anatomy top-to-bottom — RECEIVERS above →
+                    // (smaller) GRID → EMITTERS below — then the COLOUR flow (COLOUR/ALT · SELECTOR/SETTINGS,
+                    // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
                     let bandH: CGFloat = 300
-                    let cellH = max(26, min(54, (geo.size.height - bandH - 210) / 8))
+                    let cellH = max(24, min(46, (geo.size.height - bandH - 340) / 8))
                     VStack(spacing: 8) {
                         header
+                        receiversBox                           // signal flow: RECEIVERS above the grid
                         gridBlock(cellH)
+                        emittersBox                            // …EMITTERS below it
                         hint
-                        deskBand(geo.size.width - 24, bandH)   // 24 = the .padding(12) on both sides
+                        colourFlowBand(geo.size.width - 24, bandH)   // the treatment axis (24 = the .padding(12) both sides)
                         sceneStrip
                         devLoader
                     }
@@ -661,11 +661,10 @@ struct DiagView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // The DESK — three named boxes in order: COLOUR · PROCESSOR · EMITTERS (delta §6). Order is
-    // preserved in both orientations; only the AXIS flips with the leftover rectangle. LANDSCAPE
-    // (this VStack, in a right-hand column) stacks them top→bottom; PORTRAIT uses `deskBand` below.
-    // §6d landscape identity column (right quarter): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
-    // (RECEIVERS/EMITTERS move to the grid-aligned band under the grid in the layout increment.)
+    // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
+    // LANDSCAPE stacks it top→bottom in the right column (this VStack); PORTRAIT lays it out via
+    // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
+    // below the grid), not here.
     private var identityColumn: some View {
         VStack(spacing: 8) {
             colourBox
@@ -676,21 +675,15 @@ struct DiagView: View {
         }
     }
 
-    // PORTRAIT desk (delta §6): a COMPACT BAND below the grid — the three named panels run
-    // LEFT-TO-RIGHT, COLOUR · PROCESSOR · EMITTERS. Only PROCESSOR scrolls, within its own fixed
-    // frame (§6: "only PROCESSOR may scroll, content-sized up to a ceiling"); COLOUR and EMITTERS
-    // sit at the top of their slots. PROCESSOR gets the widest share — it carries the 6-wide RATE
-    // row — matching the ~320pt it enjoys in the landscape column.
-    // §6d PORTRAIT band: three columns × two rows — LEFT 25% COLOUR/ALT · MIDDLE 50% SELECTOR/SETTINGS ·
-    // RIGHT 25% RECEIVERS/EMITTERS. Per-orientation FIXED frames; the settings panel is sized for the
-    // largest field set, so truncation dies by geometry.
-    private func deskBand(_ width: CGFloat, _ height: CGFloat) -> some View {
+    // §6d TWO FLOWS (portrait): the COLOUR flow — the treatment axis, separate from the signal flow (whose
+    // RECEIVERS/EMITTERS bands now flank the grid above). Two columns: COLOUR/ALT · SELECTOR/SETTINGS. The
+    // settings panel is sized for the largest field set, so truncation dies by geometry (fixed frame).
+    private func colourFlowBand(_ width: CGFloat, _ height: CGFloat) -> some View {
         let gap: CGFloat = 8
-        let avail = max(0, width - gap * 2)
+        let avail = max(0, width - gap)
         return HStack(alignment: .top, spacing: gap) {
-            VStack(spacing: gap) { colourBox; if staging { cellBox }; altPanel }.frame(width: avail * 0.25)
-            VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.50)
-            VStack(spacing: gap) { receiversBox; emittersBox }.frame(width: avail * 0.25)
+            VStack(spacing: gap) { colourBox; if staging { cellBox }; altPanel }.frame(width: avail * 0.34)
+            VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.66)
         }
     }
 
