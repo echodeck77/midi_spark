@@ -759,29 +759,28 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    func testColourPairFullMorphsToPartnerUnderAlt() {
-        // FULL pair (both arp): gold 1-oct paired with cyan 3-oct. A gold cell with ALT flips to the
-        // partner (t=1) → the arp spans 3 octaves, reaching 72/84 that a 1-oct arp never would.
+    func testProcBFullMorphsToBFaceUnderAlt() {
+        // FULL procB (both arp): gold procA 1-oct, procB 3-oct. A gold cell with ALT flips to procB
+        // (t=1) → the arp spans 3 octaves, reaching 72/84 that a 1-oct arp never would.
         var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
-        cs[gi].paramsA.octaves = 1; cs[ci].paramsA.octaves = 3
-        cs[gi].altColour = ci
+        let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].paramsA.octaves = 1
+        cs[gi].typeB = .arp; cs[gi].paramsB.octaves = 3
         func emitted(_ alt: Bool) -> Set<UInt8> {
             let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         }
         XCTAssertFalse(emitted(false).contains(72), "the base 1-oct arp never reaches 72")
-        XCTAssertTrue(emitted(true).contains(72), "ALT → the partner's 3-oct arp reaches 72")
+        XCTAssertTrue(emitted(true).contains(72), "ALT → procB's 3-oct arp reaches 72")
     }
 
-    func testColourPairSwapFlipsTypeUnderAlt() {
-        // SWAP pair (arp ↔ passgate): gold ARP paired with a cyan all-CLOSED PASSGATE. Plain sounds (arp);
+    func testProcBSwapFlipsTypeUnderAlt() {
+        // SWAP procB (arp ↔ passgate): gold procA ARP, procB an all-CLOSED PASSGATE. Plain sounds (arp);
         // ALT flips to the closed passgate → SILENT — proving the render flips both the type and its mask.
         var cs = arpColours()
-        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
-        cs[ci].type = .passgate; cs[ci].paramsA.passes = [false, false, false, false]
-        cs[gi].altColour = ci
+        let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].typeB = .passgate; cs[gi].paramsB.passes = [false, false, false, false]
         func sounds(_ alt: Bool) -> Bool {
             let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.alt = alt; return c }() }
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -1191,14 +1190,13 @@ final class RouterTests: XCTestCase {
     // B = closed passgate → silent) flips the cell's sounding every pass. Proves the derivation is wired
     // into the render (pass 0 = base A, pass 1 = flipped B).
     func testArriveAltAlternateFlipsSoundingAcrossPasses() {
-        let gold = colourIDs.firstIndex(of: "gold")!, orange = colourIDs.firstIndex(of: "orange")!
+        let gold = colourIDs.firstIndex(of: "gold")!
         var cs = arpColours()
         cs[gold] = Colour(colourID: "gold", type: .passgate)
         cs[gold].paramsA.passes = [true, true, true, true]         // A: open → holds the chord
+        cs[gold].typeB = .passgate
+        cs[gold].paramsB.passes = [false, false, false, false]     // procB: closed → silent
         var on = OnConfig(); on.arrive = .altAlternate; on.arriveEvery = 1; cs[gold].on = on
-        cs[orange] = Colour(colourID: "orange", type: .passgate)
-        cs[orange].paramsA.passes = [false, false, false, false]   // B (partner): closed → silent
-        cs[gold].altColour = orange
         let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
 
         let router = Router(); var diag = KernelDiag()
@@ -1296,11 +1294,10 @@ final class RouterTests: XCTestCase {
     // §9 item 1 ON TAP (4a, integration): the ephemeral tapAltMask flips a cell's effective ALT (unified model)
     // — a swap pair (A = open passgate, B = closed) goes silent when its tap bit is set.
     func testTapAltMaskFlipsCellEphemerally() {
-        let gold = colourIDs.firstIndex(of: "gold")!, orange = colourIDs.firstIndex(of: "orange")!
+        let gold = colourIDs.firstIndex(of: "gold")!
         var cs = arpColours()
         cs[gold] = Colour(colourID: "gold", type: .passgate); cs[gold].paramsA.passes = [true, true, true, true]
-        cs[orange] = Colour(colourID: "orange", type: .passgate); cs[orange].paramsA.passes = [false, false, false, false]
-        cs[gold].altColour = orange
+        cs[gold].typeB = .passgate; cs[gold].paramsB.passes = [false, false, false, false]   // procB: closed → silent
         let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = bit 0, base A
         func ons(tapMask: UInt64) -> Int {
             let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()

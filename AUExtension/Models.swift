@@ -68,13 +68,23 @@ struct Colour: Codable, Equatable {
     // not the treatment. Old docs carrying an `outChannel` key decode fine (Codable ignores unknown keys).
     var transpose: Int = 0         // −24…+24, accumulates in chains, clamped — the ACTIVE type's transpose
     var morph: Double = 0          // §3.2 — the per-colour macro AUParameter — the ACTIVE type's morph
-    var paramsA: ColourParams = ColourParams()
-    // LEGACY after COLOUR-PAIR (delta §9 item 5): the "second self" is now a PARTNER Colour (altColour),
-    // not a within-Colour B stash. paramsB is decode-only (old docs keep it) and is IGNORED by the render.
+    var paramsA: ColourParams = ColourParams()   // procA — the A face
+    // delta item 8 (TWO-PROCESSOR Colours): procB — this Colour's OWN second face. paramsB is REAL storage
+    // again (resolved with fallback A, so a sparse procB inherits A's fields). A cell's `alt` flag flips to
+    // procB; `morph` (below) is the position toward it. B-less ⇒ typeB == nil ⇒ b = a, no morph.
     var paramsB: ColourParams = ColourParams()
-    // delta §9 item 5: this Colour's morph PARTNER — an index 0…15 into the 16 Colours, or nil = unpaired.
-    // A cell's `alt` flag flips to this partner; `morph` (below) is the position toward it. The ALT box on
-    // the desk edits this. Optional → old docs decode as nil (unpaired) and their alt cells go inert.
+    // delta item 8: procB's processor TYPE, or nil = B-less (the natural encoding — old docs decode nil).
+    // Same type as A ⇒ FULL morph glide; different ⇒ SWAP (binary flip at t≥0.5). B is sourced ONLY when
+    // this is non-nil, so a pre-pair doc's stale paramsB stays inert.
+    var typeB: ProcessorType? = nil
+    // delta item 8: procB's transpose — STORED (COPY A→B + round-trip) but render-INERT in v1 (SnapColour
+    // carries a single transpose; both faces sound with A's, matching the old pair behavior). Making it
+    // render-live is a future increment (SnapColour.transposeB + effectiveTranspose + 400+i addresses).
+    // Optional (append-only §12.0) → old docs decode nil; read via `transposeBResolved`.
+    var transposeB: Int? = nil
+    // LEGACY (delta §9 item 5, retired by item 8): the old morph PARTNER — an index 0…15 or nil. DECODE-ONLY
+    // now: `migrateColourPairsIfNeeded` copies the partner into procB, then the render ignores this. Kept
+    // (never deleted) so an older build re-loading a migrated doc still reads the pair (lossless downgrade).
     var altColour: Int? = nil
     // Per-TYPE stash of TRANSPOSE (spec revision): each processor type keeps its own transpose, so
     // switching type never leaks a pitch. Optional → v2 docs decode as nil (all-zero).
@@ -85,6 +95,11 @@ struct Colour: Codable, Equatable {
     var on: OnConfig? = nil
     /// The ON config, nil-safe (missing ⇒ all-"—"/unchecked). Non-persisting read helper.
     var onResolved: OnConfig { on ?? OnConfig() }
+
+    /// delta item 8: does this Colour have a second processor (procB)? Drives morph/ALT availability + greying.
+    var hasProcB: Bool { typeB != nil }
+    /// procB's transpose, nil-safe (missing ⇒ 0). Render-inert in v1; kept for COPY A→B + round-trip.
+    var transposeBResolved: Int { transposeB ?? 0 }
 
     /// Switch the processor type, giving each type its own TRANSPOSE. Stash the active transpose under the
     /// old type, restore the new type's. Idempotent for a no-op switch. `morph` is a single per-Colour

@@ -10,19 +10,20 @@ enum SnapshotBuilder {
     static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
         let scene = doc.scenes[doc.activeScene]
 
-        // ---- colours: resolve A; B = the PARTNER Colour's params (delta §9 item 5). paramsB is retired
-        //      (decode-only). Unpaired ⇒ b = a, tier none. tier gates render glide (full) vs flip (swap). ----
+        // ---- colours: resolve A (procA); B = this Colour's OWN procB (delta item 8, two-processor model).
+        //      typeB == nil ⇒ B-less ⇒ b = a, tier none. paramsB is resolved with fallback A, so a SPARSE
+        //      procB inherits A's fields. tier gates render glide (full = same type) vs flip (swap). The old
+        //      partner-Colour lookup (altColour) retires — it stays a decode-only legacy key for migration. ----
         var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
         for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
             var sc = SnapColour()
-            sc.transpose = Int8(max(-24, min(24, colour.transpose)))
+            sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // single value — both faces share A's transpose (v1)
             sc.morph = max(0, min(1, colour.morph))
             sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)
-            if let pi = colour.altColour, pi >= 0, pi < doc.colours.count, pi != i {
-                let partner = doc.colours[pi]
-                sc.b = resolve(partner.paramsA, type: partner.type, fallback: nil)
-                sc.tier = morphTier(selfType: colour.type, partner: partner.type)
+            if let tb = colour.typeB {
+                sc.b = resolve(colour.paramsB, type: tb, fallback: sc.a)
+                sc.tier = morphTier(selfType: colour.type, partner: tb)
             } else {
                 sc.b = sc.a
                 sc.tier = .none
