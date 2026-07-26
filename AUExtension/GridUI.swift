@@ -351,12 +351,12 @@ struct GridView: View {
         .padding(.horizontal, 2)
     }
 
-    // ④ EMITTER STRIP — E1 E2 E3 E4 as numeral chips; lit = on, brighter (white) = firing this column.
+    // ④ EMITTER STRIP — A B C D; lit = on, brighter (white) = firing this column.
     private func emitterStrip(_ cell: Cell, firing: Bool) -> some View {
         HStack(spacing: 2) {
-            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { idx, b in
+            ForEach(Bus.allCases, id: \.self) { b in
                 let on = cell.buses.contains(b)
-                Text("\(idx + 1)")
+                Text(b.rawValue)
                     .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
                     .foregroundColor(on ? (firing ? .black : .white) : .black.opacity(0.4))
                     .frame(maxWidth: .infinity).frame(height: 11)
@@ -456,7 +456,7 @@ struct ReceiversView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
         }
     }
@@ -469,7 +469,7 @@ struct ReceiversView: View {
         return VStack(spacing: 3) {
             HStack(spacing: 3) {
                 Circle().fill(hues[i]).frame(width: 7, height: 7)
-                Text("R\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                Text(["A", "B", "C", "D"][i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
                 Spacer(minLength: 0)
                 thruPip(i, isThru: isThru, muted: muted)
@@ -632,7 +632,7 @@ struct OutputsView: View {
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let letters = ["E1", "E2", "E3", "E4"]         // emitters relabelled E1–E4 (design directive 2026-07-26)
+    private let letters = ["A", "B", "C", "D"]             // emitters A–D (box title MIDI OUTPUT disambiguates from inputs)
     private let controlHeight: CGFloat = 78   // the EDIT stepper / PERFORM fader region — identical both modes
 
     private func on(_ i: Int) -> Bool { i < busEnabled.count ? busEnabled[i] : true }
@@ -643,7 +643,7 @@ struct OutputsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            Text("MIDI OUTPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
         }
         .onChange(of: holdLatch) { latched in            // §5c: HOLD-off = the drop → every fader springs home
@@ -1318,12 +1318,12 @@ struct StagingInputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 Text("cell input").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
             }
             HStack(spacing: 5) {
                 ForEach(0..<4, id: \.self) { i in
-                    tile("R\(i + 1)", on: inputRow == nil && inputReceiver == i, hue: hues[i]) { onPickReceiver(i) }
+                    tile(["A", "B", "C", "D"][i], on: inputRow == nil && inputReceiver == i, hue: hues[i]) { onPickReceiver(i) }
                 }
             }
             HStack(spacing: 6) {                                   // the FROM ROW input option + row stepper
@@ -1364,13 +1364,13 @@ struct StagingEmittersView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                Text("MIDI OUTPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 Text("cell output").font(.system(size: 8, design: .monospaced)).foregroundColor(stagingCyan.opacity(0.75))
             }
             HStack(spacing: 5) {
                 ForEach(0..<4, id: \.self) { i in
                     let on = buses.contains(letters[i])
-                    Text("\(i + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced))   // E1–E4 → numeral chips
+                    Text(letters[i].rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))   // A–D chips
                         .foregroundColor(on ? .black : .white.opacity(0.35))
                         .frame(maxWidth: .infinity).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? stagingCyan : Color.white.opacity(0.05)))

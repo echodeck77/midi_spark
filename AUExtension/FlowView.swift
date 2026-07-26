@@ -221,7 +221,7 @@ extension FlowView {
             let box = CGRect(x: x - 34, y: rY - 15, width: 68, height: 30)
             ctx.stroke(Path(roundedRect: box, cornerRadius: 5), with: .color(hue.opacity(0.7)), lineWidth: 1.2)
             let cbl = (i < receivers.count ? receivers[i].cableResolved : 0b1111)
-            ctx.draw(Text("R\(i+1) · \(cbl == 0b1111 ? "ANY" : "C")").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(hue), at: CGPoint(x: x, y: rY - 22))
+            ctx.draw(Text("\(["A","B","C","D"][i]) · \(cbl == 0b1111 ? "ANY" : "C")").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(hue), at: CGPoint(x: x, y: rY - 22))
             let peak = i < receiverPeak.count ? receiverPeak[i] : 0
             for p in 0..<3 { let lit = peak > 0.05 ? 0.9 : 0.2
                 ctx.opacity = lit; ctx.fill(Path(ellipseIn: CGRect(x: x - 12 + CGFloat(p)*11 - 2.6, y: rY + 1, width: 5.2, height: 5.2)), with: .color(hue)); ctx.opacity = 1 }
