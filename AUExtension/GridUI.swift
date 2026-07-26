@@ -419,12 +419,24 @@ struct ReceiversView: View {
     let editing: Bool
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
+    var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
     var onSetCable: (Int, Int?) -> Void = { _, _ in }   // §item 11: set a receiver's input cable (nil = ANY)
+    var onSetThru: (Int) -> Void = { _ in }             // THRU pip radio
+    // Feature overlays — present in the shell, wired by later increments (inert defaults here).
+    var soloMask: UInt8 = 0                             // inc 2: additive SOLO set
+    var onToggleSolo: (Int) -> Void = { _ in }
+    var latchMask: UInt8 = 0                            // inc 5: per-receiver chord LATCH
+    var onToggleLatch: (Int) -> Void = { _ in }
+    var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
+    var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
+
+    static let controlHeight: CGFloat = 76             // fixed control region — faces swap within it (§6a static-frame law)
 
     private var hues: [Color] { receiverHues }
     private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
+    private func bit(_ mask: UInt8, _ i: Int) -> Bool { mask & (1 << UInt8(i)) != 0 }
     private func wrap(_ ch: Int) -> Int { ch < 0 ? 16 : (ch > 16 ? 0 : ch) }   // OMNI(0)…16, wraps
     // §item 11 INPUT CABLES: the v1 stepper cycles ANY · 1 · 2 · 3 · 4 (single cable or ANY).
     private func cableLabel(_ mask: Int?) -> String {
@@ -440,53 +452,103 @@ struct ReceiversView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text(editing ? "MIDI in · tap ▲▼ = filter" : "input mutes")
-                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            }
-            HStack(alignment: .top, spacing: 5) { ForEach(0..<4, id: \.self) { strip($0) } }
+            Text("RECEIVERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
         }
     }
 
+    // The strip: header (hue dot + R-label + THRU pip) · control region (SLIDER | features, faces swap) ·
+    // foot (MUTE · SOLO). A soloed receiver GLOWs; when a solo set exists, excluded strips dim.
     private func strip(_ i: Int) -> some View {
-        let rec = r(i)
-        let muted = rec.muted
+        let rec = r(i), muted = rec.muted, isThru = thruReceiver == i
+        let soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         return VStack(spacing: 3) {
             HStack(spacing: 3) {
                 Circle().fill(hues[i]).frame(width: 7, height: 7)
-                Text("R\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                Text("R\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
+                Spacer(minLength: 0)
+                thruPip(i, isThru: isThru, muted: muted)
             }
-            if editing {
-                HStack(spacing: 2) {                                // CABLE filter (ANY · 1–4) — §item 11
-                    stepBtn("chevron.down") { onSetCable(i, cableStep(rec.cable, -1)) }
-                    Text("IN \(cableLabel(rec.cable))")
-                        .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity)
-                    stepBtn("chevron.up") { onSetCable(i, cableStep(rec.cable, +1)) }
-                }
-                HStack(spacing: 2) {                                // CHANNEL filter (OMNI · 1–16)
-                    stepBtn("chevron.down") { onSetChannel(i, wrap(rec.channel - 1)) }
-                    Text(rec.channel == 0 ? "OMNI" : "\(rec.channel)")
-                        .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity)
-                    stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
-                }
-            } else {
-                inputMeter(i)                                   // PERFORM: live input velocity meter
-                    .frame(maxWidth: .infinity).frame(height: 30)
-                    .overlay(Text(rec.channel == 0 ? "OMNI" : "ch \(rec.channel)")
-                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55)))
+            HStack(alignment: .top, spacing: 3) {
+                inputMeter(i).frame(width: 12).frame(maxHeight: .infinity)   // the SLIDER (meter now; gains the vel drag in inc 4)
+                if editing { editFeatures(i, rec) } else { performFeatures(i) }
             }
-            Text(muted ? "MUTED" : "LIVE").font(.system(size: 7, weight: .heavy, design: .monospaced))
-                .foregroundColor(muted ? .white.opacity(0.55) : .black)
-                .frame(maxWidth: .infinity).frame(height: 15)
-                .background(RoundedRectangle(cornerRadius: 3).fill(muted ? Color.white.opacity(0.06) : hues[i]))
-                .contentShape(Rectangle()).onTapGesture { onToggleMute(i) }
+            .frame(height: Self.controlHeight)
+            HStack(spacing: 3) {                                // foot: MUTE · SOLO
+                footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: hues[i], dim: muted) { onToggleMute(i) }
+                footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
+            }
         }
-        .padding(5).frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 6).fill(muted ? Color.white.opacity(0.02) : hues[i].opacity(0.12)))
+        .padding(4).frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(muted ? Color.white.opacity(0.02) : hues[i].opacity(soloed ? 0.22 : 0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(soloed ? soloHue.opacity(0.8) : .clear, lineWidth: 1))
+        .opacity(excluded ? 0.5 : 1)
+    }
+
+    private let soloHue = Color(red: 0.98, green: 0.72, blue: 0.12)
+
+    // THRU pip — a radio dot across the strips: exactly one lit; tap moves passthrough here. Dim on a muted strip.
+    private func thruPip(_ i: Int, isThru: Bool, muted: Bool) -> some View {
+        HStack(spacing: 2) {
+            if isThru { Text("THRU").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(muted ? 0.3 : 0.6)) }
+            Circle().fill(isThru ? (muted ? Color.white.opacity(0.3) : hues[i]) : .clear)
+                .frame(width: 9, height: 9)
+                .overlay(Circle().stroke(.white.opacity(isThru ? 0 : 0.35), lineWidth: 1))
+        }
+        .contentShape(Rectangle()).onTapGesture { onSetThru(i) }
+    }
+
+    // EDIT face — the CABLE (ANY · 1–4) + CHANNEL (OMNI · 1–16) steppers (metering stays in the slider).
+    private func editFeatures(_ i: Int, _ rec: Receiver) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 1) {
+                stepBtn("chevron.down") { onSetCable(i, cableStep(rec.cable, -1)) }
+                Text("IN \(cableLabel(rec.cable))").font(.system(size: 7, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85)).frame(maxWidth: .infinity)
+                stepBtn("chevron.up") { onSetCable(i, cableStep(rec.cable, +1)) }
+            }
+            HStack(spacing: 1) {
+                stepBtn("chevron.down") { onSetChannel(i, wrap(rec.channel - 1)) }
+                Text(rec.channel == 0 ? "OMNI" : "\(rec.channel)").font(.system(size: 7, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85)).frame(maxWidth: .infinity)
+                stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
+            }
+            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity)
+    }
+
+    // PERFORM face — LATCH toggle over OCT−/OCT+ (with the deviation readout). Inert until incs 3/5 wire them.
+    private func performFeatures(_ i: Int) -> some View {
+        let oct = i < octave.count ? octave[i] : 0
+        return VStack(spacing: 2) {
+            featBtn("LATCH", lit: bit(latchMask, i)) { onToggleLatch(i) }
+            HStack(spacing: 2) {
+                featBtn("OCT−", lit: false) { onOct(i, -1) }
+                featBtn("OCT+", lit: false) { onOct(i, +1) }
+            }
+            Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
+                .font(.system(size: 7, weight: .heavy, design: .monospaced))
+                .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
+            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity)
+    }
+
+    private func featBtn(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(lit ? .black : .white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? soloHue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    private func footBtn(_ label: String, lit: Bool, hue: Color, dim: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
+            .frame(maxWidth: .infinity).frame(height: 15)
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue : Color.white.opacity(0.06)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
     private func stepBtn(_ symbol: String, _ action: @escaping () -> Void) -> some View {

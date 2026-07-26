@@ -52,6 +52,7 @@ struct DiagView: View {
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
+    @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
     @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
@@ -403,6 +404,7 @@ struct DiagView: View {
         busChannels = au.uiBusChannels()
         busEnabled = au.uiBusEnabled()
         claim = au.uiClaim()
+        thruReceiver = au.uiThruReceiver()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -501,6 +503,7 @@ struct DiagView: View {
     private func setReceiverChannel(_ i: Int, _ ch: Int) { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers }
     private func setReceiverCable(_ i: Int, _ mask: Int?) { au?.setReceiverCable(i, mask); receivers = au?.uiReceivers() ?? receivers }
     private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
+    private func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
     // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
@@ -508,6 +511,7 @@ struct DiagView: View {
         guard let au else { return }
         au.setClaim(i)
         claim = au.uiClaim()
+        thruReceiver = au.uiThruReceiver()
     }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
@@ -603,6 +607,7 @@ struct DiagView: View {
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let cl = au.uiClaim();         if cl != claim { claim = cl }
+            let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
@@ -794,8 +799,9 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
+                      thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
-                      onSetCable: setReceiverCable)
+                      onSetCable: setReceiverCable, onSetThru: setThru)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
