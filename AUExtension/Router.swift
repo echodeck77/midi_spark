@@ -141,6 +141,18 @@ final class Router {
     // of the cell being articulated (render is single-threaded, so one field suffices) — read in emitOneBus.
     private var inputVelOverride: UInt32 = 0
     private var currentInputRecv: Int8 = -1
+    // receiver strip LATCH: while a receiver is armed (bit set), its subscribers read a FROZEN pool (the
+    // captured chord) instead of the live one — the Kernel maintains the frozen pools + hands them in.
+    private var latchMask: UInt8 = 0
+    private var prevLatchMask: UInt8 = 0
+    private var latchedPools: [NotePool] = []
+    /// The pool a cell reads: its receiver's frozen LATCH pool when armed, else the live pool. A row-fed
+    /// cell (recv −1) always reads live (its root's latch is applied when parentSoundingNote reaches it).
+    private func effectivePool(for cell: SnapCell, live: NotePool) -> NotePool {
+        let r = cell.resolvedReceiver
+        if r >= 0, latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
+        return live
+    }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -499,9 +511,10 @@ final class Router {
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
-            let srcN = pool.srcCount(for: cell)   // §7 source filter
+            let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
+            let srcN = cellPool.srcCount(for: cell)   // §7 source filter
             for k in 0..<srcN {
-                let base = Int(pool.srcAscending(k, for: cell))
+                let base = Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
@@ -533,6 +546,7 @@ final class Router {
         let cell = box.cells[column * Snap.rows + row]
         guard cell.colourIndex >= 0, !cell.muted else { return nil }
         if soloSilenced(cell) { return nil }   // receiver strip: input SOLO — a chained feed's root goes silent
+        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: a latched root feeds the frozen chord
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
         let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
@@ -638,6 +652,8 @@ final class Router {
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
                  inputVelOverride: UInt32 = 0,
+                 latchMask: UInt8 = 0,
+                 latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -647,6 +663,8 @@ final class Router {
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
         self.inputVelOverride = inputVelOverride   // receiver strip: per-receiver input-velocity override
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
+        self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
+        self.latchedPools = latchedPools
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -685,6 +703,13 @@ final class Router {
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
             wasPlaying = playing
+        }
+        // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
+        // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
+        if latchMask != prevLatchMask {
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            prevEffColumn = -1
+            prevLatchMask = latchMask
         }
 
         pool.rebuildSorted()
@@ -836,6 +861,7 @@ final class Router {
                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                             out: MIDIEmitter?, diag: inout KernelDiag) {
+        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
@@ -878,6 +904,7 @@ final class Router {
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
+        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let repeats = effectiveRepeats(colour, t: t)
         let ramp = effectiveRamp(colour, t: t)
@@ -921,6 +948,7 @@ final class Router {
     private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
                               emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                               beatsPerSample: Double, S: Double, a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let spread = effectiveSpread(colour, t: t)
         let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir

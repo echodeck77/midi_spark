@@ -126,6 +126,20 @@ final class NotePool {
         for note in 0..<128 where vel[note] != 0 { sorted[n] = UInt8(note); n += 1 }
         count = n
     }
+
+    /// receiver strip LATCH: FREEZE — replace this pool's contents with the notes of `src` passing
+    /// (filter, cableMask), preserving each note's velocity/channel/cable so a subscriber's own filter is a
+    /// no-op pass-through on the frozen chord. Allocation-free (fixed arrays); safe on the render thread.
+    func captureFiltered(from src: NotePool, filter: UInt8, cableMask: Int) {
+        reset()
+        for i in 0..<src.count {
+            let note = src.sorted[i]
+            if src.matches(note, filter, cableMask) {
+                noteOn(note, velocity: src.vel[Int(note)], channel: src.chan[Int(note)], cable: src.cbl[Int(note)])
+            }
+        }
+        rebuildSorted()
+    }
 }
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)

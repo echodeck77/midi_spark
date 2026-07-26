@@ -55,6 +55,7 @@ struct DiagView: View {
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
+    @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
@@ -112,7 +113,7 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); clearOnTap() } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP overlays EDIT-clears
+    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); clearOnTap(); clearReceiverLatch() } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP overlays + LATCH EDIT-clear
 
     // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (timed actions + alt flips, mutes, emitter solo).
     private func clearOnTap() {
@@ -521,10 +522,19 @@ struct DiagView: View {
     }
     // receiver strip: the slider's momentary input-velocity override (touch = absolute, release = nil → spring).
     private func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
+    // receiver strip: per-receiver chord LATCH (additive toggle). Arm = detect-and-hold; a new chord replaces;
+    // disarm releases (physical holds persist). PERFORM-only ⇒ clears on the EDIT switch as well as stop.
+    private func toggleReceiverLatch(_ i: Int) {
+        guard (0..<4).contains(i) else { return }
+        latchMask ^= UInt8(1 << i)
+        au?.setLatchArm(latchMask)
+    }
+    private func clearReceiverLatch() { if latchMask != 0 { latchMask = 0; au?.setLatchArm(0) } }
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
     private func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
         receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputVelOverride(i, nil) }
+        clearReceiverLatch()
     }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
@@ -826,6 +836,7 @@ struct DiagView: View {
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
+                      latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)

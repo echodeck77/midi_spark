@@ -97,6 +97,27 @@ final class Kernel {
         let shift = UInt32(recv) * 8
         inputVelOverride = (inputVelOverride & ~(0xFF << shift)) | (byte << shift)
     }
+    // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
+    // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
+    // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
+    // survive snapshot rebuilds (ephemeral kernel state), so a MUTE silences but does not clear them.
+    private let latchedPools: [NotePool] = [NotePool(), NotePool(), NotePool(), NotePool()]
+    private var latchArmMask: UInt8 = 0
+    private var prevLatchArmMask: UInt8 = 0
+    func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
+    private func updateLatchedPools() {
+        guard latchArmMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed now or before
+        pool.rebuildSorted()                       // the live pool's ascending view (process rebuilds again; idempotent)
+        for i in 0..<4 {
+            let bit = UInt8(1 << i)
+            let isArmed = latchArmMask & bit != 0, wasArmed = prevLatchArmMask & bit != 0
+            if isArmed && !wasArmed { latchedPools[i].reset() }   // fresh arm → start empty (no stale chord)
+            if isArmed, pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i])) > 0 {
+                latchedPools[i].captureFiltered(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]))
+            }   // armed + fingers up ⇒ keep the last captured chord (FREEZE)
+        }
+        prevLatchArmMask = latchArmMask
+    }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -238,6 +259,8 @@ final class Kernel {
             ev = UnsafePointer(head.next)
         }
 
+        // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
+        updateLatchedPools()
         // ---- hand off to the router (columns, arp, emission, note tracker) ----
         router.process(box: box, pool: pool,
                         playing: playing, beatPos: beatPos, tempo: tempo,
@@ -247,6 +270,7 @@ final class Kernel {
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
+                        latchMask: latchArmMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 

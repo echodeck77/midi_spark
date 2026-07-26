@@ -1537,4 +1537,66 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1, emitterVel: packVel(0, 110)), [110],
                        "emitter (output) override wins over the input override")
     }
+
+    // MARK: - receiver LATCH (chord-hold) — a frozen pool substitutes for the live one
+
+    func testCaptureFilteredFreezesMatchingNotes() {
+        let live = NotePool()
+        live.noteOn(60, velocity: 100, channel: 0, cable: 1)
+        live.noteOn(64, velocity: 90, channel: 2, cable: 1)      // arrives on wire channel 2
+        live.rebuildSorted()
+        let all = NotePool(); all.captureFiltered(from: live, filter: 0, cableMask: 0b1111)   // OMNI/ANY
+        XCTAssertEqual(all.srcCount(filter: 0), 2, "OMNI captures the whole chord")
+        let ch2 = NotePool(); ch2.captureFiltered(from: live, filter: 3, cableMask: 0b1111)   // filter 3 = wire ch 2
+        XCTAssertEqual(ch2.srcCount(filter: 0), 1, "a channel filter captures only its notes")
+        XCTAssertEqual(ch2.srcAscending(0, filter: 0), 64, "…the ch-2 note, velocity/channel preserved")
+    }
+
+    private func latchNotes(_ box: SnapshotBox, live: NotePool, latchMask: UInt8, pools: [NotePool], cable: UInt8) -> Set<UInt8> {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: live, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, latchMask: latchMask, latchedPools: pools, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: live, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == cable }.map { $0.note })
+    }
+
+    func testLatchedPoolSubstitutesForLive() {
+        // gold ⇐R1 arp. Live = [60]; the frozen R1 pool = [67, 72]. Armed ⇒ the cell arps the FROZEN chord.
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
+        let pools = [frozen, NotePool(), NotePool(), NotePool()]
+        let latched = latchNotes(b, live: chord([60]), latchMask: 0b0001, pools: pools, cable: 1)
+        XCTAssertTrue(latched.contains(67) && latched.contains(72), "armed ⇒ arps the frozen chord")
+        XCTAssertFalse(latched.contains(60), "…not the live note")
+        XCTAssertTrue(latchNotes(b, live: chord([60]), latchMask: 0, pools: pools, cable: 1).contains(60),
+                      "disarmed ⇒ reads the live pool (physical holds persist)")
+    }
+
+    func testLatchArmDisarmEdgeLeavesNothingStuck() {
+        // Arming then disarming mid-run swaps the pool; the edge flush must leave nothing stuck.
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.rebuildSorted()
+        let pools = [frozen, NotePool(), NotePool(), NotePool()]
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func windows(_ mask: UInt8, _ n: Int) {
+            for _ in 0..<n {
+                router.process(box: b, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, latchMask: mask, latchedPools: pools, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+        }
+        windows(0, 24); windows(0b0001, 24); windows(0, 24)      // live → latched → live
+        router.process(box: b, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
 }
