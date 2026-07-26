@@ -36,8 +36,11 @@ enum SceneFactory {
                 c.paramsA.gate = gate; c.paramsA.phase = phase
             }
         }
+        // delta item 8: alt* helpers author the Colour's own procB. typeB = A's type ⇒ a FULL morph glide,
+        // so the B face is LIVE (before item 8 these wrote paramsB with no typeB, leaving B inert).
         func altArp(_ id: String, pattern: ArpPattern? = nil, rate: ArpRate? = nil, oct: Int? = nil) {
             edit(id) { c in
+                c.typeB = .arp
                 if let p = pattern { c.paramsB.pattern = p }
                 if let r = rate { c.paramsB.rate = r }
                 if let o = oct { c.paramsB.octaves = o }
@@ -46,14 +49,14 @@ enum SceneFactory {
         func ratchet(_ id: String, count: Int = 3, t: Int = 0) {
             edit(id) { c in c.type = .ratchet; c.transpose = t; c.paramsA.count = count }
         }
-        func altRatchet(_ id: String, count: Int) { edit(id) { $0.paramsB.count = count } }
+        func altRatchet(_ id: String, count: Int) { edit(id) { $0.typeB = .ratchet; $0.paramsB.count = count } }
         func pass(_ id: String, _ passes: [Bool] = [true, true, true, true], gate: Double = 0.6, t: Int = 0) {
             edit(id) { c in c.type = .passgate; c.transpose = t; c.paramsA.passes = passes; c.paramsA.gate = gate }
         }
         func chance(_ id: String, _ prob: Double, t: Int = 0) {
             edit(id) { c in c.type = .chance; c.transpose = t; c.paramsA.probability = prob }
         }
-        func altChance(_ id: String, _ prob: Double) { edit(id) { $0.paramsB.probability = prob } }
+        func altChance(_ id: String, _ prob: Double) { edit(id) { $0.typeB = .chance; $0.paramsB.probability = prob } }
         func harmonize(_ id: String, _ intervals: [Int] = [0, 0, 0], t: Int = 0) {
             edit(id) { c in c.type = .harmonize; c.transpose = t; c.paramsA.harmIntervals = intervals }
         }

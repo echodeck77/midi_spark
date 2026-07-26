@@ -21,7 +21,7 @@ final class MigrationTests: XCTestCase {
         d.migrateLegacyRoutingIfNeeded()
         XCTAssertEqual(d.scenes[0].cells[0][1]?.inputRow, 0)      // references row 0
         XCTAssertNil(d.scenes[0].cells[0][0]?.inputRow)          // top cell → MIDI IN
-        XCTAssertEqual(d.formatVersion, 4)                       // migration now also synthesizes receivers
+        XCTAssertEqual(d.formatVersion, 5)                       // migration synthesizes receivers + folds pairs (item 8)
     }
 
     func testUnstackedAboveMeansMidiIn() {
@@ -193,10 +193,53 @@ final class MigrationTests: XCTestCase {
         d.migrateLegacyRoutingIfNeeded()
         let data = try JSONEncoder().encode(d)
         var reloaded = try JSONDecoder().decode(PluginState.self, from: data)
-        reloaded.migrateLegacyRoutingIfNeeded()                  // no-op: already v4 (receivers present)
+        reloaded.migrateLegacyRoutingIfNeeded()                  // no-op: already v5 (receivers present, pairs folded)
         XCTAssertEqual(reloaded.scenes[0].cells[0][1]?.inputRow, 0)
         XCTAssertNil(reloaded.scenes[0].cells[3][0]?.inputRow)
-        XCTAssertEqual(reloaded.formatVersion, 4)
+        XCTAssertEqual(reloaded.formatVersion, 5)
+    }
+
+    // MARK: - TWO-PROCESSOR migration (delta item 8) — pair reference → internal procB
+
+    func testColourPairMigratesPartnerIntoProcB() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 4
+        let gi = colourIDs.firstIndex(of: "gold")!, ci = colourIDs.firstIndex(of: "cyan")!
+        d.colours[ci].type = .ratchet; d.colours[ci].paramsA.count = 5; d.colours[ci].transpose = 7
+        d.colours[gi].altColour = ci                             // legacy pair: gold → cyan
+        d.migrateColourPairsIfNeeded()
+        XCTAssertEqual(d.colours[gi].typeB, .ratchet, "partner's type folds into procB")
+        XCTAssertEqual(d.colours[gi].paramsB.count, 5, "partner's params fold into procB")
+        XCTAssertEqual(d.colours[gi].transposeBResolved, 7, "partner's transpose folds into transposeB")
+        XCTAssertEqual(d.colours[gi].altColour, ci, "altColour kept (decode-only legacy, lossless downgrade)")
+        XCTAssertEqual(d.formatVersion, 5)
+    }
+
+    func testStaleParamsBWithoutAPairIsInert() {
+        // A pre-pair doc with a stale paramsB but no altColour must NOT gain a procB (typeB stays nil).
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 4
+        d.colours[0].paramsB.octaves = 4                        // stale, no altColour
+        d.migrateColourPairsIfNeeded()
+        XCTAssertNil(d.colours[0].typeB, "no pair ⇒ no procB; stale paramsB stays inert")
+        XCTAssertFalse(d.colours[0].hasProcB)
+    }
+
+    func testColourPairMigrationIsIdempotent() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 4
+        d.colours[0].altColour = 1
+        d.migrateColourPairsIfNeeded()                          // → v5
+        d.colours[0].typeB = nil                                // pretend a later edit cleared procB
+        d.migrateColourPairsIfNeeded()                          // gated on v<5 → must NOT re-fold
+        XCTAssertNil(d.colours[0].typeB, "version gate stops a second fold")
+    }
+
+    func testAltColourKeyStillDecodesOnOldBuild() {
+        // altColour survives a round-trip so an older build can still read the pair (lossless downgrade).
+        var c = Colour(colourID: "gold", type: .arp); c.altColour = 3
+        let back = try! JSONDecoder().decode(Colour.self, from: try! JSONEncoder().encode(c))
+        XCTAssertEqual(back.altColour, 3)
     }
 }
 

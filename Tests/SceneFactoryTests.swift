@@ -51,7 +51,11 @@ final class SceneFactoryTests: XCTestCase {
         let doc = SceneFactory.load(15)   // slot 16 PACIFIC
         func colour(_ id: String) -> Colour { doc.colours[colourIDs.firstIndex(of: id)!] }
         XCTAssertEqual(colour("mint").type, .harmonize)
+        // delta item 8: the alt* helpers now author a LIVE procB (typeB set ⇒ FULL glide), not an inert paramsB.
         XCTAssertEqual(colour("gold").paramsB.rate, .r1_32)      // gold's designed B state
+        XCTAssertTrue(colour("gold").hasProcB, "gold's B face is live (typeB set)")
+        XCTAssertEqual(colour("gold").typeB, .arp)
         XCTAssertEqual(colour("vermilion").paramsB.count, 4)
+        XCTAssertEqual(colour("vermilion").typeB, .ratchet, "vermilion's B face is a live ratchet")
     }
 }

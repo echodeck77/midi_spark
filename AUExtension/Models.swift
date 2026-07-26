@@ -337,6 +337,29 @@ struct PluginState: Codable, Equatable {
             formatVersion = 3
         }
         synthesizeReceiversIfNeeded()   // delta §9 item 11 — runs for v3 docs too (they have no receivers yet)
+        migrateColourPairsIfNeeded()    // delta item 8 — fold each Colour's partner into its own procB
+    }
+
+    /// delta item 8 (TWO-PROCESSOR Colours): fold the retired pair reference into each Colour's own procB.
+    /// Idempotent, gated on formatVersion < 5. For a Colour with a valid `altColour` partner: copy the
+    /// partner's type/params/transpose into procB (typeB/paramsB/transposeB), overwriting any stale paramsB.
+    /// `altColour` is LEFT in place (decode-only legacy) so an older build re-loading a migrated doc still
+    /// reads the pair — lossless downgrade. The new render sources B ONLY from typeB, so keeping altColour is
+    /// inert. Reads partner.type/paramsA/transpose (never written here) so in-place mutation is safe.
+    mutating func migrateColourPairsIfNeeded() {
+        guard formatVersion < 5 else { return }
+        var migrated = 0
+        for i in colours.indices {
+            guard let pi = colours[i].altColour, pi >= 0, pi < colours.count, pi != i else { continue }
+            colours[i].typeB = colours[pi].type
+            colours[i].paramsB = colours[pi].paramsA
+            colours[i].transposeB = colours[pi].transpose
+            migrated += 1
+        }
+        if migrated > 0 {
+            print("MidiSpark: migrated \(migrated) Colour pair(s) into internal procB (delta item 8).")
+        }
+        formatVersion = 5
     }
 
     /// delta §9 item 11: promote per-cell input-channel filters to four shared RECEIVERS. Idempotent
