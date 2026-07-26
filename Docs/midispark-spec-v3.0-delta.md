@@ -430,6 +430,23 @@ band top, emitters bottom) vs the landscape band's horizontal flow =
 different axes, both legible — one mockup glance to confirm they don't
 argue.
 
+**§6d AS-BUILT (WIP direction, 2026-07-26 — supersedes the six-panel
+arrangement above; the two-flows anatomy is REAL, render-verified off the
+user's portrait screenshot):** the layout IS the signal path. Vertical
+spine, both orientations: SCENE STRIP directly under the header (the
+arrangement layer sits ABOVE the signal) → **band row [flank · RECEIVERS ·
+flank]** (25/50/25: bands span 50% grid width centred; current tenants:
+left placeholder, right DIAGNOSTICS VOICES/HELD/ECHO/PANICS) → column keys
+→ THE GRID (compact one-geometry per the 4c ruling) → **band row [COLOUR
+picker · EMITTERS · flank]** → PROCESSOR (full width) → SETTINGS (full
+width). Bands +50% height (6 grid-rows) anticipating the mixer faces. ALT
+box UNMOUNTED (dovetails the two-processor ruling — the A|B face toggle
+replaces it when item 8 lands; until then pairing is a known interim gap).
+FLOW button in the header. T-sessions hidden from UI (devLoader kept; a dev
+re-enable path required for device passes). WIP: flank tenants open; the
+FOLD (4b) and the mixer perform faces (item 3) pending atop this geometry;
+receiver cable steppers to return on the strip's EDIT face.
+
 ### 6c. THE PROCESSOR WINDOW — **REVISED 2026-07-24: the popup
 ### requirement is DROPPED** ("didn't work as well as hoped" — user, off
 ### the v61 board). Settings return INLINE (see §6d). This section
