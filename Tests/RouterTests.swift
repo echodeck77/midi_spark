@@ -1391,4 +1391,65 @@ final class RouterTests: XCTestCase {
                        timestampSample: ts, frameCount: 2048, preview: (false, -1, 0, 0, -1), out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - receiver SOLO (receiver strip) — audible = ¬muted ∧ (soloSet = ∅ ∨ member)
+
+    /// A box whose cells subscribe to four OMNI receivers (so all hear the chord; solo differs by receiver).
+    private func receiverBox(mute: [Bool] = [false, false, false, false],
+                             _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.receivers = (0..<4).map { var r = Receiver(name: "\($0 + 1)"); r.muted = mute[$0]; return r }
+        return SnapshotBuilder.build(from: st)
+    }
+    private func soloOns(_ box: SnapshotBox, solo: UInt8, cable: UInt8) -> Int {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, soloReceiverMask: solo, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return e.ons.filter { $0.cable == cable }.count
+    }
+
+    func testReceiverSoloExcludesNonMembers() {
+        // gold ⇐R1 → A, cyan ⇐R2 → B. Solo R1 → only A sounds; solo R2 → only B; empty → both; union → both.
+        let b = receiverBox {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
+        }
+        XCTAssertGreaterThan(soloOns(b, solo: 0, cable: 1), 0, "no solo ⇒ A sounds")
+        XCTAssertGreaterThan(soloOns(b, solo: 0, cable: 2), 0, "no solo ⇒ B sounds")
+        XCTAssertGreaterThan(soloOns(b, solo: 0b0001, cable: 1), 0, "solo R1 ⇒ A sounds")
+        XCTAssertEqual(soloOns(b, solo: 0b0001, cable: 2), 0, "solo R1 ⇒ B (R2) silent")
+        XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 1), 0, "solo R2 ⇒ A (R1) silent")
+        XCTAssertGreaterThan(soloOns(b, solo: 0b0010, cable: 2), 0, "solo R2 ⇒ B sounds")
+        XCTAssertGreaterThan(soloOns(b, solo: 0b0011, cable: 1), 0, "multi-solo union ⇒ A sounds")
+        XCTAssertGreaterThan(soloOns(b, solo: 0b0011, cable: 2), 0, "multi-solo union ⇒ B sounds")
+    }
+
+    func testReceiverSoloMutedMemberStaysSilent() {
+        // R1 muted; solo R1. A member that is muted still hears nothing (console convention).
+        let b = receiverBox(mute: [true, false, false, false]) {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        }
+        XCTAssertEqual(soloOns(b, solo: 0b0001, cable: 1), 0, "a soloed BUT muted receiver stays silent")
+    }
+
+    func testReceiverSoloSilencesChainedFeedAtItsRoot() {
+        // gold ⇐R1 → A (MIDI-IN root), cyan feeds off row 0 → B. Solo R2 excludes R1 ⇒ BOTH silent
+        // (B goes dark because its root's receiver is excluded, via parentSoundingNote).
+        let b = receiverBox {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
+        }
+        XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 1), 0, "root R1 excluded ⇒ A silent")
+        XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 2), 0, "child of an excluded root ⇒ B silent")
+        XCTAssertGreaterThan(soloOns(b, solo: 0b0001, cable: 2), 0, "solo the root's R1 ⇒ B sounds")
+    }
 }

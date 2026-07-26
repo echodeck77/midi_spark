@@ -53,6 +53,7 @@ struct DiagView: View {
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
+    @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
     // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
@@ -504,6 +505,17 @@ struct DiagView: View {
     private func setReceiverCable(_ i: Int, _ mask: Int?) { au?.setReceiverCable(i, mask); receivers = au?.uiReceivers() ?? receivers }
     private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
     private func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
+    // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
+    // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
+    private func toggleReceiverSolo(_ i: Int) {
+        guard (0..<4).contains(i) else { return }
+        soloReceiverMask ^= UInt8(1 << i)
+        au?.setSoloReceiverMask(soloReceiverMask)
+    }
+    /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
+    private func clearReceiverPerform() {
+        soloReceiverMask = 0; au?.setSoloReceiverMask(0)
+    }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
     // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
@@ -601,6 +613,7 @@ struct DiagView: View {
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
+                clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
             }
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
@@ -801,7 +814,8 @@ struct DiagView: View {
         ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
                       thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
-                      onSetCable: setReceiverCable, onSetThru: setThru)
+                      onSetCable: setReceiverCable, onSetThru: setThru,
+                      soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

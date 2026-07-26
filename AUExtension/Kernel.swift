@@ -77,6 +77,9 @@ final class Kernel {
     private var soloEmitterMask: UInt8 = 0
     func setTapMuteMask(_ mask: UInt64) { tapMuteMask = mask }
     func setSoloEmitterMask(_ mask: UInt8) { soloEmitterMask = mask }
+    // receiver strip: the additive input SOLO set (bits R1–R4), ephemeral. Cleared by the UI on stop / EDIT.
+    private var soloReceiverMask: UInt8 = 0
+    func setSoloReceiverMask(_ mask: UInt8) { soloReceiverMask = mask }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -226,6 +229,7 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
+                        soloReceiverMask: soloReceiverMask,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 
