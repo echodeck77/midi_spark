@@ -802,7 +802,7 @@ struct DiagView: View {
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak)
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
@@ -824,7 +824,7 @@ struct DiagView: View {
 
     private var hint: some View {
         Text(flowVariation > 0
-             ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · watch-only · TAP a cell → TRACE its path · FLOW button → next view"
+             ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · comets = the PLAN · bright rings = LIVE (where notes really fired) · TAP a cell → TRACE"
              : editing
              ? "EDIT · TAP cell → hide (tap again to restore) · HOLD cell → cell-edit · drag a colour → place"
              : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
@@ -896,7 +896,7 @@ struct DiagView: View {
             FlowView(variation: max(1, flowVariation), scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak)
+                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks)
                 .allowsHitTesting(false)
         }
     }

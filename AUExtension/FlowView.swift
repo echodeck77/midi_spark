@@ -81,6 +81,10 @@ struct FlowView: View {
     var stepBeats: Double = 2
     var emitPeak: [Double] = [0, 0, 0, 0]
     var receiverPeak: [Double] = [0, 0, 0, 0]
+    // item 4 feed: the ACTUAL note-ons (velocity + source colour), per emitter / per receiver. The comets are
+    // the PLAN (derived routing); these draw where notes TRULY went — so suppression shows as a missing pulse.
+    var emitMarks: [[VelMark]] = [[], [], [], []]
+    var recvMarks: [[VelMark]] = [[], [], [], []]
 
     // beat extrapolation between the 4 Hz polls — identical to the grid playhead.
     @State private var lastBeat: Double = 0
@@ -105,7 +109,7 @@ struct FlowView: View {
                 case 3:  renderScope(ctx, size, b)
                 case 4:  renderWaterfall(ctx, size, b)
                 case 5:  renderRadar(ctx, size, b)
-                default: renderFlow(ctx, size, b)
+                default: renderFlow(ctx, size, b, tl.date)
                 }
             }
             .background(Color(red: 0.043, green: 0.051, blue: 0.063))
@@ -205,8 +209,14 @@ extension FlowView {
         return (col, frac, Int(floor(b / (step * 8))) + 1)
     }
 
-    // 1 — FLOW: receivers above, coloured-glass grid, emitters below, comets on the live column's real hops.
-    func renderFlow(_ ctx: GraphicsContext, _ size: CGSize, _ b: Double) {
+    // item 4: a note-on mark's tint — its source cell's Colour (−1 / out of range → the FLOW accent).
+    private func markHue(_ col: Int8) -> Color {
+        (col >= 0 && Int(col) < colourIDs.count) ? (colourColor(colourIDs[Int(col)]) ?? accent) : accent
+    }
+
+    // 1 — FLOW: receivers above, coloured-glass grid, emitters below, comets on the live column's real hops
+    // (the PLAN), plus bright expanding rings where notes TRULY fired (the LIVE, from the item-4 mark feed).
+    func renderFlow(_ ctx: GraphicsContext, _ size: CGSize, _ b: Double, _ now: Date) {
         var ctx = ctx
         let (grid, bandH) = gridFrame(size)
         let (col, frac, _) = clock(b)
@@ -293,6 +303,20 @@ extension FlowView {
                 let col = s < 5 ? Color(red: 0.24, green: 0.86, blue: 0.52) : (s < 7 ? Color(red: 1, green: 0.77, blue: 0.24) : Color(red: 1, green: 0.29, blue: 0.2))
                 ctx.fill(Path(CGRect(x: x - 28 + CGFloat(s)*7.4, y: eY - 6, width: 5.4, height: 12)), with: .color(col)); ctx.opacity = 1
             }
+        }
+        // ---- LIVE layer (item 4 feed): where notes TRULY fired. Each actual note-on = a bright expanding ring
+        //      + core at the node, tinted in the source Colour, sized by velocity, fading ~250ms. Distinct from
+        //      the PLAN comets above — a suppressed note (CLAIM/SOLO/chance/closed passgate) shows NO ring. ----
+        func livePulse(_ pt: CGPoint, _ hue: Color, _ vel: Double, _ age: Double) {
+            let op = max(0, 1 - age / 0.25); guard op > 0 else { return }
+            let ringR = 3 + (4 + 10 * vel) * CGFloat(age / 0.25)     // expands as it fades
+            ctx.stroke(Path(ellipseIn: CGRect(x: pt.x - ringR, y: pt.y - ringR, width: ringR*2, height: ringR*2)),
+                       with: .color(hue.opacity(op * 0.9)), lineWidth: 2)
+            glowDot(ctx, pt, 2 + 3 * vel, hue, op)                   // bright core
+        }
+        for i in 0..<4 {
+            for m in (i < emitMarks.count ? emitMarks[i] : []) { livePulse(emitPt(i), markHue(m.col), m.vel, now.timeIntervalSince(m.born)) }
+            for m in (i < recvMarks.count ? recvMarks[i] : []) { livePulse(recvPt(i), receiverHue(i), m.vel, now.timeIntervalSince(m.born)) }
         }
     }
 
