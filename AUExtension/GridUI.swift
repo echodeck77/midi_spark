@@ -38,7 +38,7 @@ enum GridGeometry {
         guard gridWidth > 0 else { return nil }
         let cellW = (gridWidth - CGFloat(7) * vGap) / 8
         let col = Int(p.x / (cellW + vGap))
-        let y = p.y - (headH + vGap)                 // below the column-key row
+        let y = p.y - (cellHeight + vGap)            // below the column-key row (now a cell's height)
         let row = Int(y / (cellHeight + vGap))
         guard col >= 0, col < 8, row >= 0, row < 8, y >= 0 else { return nil }
         return (col, row)
@@ -142,7 +142,7 @@ struct GridView: View {
                 Text("\(col + 1)")
                     .font(.system(size: 15, weight: .heavy, design: .monospaced))
                     .foregroundColor(active ? .black : (held ? accentCyan : .white.opacity(0.45)))
-                    .frame(maxWidth: .infinity).frame(height: Self.headH)
+                    .frame(maxWidth: .infinity).frame(height: cellHeight)   // key row = a cell's height (user 2026-07-26)
                     .background(RoundedRectangle(cornerRadius: 6)
                         .fill(active ? accentCyan : Color.white.opacity(0.06)))
                     .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
@@ -192,7 +192,7 @@ struct GridView: View {
                             .fill(Color.white.opacity(faint ? 0.4 : 0.92))
                             .frame(width: cellW - 4, height: 2)
                             .shadow(color: faint ? .clear : Color.white.opacity(0.8), radius: faint ? 0 : 4)
-                            .position(x: colX, y: (Self.headH + Self.vGap) + CGFloat(r) * (cellHeight + Self.vGap) + f * cellHeight)
+                            .position(x: colX, y: (cellHeight + Self.vGap) + CGFloat(r) * (cellHeight + Self.vGap) + f * cellHeight)
                     }
                 }
             }
@@ -316,29 +316,31 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
+    @ViewBuilder private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
         let midi = parent < 0
         let recv = cell.inputReceiver ?? 0
         let band: Color? = (midi && recv > 0 && recv < receiverHues.count) ? receiverHues[recv] : nil
-        // Degradation ladder middle rung: below text size the header collapses to a PURE band (no text),
-        // so the receiver identity stays legible when the cell is too small for "FROM …".
-        let compact = cellHeight < 36
-        let label = compact ? "" : (midi ? (recv == 0 ? "FROM MIDI" : "FROM R\(recv + 1)")
-                                          : "FROM ROW \(parent + 1)")
-        return Text(label)
-            .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-            .lineLimit(1).minimumScaleFactor(0.7)
-            .foregroundColor(live ? .black : .white.opacity(0.85))
-            .frame(maxWidth: .infinity).frame(height: compact ? 8 : 13)
-            .background(live ? Color.white : (band ?? Color.black.opacity(0.52)))
-            .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
+        if midi && band == nil {
+            EmptyView()          // a FROM-MIDI (Receiver 1) cell shows NO input header (user 2026-07-26)
+        } else {
+            // R2–R4 = the identity BAND only (band-as-deviation); a reference = "FROM ROW n".
+            let compact = cellHeight < 36
+            let label = compact ? "" : (midi ? "" : "FROM ROW \(parent + 1)")
+            Text(label)
+                .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .foregroundColor(live ? .black : .white.opacity(0.85))
+                .frame(maxWidth: .infinity).frame(height: compact ? 8 : 13)
+                .background(live ? Color.white : (band ?? Color.black.opacity(0.52)))
+                .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
+        }
     }
 
     // ② BODY — type + effective-ish params (compact). Rendered over the colour fill.
     private func bodyText(_ cell: Cell) -> some View {
         let c = colours.first { $0.colourID == cell.colourID }
         let dim = cell.bypassed || cell.muted
-        return VStack(spacing: 1) {
+        return HStack(spacing: 3) {                    // type + params on ONE line (user 2026-07-26)
             Text(typeLabel(c))
                 .font(.system(size: 8, weight: .black, design: .monospaced))
             Text(paramText(c))
