@@ -88,6 +88,7 @@ struct GridView: View {
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
+    var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -239,8 +240,10 @@ struct GridView: View {
                             lineWidth: isSel ? 2 : (activeGlow ? 1.5 : 1))
             }
         }
-        .overlay {                                          // ALT (B-state) breathing ring (§6.5)
-            if cell?.alt == true {
+        .overlay {                                          // ALT (B-state) breathing ring (§6.5) — effective ALT
+            // §9 item 1 ON TAP (unified model): the ring follows base ALT XOR the ephemeral tap flip.
+            let effAlt = cell.map { $0.alt != ((tapAltMask >> UInt64(col * 8 + row)) & 1 == 1) } ?? false
+            if effAlt {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.white.opacity(breathe ? 0.95 : 0.35), lineWidth: 2)
                     .padding(3)

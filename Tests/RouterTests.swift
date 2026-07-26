@@ -1293,6 +1293,30 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(passOns(2), 0, "pass 3 — the cell enters and sounds")
     }
 
+    // §9 item 1 ON TAP (4a, integration): the ephemeral tapAltMask flips a cell's effective ALT (unified model)
+    // — a swap pair (A = open passgate, B = closed) goes silent when its tap bit is set.
+    func testTapAltMaskFlipsCellEphemerally() {
+        let gold = colourIDs.firstIndex(of: "gold")!, orange = colourIDs.firstIndex(of: "orange")!
+        var cs = arpColours()
+        cs[gold] = Colour(colourID: "gold", type: .passgate); cs[gold].paramsA.passes = [true, true, true, true]
+        cs[orange] = Colour(colourID: "orange", type: .passgate); cs[orange].paramsA.passes = [false, false, false, false]
+        cs[gold].altColour = orange
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = bit 0, base A
+        func ons(tapMask: UInt64) -> Int {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+            while beat < 2.0 {
+                router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, tapAltMask: tapMask, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return e.ons.count
+        }
+        XCTAssertGreaterThan(ons(tapMask: 0), 0, "no tap flip → A (open passgate) sounds")
+        XCTAssertEqual(ons(tapMask: 1 << 0), 0, "tap flip on cell (0,0) → B (closed passgate) → silent")
+    }
+
     // §9 item 1 ON HOLD (3a, integration): while a cell is press-held with ON HOLD = OCT up, its notes shift
     // an octave; not held, they play normally.
     func testOnHoldOctaveShiftsHeldCell() {

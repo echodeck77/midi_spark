@@ -68,6 +68,10 @@ final class Kernel {
     // laneMask; the UI sets it while a cell is held and clears it on release / stop / EDIT switch.
     private var heldCell: Int32 = -1
     func setHoldCell(_ cell: Int) { heldCell = Int32(cell) }
+    // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set by the PERFORM
+    // tap; cleared on transport stop / mode switch. Never persisted — a tap is momentary now, not a doc write.
+    private var tapAltMask: UInt64 = 0
+    func setTapAltMask(_ mask: UInt64) { tapAltMask = mask }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -213,7 +217,7 @@ final class Kernel {
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
-                        velOverride: velOverride, heldCell: Int(heldCell),
+                        velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 

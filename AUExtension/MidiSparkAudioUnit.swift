@@ -80,6 +80,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
     func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }
 
+    /// §9 item 1 ON TAP (unified ALT model): the ephemeral per-cell ALT flips (bit col*8+row). A PERFORM tap
+    /// toggles a bit; cleared (0) on transport stop / mode switch. Ephemeral, never persisted (audition's class).
+    func setTapAltMask(_ mask: UInt64) { kernel.setTapAltMask(mask) }
+
     /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
     /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
     /// Ephemeral, never persisted — the momentary "whisper/slam a bus" gesture, not the parked scale-fader.

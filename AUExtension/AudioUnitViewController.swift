@@ -89,6 +89,7 @@ struct DiagView: View {
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
+    @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
@@ -97,7 +98,7 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging EDIT-only
+    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); tapAltMask = 0; au?.setTapAltMask(0) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP flips EDIT-clears
 
     // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
     private func commitHiddenPending() {
@@ -245,12 +246,12 @@ struct DiagView: View {
             }
             selCol = col; selRow = row; scene = au.uiScene()
         } else {
-            au.editScene(record: false) { s in            // a6: PERFORM flips are OUT of undo scope (lean)
-                guard var c = s.cells[col][row] else { return }
-                c.alt.toggle()
-                s.cells[col][row] = c
-            }
-            scene = au.uiScene()
+            // §9 item 1 ON TAP (unified ALT model): a PERFORM tap is an EPHEMERAL alt flip — not a document
+            // write. It XORs a per-cell bit (cleared on transport stop / EDIT switch); the render + the ring
+            // read it live. (ON TAP's other actions + quant/duration axes build on this in 4b.)
+            guard scene.cells[col][row] != nil else { return }
+            tapAltMask ^= (1 << UInt64(col * 8 + row))
+            au.setTapAltMask(tapAltMask)
         }
     }
 
@@ -531,7 +532,10 @@ struct DiagView: View {
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
-            if d.playing && !nd.playing && holdLatch { setHold(false) }   // §5c: transport stop = the drop
+            if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
+                if holdLatch { setHold(false) }
+                if tapAltMask != 0 { tapAltMask = 0; au.setTapAltMask(0) }   // ON TAP: momentary flips clear on stop
+            }
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
@@ -587,7 +591,7 @@ struct DiagView: View {
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
                  staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
-                 hiddenPending: hiddenPending)
+                 hiddenPending: hiddenPending, tapAltMask: tapAltMask)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })

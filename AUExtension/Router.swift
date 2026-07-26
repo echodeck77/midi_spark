@@ -111,6 +111,10 @@ final class Router {
     private var articBuf = [Artic](repeating: Artic(), count: Snap.rows * Router.articCap)
     private var articCount = [Int](repeating: 0, count: Snap.rows)
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
+    // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set each process()
+    // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
+    private var tapAltMask: UInt64 = 0
+    private func tapFlipped(_ col: Int, _ row: Int) -> Bool { (tapAltMask >> UInt64(col * 8 + row)) & 1 == 1 }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -449,7 +453,8 @@ final class Router {
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
             if !onSceneAudible(colour.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
-            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
+            let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
+                                         baseAlt: cell.alt != tapFlipped(column, r), arrivals: pass)   // §9 ON TAP flip
             let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
                                 passMask: effectivePassMask(colour, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
@@ -588,9 +593,11 @@ final class Router {
                  laneMask: UInt8 = 0,
                  velOverride: UInt32 = 0,
                  heldCell: Int = -1,
+                 tapAltMask: UInt64 = 0,
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
+        self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -725,9 +732,11 @@ final class Router {
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
             // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
             let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
+            // §9 item 1 ON TAP: a PERFORM tap XORs an ephemeral ALT flip into the base (unified model).
+            let baseAlt = cell.alt != tapFlipped(effColumn, r)
             // §9 item 1: ON ARRIVE (ALT-ALTERNATE / MORPH-DRIFT) folds into t as a pure function of the pass.
             let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
-                                         baseAlt: holdAlt(base: cell.alt, on: colour.on, held: held), arrivals: diag.pass)
+                                         baseAlt: holdAlt(base: baseAlt, on: colour.on, held: held), arrivals: diag.pass)
             let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded())
                           + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
