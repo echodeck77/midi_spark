@@ -21,6 +21,7 @@ struct FlowCell {
     let srcReceiver: Int?   // entry hop from receiver i (MIDI-IN)
     let srcRow: Int?        // reference hop from a row in the same column
     let buses: [Int]        // 0…3 = A…D emission hops
+    var rooted = true       // can it EVER sound? false = a pure reference CYCLE with no MIDI-IN root (silent)
 }
 
 /// Visual tick count for a Colour — how many comets it launches down each hop per column. A pure, capped
@@ -62,6 +63,22 @@ func flowCells(scene: SceneState, colours: [Colour], stepBeats: Double) -> [Flow
                 buses: buses))
         }
     }
+    // ROOTEDNESS: a cell can sound only if its input chain reaches a MIDI-IN source. Trace up `srcRow`; hitting
+    // a `srcReceiver` (MIDI-IN) ⇒ rooted; a reference to an EMPTY/muted row ⇒ MIDI-IN fallback ⇒ rooted; a
+    // revisited cell ⇒ a CYCLE with no source ⇒ SILENT (the engine's depth guard makes it soundless). This is
+    // what stops the FLOW view from flying "output" comets out of a circular reference that never emits.
+    func isRooted(_ start: Int) -> Bool {
+        var seen = Set<Int>(); var cur = start
+        while true {
+            if seen.contains(cur) { return false }                    // cycle → structurally silent
+            seen.insert(cur)
+            if out[cur].srcReceiver != nil { return true }            // reads MIDI-IN
+            guard let sr = out[cur].srcRow else { return false }
+            guard let pi = out.firstIndex(where: { $0.col == out[cur].col && $0.row == sr }) else { return true }  // ref → empty/muted row = MIDI-IN
+            cur = pi
+        }
+    }
+    for i in out.indices { out[i].rooted = isRooted(i) }
     return out
 }
 
@@ -242,10 +259,10 @@ extension FlowView {
             if let idx = all.firstIndex(where: { $0.col == c && $0.row == r }) {
                 let fc = all[idx]
                 let dim = traced != nil && !fam.contains(idx)
-                ctx.opacity = dim ? 0.14 : (c == col ? 1.0 : 0.4)
+                ctx.opacity = dim ? 0.14 : (!fc.rooted ? 0.3 : (c == col ? 1.0 : 0.4))   // silent cycle ⇒ dimmed
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(fc.hue))
                 ctx.opacity = dim ? 0.25 : 0.9
-                ctx.draw(Text(fc.label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black), at: CGPoint(x: rect.midX, y: rect.midY))
+                ctx.draw(Text(!fc.rooted ? "⟳" : fc.label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black), at: CGPoint(x: rect.midX, y: rect.midY))
                 ctx.opacity = 1
             } else {
                 ctx.stroke(Path(roundedRect: rect, cornerRadius: 5), with: .color(.white.opacity(c == col ? 0.12 : 0.05)), lineWidth: 1)
@@ -271,10 +288,12 @@ extension FlowView {
                 hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2 + bow, y: (a.y+ctr.y)/2), -1)) }
             for bus in fc.buses { let bpt = emitPt(bus); hops.append((ctr, bpt, CGPoint(x: (ctr.x+bpt.x)/2 + CGFloat(bus-1)*8, y: (ctr.y+bpt.y)/2), bus)) }
             for h in hops {
-                // guide edge
+                // A silent cell's OUTPUT hop (a cycle that never emits) draws its guide edge FAINTLY but flies
+                // NO comets — it must not look like notes reach the emitter. The loop/reference hops still flow.
+                let silentOut = !fc.rooted && h.bus >= 0
                 var gp = Path(); gp.move(to: h.a); gp.addQuadCurve(to: h.b, control: h.cp)
-                ctx.stroke(gp, with: .color(fc.hue.opacity(0.22)), lineWidth: 1)
-                guard playing else { continue }
+                ctx.stroke(gp, with: .color(fc.hue.opacity(silentOut ? 0.08 : 0.22)), lineWidth: 1)
+                guard playing, !silentOut else { continue }
                 for k in 0..<fc.ticks {
                     let tt = frac * Double(fc.ticks) - Double(k)
                     guard tt >= 0, tt <= 1 else { continue }
