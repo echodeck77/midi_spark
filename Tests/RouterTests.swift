@@ -1718,4 +1718,65 @@ final class RouterTests: XCTestCase {
         let (b1, b2) = altCableCounts(altBox(0b0011, [2, 1, 1, 1]))
         XCTAssertGreaterThan(b1, b2, "A (count 2) takes more turns than B (count 1)")
     }
+
+    // MARK: - MASTER panel — KEY (per-scene transpose) · MUTE · the master velocity fader · PANIC
+
+    private func masterBox(key: Int = 0, mute: Bool = false) -> SnapshotBox {
+        var s = SceneState.empty(); s.masterKey = key
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // an arp on Emit A
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.masterMute = mute
+        return SnapshotBuilder.build(from: st)
+    }
+    private func runMaster(_ box: SnapshotBox, masterVel: UInt8 = 0, emitVel: UInt32 = 0, cable: UInt8) -> (Set<UInt8>, Set<UInt8>) {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, velOverride: emitVel, masterVelOverride: masterVel,
+                           out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let ons = e.ons.filter { $0.cable == cable }
+        return (Set(ons.map { $0.note }), Set(ons.map { $0.vel }))
+    }
+
+    func testMasterKeyTransposesAllOutput() {
+        XCTAssertTrue(runMaster(masterBox(key: 5), cable: 1).0.contains(65), "master KEY +5 ⇒ 60→65")
+        XCTAssertTrue(runMaster(masterBox(), cable: 1).0.contains(60), "no key ⇒ 60")
+        XCTAssertFalse(runMaster(masterBox(key: 5), cable: 1).0.contains(60), "…and the un-shifted 60 is gone")
+    }
+
+    func testMasterMuteSilencesAllOutput() {
+        XCTAssertTrue(runMaster(masterBox(mute: true), cable: 1).0.isEmpty, "master MUTE ⇒ total silence")
+        XCTAssertTrue(runMaster(masterBox(mute: true), cable: 0).0.isEmpty, "…on All too")
+    }
+
+    func testMasterFaderForcesVelocityAndWinsOverEmitterOverride() {
+        XCTAssertEqual(runMaster(masterBox(), masterVel: 40, cable: 1).1, [40], "the master fader forces 40")
+        XCTAssertEqual(runMaster(masterBox(), masterVel: 40, emitVel: packVel(0, 110), cable: 1).1, [40],
+                       "the master fader wins over the emitter override (applied last)")
+    }
+
+    func testMasterPanicFlushesLeavingNothingStuck() {
+        let b = masterBox()
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(_ panic: Bool) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, panic: panic, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<20 { win(false) }
+        win(true)                                    // PANIC mid-play
+        for _ in 0..<4 { win(false) }
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        XCTAssertGreaterThan(diag.panics, 0, "PANIC is logged by the hang kit")
+    }
 }

@@ -105,6 +105,12 @@ final class Kernel {
         let shift = UInt32(bus) * 8
         emitterOctave = (emitterOctave & ~(0xFF << shift)) | (byte << shift)
     }
+    // master panel: the momentary master velocity FADER (0 = none, 1–127 = force over all output). Ephemeral;
+    // the UI springs it back on release. Plus PANIC — a one-shot all-notes-off + voice flush, hang-kit-logged.
+    private var masterVelOverride: UInt8 = 0
+    func setMasterVelOverride(_ value: Int?) { masterVelOverride = UInt8(value.map { max(1, min(127, $0)) } ?? 0) }
+    private var panicRequested = false
+    func panic() { panicRequested = true }
     // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
     // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
     // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
@@ -278,10 +284,11 @@ final class Kernel {
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
-                        emitterOctave: emitterOctave,
+                        emitterOctave: emitterOctave, masterVelOverride: masterVelOverride, panic: panicRequested,
                         latchMask: latchArmMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
+        panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
 
         // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
         //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —

@@ -186,6 +186,21 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    // MASTER PANEL. KEY = per-scene transpose (persisted); MUTE = global emission kill (persisted); the FADER
+    // = the momentary master velocity override (ephemeral kernel feed); PANIC = the one-shot hard flush.
+    private func activeSceneIndex() -> Int { max(0, min(document.activeScene, document.scenes.count - 1)) }
+    func uiMasterKey() -> Int { document.scenes[activeSceneIndex()].masterKeyResolved }
+    func nudgeMasterKey(_ delta: Int) {
+        editDocument { d in
+            let i = max(0, min(d.activeScene, d.scenes.count - 1))
+            d.scenes[i].masterKey = max(-12, min(12, d.scenes[i].masterKeyResolved + delta))
+        }
+    }
+    func uiMasterMute() -> Bool { document.masterMute ?? false }
+    func setMasterMute(_ on: Bool) { editDocument { $0.masterMute = on } }
+    func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
+    func masterPanic() { kernel.panic() }
+
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
     func uiThruReceiver() -> Int { document.thruReceiverResolved }

@@ -251,6 +251,10 @@ struct SceneState: Codable, Equatable {
     var swing: Int = 50            // 50 straight … 75 (§4 v2.3)
     var tapAction: TapAction = .alt
     var quant: Quant = .off        // §6.8
+    // master panel: KEY — per-scene master transpose (semitones, clamp ±12), applied to every output note.
+    // Optional (append-only) → old scenes decode nil (0). PERSISTED (the key is structure).
+    var masterKey: Int? = nil
+    var masterKeyResolved: Int { max(-12, min(12, masterKey ?? 0)) }
 
     static func empty() -> SceneState {
         SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
@@ -303,6 +307,9 @@ struct PluginState: Codable, Equatable {
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
     var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
+    // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
+    var masterMute: Bool? = nil
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

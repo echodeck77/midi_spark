@@ -83,6 +83,11 @@ final class Router {
     private var altMask: UInt8 = 0
     private var altSequence: [UInt8] = []
     private var altTurn = 0
+    // master panel: per-scene KEY (transpose, from the box), global MUTE (from the box), and the ephemeral
+    // master velocity FADER (from process(), like the emitter override) — all applied in emitOneBus.
+    private var masterKey: Int = 0
+    private var masterMute = false
+    private var masterVelOverride: UInt8 = 0
     private func rebuildAltSequence(_ count: [UInt8]) {
         altSequence.removeAll(keepingCapacity: true)
         for bus in 0..<4 where altMask & (1 << UInt8(bus)) != 0 {
@@ -455,7 +460,11 @@ final class Router {
         // emitter strip OCT: shift the OUTGOING note by this emitter's ±octave overlay (0 = none). A note
         // pushed off 0…127 is dropped. Applied FIRST so CLAIM/metering/refcount all key on the real output
         // pitch. `note` is shadowed to the shifted value for the remainder.
-        let sn = Int(note) + emitterOctaveShift(bus)
+        // master panel MUTE: a global emission kill — nothing sounds (claim ghosts included). previewMode
+        // (stopped audition) still auditions through it.
+        if masterMute && !previewMode { return -1 }
+        // ...OCT shift + the master KEY (per-scene transpose) both fold into the outgoing pitch here.
+        let sn = Int(note) + emitterOctaveShift(bus) + (previewMode ? 0 : masterKey)
         guard sn >= 0 && sn <= 127 else { return -1 }
         let note = UInt8(sn)
         if claimEmitter >= 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
@@ -500,6 +509,9 @@ final class Router {
             }
             if duck > 0 { v = UInt8(max(1, Int(v) * (100 - duck) / 100)) }
         }
+        // master panel FADER: a momentary-absolute override over ALL output — applied LAST so it wins over the
+        // per-emitter/input overrides and FLATTEN (the whisper-drop). 0 = untouched. previewMode bypasses.
+        if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
@@ -712,6 +724,8 @@ final class Router {
                  inputOctave: UInt32 = 0,
                  inputVelOverride: UInt32 = 0,
                  emitterOctave: UInt32 = 0,
+                 masterVelOverride: UInt8 = 0,
+                 panic: Bool = false,
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
@@ -723,6 +737,7 @@ final class Router {
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
         self.inputVelOverride = inputVelOverride   // receiver strip: per-receiver input-velocity override
         self.emitterOctave = emitterOctave         // emitter strip: per-emitter output ±octave nudge
+        self.masterVelOverride = masterVelOverride // master panel: the momentary master fader
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
@@ -736,6 +751,8 @@ final class Router {
         flattenAmount = box.flattenAmount
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
         rebuildAltSequence(box.altCount)
+        masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
+        masterMute = box.masterMute
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
@@ -769,6 +786,12 @@ final class Router {
             prevEffColumn = -1
             altTurn = 0                                  // role family ALT: the turn counter resets with transport
             wasPlaying = playing
+        }
+        // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
+        if panic {
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            prevEffColumn = -1; altTurn = 0
+            diag.panics &+= 1
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
