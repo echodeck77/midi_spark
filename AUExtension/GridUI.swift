@@ -89,6 +89,7 @@ struct GridView: View {
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
+    var tapMuteMask: UInt64 = 0                       // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute (dims the cell)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var lastBeat: Double = 0
@@ -207,6 +208,7 @@ struct GridView: View {
         let parent = parentOf(col, row)
         let colour = cell.flatMap { c in colourColor(c.colourID) }
         let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false
+        let tapMutedHere = cell != nil && (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1   // §9 ON TAP = MUTE (momentary)
 
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(colour ?? cellBg)
@@ -225,6 +227,7 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
+        .opacity(tapMutedHere ? 0.28 : 1)                   // §9 ON TAP = MUTE: the momentarily-muted cell dims
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column

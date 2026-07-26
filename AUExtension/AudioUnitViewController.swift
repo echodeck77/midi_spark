@@ -90,6 +90,8 @@ struct DiagView: View {
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
+    @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
+    @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the emitter solo set
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
@@ -98,7 +100,14 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); tapAltMask = 0; au?.setTapAltMask(0) } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP flips EDIT-clears
+    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); clearOnTap() } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP overlays EDIT-clears
+
+    // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (alt flips, mutes, emitter solo).
+    private func clearOnTap() {
+        if tapAltMask != 0 { tapAltMask = 0; au?.setTapAltMask(0) }
+        if tapMuteMask != 0 { tapMuteMask = 0; au?.setTapMuteMask(0) }
+        if soloEmitterMask != 0 { soloEmitterMask = 0; au?.setSoloEmitterMask(0) }
+    }
 
     // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
     private func commitHiddenPending() {
@@ -246,12 +255,25 @@ struct DiagView: View {
             }
             selCol = col; selRow = row; scene = au.uiScene()
         } else {
-            // §9 item 1 ON TAP (unified ALT model): a PERFORM tap is an EPHEMERAL alt flip — not a document
-            // write. It XORs a per-cell bit (cleared on transport stop / EDIT switch); the render + the ring
-            // read it live. (ON TAP's other actions + quant/duration axes build on this in 4b.)
-            guard scene.cells[col][row] != nil else { return }
-            tapAltMask ^= (1 << UInt64(col * 8 + row))
-            au.setTapAltMask(tapAltMask)
+            // §9 item 1 ON TAP (4b): a PERFORM tap runs the Colour's ON TAP action — all EPHEMERAL (unified
+            // model; never a document write; cleared on transport stop / EDIT switch). NOW + RETAP (toggle)
+            // for now; the quant/duration axes are 4c. FILL/REPLAY await the design ferry.
+            guard let c = scene.cells[col][row] else { return }
+            let onTap = docColours.first { $0.colourID == c.colourID }?.onResolved.tap ?? .none
+            let bit: UInt64 = 1 << UInt64(col * 8 + row)
+            switch onTap {
+            case .mute:
+                tapMuteMask ^= bit; au.setTapMuteMask(tapMuteMask)
+            case .solo:                                       // SOLO EMITTERS: this cell's buses solo; siblings silent
+                var buses: UInt8 = 0
+                for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
+                soloEmitterMask = (soloEmitterMask == buses) ? 0 : buses
+                au.setSoloEmitterMask(soloEmitterMask)
+            case .alt, .none:                                 // default / explicit ALT → the ephemeral flip
+                tapAltMask ^= bit; au.setTapAltMask(tapAltMask)
+            case .fill, .replay:
+                break                                         // not yet wired (design clarification pending)
+            }
         }
     }
 
@@ -534,7 +556,7 @@ struct DiagView: View {
             let nd = au.kernelDiagnostics()
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
-                if tapAltMask != 0 { tapAltMask = 0; au.setTapAltMask(0) }   // ON TAP: momentary flips clear on stop
+                clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
             }
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
@@ -591,7 +613,7 @@ struct DiagView: View {
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
                  dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
                  staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
-                 hiddenPending: hiddenPending, tapAltMask: tapAltMask)
+                 hiddenPending: hiddenPending, tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
             .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
                 .onAppear { gridFrame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })

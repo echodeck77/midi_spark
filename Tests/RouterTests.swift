@@ -1317,6 +1317,47 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ons(tapMask: 1 << 0), 0, "tap flip on cell (0,0) → B (closed passgate) → silent")
     }
 
+    // §9 item 1 ON TAP = MUTE (4b): a cell whose tapMuteMask bit is set falls silent (momentary).
+    func testTapMuteSilencesCell() {
+        let gold = colourIDs.firstIndex(of: "gold")!
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // grid (0,0) = bit 0
+        func ons(_ mute: UInt64) -> Int {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+            while beat < 2.0 {
+                router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, tapMuteMask: mute, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return e.ons.count
+        }
+        XCTAssertGreaterThan(ons(0), 0, "un-muted → the cell sounds")
+        XCTAssertEqual(ons(1 << 0), 0, "ON TAP = MUTE (bit 0) → the cell is silent")
+    }
+
+    // §9 item 1 ON TAP = SOLO EMITTERS (4b): a solo set silences sibling emitters (cell on A + cell on B;
+    // solo = {A} → B falls silent). Solo bypasses previewMode elsewhere; here two real cells on two buses.
+    func testSoloEmitterMaskSilencesSiblings() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]); $0.cells[0][1] = Cell(colourID: "orange", buses: [.b]) }
+        func cables(_ solo: UInt8) -> Set<UInt8> {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+            while beat < 2.0 {
+                router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, soloEmitterMask: solo, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return Set(e.ons.map { $0.cable })
+        }
+        XCTAssertTrue(cables(0).isSuperset(of: [1, 2]), "no solo → both A (cable 1) and B (cable 2) sound")
+        let soloA = cables(1 << 0)
+        XCTAssertTrue(soloA.contains(1), "solo {A} → A sounds")
+        XCTAssertFalse(soloA.contains(2), "solo {A} → B (sibling) falls silent")
+    }
+
     // §9 item 1 ON HOLD (3a, integration): while a cell is press-held with ON HOLD = OCT up, its notes shift
     // an octave; not held, they play normally.
     func testOnHoldOctaveShiftsHeldCell() {

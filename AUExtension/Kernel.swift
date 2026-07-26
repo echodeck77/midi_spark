@@ -72,6 +72,11 @@ final class Kernel {
     // tap; cleared on transport stop / mode switch. Never persisted — a tap is momentary now, not a doc write.
     private var tapAltMask: UInt64 = 0
     func setTapAltMask(_ mask: UInt64) { tapAltMask = mask }
+    // §9 item 1 ON TAP actions (4b), ephemeral: per-cell MUTE + the global emitter SOLO set (bits A–D).
+    private var tapMuteMask: UInt64 = 0
+    private var soloEmitterMask: UInt8 = 0
+    func setTapMuteMask(_ mask: UInt64) { tapMuteMask = mask }
+    func setSoloEmitterMask(_ mask: UInt8) { soloEmitterMask = mask }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -218,6 +223,7 @@ final class Kernel {
                         timestampSample: timestamp.pointee.mSampleTime,
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
+                        tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 

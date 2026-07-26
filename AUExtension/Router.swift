@@ -115,6 +115,11 @@ final class Router {
     // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
     private var tapAltMask: UInt64 = 0
     private func tapFlipped(_ col: Int, _ row: Int) -> Bool { (tapAltMask >> UInt64(col * 8 + row)) & 1 == 1 }
+    // §9 item 1 ON TAP actions (4b), ephemeral: MUTE = a per-cell momentary silence (bit col*8+row);
+    // SOLO EMITTERS = a global emitter solo set (bits A–D; 0 = no solo → siblings fall silent at emission).
+    private var tapMuteMask: UInt64 = 0
+    private var soloEmitterMask: UInt8 = 0
+    private func tapMuted(_ col: Int, _ row: Int) -> Bool { (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1 }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -391,6 +396,9 @@ final class Router {
         // delta §6a: a DISABLED emitter emits nothing audible (its claim ghost, if any, was opened above,
         // so a muted claimant still reserves). All is then exactly the sum of ENABLED emitters.
         guard busEnabledMask & (1 << UInt8(bus)) != 0 else { return -1 }
+        // §9 ON TAP = SOLO EMITTERS: while a solo set is held, sibling emitters fall silent (own cable + its
+        // All contribution). previewMode bypasses (solo audition has no other-emitter context).
+        if soloEmitterMask != 0 && !previewMode && (soloEmitterMask & (1 << UInt8(bus))) == 0 { return -1 }
         // §6a PERFORM momentary override: while a strip's slider is touched, flatten every NEW note-on on
         // that emitter to the slider value (own cable + its All copy). 0 = untouched → natural velocity.
         let ov = UInt8((velOverride >> (UInt32(bus) * 8)) & 0xFF)
@@ -446,7 +454,7 @@ final class Router {
                                  windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 { continue }
+            if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -594,10 +602,13 @@ final class Router {
                  velOverride: UInt32 = 0,
                  heldCell: Int = -1,
                  tapAltMask: UInt64 = 0,
+                 tapMuteMask: UInt64 = 0,
+                 soloEmitterMask: UInt8 = 0,
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
+        self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -726,7 +737,7 @@ final class Router {
 
         for r in 0..<Snap.rows {
             let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted { continue }
+            if cell.colourIndex < 0 || cell.muted || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited

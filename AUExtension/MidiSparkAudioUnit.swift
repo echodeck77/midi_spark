@@ -83,6 +83,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// §9 item 1 ON TAP (unified ALT model): the ephemeral per-cell ALT flips (bit col*8+row). A PERFORM tap
     /// toggles a bit; cleared (0) on transport stop / mode switch. Ephemeral, never persisted (audition's class).
     func setTapAltMask(_ mask: UInt64) { kernel.setTapAltMask(mask) }
+    /// §9 item 1 ON TAP actions (4b): the ephemeral per-cell MUTE mask + the global emitter SOLO set (bits A–D).
+    func setTapMuteMask(_ mask: UInt64) { kernel.setTapMuteMask(mask) }
+    func setSoloEmitterMask(_ mask: UInt8) { kernel.setSoloEmitterMask(mask) }
 
     /// §6a PERFORM velocity override: force emitter `bus` (0…3 = A…D) to `value` (1–127) for every new
     /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
