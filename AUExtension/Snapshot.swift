@@ -83,12 +83,13 @@ final class SnapshotBox {
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
     let claimEmitter: Int8           // delta §6a: the one-claimant CLAIM emitter (0–3), or −1 = none
+    let thruReceiver: Int8           // receiver strip: the THRU-pip receiver (0–3) passthrough follows (default 0 = R1)
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
     let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
-         claimEmitter: Int8 = -1, receiverChannels: [UInt8] = [0, 0, 0, 0],
+         claimEmitter: Int8 = -1, thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]) {
         self.generation = generation
         self.stepBeats = stepBeats
@@ -99,6 +100,7 @@ final class SnapshotBox {
         self.busChannels = busChannels
         self.busEnabledMask = busEnabledMask
         self.claimEmitter = claimEmitter
+        self.thruReceiver = thruReceiver
         self.receiverChannels = receiverChannels
         self.receiverCables = receiverCables
     }

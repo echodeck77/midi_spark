@@ -289,6 +289,10 @@ struct PluginState: Codable, Equatable {
     // Persisted (a document property, unlike the ephemeral velocity override); optional so old docs
     // decode as nil. Suppression lives at the emission boundary against the live voice table.
     var claimEmitter: Int? = nil
+    // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
+    // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
+    // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.
+    var thruReceiver: Int? = nil
     // delta §9 item 11: the four document-level MIDI receivers (shared named inputs). Optional so pre-
     // receiver docs decode as nil and get four synthesized by synthesizeReceiversIfNeeded() on load.
     var receivers: [Receiver]? = nil
@@ -297,6 +301,8 @@ struct PluginState: Codable, Equatable {
         let r = receivers ?? []
         return (0..<4).map { $0 < r.count ? r[$0] : Receiver(name: "\($0 + 1)") }
     }
+    /// The THRU-pip receiver index, nil-safe + clamped (missing ⇒ R1). Non-persisting read helper.
+    var thruReceiverResolved: Int { min(3, max(0, thruReceiver ?? 0)) }
 
     /// A copy with one ACTIVE-scene cell forced to `cell` (nil = empty). Used to STRIP the live staging
     /// preview from the encoded preset: the preview is placed into the document transiently (so it sounds

@@ -209,6 +209,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(receiverHearsCable(mask: 0b0001, eventCable: 9))
     }
 
+    func testThruAudiblePassthroughGate() {
+        let any = 0b1111
+        // Un-muted THRU on OMNI/ANY forwards a non-note event (today's default R1 behaviour).
+        XCTAssertTrue(thruAudible(isNote: false, filter: 0, cableMask: any, eventCable: 1, channel: 5))
+        // A non-note event on the WRONG channel is blocked; a note soundcheck ignores channel (mute-gated only).
+        XCTAssertFalse(thruAudible(isNote: false, filter: 3, cableMask: any, eventCable: 1, channel: 5))  // filter 3 = wire ch 2
+        XCTAssertTrue(thruAudible(isNote: true, filter: 3, cableMask: any, eventCable: 1, channel: 5))    // note ignores channel
+        // A non-note event on the wrong CABLE is blocked.
+        XCTAssertFalse(thruAudible(isNote: false, filter: 0, cableMask: 0b0010, eventCable: 1, channel: 5))
+        // A MUTED THRU (filter ≥ mutedSourceFilter) blocks EVERYTHING — non-note AND the note soundcheck.
+        XCTAssertFalse(thruAudible(isNote: false, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
+        XCTAssertFalse(thruAudible(isNote: true, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
+    }
+
     // MARK: UMP → legacy (§item 11 INPUT CABLES — the eventList path)
 
     // A UMP MIDI-1.0 Channel-Voice message (MT 0x2): one word [MT|grp][status][d1][d2].

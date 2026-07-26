@@ -110,6 +110,7 @@ enum SnapshotBuilder {
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
                            claimEmitter: claim,
+                           thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
                            receiverCables: recvCable)
     }

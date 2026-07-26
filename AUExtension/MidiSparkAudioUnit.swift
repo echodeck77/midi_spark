@@ -137,6 +137,14 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
+    /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
+    func uiThruReceiver() -> Int { document.thruReceiverResolved }
+    func setThruReceiver(_ i: Int) {
+        guard (0..<4).contains(i) else { return }
+        editDocument { $0.thruReceiver = i }
+    }
+
     /// Read-only Colours (type + params) so the grid can render each cell's type glyph + params text.
     func uiColours() -> [Colour] { document.colours }
 

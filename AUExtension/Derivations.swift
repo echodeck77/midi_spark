@@ -363,6 +363,17 @@ func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
     return (mask & (1 << (eventCable - 1))) != 0
 }
 
+/// The THRU-pip passthrough gate (receiver strip): may a passthrough event forward, following the THRU
+/// receiver (its `filter`/`cableMask`)? A MUTED THRU (filter ≥ mutedSourceFilter) blocks EVERYTHING — the
+/// note soundcheck included. A non-note event (CC/PB/AT) additionally requires the THRU receiver's
+/// cable+channel admission; a note (stopped-transport soundcheck) is mute-gated only. Supersedes the
+/// hardwired follows-R1 rule — same behaviour, now aimed by the movable pip.
+@inline(__always) func thruAudible(isNote: Bool, filter: UInt8, cableMask: Int, eventCable: Int, channel: UInt8) -> Bool {
+    if filter >= Snap.mutedSourceFilter { return false }        // muted THRU passes nothing
+    if isNote { return true }                                   // note soundcheck: mute-gated only
+    return receiverHearsCable(mask: cableMask, eventCable: eventCable) && receiverHears(filter: filter, channel: channel)
+}
+
 /// UI peak-hold decay (delta §6a metering): a level fading linearly from `peak` to 0 over `hold`
 /// seconds since `since`. Shared by the RECEIVERS input meters and the EMITTERS output meters — the
 /// UI owns the decay (the engine feed is read-and-clear). Clamped ≥ 0 so a stale timestamp reads dark.

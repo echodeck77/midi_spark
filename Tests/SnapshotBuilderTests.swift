@@ -28,6 +28,17 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.colours[0].on, OnConfig(), "an unassigned colour resolves to an empty OnConfig")
     }
 
+    func testThruReceiverFlowsToSnapshot() {
+        func thru(_ v: Int?) -> Int8 {
+            var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+            st.thruReceiver = v
+            return SnapshotBuilder.build(from: st).thruReceiver
+        }
+        XCTAssertEqual(thru(nil), 0, "nil ⇒ default R1")
+        XCTAssertEqual(thru(2), 2, "the pip's receiver reaches the snapshot")
+        XCTAssertEqual(thru(9), 3, "out-of-range clamps to R4")
+    }
+
     func testBusEnabledMaskFromDocument() {
         func mask(_ e: [Bool]?) -> UInt8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

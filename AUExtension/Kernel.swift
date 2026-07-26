@@ -114,6 +114,7 @@ final class Kernel {
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
     private var receiverChannels: [UInt8] = [0, 0, 0, 0]
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
+    private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
     func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32]) {
@@ -142,6 +143,7 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
+        thruReceiver = min(3, max(0, Int(box.thruReceiver)))   // receiver strip: which receiver passthrough follows
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
         liveEmitter.out = midiOut       // sync the emission seam to the current host block, this render
@@ -303,15 +305,13 @@ final class Kernel {
         let pVel  = length >= 3 ? bytes[2] : 0
         var mask = passthroughGate.mask(statusByte: bytes[0], note: pNote, velocity: pVel,
                                         playing: playing, auditionSuppressing: suppressAuditionNotes || previewActive)
-        // §item 11: the CC/PB/AT passthrough FOLLOWS RECEIVER 1's SOURCE — only forward a non-note event R1
-        // hears (its cable + channel). Default R1 (ANY cable, OMNI channel) passes everything, as today.
-        if !isNote && !(receiverHearsCable(mask: Int(receiverCables[0]), eventCable: cable)
-                        && receiverHears(filter: receiverChannels[0], channel: channel)) {
+        // receiver strip: passthrough FOLLOWS THE THRU PIP's receiver (default R1) — supersedes follows-R1.
+        // A non-note event forwards only if the THRU receiver hears it (cable + channel); a note soundcheck is
+        // mute-gated only; a MUTED THRU passes NOTHING (note soundcheck included). See `thruAudible`.
+        if !thruAudible(isNote: isNote, filter: receiverChannels[thruReceiver], cableMask: Int(receiverCables[thruReceiver]),
+                        eventCable: cable, channel: channel) {
             mask = 0
         }
-        // §item 11 (mute ruling 2026-07-26): a MUTED Receiver 1 passes NOTHING — the note soundcheck
-        // included — so all-muted receivers ⇒ total input silence. recvCh carries mute as mutedSourceFilter.
-        if receiverChannels[0] >= Snap.mutedSourceFilter { mask = 0 }
         if mask != 0, let out = midiOut {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }
