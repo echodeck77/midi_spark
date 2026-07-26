@@ -437,6 +437,28 @@ func holdOctaveShift(on: OnConfig, held: Bool) -> Int {
     (held && on.hold == .oct) ? (on.octUp ? 12 : -12) : 0
 }
 
+// MARK: - ON TAP timing (§9 item 1, 4c) — quantized onset + duration expiry (pure functions of the beat)
+
+/// The musical beat at which a tapped action TAKES EFFECT: NOW = immediately; STEP / PASS = the next step /
+/// pass boundary strictly after the tap. (LAP ≈ PASS in v1 — the true §5b lap boundary is deferred.)
+func tapOnsetBeat(tapBeat: Double, quant: OnTapWhen, stepBeats: Double) -> Double {
+    let step = max(0.01, stepBeats), cycle = step * 8
+    switch quant {
+    case .now:          return tapBeat
+    case .step:         return (floor(tapBeat / step) + 1) * step
+    case .pass, .lap:   return (floor(tapBeat / cycle) + 1) * cycle
+    }
+}
+
+/// The musical beat at which a tapped action EXPIRES: RETAP = never (held until re-tap); 1-PASS / 1-LAP = one
+/// pass after onset. (1-LAP ≈ 1-PASS in v1.)
+func tapExpiryBeat(onsetBeat: Double, duration: OnTapFor, stepBeats: Double) -> Double {
+    switch duration {
+    case .retap:            return .infinity
+    case .onePass, .oneLap: return onsetBeat + max(0.01, stepBeats) * 8
+    }
+}
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)

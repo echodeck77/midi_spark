@@ -92,6 +92,11 @@ struct DiagView: View {
     @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
     @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the emitter solo set
+    // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
+    // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
+    private enum TapKind { case alt, mute, solo }
+    private struct TapAction { let cell: Int; let kind: TapKind; let busMask: UInt8; let onset: Double; let expiry: Double }
+    @State private var tapActions: [TapAction] = []
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
@@ -102,8 +107,9 @@ struct DiagView: View {
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
     private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); clearOnTap() } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP overlays EDIT-clears
 
-    // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (alt flips, mutes, emitter solo).
+    // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (timed actions + alt flips, mutes, emitter solo).
     private func clearOnTap() {
+        if !tapActions.isEmpty { tapActions.removeAll() }
         if tapAltMask != 0 { tapAltMask = 0; au?.setTapAltMask(0) }
         if tapMuteMask != 0 { tapMuteMask = 0; au?.setTapMuteMask(0) }
         if soloEmitterMask != 0 { soloEmitterMask = 0; au?.setSoloEmitterMask(0) }
@@ -255,26 +261,49 @@ struct DiagView: View {
             }
             selCol = col; selRow = row; scene = au.uiScene()
         } else {
-            // §9 item 1 ON TAP (4b): a PERFORM tap runs the Colour's ON TAP action — all EPHEMERAL (unified
-            // model; never a document write; cleared on transport stop / EDIT switch). NOW + RETAP (toggle)
-            // for now; the quant/duration axes are 4c. FILL/REPLAY await the design ferry.
+            // §9 item 1 ON TAP (4b/4c): a PERFORM tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL
+            // overlay — onset from tapWhen (NOW/STEP/PASS/LAP), expiry from tapFor (RETAP toggle / 1-PASS /
+            // 1-LAP). Never a document write; cleared on transport stop / EDIT switch. FILL/REPLAY await design.
             guard let c = scene.cells[col][row] else { return }
-            let onTap = docColours.first { $0.colourID == c.colourID }?.onResolved.tap ?? .none
-            let bit: UInt64 = 1 << UInt64(col * 8 + row)
-            switch onTap {
-            case .mute:
-                tapMuteMask ^= bit; au.setTapMuteMask(tapMuteMask)
-            case .solo:                                       // SOLO EMITTERS: this cell's buses solo; siblings silent
-                var buses: UInt8 = 0
-                for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
-                soloEmitterMask = (soloEmitterMask == buses) ? 0 : buses
-                au.setSoloEmitterMask(soloEmitterMask)
-            case .alt, .none:                                 // default / explicit ALT → the ephemeral flip
-                tapAltMask ^= bit; au.setTapAltMask(tapAltMask)
-            case .fill, .replay:
-                break                                         // not yet wired (design clarification pending)
+            let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
+            let kind: TapKind
+            switch on.tap {
+            case .mute:        kind = .mute
+            case .solo:        kind = .solo
+            case .alt, .none:  kind = .alt
+            case .fill, .replay: return                       // not yet wired (design clarification pending)
+            }
+            let idx = col * 8 + row
+            var buses: UInt8 = 0
+            for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
+            let onset = tapOnsetBeat(tapBeat: d.beat, quant: on.tapWhen, stepBeats: stepBeats)
+            let expiry = tapExpiryBeat(onsetBeat: onset, duration: on.tapFor, stepBeats: stepBeats)
+            if on.tapFor == .retap, let i = tapActions.firstIndex(where: { $0.cell == idx && $0.kind == kind }) {
+                tapActions.remove(at: i)                       // RETAP: a second tap toggles it off
+            } else {
+                tapActions.removeAll { $0.cell == idx && $0.kind == kind }   // re-tap replaces any prior for this cell/action
+                tapActions.append(TapAction(cell: idx, kind: kind, busMask: buses, onset: onset, expiry: expiry))
+            }
+            refreshTapMasks()
+        }
+    }
+
+    // §9 item 1 ON TAP (4c): derive the three ephemeral masks from the actions live at the current beat —
+    // pruning expired ones. Runs on tap AND each poll (so onsets fire + durations expire). Dedup-guarded.
+    private func refreshTapMasks() {
+        let now = d.beat
+        if tapActions.contains(where: { now >= $0.expiry }) { tapActions.removeAll { now >= $0.expiry } }  // only mutate @State on real expiry
+        var alt: UInt64 = 0, mute: UInt64 = 0, solo: UInt8 = 0
+        for a in tapActions where a.onset <= now {
+            switch a.kind {
+            case .alt:  alt  |= 1 << UInt64(a.cell)
+            case .mute: mute |= 1 << UInt64(a.cell)
+            case .solo: solo |= a.busMask
             }
         }
+        if alt  != tapAltMask     { tapAltMask = alt;      au?.setTapAltMask(alt) }
+        if mute != tapMuteMask    { tapMuteMask = mute;    au?.setTapMuteMask(mute) }
+        if solo != soloEmitterMask { soloEmitterMask = solo; au?.setSoloEmitterMask(solo) }
     }
 
     // Cell-edit STAGING banner (user 2026-07-25) — the mode indicator + DONE exit. Cyan to match the
@@ -575,6 +604,7 @@ struct DiagView: View {
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
+            if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
         }

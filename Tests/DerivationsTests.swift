@@ -353,6 +353,23 @@ final class DerivationsTests: XCTestCase {
         on.hold = .freeze; XCTAssertEqual(holdOctaveShift(on: on, held: true), 0)   // a non-oct hold → no shift
     }
 
+    // MARK: - ON TAP timing (§9 item 1, 4c) — quantized onset + duration expiry
+
+    func testTapOnsetQuantization() {
+        let step = 2.0   // cycle = 16 beats
+        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .now,  stepBeats: step), 5.3, accuracy: 1e-9)
+        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .step, stepBeats: step), 6.0, accuracy: 1e-9)   // next step (…4,6,8)
+        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .pass, stepBeats: step), 16.0, accuracy: 1e-9)  // next pass (0,16)
+        XCTAssertEqual(tapOnsetBeat(tapBeat: 5.3, quant: .lap,  stepBeats: step), 16.0, accuracy: 1e-9)  // v1: LAP ≈ PASS
+        XCTAssertEqual(tapOnsetBeat(tapBeat: 4.0, quant: .step, stepBeats: step), 6.0, accuracy: 1e-9)   // on a boundary → the NEXT
+    }
+
+    func testTapExpiry() {
+        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .retap, stepBeats: 2.0), .infinity)
+        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .onePass, stepBeats: 2.0), 22.0, accuracy: 1e-9)  // 6 + 16
+        XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .oneLap, stepBeats: 2.0), 22.0, accuracy: 1e-9)
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {
