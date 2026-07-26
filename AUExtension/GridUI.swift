@@ -351,12 +351,12 @@ struct GridView: View {
         .padding(.horizontal, 2)
     }
 
-    // ④ EMITTER STRIP — A B C D; lit = on, brighter (white) = firing this column.
+    // ④ EMITTER STRIP — E1 E2 E3 E4 as numeral chips; lit = on, brighter (white) = firing this column.
     private func emitterStrip(_ cell: Cell, firing: Bool) -> some View {
         HStack(spacing: 2) {
-            ForEach(Bus.allCases, id: \.self) { b in
+            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { idx, b in
                 let on = cell.buses.contains(b)
-                Text(b.rawValue)
+                Text("\(idx + 1)")
                     .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
                     .foregroundColor(on ? (firing ? .black : .white) : .black.opacity(0.4))
                     .frame(maxWidth: .infinity).frame(height: 11)
@@ -623,12 +623,16 @@ struct OutputsView: View {
     let onSetChannel: (Int, Int) -> Void  // EDIT stepper → set emitter i's stamp channel (1–16)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
     var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM radio → toggle emitter i as sole claimant
+    var soloMask: UInt8 = 0                                 // foot SOLO — additive set (reuses soloEmitterMask)
+    var onToggleSolo: (Int) -> Void = { _ in }
+    var octave: [Int] = [0, 0, 0, 0]                       // E-2: ephemeral output ±octave nudge
+    var onOct: (Int, Int) -> Void = { _, _ in }            // (emitter, ±1)
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let letters = ["A", "B", "C", "D"]
+    private let letters = ["E1", "E2", "E3", "E4"]         // emitters relabelled E1–E4 (design directive 2026-07-26)
     private let controlHeight: CGFloat = 78   // the EDIT stepper / PERFORM fader region — identical both modes
 
     private func on(_ i: Int) -> Bool { i < busEnabled.count ? busEnabled[i] : true }
@@ -638,49 +642,78 @@ struct OutputsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text(editing ? "tap ▲▼ to set channel" : "drag to force velocity")
-                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            }
-            HStack(alignment: .top, spacing: 5) { ForEach(0..<4, id: \.self) { strip($0) } }
+        VStack(alignment: .leading, spacing: 3) {
+            Text("EMITTERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
         }
         .onChange(of: holdLatch) { latched in            // §5c: HOLD-off = the drop → every fader springs home
             if !latched { for i in 0..<4 { faderVel[i] = nil; onVelOverride(i, nil) } }
         }
     }
 
-    // One emitter strip: toggle pad + a fixed-height control region — the CH stepper in EDIT, or the
-    // velocity fader over a CLAIM radio in PERFORM. Both regions are `controlHeight` tall, so the panel
-    // frame is identical across the mode flip (§6a static-frame law).
+    // One emitter strip — the receiver strip's twin anatomy: header (dot + E-label + ch) · SLIDER | role
+    // column (CLAIM/OCT in PERFORM, CHANNEL stepper in EDIT) · foot MUTE·SOLO. A soloed strip glows;
+    // excluded strips dim. Both faces fill `controlHeight`, so the frame is identical across the mode flip.
     private func strip(_ i: Int) -> some View {
-        VStack(spacing: 4) {
-            togglePad(i)
-            if editing {
-                channelStepper(i)
-            } else {
-                VStack(spacing: 3) {
-                    fader(i)          // flexible — fills the region above the radio
-                    claimRadio(i)     // fixed footer
-                }
-                .frame(height: controlHeight)
+        let muted = !on(i), soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
+        return VStack(spacing: 3) {
+            header(i, muted: muted)
+            HStack(alignment: .top, spacing: 3) {
+                fader(i).frame(width: 16).frame(maxHeight: .infinity)
+                if editing { channelStepper(i) } else { roleColumn(i) }
+            }
+            .frame(height: controlHeight)
+            HStack(spacing: 3) {                             // foot: MUTE (the enable gate) · SOLO
+                footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: cyan, dim: muted) { onToggle(i) }
+                footBtn("SOLO", lit: soloed, hue: amber, dim: excluded) { onToggleSolo(i) }
             }
         }
         .frame(maxWidth: .infinity)
+        .opacity(excluded ? 0.5 : 1)
     }
 
-    // TOGGLE — the emitter letter over its enable state; the meter flash lives here in both modes.
-    private func togglePad(_ i: Int) -> some View {
-        let enabled = on(i)
-        return Text(letters[i]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-            .foregroundColor(enabled ? .black : .white.opacity(0.35))
-            .frame(maxWidth: .infinity).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 6).fill(enabled ? cyan : Color.white.opacity(0.05)))
-            .overlay { if enabled { meter(i) } }        // §6a velocity meter (disabled emitters never meter)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? .clear : Color.white.opacity(0.12), lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { onToggle(i) }
+    private func bit(_ mask: UInt8, _ i: Int) -> Bool { mask & (1 << UInt8(i)) != 0 }
+
+    // Header: enable dot + E-label + the stamp channel (amber when shared with another enabled emitter).
+    private func header(_ i: Int, muted: Bool) -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(muted ? Color.white.opacity(0.25) : cyan).frame(width: 7, height: 7)
+            Text(letters[i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
+            Spacer(minLength: 0)
+            Text("ch\(ch(i))").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(sharedWithEnabled(i) ? amber : .white.opacity(0.5))
+        }
+    }
+
+    // PERFORM role column: CLAIM (existing radio) + OCT−/OCT+. FLATTEN + ALT are DEFERRED (the role family is
+    // gated behind the single-CLAIM device pass — spec 2026-07-26); their slots join here once CLAIM is trusted.
+    private func roleColumn(_ i: Int) -> some View {
+        let oct = i < octave.count ? octave[i] : 0
+        return VStack(spacing: 2) {
+            claimRadio(i)
+            HStack(spacing: 2) {
+                octBtn("OCT−") { onOct(i, -1) }
+                octBtn("OCT+") { onOct(i, +1) }
+            }
+            Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
+                .font(.system(size: 7, weight: .heavy, design: .monospaced))
+                .foregroundColor(oct != 0 ? amber : .white.opacity(0.3))
+            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity)
+    }
+    private func octBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func footBtn(_ label: String, lit: Bool, hue: Color, dim: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
+            .frame(maxWidth: .infinity).frame(height: 15)
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue : Color.white.opacity(0.06)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
     // EDIT — a dedicated per-emitter channel stepper (▲/▼, wrapping 1–16). Replaces the a2 popover;
@@ -785,23 +818,6 @@ struct OutputsView: View {
         }
     }
 
-    /// §6a metering (EVENT-driven, UI owns the decay): a velocity glow-flash on the toggle pad, driven
-    /// by the latched peak (peak-hold, ~150ms linear decay). Post-transform velocity, always.
-    private func meter(_ i: Int) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-            let level = decayed(i, now: tl.date)
-            ZStack(alignment: .bottom) {
-                Color.white.opacity(level * 0.4)                                    // velocity glow-flash
-                GeometryReader { g in
-                    Rectangle().fill(Color.white.opacity(0.85))                     // thin peak-hold level bar
-                        .frame(width: g.size.width * CGFloat(level), height: 2)
-                        .position(x: g.size.width * CGFloat(level) / 2, y: g.size.height - 1)
-                }
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .allowsHitTesting(false)
-    }
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < emitPeak.count, i < emitPeakAt.count else { return 0 }
         return peakHoldLevel(peak: emitPeak[i], since: emitPeakAt[i], now: now)   // ~150ms peak-hold decay
@@ -1352,7 +1368,7 @@ struct StagingEmittersView: View {
             HStack(spacing: 5) {
                 ForEach(0..<4, id: \.self) { i in
                     let on = buses.contains(letters[i])
-                    Text(letters[i].rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                    Text("\(i + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced))   // E1–E4 → numeral chips
                         .foregroundColor(on ? .black : .white.opacity(0.35))
                         .frame(maxWidth: .infinity).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? stagingCyan : Color.white.opacity(0.05)))

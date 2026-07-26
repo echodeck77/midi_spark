@@ -99,7 +99,8 @@ struct DiagView: View {
     @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
-    @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the emitter solo set
+    @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
+    @State private var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
     private enum TapKind { case alt, mute, solo }
@@ -120,7 +121,15 @@ struct DiagView: View {
         if !tapActions.isEmpty { tapActions.removeAll() }
         if tapAltMask != 0 { tapAltMask = 0; au?.setTapAltMask(0) }
         if tapMuteMask != 0 { tapMuteMask = 0; au?.setTapMuteMask(0) }
+        if emitterFootSolo != 0 { emitterFootSolo = 0 }
         if soloEmitterMask != 0 { soloEmitterMask = 0; au?.setSoloEmitterMask(0) }
+    }
+
+    // emitter strip: additive foot SOLO — toggle a bit, then re-derive so the kernel sees the union immediately.
+    private func toggleEmitterSolo(_ i: Int) {
+        guard (0..<4).contains(i) else { return }
+        emitterFootSolo ^= UInt8(1 << i)
+        refreshTapMasks()
     }
 
     // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
@@ -309,6 +318,7 @@ struct DiagView: View {
             case .solo: solo |= a.busMask
             }
         }
+        solo |= emitterFootSolo   // emitter strip: the foot SOLO buttons union with any ON-TAP solo
         if alt  != tapAltMask     { tapAltMask = alt;      au?.setTapAltMask(alt) }
         if mute != tapMuteMask    { tapMuteMask = mute;    au?.setTapMuteMask(mute) }
         if solo != soloEmitterMask { soloEmitterMask = solo; au?.setSoloEmitterMask(solo) }
@@ -763,7 +773,8 @@ struct DiagView: View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, claim: claim, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
-                    onVelOverride: setVelOverride, onClaim: setClaim)
+                    onVelOverride: setVelOverride, onClaim: setClaim,
+                    soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
