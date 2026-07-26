@@ -547,7 +547,6 @@ struct DiagView: View {
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
                         colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                         sceneStrip
-                        devLoader
                     }
                     .padding(12)
                 }
@@ -623,11 +622,19 @@ struct DiagView: View {
     private func signalColumn(_ appWidth: CGFloat) -> some View {
         GeometryReader { g in
             let cell = max(20, min(52, (g.size.height - 30) / 17))
-            let bandW = appWidth * 0.5, bandH = cell * 4
+            let bandH = cell * 4, half = g.size.width * 0.5   // band = 50% of the GRID width; flanks split the rest (≈25% each)
             VStack(spacing: 3) {
-                receiversBox.frame(width: bandW, height: bandH).frame(maxWidth: .infinity)   // 50% wide, centred, 4 rows
+                HStack(spacing: 6) {                          // [placeholder] · RECEIVERS · [diagnostics]
+                    placeholderBox.frame(maxWidth: .infinity)
+                    receiversBox.frame(width: half)
+                    diagBox.frame(maxWidth: .infinity)
+                }.frame(height: bandH)
                 gridBlock(cell)
-                emittersBox.frame(width: bandW, height: bandH).frame(maxWidth: .infinity)
+                HStack(spacing: 6) {                          // [colour picker] · EMITTERS · [placeholder]
+                    colourBox.frame(maxWidth: .infinity)
+                    emittersBox.frame(width: half)
+                    placeholderBox.frame(maxWidth: .infinity)
+                }.frame(height: bandH)
             }
         }
     }
@@ -674,8 +681,7 @@ struct DiagView: View {
     // below the grid), not here.
     private var identityColumn: some View {
         VStack(spacing: 8) {
-            colourBox
-            if staging { cellBox }         // cell-edit surface, directly below the COLOUR grid
+            if staging { cellBox }         // COLOUR moved to the emitter row; cell-edit surface stays here
             altPanel
             processorSelector
             processorSettings
@@ -689,7 +695,7 @@ struct DiagView: View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap)
         return HStack(alignment: .top, spacing: gap) {
-            VStack(spacing: gap) { colourBox; if staging { cellBox }; altPanel }.frame(width: avail * 0.34)
+            VStack(spacing: gap) { if staging { cellBox }; altPanel }.frame(width: avail * 0.34)   // COLOUR moved to the emitter row
             VStack(spacing: gap) { processorSelector; processorSettings }.frame(width: avail * 0.66)
         }
     }
@@ -794,6 +800,30 @@ struct DiagView: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
+    // A neutral placeholder box (reserved space for a future control) — flanks the bands.
+    private var placeholderBox: some View {
+        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.02))
+            .overlay(RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(.white.opacity(0.06), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+    }
+
+    // The dev diagnostics (a8 stuck-note monitor) as a compact VERTICAL box — sits to the RIGHT of RECEIVERS.
+    private var diagBox: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("DIAG").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            Text("VOICES \(d.activeVoiceCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Text("HELD \(d.poolCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Text("ECHO \(d.passthroughHeld)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Text("PANICS \(d.panics)").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(d.panics > 0 ? .black : .white.opacity(0.5))
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(d.panics > 0 ? Color(red: 0.98, green: 0.35, blue: 0.3) : .clear))
+            Spacer(minLength: 0)
+        }
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
     // §6d: ALT is now its own panel (delta §9 item 5) — the pairing home, a palette-cell-sized button
     // (empty dashed slot when unpaired) + the targeting hint. Tap → target; then pick a palette Colour.
     private var altPanel: some View {
@@ -808,7 +838,6 @@ struct DiagView: View {
                 Text("pick a partner Colour (re-pick to unpair · tap ALT to cancel)")
                     .font(.system(size: 7, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
             }
-            stuckNoteMonitor   // diagnostics moved here (the ALT box is a temporary home — it retires in a future design)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
