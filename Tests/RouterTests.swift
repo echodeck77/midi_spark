@@ -1779,4 +1779,60 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertGreaterThan(diag.panics, 0, "PANIC is logged by the hang kit")
     }
+
+    // MARK: - T13b: a chord-hold parent (PASS/identity) feeding a tick child (ARP) — the routing hole
+
+    func testOpenPassgateParentFeedsArpChild() {
+        // T13's INVERSION: row0 OPEN PASS ⇐MIDI →A, row1 ARP ⇐row0 →B. The ARP must arp the parent's HELD
+        // CHORD (was silent — parentSoundingNote returned nil for a chord-hold parent).
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
+        let b = box(colours: cs) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])                                             // PASS ⇐ MIDI → A
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()     // ARP ⇐ row0 → B
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let bNotes = Set(e.ons.filter { $0.cable == 2 }.map { $0.note })
+        XCTAssertFalse(bNotes.isEmpty, "the ARP child must SOUND (PASS→ARP fix) — not stay silent")
+        XCTAssertTrue(bNotes.isSuperset(of: [60, 64, 67]), "it arpeggiates every note of the held chord")
+        assertNothingLeftSounding(e)
+    }
+
+    func testClosedPassgateParentSilencesArpChild() {
+        // a CLOSED passgate outputs nothing → the referencing ARP correctly stays silent.
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [false, false, false, false]; return c }()
+        let b = box(colours: cs) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "a closed passgate parent ⇒ the ARP child is silent")
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: - ALT edge: advance-until-present (no starvation of a partial fan-out)
+
+    func testAltEdgeSkipsAbsentMemberWithoutStarving() {
+        // altMask = {A,B,C}; one arp cell fans to {A,C} only. When the pointer lands on B (absent here) it must
+        // advance to the next PRESENT member (C) — so A and C ALTERNATE. The old lowest-present rule starved C.
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .c])
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = 0b0111; st.altCount = [1, 1, 1, 1]
+        let box = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        let a = e.ons.filter { $0.cable == 1 }.count, c = e.ons.filter { $0.cable == 3 }.count   // A=cable1, C=cable3
+        XCTAssertGreaterThan(a, 0); XCTAssertGreaterThan(c, 0, "C must not be starved — it takes B's skipped turns")
+        XCTAssertLessThanOrEqual(abs(a - c), 1, "A and C alternate evenly")
+    }
 }

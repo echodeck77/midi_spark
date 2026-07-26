@@ -436,17 +436,21 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
-        // role family ALT: if this articulation fans to the ALT group, route it to the ONE current turn-holder
-        // among the group (position order, notes-per-turn), leaving non-group emitters untouched; then advance
-        // the turn. If the holder isn't in THIS fan-out's group members, route to the lowest present member (no
-        // lost notes — a partial fan-out edge). previewMode bypasses.
+        // role family ALT (design ruling: advance-until-present, pointer-lands-after): if this articulation fans
+        // to the ALT group, scan the expanded turn sequence from the pointer for the first member PRESENT in this
+        // fan-out, route the note there (non-group emitters untouched), and land the pointer JUST PAST it. Full
+        // fan-outs keep strict rotation; partial fan-outs alternate within their subset (no starvation, no lost
+        // notes); mixed cells share one deterministic pointer. previewMode bypasses.
         var busMask = busMask
         let altGroup = busMask & altMask
         if altGroup != 0 && !previewMode && !altSequence.isEmpty {
-            let holder = altSequence[altTurn % altSequence.count]
-            let pick: UInt8 = (altGroup & (1 << holder)) != 0 ? (1 << holder) : (altGroup & (~altGroup + 1))
+            let len = altSequence.count
+            var pick = altGroup & (~altGroup + 1)   // fallback = lowest present (only if none matched, shouldn't happen)
+            for off in 0..<len {
+                let entry = altSequence[(altTurn + off) % len]
+                if altGroup & (1 << entry) != 0 { pick = 1 << entry; altTurn = (altTurn + off + 1) % len; break }
+            }
             busMask = (busMask & ~altMask) | pick
-            altTurn += 1
         }
         // §6a CLAIM: emit the CLAIMANT bus FIRST when this articulation fans to it, so its ownership trace
         // (the silent ghost opened in emitOneBus) is in the table before any non-claimant in the same
@@ -627,6 +631,26 @@ final class Router {
         }
     }
 
+    /// A chord-hold "relay" parent (identity / OPEN passgate at MIDI-IN, sounding this column) outputs its
+    /// held SOURCE POOL, not a single note — so a referencing ARP must arpeggiate that pool, not sample one
+    /// note (the routing hole that silenced PASS→ARP). Returns the parent's (filter, cableMask, transpose)
+    /// if it is such a relay this column; nil for single-note parents (arp/…) → fall back to parentSoundingNote.
+    private func chordHoldRelayFilter(_ box: SnapshotBox, column: Int, pRow: Int, m: Double,
+                                      cycleBeats: Double) -> (filter: UInt8, cableMask: Int, transpose: Int)? {
+        guard pRow >= 0 else { return nil }
+        let cell = box.cells[column * Snap.rows + pRow]
+        guard cell.colourIndex >= 0, !cell.muted else { return nil }
+        guard parentRow(box, column, pRow) < 0 else { return nil }   // the parent itself references → not a MIDI-IN relay
+        let ci = Int(cell.colourIndex), colour = box.colours[ci]
+        let pass = Int((m / cycleBeats).rounded(.down))
+        let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
+        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
+                            passMask: effectivePassMask(colour, t: t), pass: pass)
+        guard mode == .identity else { return nil }   // chord-hold this column (open passgate resolves to .identity)
+        let transpose = Int(over(2 + ci, Double(colour.transpose)).rounded()) + octaveShift(cell.resolvedReceiver)
+        return (cell.inputChannel, Int(cell.inputCableMask), transpose)
+    }
+
     /// The single sounding note of the cell at (column, row) at musical beat `m`, computed by
     /// DERIVATION — valid at ANY instant, independent of render-window boundaries. This is what lets
     /// a referencing ARP sample its parent's CURRENT note even when that note was struck in an earlier
@@ -666,6 +690,11 @@ final class Router {
                                   S: S, cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
             if referencing {
+                if let rly = chordHoldRelayFilter(box, column: column, pRow: parent, m: m, cycleBeats: cycleBeats) {
+                    let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                                          pool: pool, filter: rly.filter, cableMask: rly.cableMask)   // arp the parent's held POOL
+                    return b >= 0 ? b + rly.transpose + transpose : nil
+                }
                 guard let up = parentSoundingNote(row: parent, column: column, m: m,
                                                   box: box, pool: pool, S: S, cycleBeats: cycleBeats,
                                                   depth: depth + 1)
@@ -993,11 +1022,19 @@ final class Router {
                                   runStartColumn: cell.runStartColumn)
             let base: Int
             if fed {
-                guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
-                                                  box: box, pool: pool, S: S, cycleBeats: cycleBeats)
-                else { return }
-                let oct = Int64(max(1, octaves))
-                base = up + 12 * Int(((pIdx % oct) + oct) % oct)   // up already has parent transpose
+                if let rly = chordHoldRelayFilter(box, column: effColumn, pRow: parent, m: mTickBeat, cycleBeats: cycleBeats) {
+                    // the parent HOLDS a chord (identity / open passgate) → arp its held POOL, not one note
+                    let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                                          pool: pool, filter: rly.filter, cableMask: rly.cableMask)
+                    guard b >= 0 else { return }
+                    base = b + rly.transpose
+                } else {
+                    guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
+                                                      box: box, pool: pool, S: S, cycleBeats: cycleBeats)
+                    else { return }
+                    let oct = Int64(max(1, octaves))
+                    base = up + 12 * Int(((pIdx % oct) + oct) % oct)   // up already has parent transpose
+                }
             } else {
                 base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
                                      pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
