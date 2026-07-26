@@ -88,6 +88,15 @@ final class Kernel {
         let shift = UInt32(recv) * 8
         inputOctave = (inputOctave & ~(0xFF << shift)) | (byte << shift)
     }
+    // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
+    // receiver (0 = none, 1–127 = flatten). Ephemeral; the UI springs it back to 0 on slider release.
+    private var inputVelOverride: UInt32 = 0
+    func setInputVelOverride(_ recv: Int, _ value: Int?) {
+        guard recv >= 0 && recv < 4 else { return }
+        let byte = UInt32((value.map { max(1, min(127, $0)) } ?? 0)) & 0xFF
+        let shift = UInt32(recv) * 8
+        inputVelOverride = (inputVelOverride & ~(0xFF << shift)) | (byte << shift)
+    }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
     // 1–127 = flatten new note-ons on that bus). Ephemeral like laneMask; the UI springs it back to 0
@@ -237,7 +246,7 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
-                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave,
+                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
 

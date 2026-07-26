@@ -1501,4 +1501,40 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 2).contains(72), "child inherits the root's +1 oct")
     }
+
+    // MARK: - receiver INPUT-velocity override (the slider) — momentary absolute, keyed on the receiver
+
+    private func velsOn(_ box: SnapshotBox, inputVel: UInt32, cable: UInt8, emitterVel: UInt32 = 0) -> Set<UInt8> {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 8.0 {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, velOverride: emitterVel,
+                           inputVelOverride: inputVel, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == cable }.map { $0.vel })
+    }
+
+    func testReceiverInputVelocityFlattensSubscribers() {
+        // gold ⇐R1 → A, cyan ⇐R2 → B. An input override on R1 flattens A's notes; B is untouched.
+        let b = receiverBox {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
+        }
+        XCTAssertEqual(velsOn(b, inputVel: 0, cable: 1), [96], "natural base velocity when untouched")
+        XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1), [40], "R1 override flattens A to 40")
+        XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 2), [96], "an R1 override leaves R2's B natural")
+    }
+
+    func testEmitterOverrideWinsOverInputOverride() {
+        // Both ride at once: input R1 = 40, emitter A = 110 → the OUTPUT override (closest to the wire) wins.
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1, emitterVel: packVel(0, 110)), [110],
+                       "emitter (output) override wins over the input override")
+    }
 }

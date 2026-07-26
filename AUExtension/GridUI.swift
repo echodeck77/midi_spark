@@ -431,6 +431,10 @@ struct ReceiversView: View {
     var onToggleLatch: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
+    var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
+    var holdLatch: Bool = false                        // §5c HOLD latches the touched slider value
+
+    @State private var faderVel: [Int?] = [nil, nil, nil, nil]   // the touched slider value (nil = released → springs back)
 
     static let controlHeight: CGFloat = 76             // fixed control region — faces swap within it (§6a static-frame law)
 
@@ -471,7 +475,7 @@ struct ReceiversView: View {
                 thruPip(i, isThru: isThru, muted: muted)
             }
             HStack(alignment: .top, spacing: 3) {
-                inputMeter(i).frame(width: 12).frame(maxHeight: .infinity)   // the SLIDER (meter now; gains the vel drag in inc 4)
+                slider(i).frame(width: 14).frame(maxHeight: .infinity)   // input meter + momentary velocity override
                 if editing { editFeatures(i, rec) } else { performFeatures(i) }
             }
             .frame(height: Self.controlHeight)
@@ -557,22 +561,37 @@ struct ReceiversView: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    // §9 item 11: input velocity meter — a bottom-anchored bar in the receiver hue, peak-hold ~150ms decay.
-    private func inputMeter(_ i: Int) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-            let level = decayed(i, now: tl.date)
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
-                GeometryReader { g in
-                    Rectangle().fill(hues[i].opacity(0.85))
-                        .frame(width: g.size.width, height: g.size.height * CGFloat(level))
-                        .position(x: g.size.width / 2, y: g.size.height - g.size.height * CGFloat(level) / 2)
+    // The SLIDER — the emitter fader's INPUT twin. Idle: the live input meter. Touched: a momentary-absolute
+    // velocity override (drag = whisper/slam the receiver's subscribers), released → springs home (unless HOLD
+    // latches). A bright set-point line marks the forced value while touched.
+    private func slider(_ i: Int) -> some View {
+        let touched = (i < faderVel.count ? faderVel[i] : nil) != nil
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            let level = touched ? Double(faderVel[i] ?? 0) / 127.0 : decayed(i, now: tl.date)
+            GeometryReader { g in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
+                    Rectangle().fill(hues[i].opacity(touched ? 1 : 0.85))
+                        .frame(height: g.size.height * CGFloat(level))
+                    if touched {
+                        Rectangle().fill(Color.white).frame(height: 1.5)
+                            .offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                    let frac = 1.0 - min(1, max(0, v.location.y / g.size.height))
+                    let val = max(1, Int(frac * 127))
+                    if i < faderVel.count { faderVel[i] = val }; onVelOverride(i, val)
+                }.onEnded { _ in
+                    if holdLatch { return }                 // §5c: HOLD keeps the value; release drops it
+                    if i < faderVel.count { faderVel[i] = nil }; onVelOverride(i, nil)
+                })
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
-        .allowsHitTesting(false)
     }
+
     private func decayed(_ i: Int, now: Date) -> Double {
         guard i < peak.count, i < peakAt.count else { return 0 }
         return peakHoldLevel(peak: peak[i], since: peakAt[i], now: now)

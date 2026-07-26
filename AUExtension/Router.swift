@@ -136,6 +136,11 @@ final class Router {
         let byte = UInt8((inputOctave >> (UInt32(recv) * 8)) & 0xFF)
         return Int(Int8(bitPattern: byte)) * 12
     }
+    // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
+    // receiver (0 = none). Flattens a receiver's subscribers at the wire. `currentInputRecv` is the receiver
+    // of the cell being articulated (render is single-threaded, so one field suffices) — read in emitOneBus.
+    private var inputVelOverride: UInt32 = 0
+    private var currentInputRecv: Int8 = -1
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -415,10 +420,15 @@ final class Router {
         // §9 ON TAP = SOLO EMITTERS: while a solo set is held, sibling emitters fall silent (own cable + its
         // All contribution). previewMode bypasses (solo audition has no other-emitter context).
         if soloEmitterMask != 0 && !previewMode && (soloEmitterMask & (1 << UInt8(bus))) == 0 { return -1 }
+        // receiver strip INPUT override: while a receiver's slider is touched, flatten its subscribers' notes
+        // to the slider value (applied to the base velocity). The emitter (OUTPUT) override below still wins
+        // if both ride at once — the override closest to the wire has the last word.
+        let iv = currentInputRecv >= 0 ? UInt8((inputVelOverride >> (UInt32(currentInputRecv) * 8)) & 0xFF) : 0
+        let base = iv != 0 ? iv : velocity
         // §6a PERFORM momentary override: while a strip's slider is touched, flatten every NEW note-on on
         // that emitter to the slider value (own cable + its All copy). 0 = untouched → natural velocity.
         let ov = UInt8((velOverride >> (UInt32(bus) * 8)) & 0xFF)
-        let v = ov != 0 ? ov : velocity
+        let v = ov != 0 ? ov : base
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
@@ -472,6 +482,7 @@ final class Router {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
+            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -626,6 +637,7 @@ final class Router {
                  soloEmitterMask: UInt8 = 0,
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
+                 inputVelOverride: UInt32 = 0,
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -633,6 +645,8 @@ final class Router {
         self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
+        self.inputVelOverride = inputVelOverride   // receiver strip: per-receiver input-velocity override
+        currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -763,6 +777,7 @@ final class Router {
             let cell = box.cells[effColumn * Snap.rows + r]
             if cell.colourIndex < 0 || cell.muted || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
+            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited

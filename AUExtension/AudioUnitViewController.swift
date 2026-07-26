@@ -519,10 +519,12 @@ struct DiagView: View {
         receiverOctave[i] = max(-3, min(3, receiverOctave[i] + delta))
         au?.setInputOctave(i, receiverOctave[i])
     }
+    // receiver strip: the slider's momentary input-velocity override (touch = absolute, release = nil → spring).
+    private func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
     private func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
-        receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0) }
+        receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputVelOverride(i, nil) }
     }
 
     // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
@@ -824,7 +826,8 @@ struct DiagView: View {
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
-                      octave: receiverOctave, onOct: nudgeReceiverOctave)
+                      octave: receiverOctave, onOct: nudgeReceiverOctave,
+                      onVelOverride: setReceiverVel, holdLatch: holdLatch)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
