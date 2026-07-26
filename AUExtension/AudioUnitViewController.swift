@@ -529,13 +529,12 @@ struct DiagView: View {
                     // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
                     // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
-                    let cellH = max(24, min(46, (geo.size.height - 360) / 8))
                     VStack(spacing: 8) {
                         header
                         HStack(alignment: .top, spacing: 10) {
                             VStack(spacing: 8) {
                                 receiversBox                             // signal flow: RECEIVERS above the grid
-                                gridBlock(cellH)
+                                gridRegion()                             // …GRID fills the leftover (never clips the bands)
                                 emittersBox                              // …EMITTERS below it
                                 hint
                             }
@@ -548,15 +547,13 @@ struct DiagView: View {
                     // §6d TWO FLOWS (portrait): the same signal-flow anatomy top-to-bottom — RECEIVERS above →
                     // (smaller) GRID → EMITTERS below — then the COLOUR flow (COLOUR/ALT · SELECTOR/SETTINGS,
                     // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
-                    let bandH: CGFloat = 300
-                    let cellH = max(24, min(46, (geo.size.height - bandH - 340) / 8))
                     VStack(spacing: 8) {
                         header
                         receiversBox                           // signal flow: RECEIVERS above the grid
-                        gridBlock(cellH)
+                        gridRegion()                           // …GRID fills the leftover (never clips the bands)
                         emittersBox                            // …EMITTERS below it
                         hint
-                        colourFlowBand(geo.size.width - 24, bandH)   // the treatment axis (24 = the .padding(12) both sides)
+                        colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                         sceneStrip
                         devLoader
                     }
@@ -625,6 +622,17 @@ struct DiagView: View {
                    flowVariation: flowVariation, onCycleFlow: { flowVariation = (flowVariation + 1) % 6 })
     }
 
+    // §6d TWO FLOWS: the grid FILLS the leftover the bands don't claim (this GeometryReader), so the signal
+    // flow always FITS without scrolling and the emitter band (CLAIM/faders) is never clipped — the bands keep
+    // their full natural height, the grid takes the rest. Cells stay compact (≤48); reclaiming grid room is
+    // the FOLD's job (next), not shrinking cells. GridView total height = 62 (key row + gaps) + 8·cellH.
+    private func gridRegion() -> some View {
+        GeometryReader { g in
+            gridBlock(max(22, min(48, (g.size.height - 62) / 8)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
     @ViewBuilder private func gridBlock(_ cellHeight: CGFloat) -> some View {
         if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
@@ -632,7 +640,7 @@ struct DiagView: View {
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
                      stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak)
-                .frame(maxWidth: .infinity).frame(height: cellHeight * 8 + 64)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
