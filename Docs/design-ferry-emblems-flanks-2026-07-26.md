@@ -64,3 +64,28 @@ The VU-style bottom-fill lied — velocity is a VALUE, not a fullness.
 - Language: they're VELOCITY MARKS now, not ladders — update the spec text where "LED ladder" appears.
   ⚠ AFFECTS THE SHIPPED STRIPS: the receiver/emitter sliders currently use the bottom-fill LED ladder;
   this redesign replaces that with floating velocity marks (a UI refinement, engine feed unchanged).
+
+## 5. WAYFINDING — INPUT → GRID → OUTPUT → MASTER cues (RATIFIED 2026-07-26)
+Three layers (sequence with the meter/visual pass; the spine may ride earlier):
+- **THE SPINE (static):** a quiet 2pt low-opacity rail along the signal path's edge with CHEVRONS at the panel
+  seams (INPUT ▾ grid ▾ OUTPUT ▾ MASTER). LAW AMENDMENT: the no-static-wiring law banned per-note patch
+  cables; the spine is ANATOMY, not wiring — the one sanctioned static flow cue (same class as panel titles).
+- **LIVING PULSES:** the spine carries traffic — input arrivals drop INPUT→keys, emissions fall grid→OUTPUT,
+  the sum trickles OUTPUT→MASTER. Derived from the existing meter feeds; governed by OFF/SUBTLE/SHOWCASE; the
+  flow layer's THIRD renderer (same engine as the theater + the thumbnail). Idle quiet; playing breathes.
+- **THE FIRST-LIGHT SWEEP:** once per launch (or first note after load), ONE ~600ms teaching pulse runs the
+  whole path — INPUT glow → grid sweep → OUTPUT → MASTER — then silence. Onboarding in one breath.
+- Hue continuity (receiver tints + Colour-tinted marks + the pending cell input-attribution tint) is the
+  fourth, already-ratified layer.
+
+## 6. DESIGN FINDING — SUPPRESSION MUST BE VISIBLE (the withheld tell)
+Claim/suppression is currently invisible: the flow layer shows notes travelling, nothing shows them dying.
+Spec: a SUPPRESSED note renders as a HOLLOW / struck-through mark on the emitter meter (and a hollow
+comet-fizzle in FLOW), with a small CLAIM-hue tick = "generated but withheld, and by whom." "The suppression
+that can't be seen is the suppression that files bug reports."
+
+## Screenshot-review flags (2026-07-26, console-built frame) — for alignment
+(a) LIVE·SOLO foot: if LIVE = the mute button labelled by its ON-state, the muted state must fail LOUDLY
+(dim strip + label → MUTED, not merely unlit) — user to rule. (b) Compact cell face must keep row-fed INPUT
+ATTRIBUTION (a slim top-edge source-hue tint or ⇐n). (c) Verify the live-column highlight survived the layout
+rebuild. (d) Emitter mini-meters still the old ladder — the velocity-marks redesign remains queued on top.
