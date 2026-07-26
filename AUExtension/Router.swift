@@ -98,6 +98,13 @@ final class Router {
     // accumulated on the render thread, read-and-cleared by the UI poll. UI owns the decay envelope.
     private var meterPeakVel = [UInt8](repeating: 0, count: 4)
     private var meterEvents = [UInt32](repeating: 0, count: 4)
+    // item 4 VELOCITY MARKS: per emitter, a bounded buffer of recent note-on (velocity, source colourIndex)
+    // since the last drain — the UI holds+fades each as a floating mark tinted by the source Colour. Fixed
+    // scratch (no render alloc); fills to 8 per poll cycle then drops (drained ~4 Hz, so 8 is ample).
+    private var markVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
+    private var markCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
+    private var markCount = [Int](repeating: 0, count: 4)
+    private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
 
@@ -201,7 +208,7 @@ final class Router {
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
-        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
+        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -300,6 +307,19 @@ final class Router {
         let r = (meterPeakVel, meterEvents)
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
         return r
+    }
+
+    /// item 4 VELOCITY MARKS: read-and-clear the per-emitter note-on marks accumulated since the last poll —
+    /// each a (velocity, source colourIndex). The UI latches a timestamp per mark and fades it (~250ms).
+    func drainMarks() -> [[(vel: UInt8, col: Int8)]] {
+        var out = [[(vel: UInt8, col: Int8)]]()
+        for bus in 0..<4 {
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(markCount[bus])
+            for i in 0..<markCount[bus] { m.append((markVel[bus][i], markCol[bus][i])) }
+            markCount[bus] = 0
+            out.append(m)
+        }
+        return out
     }
 
     /// delta §6a: close every sounding voice that ORIGINATED from emitter `bus` — its own cable AND its
@@ -514,6 +534,10 @@ final class Router {
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
+        if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
+            markVel[bus][markCount[bus]] = v; markCol[bus][markCount[bus]] = currentColourIndex
+            markCount[bus] += 1
+        }
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
         let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: v, out: out)
@@ -566,6 +590,7 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
+            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -739,6 +764,7 @@ final class Router {
         self.emitterOctave = emitterOctave         // emitter strip: per-emitter output ±octave nudge
         self.masterVelOverride = masterVelOverride // master panel: the momentary master fader
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
+        currentColourIndex = -1
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
 
@@ -892,6 +918,7 @@ final class Router {
             if cell.colourIndex < 0 || cell.muted || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
+            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited

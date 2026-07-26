@@ -164,6 +164,7 @@ final class Kernel {
 
     // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
     func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
+    func drainEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainMarks() }   // item 4 velocity marks
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
@@ -176,6 +177,15 @@ final class Kernel {
         let r = (inputPeak, inputEvents)
         for i in 0..<4 { inputPeak[i] = 0; inputEvents[i] = 0 }
         return r
+    }
+    // item 4 VELOCITY MARKS (input side): per receiver, recent note-on velocities since the last poll (input
+    // has no Colour → the UI tints them the strip's identity hue). Bounded to 8 per poll cycle.
+    private var recvMarkVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
+    private var recvMarkCount = [Int](repeating: 0, count: 4)
+    func drainReceiverMarks() -> [[UInt8]] {
+        var out = [[UInt8]]()
+        for i in 0..<4 { out.append(Array(recvMarkVel[i][0..<recvMarkCount[i]])); recvMarkCount[i] = 0 }
+        return out
     }
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
@@ -349,6 +359,7 @@ final class Kernel {
                                   && receiverHears(filter: receiverChannels[i], channel: channel) {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
+                    if recvMarkCount[i] < 8 { recvMarkVel[i][recvMarkCount[i]] = vel; recvMarkCount[i] += 1 }   // item 4 mark
                 }
             }
         } else if status == 0x80, length >= 3 {
