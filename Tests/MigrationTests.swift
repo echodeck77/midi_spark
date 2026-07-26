@@ -235,6 +235,26 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(d.colours[0].typeB, "version gate stops a second fold")
     }
 
+    // Regression: the persisted receiver config (channel/cable/mute) + THRU pip must survive the fullState
+    // save→restore path (encode → decode → migrateLegacyRoutingIfNeeded), exactly as MidiSparkAudioUnit does.
+    func testReceiverConfigSurvivesFullStateRoundTrip() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.receivers = [
+            { var r = Receiver(name: "1"); r.channel = 3; r.cable = 0b0010; return r }(),   // ch 3, cable 2
+            { var r = Receiver(name: "2"); r.muted = true; return r }(),                     // muted
+            Receiver(name: "3"), Receiver(name: "4"),
+        ]
+        d.thruReceiver = 2
+        d.formatVersion = 5
+        let data = try! JSONEncoder().encode(d)
+        var back = try! JSONDecoder().decode(PluginState.self, from: data)
+        back.migrateLegacyRoutingIfNeeded()                       // the AU's fullState-set path
+        XCTAssertEqual(back.receivers?[0].channel, 3, "channel filter survives")
+        XCTAssertEqual(back.receivers?[0].cable, 0b0010, "cable filter survives")
+        XCTAssertEqual(back.receivers?[1].muted, true, "mute survives")
+        XCTAssertEqual(back.thruReceiver, 2, "THRU pip survives")
+    }
+
     func testAltColourKeyStillDecodesOnOldBuild() {
         // altColour survives a round-trip so an older build can still read the pair (lossless downgrade).
         var c = Colour(colourID: "gold", type: .arp); c.altColour = 3
