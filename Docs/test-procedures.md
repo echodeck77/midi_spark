@@ -244,3 +244,28 @@ truncates mid-word, static frames hold within the active rung).
 AUM monitor, pairing, stuck notes]". Screenshots of the monitor beat transcription
 when timing is disputed. (The in-plugin diag panel is gone — the AUM MIDI monitor
 supplies all numbers that panel used to.)
+
+## STRIP PASS — the MIDI INPUT + MIDI OUTPUT strips + CLAIM (2026-07-26)
+
+The combined device pass for the receiver strip, the emitter strip, and the CLAIM
+gate that unblocks the emitter role family (leak% / FLATTEN / ALT). Load a canned rig
+via the HIDDEN DEV LOADER (long-press the "8×8 STATE" logotype ~1.2s → the T-session
+overlay + the VOICES/HELD/ECHO/PANICS monitor; DEBUG builds only). **Golden rule: if
+PANICS > 0 or a note hangs, record exactly what triggered it — a stuck-note bug.**
+
+- **SP-CLAIM (the gate — run first):** two cells, same pitches, different emitters
+  (e.g. held chord → A, arp of the same notes → B). Set CLAIM on A: while A holds a
+  pitch, that pitch on B is suppressed (A owns it). Claim another emitter → the first
+  releases (radio). A MUTED claimant still reserves. Release all → no stuck notes.
+  ✅ CLAIM good ⇒ the role family (leak%/FLATTEN/ALT) is cleared to build.
+  **VERIFIED 2026-07-26 (single-claimant CLAIM works on device).**
+- **SP-OUT (emitters A–D, MIDI OUTPUT):** MUTE foot toggles output; SOLO isolates
+  (glow/dim, clears on stop); slider drag forces velocity (springs back); OCT ± shifts
+  the emitter's output octave (clears on stop, out-of-range notes drop).
+- **SP-IN (receivers A–D, MIDI INPUT):** THRU pip follows passthrough (muted THRU
+  passes nothing); SOLO/OCT/slider as above (input side); LATCH = arm → chord → lift
+  (sustains) → new chord replaces → disarm releases (physical holds persist) →
+  mute-while-latched silent, unmute returns. Listen hard for stuck notes on every
+  LATCH edge (its capture is Kernel-side, off-device tests can't reach it).
+- **SP-LABEL:** both bands read A–D, titled MIDI INPUT / MIDI OUTPUT; cell chips A–D.
+  Flag if either role column is cramped in the narrow band.
