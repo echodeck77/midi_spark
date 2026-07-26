@@ -34,3 +34,33 @@ the derivation clock — icons that PERFORM their type:
   at-wrap, double-tap = now) · the CHARACTER fader's reserved seat. The big-consequential-buttons corner.
 - Same tenants both orientations wherever the flanks render. Corner semantics: time by the inputs · the sum
   by the outputs · the eye opposite the clock · signal falling through the middle.
+
+## 3. THE MASTER PANEL (bottom-right corner — completes the console)
+Anatomy mirrors the strips (kinship): the SUM METER behind a **master velocity FADER** (momentary-
+absolute over all output; spring; §5c HOLD latches — the whisper-drop) beside a feature column:
+- **MUTE** — tap = global emission kill (PERSISTED). **LONG-PRESS = PANIC**: all-notes-off + voice-
+  table flush, logged by the hang kit (tap = dignified, hold = fire axe).
+- **REVERT** — item 7's snapshot restore (tap = at-the-wrap · double-tap = now). SEAT RESERVED until
+  the snapshot machinery builds.
+- **KEY − / +** — master transpose PROMOTED to a built-in: semitones, clamp ±12, PERSISTED PER-SCENE
+  (the key is structure), value shown when ≠0.
+- **[INS]** — the master-insert Colour chip, reserved seat (item 14 future); a FULL-glide insert Colour
+  reveals the CHARACTER fader beneath the panel (host-automatable via the insert's 200+i).
+NO SOLO on master. Fader = weather; MUTE/KEY/INS = structure. Populates in waves:
+fader+meter+MUTE+PANIC+KEY now; REVERT with snapshots; INS/CHARACTER with the wire work.
+
+## 4. METER SEMANTICS REDESIGN (amends the receiver/emitter/master meter specs)
+The VU-style bottom-fill lied — velocity is a VALUE, not a fullness.
+- **METERING (passive) = FLOATING VELOCITY MARKS:** each note-on draws a mark AT its velocity height;
+  it HOLDS while the note sounds (a chord shows its velocity fingerprint, steady while ringing) and
+  FADES on release (~250ms). Multiple notes = independent marks (cap ~6 per strip). Shows spread,
+  dynamics, held-vs-decaying — none of which the fill could say.
+- **OVERRIDE (touching) = the FILL, correctly:** bottom-to-finger while touching (there it IS a level);
+  the modes agree at the boundary (under override all marks sit at the finger height — the fill is
+  their union). Spring on release; HOLD-latch keeps fill + held tick per §5c.
+- **EMITTER MARKS TINT IN THE SOURCE CELL'S COLOUR** (the emission path already knows the cell): the
+  mixer shows WHO struck and HOW HARD in one glance. Receiver marks = the strip's identity hue (input
+  has no Colour). Master = same semantics over the sum, denser, capped.
+- Language: they're VELOCITY MARKS now, not ladders — update the spec text where "LED ladder" appears.
+  ⚠ AFFECTS THE SHIPPED STRIPS: the receiver/emitter sliders currently use the bottom-fill LED ladder;
+  this redesign replaces that with floating velocity marks (a UI refinement, engine feed unchanged).
