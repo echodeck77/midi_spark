@@ -57,6 +57,7 @@ struct DiagView: View {
     @State private var dragSceneTarget: Int? = nil    // S3: chip under the finger (drop = MOVE/SWAP)
     @State private var dragOverTrash = false          // S3: finger dragged below the strip = the can
     @State private var sceneShakeX: CGFloat = 0       // S3: the active-refuses-trash shake offset
+    @State private var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
@@ -681,8 +682,7 @@ struct DiagView: View {
                     // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
                     VStack(spacing: 8) {
-                        header
-                        sceneStrip                                   // below the header, above the signal flow
+                        arrangementBar                               // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         HStack(alignment: .top, spacing: 10) {
                             signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
                             ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
@@ -694,8 +694,7 @@ struct DiagView: View {
                     // (smaller) GRID → EMITTERS below — then the COLOUR flow (COLOUR/ALT · SELECTOR/SETTINGS,
                     // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
                     VStack(spacing: 8) {
-                        header
-                        sceneStrip                             // below the header, above the signal flow
+                        arrangementBar                         // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
                         colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                     }
@@ -714,6 +713,7 @@ struct DiagView: View {
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
+                if showSettings { settingsOverlay }     // §5 the cog page (overlay on the running instrument)
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
                 #endif
@@ -1223,36 +1223,112 @@ struct DiagView: View {
     // tap another = ARM (fires at the next pass start; PENDING blinks) · tap the PENDING chip = CANCEL · double-
     // tap another = IMMEDIATE (now) · empty = "+" = SAVE-HERE. RESTART-the-pass (tap the active chip) = S2b.
     private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private var sceneStrip: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            GeometryReader { geo in
-                let chipW = geo.size.width / CGFloat(PluginState.maxScenes)
-                HStack(spacing: 4) {
-                    ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i, chipW: chipW) }
-                }
-                .coordinateSpace(name: "sceneStripRow")
-                .overlay { if dragSceneSrc != nil { sceneTrashCan } }   // the can — only while dragging
+    private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    // §2 THE ARRANGEMENT BAR: the header IS the arrangement — LOGO · the 16 scene chips · ⚙ — one row (the old
+    // header + scene strip merged; the reclaimed row goes to the grid). PIN: the LOGO yields (compressed to the
+    // "8×8" mark), never the chips; the chips flex to fill. The ⚙ BECOMES the red trash can during a scene drag.
+    // TRANSITIONAL: the EDIT/PERFORM toggle + undo/redo STAY until the modeless verbs cover grid authoring AND
+    // the cog page hosts the strip EDIT-face config (§6) — only then does the toggle die and the bar go pure.
+    private var arrangementBar: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
+                .foregroundColor(.white.opacity(0.85)).fixedSize()
+                .onLongPressGesture(minimumDuration: 1.2) { secretDevTap() }   // dev: reveal the T-session loader
+            HStack(spacing: 2) {                                                // TRANSITIONAL mode toggle
+                barModeChip("EDIT", on: editing, hue: sceneAmber)
+                barModeChip("PERFORM", on: !editing, hue: barCyan)
+            }.fixedSize().onTapGesture { toggleMode() }
+            if editing {
+                HStack(spacing: 3) {
+                    barIcon("arrow.uturn.backward", enabled: au?.uiCanUndo ?? false, action: undo)
+                    barIcon("arrow.uturn.forward", enabled: au?.uiCanRedo ?? false, action: redo)
+                }.fixedSize()
             }
-            .frame(height: 26)
+            sceneChipRow                                                        // THE CHIPS — flex to fill; never yield
+            if d.playing {
+                Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
+            }
+            cogOrCan                                                            // ⚙ ⇄ 🗑 (the can in place during a drag)
         }
         .offset(x: sceneShakeX)                              // S3: shake when the active scene refuses the trash
         .background(sceneArmWatcher)                         // S2c: tight commit at the pass boundary (~1 render window)
         .onChange(of: d.pass) { _ in commitArmedScene() }   // 4 Hz fallback (e.g. backgrounded, watcher paused)
     }
-    // The TRASH: a red can, present only during a drag, centred over the strip. Drag a chip DOWN (out the
-    // bottom, y > 44) to arm it — it brightens red — then release to delete. The active scene refuses (shakes).
-    private var sceneTrashCan: some View {
-        Image(systemName: "trash.fill")
-            .font(.system(size: 13, weight: .bold))
-            .foregroundColor(dragOverTrash ? Color(red: 0.98, green: 0.32, blue: 0.28) : .white.opacity(0.45))
-            .padding(6)
-            .background(Circle().fill(Color.black.opacity(dragOverTrash ? 0.88 : 0.55)))
-            .scaleEffect(dragOverTrash ? 1.3 : 1)
-            .animation(.easeOut(duration: 0.12), value: dragOverTrash)
-            .allowsHitTesting(false)
+    private var sceneChipRow: some View {
+        GeometryReader { geo in
+            let chipW = geo.size.width / CGFloat(PluginState.maxScenes)
+            HStack(spacing: 4) {
+                ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i, chipW: chipW, rowWidth: geo.size.width) }
+            }
+            .coordinateSpace(name: "sceneStripRow")
+        }
+        .frame(height: 26).frame(minWidth: 180)             // the chips keep a usable floor; the logo yields, not them
     }
-    private func sceneChip(_ i: Int, chipW: CGFloat) -> some View {
+    // §2/§7b the ⚙ BECOMES the red can during a scene drag (one corner, one identity — never a floating can beside
+    // settings; reverts on drag-end). Otherwise it opens the cog page. Drag a chip onto it (x past the strip) to trash.
+    private var cogOrCan: some View {
+        Group {
+            if dragSceneSrc != nil {
+                Image(systemName: "trash.fill").font(.system(size: 13, weight: .bold))
+                    .foregroundColor(dragOverTrash ? Color(red: 0.98, green: 0.32, blue: 0.28) : .white.opacity(0.5))
+                    .scaleEffect(dragOverTrash ? 1.3 : 1)
+                    .animation(.easeOut(duration: 0.12), value: dragOverTrash)
+            } else {
+                Image(systemName: "gearshape.fill").font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+                    .onTapGesture { showSettings = true }
+            }
+        }
+        .frame(width: 34, height: 26).contentShape(Rectangle())
+    }
+    private func barModeChip(_ label: String, on: Bool, hue: Color) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .padding(.vertical, 3).padding(.horizontal, 7)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue : Color.white.opacity(0.08)))
+    }
+    private func barIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Image(systemName: name).font(.system(size: 11, weight: .heavy))
+            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
+            .frame(width: 24, height: 22)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
+    }
+    // §5 THE COG PAGE (shell): a full-screen overlay on the RUNNING instrument — the engine never stops, audio
+    // flows, latches hold; dismiss returns to uninterrupted play. Birth: a health readout (the stuck-note monitor
+    // graduating here) + about/version. NEXT increment homes the MIDI I/O config (which retires the strip EDIT faces).
+    private var settingsOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.82).ignoresSafeArea().onTapGesture { showSettings = false }
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("SETTINGS").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                    Spacer()
+                    Text("✕").font(.system(size: 18, weight: .heavy)).foregroundColor(.white.opacity(0.7))
+                        .contentShape(Rectangle()).onTapGesture { showSettings = false }
+                }
+                Text("The engine keeps running — changes apply live.").font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                Divider().overlay(Color.white.opacity(0.12))
+                Text("HEALTH").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                stuckNoteMonitor
+                Divider().overlay(Color.white.opacity(0.12))
+                Text("MIDI I/O CONFIG lands here next — receiver cable/channel/latch · emitter channel. Until then it stays on the strip EDIT faces.")
+                    .font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.32)).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Text(aboutLine).font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            }
+            .padding(22).frame(maxWidth: 460, maxHeight: 480)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.1)))
+            .padding(24)
+        }
+    }
+    private var aboutLine: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        return "8×8 STATE · MidiSpark engine · v\(v)"
+    }
+    private func sceneChip(_ i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]
         let active = i == activeSceneIdx && !empty
         let pending = i == pendingScene && !empty
@@ -1273,7 +1349,7 @@ struct DiagView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { doubleTapScene(i) }
             .onTapGesture { tapScene(i) }
-            .gesture(sceneDragGesture(source: i, chipW: chipW))
+            .gesture(sceneDragGesture(source: i, chipW: chipW, rowWidth: rowWidth))
     }
     // S3: the active chip's pass-sweep — a 2pt mini-playhead crossing L→R once per pass, extrapolated between
     // the 4 Hz polls (one-clock, same liveBeat idea as the cell mutation lines). Present only while playing.
@@ -1295,9 +1371,10 @@ struct DiagView: View {
         let m = lb.truncatingRemainder(dividingBy: cyc)
         return (m < 0 ? m + cyc : m) / cyc
     }
-    // S3: long-press a chip to LIFT it, then drag — sideways to another chip = MOVE (onto +) / SWAP (onto a
-    // scene); down (out the bottom) onto the can = TRASH. Never overwrites; the active scene refuses the trash.
-    private func sceneDragGesture(source i: Int, chipW: CGFloat) -> some Gesture {
+    // S3/AB: long-press a chip to LIFT it, then drag — sideways to another chip = MOVE (onto +) / SWAP (onto a
+    // scene); onto the ⚙-turned-can (x past the strip's end) OR down out of the row = TRASH. Never overwrites;
+    // the active scene refuses. The can lives where the cog is (§2), so dragging a chip toward it reads as trash.
+    private func sceneDragGesture(source i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some Gesture {
         LongPressGesture(minimumDuration: 0.3)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("sceneStripRow")))
             .onChanged { value in
@@ -1306,9 +1383,9 @@ struct DiagView: View {
                     guard i < sceneEmpty.count, !sceneEmpty[i] else { return }   // only real scenes lift (not a +)
                     dragSceneSrc = i
                 }
-                let downToTrash = drag.location.y > 44
-                dragOverTrash = downToTrash
-                if downToTrash { dragSceneTarget = nil }
+                let toTrash = drag.location.x > rowWidth || drag.location.y > 44   // past the strip → the cog/can
+                dragOverTrash = toTrash
+                if toTrash { dragSceneTarget = nil }
                 else {
                     let t = max(0, min(PluginState.maxScenes - 1, Int(drag.location.x / max(1, chipW))))
                     dragSceneTarget = (t == dragSceneSrc) ? nil : t
