@@ -175,7 +175,11 @@ struct DiagView: View {
         case .place:                                        // stamp the brush Colour into an empty cell
             guard scene.cells[col][row] == nil else { return }
             let parentAbove = (row > 0 && scene.cells[col][row - 1] != nil) ? row - 1 : nil   // §9.③ downhill nudge
-            au.editScene { var cell = Cell(colourID: brush, buses: [.a]); cell.inputRow = parentAbove; $0.cells[col][row] = cell }
+            au.editScene {
+                var cell = Cell(colourID: brush, buses: [.a]); cell.inputRow = parentAbove
+                if parentAbove == nil { cell.inputReceiver = 0 }   // a MIDI-IN cell MUST point at a receiver (R1) —
+                $0.cells[col][row] = cell                          // else it bypasses the receiver's mute/channel/cable/MPE
+            }
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
@@ -698,7 +702,9 @@ struct DiagView: View {
     private func doVerbOnRow(_ v: Verb, _ row: Int) {
         guard let au else { return }
         switch v {
-        case .place: au.editScene { for c in 0..<8 where $0.cells[c][row] == nil { $0.cells[c][row] = Cell(colourID: brush, buses: [.a]) } }; refreshFromDocument()
+        case .place: au.editScene { for c in 0..<8 where $0.cells[c][row] == nil {
+            var cell = Cell(colourID: brush, buses: [.a]); cell.inputReceiver = 0   // MIDI-IN → R1 (honour receiver config)
+            $0.cells[c][row] = cell } }; refreshFromDocument()
         case .delete: au.editScene { for c in 0..<8 { $0.deleteCellHealing(col: c, row: row) } }
                       for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
         case .select:
