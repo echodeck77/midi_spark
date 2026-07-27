@@ -54,7 +54,7 @@ final class MigrationTests: XCTestCase {
         let f = PluginState.factory()
         XCTAssertEqual(f.formatVersion, 4)                       // v3 graph + receivers
         XCTAssertEqual(f.receivers?.count, 4)                    // four receivers seeded
-        XCTAssertEqual(f.receivers?.map { $0.channel }, [1, 2, 3, 4], "default routing: receivers filter ch 1–4")
+        XCTAssertEqual(f.receivers?.map { $0.channel }, [0, 2, 3, 4], "default routing: A=OMNI (out-of-box), B/C/D=ch 2/3/4")
         // factory: vermilion at (2,0) stacked, magenta at (2,1) → magenta references row 0
         XCTAssertEqual(f.scenes[0].cells[2][1]?.inputRow, 0)
         XCTAssertNil(f.scenes[0].cells[0][0]?.inputRow)          // an unfed top cell
