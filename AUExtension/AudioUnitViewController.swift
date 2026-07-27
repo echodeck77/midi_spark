@@ -50,6 +50,8 @@ struct DiagView: View {
     @State private var loadedID = "—"
     @State private var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
     @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
+    @State private var pendingScene: Int? = nil       // MULTI-SCENE S2: armed switch (fires at the next pass start)
+    @State private var sceneBlink = false             // pending-chip blink (toggled by the 4 Hz poll)
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
@@ -738,6 +740,7 @@ struct DiagView: View {
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
             let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi }
+            if pendingScene != nil { sceneBlink.toggle() } else if sceneBlink { sceneBlink = false }   // S2 pending-chip blink
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
@@ -1208,29 +1211,51 @@ struct DiagView: View {
     private func pickPalette(_ id: String) { brush = id }
 
     // SCENE strip — the 16 factory scenes (Docs/factory-scenes.md), full-width along the bottom.
-    // MULTI-SCENE (2026-07-27): the strip switches the DOCUMENT's scenes (no titles in v1 — numbers only).
-    // A non-empty slot = its number (tap = SWITCH, active = amber); an empty slot = "+" (tap = SAVE-HERE the
-    // current scene). Drag/swap/trash + arm-at-pass/restart timing are the next increments (S2/S3).
+    // MULTI-SCENE (2026-07-27): the strip switches the DOCUMENT's scenes (numbers only, no caption). S2 timing:
+    // tap another = ARM (fires at the next pass start; PENDING blinks) · tap the PENDING chip = CANCEL · double-
+    // tap another = IMMEDIATE (now) · empty = "+" = SAVE-HERE. RESTART-the-pass (tap the active chip) = S2b.
+    private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private var sceneStrip: some View {
-        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-        return VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3) {
             Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(spacing: 4) {
-                ForEach(0..<PluginState.maxScenes, id: \.self) { i in
-                    let empty = i >= sceneEmpty.count || sceneEmpty[i]
-                    let active = i == activeSceneIdx && !empty
-                    Text(empty ? "+" : "\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(active ? .black : (empty ? .white.opacity(0.3) : .white.opacity(0.8)))
-                        .frame(maxWidth: .infinity).frame(height: 26)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(active ? amber : Color.white.opacity(empty ? 0.03 : 0.08)))
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if empty { au?.saveSceneHere(i) } else { au?.setActiveScene(i) }
-                            refreshScenes()
-                        }
-                }
+                ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i) }
             }
         }
+        .onChange(of: d.pass) { _ in commitArmedScene() }   // ARM fires at the pass boundary (§5d)
+    }
+    private func sceneChip(_ i: Int) -> some View {
+        let empty = i >= sceneEmpty.count || sceneEmpty[i]
+        let active = i == activeSceneIdx && !empty
+        let pending = i == pendingScene && !empty
+        return Text(empty ? "+" : "\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(active ? .black : (empty ? .white.opacity(0.3) : .white.opacity(0.8)))
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 4).fill(active ? sceneAmber : Color.white.opacity(empty ? 0.03 : 0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 4)   // PENDING = a blinking amber outline (the cue)
+                .stroke(sceneAmber.opacity(pending ? (sceneBlink ? 0.95 : 0.25) : 0), lineWidth: 1.5))
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { doubleTapScene(i) }
+            .onTapGesture { tapScene(i) }
+    }
+    // Single tap: empty → SAVE-HERE · pending → CANCEL · another non-empty → ARM (immediate if stopped) ·
+    // the active chip → RESTART (S2b, not yet wired).
+    private func tapScene(_ i: Int) {
+        guard let au else { return }
+        if i >= sceneEmpty.count || sceneEmpty[i] { au.saveSceneHere(i); refreshScenes(); return }
+        if i == activeSceneIdx { return }                 // RESTART-the-pass → S2b
+        if i == pendingScene { pendingScene = nil; return }   // CANCEL the arm
+        if d.playing { pendingScene = i }                 // ARM — fires at the next pass start
+        else { au.setActiveScene(i); pendingScene = nil; refreshScenes() }   // stopped ⇒ no pass to wait for
+    }
+    // Double tap another non-empty chip = IMMEDIATE switch (the quantise-open override).
+    private func doubleTapScene(_ i: Int) {
+        guard let au, !(i >= sceneEmpty.count || sceneEmpty[i]), i != activeSceneIdx else { return }
+        au.setActiveScene(i); pendingScene = nil; refreshScenes()
+    }
+    private func commitArmedScene() {
+        guard let au, let p = pendingScene else { return }
+        au.setActiveScene(p); pendingScene = nil; refreshScenes()
     }
     private func refreshScenes() {
         guard let au else { return }
