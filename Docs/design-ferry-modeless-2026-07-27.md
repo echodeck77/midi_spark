@@ -110,3 +110,34 @@ plan, the CELL box, and the receiver/emitter toggles at the palette.)
   STRIKE, the pool fired once through that Colour as a virtual cell).
 - **7c. Palette-strike RESOLUTION (decided): (c) HARDWARE-ONLY, parked past v1.** Glass palette selects,
   period; strikes ship with the Launchpad layer. The tap-to-edit-sound vs strike collision (7b) is closed.
+
+---
+
+## LAYOUT + BUILD SEQUENCE — DIRECTIVE (user, 2026-07-27; the modeless build begins)
+CLAIM v2 is DEVICE-VERIFIED (ledger ② closed). Priority 1 = the layout + the verb palette; Priority 2 = the selectors.
+
+### Priority 1 — the layout move (build now)
+- **PORTRAIT:** the COLOUR palette moves to the **LEFT of the processors** (below the grid: PALETTE | processors);
+  the processors **STACK VERTICALLY** (A above B, portrait only — also cures the 7-segment cramp). The palette's
+  vacated slot (the signal band's bottom-LEFT flank, beside MIDI OUTPUT) becomes **GRID CONTROLS**.
+- **LANDSCAPE:** the palette moves **TOP-RIGHT, ABOVE the processors** (right column: palette → processors,
+  side-by-side kept). Same vacated slot → GRID CONTROLS.
+- **GRID CONTROLS = the VERB palette:** INSPECT · COPY · EDIT · AUDITION + UNDO/REDO adjacent (pin ④).
+- As-built homes: palette = `colourBox` (signal bottom-band left flank); processors = `processorPanels` (HStack;
+  portrait `colourFlowBand` / landscape `identityColumn`); emitters = `emittersBox` (bottom-band centre); master =
+  `masterView` (bottom-band right). The move relocates `colourBox` into the treatment column and puts a new
+  `gridControlsView` in its old flank; `processorPanels` becomes orientation-aware (VStack portrait / HStack landscape).
+
+### The modeless build — phased (pin ⑤: EDIT mode survives until verb coverage is complete, then retires)
+① layout + verb palette rendered, **INSPECT functional first** (read-only route panel — the reusable chassis) →
+② EDIT flow (scope-after-target, counted chips, write-armed) → ③ AUDITION (stamp-seeded pending cell) →
+④ COPY (stamp-writer, flash-set, press-any-commits) → ⑤ MOVE/DELETE fold + EDIT-mode retirement.
+INSPECT replaces the OUTPUT+MASTER region while armed with the cell's config + the LINEAR ROUTE MAP (receiver →
+ancestors → cell → children → emitters, edges in cargo colours, comets alive, the withheld tell); dismiss
+restores the console. Reuses the within-column lineage derivation (`FlowView.flowCells`/`tracedFamily`).
+
+### Priority 2 — processor selectors + LIVING EMBLEMS (after P1; ref `Docs/midispark-emblems.html`)
+Panel title row: `[emblem] ARP ▾ · COPY · PASTE` (type always visible, emblem tinted in the Colour). Tap the name
+→ PICKER POPOVER: one row per type (emblem · NAME · one-line description), emblems ANIMATING on a shared beat
+(the zoo). B's picker leads with **OFF** ("no B-side"); A's has no OFF. The segment rows die. Budget law: visible
+emblems only, derivation clock, no timers. Vertical portrait stacking (P1) gives the titles room.
