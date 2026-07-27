@@ -88,6 +88,7 @@ func flowCells(scene: SceneState, colours: [Colour], stepBeats: Double) -> [Flow
 
 struct FlowView: View {
     var variation: Int = 1      // 1…5 (0 = not shown; the parent swaps back to the grid)
+    var thumbnail = false       // VIZ thumbnail: colour + motion only — NO labels (text belongs to the theater)
     let scene: SceneState
     let colours: [Colour]
     let receivers: [Receiver]
@@ -242,7 +243,9 @@ extension FlowView {
             let box = CGRect(x: x - 34, y: rY - 15, width: 68, height: 30)
             ctx.stroke(Path(roundedRect: box, cornerRadius: 5), with: .color(hue.opacity(0.7)), lineWidth: 1.2)
             let cbl = (i < receivers.count ? receivers[i].cableResolved : 0b1111)
-            ctx.draw(Text("\(["A","B","C","D"][i]) · \(cbl == 0b1111 ? "ANY" : "C")").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(hue), at: CGPoint(x: x, y: rY - 22))
+            if !thumbnail {
+                ctx.draw(Text("\(["A","B","C","D"][i]) · \(cbl == 0b1111 ? "ANY" : "C")").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(hue), at: CGPoint(x: x, y: rY - 22))
+            }
             let peak = i < receiverPeak.count ? receiverPeak[i] : 0
             for p in 0..<3 { let lit = peak > 0.05 ? 0.9 : 0.2
                 ctx.opacity = lit; ctx.fill(Path(ellipseIn: CGRect(x: x - 12 + CGFloat(p)*11 - 2.6, y: rY + 1, width: 5.2, height: 5.2)), with: .color(hue)); ctx.opacity = 1 }
@@ -256,7 +259,9 @@ extension FlowView {
                 ctx.opacity = dim ? 0.14 : (!fc.rooted ? 0.3 : (c == col ? 1.0 : 0.4))   // silent cycle ⇒ dimmed
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(fc.hue))
                 ctx.opacity = dim ? 0.25 : 0.9
-                ctx.draw(Text(!fc.rooted ? "⟳" : fc.label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black), at: CGPoint(x: rect.midX, y: rect.midY))
+                if !thumbnail {   // thumbnail = colour + motion only; text belongs to the theater (ferry 2026-07-27)
+                    ctx.draw(Text(!fc.rooted ? "⟳" : fc.label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black), at: CGPoint(x: rect.midX, y: rect.midY))
+                }
                 ctx.opacity = 1
             } else {
                 ctx.stroke(Path(roundedRect: rect, cornerRadius: 5), with: .color(.white.opacity(c == col ? 0.12 : 0.05)), lineWidth: 1)
@@ -337,7 +342,9 @@ extension FlowView {
             let box = CGRect(x: x - 34, y: eY - 15, width: 68, height: 30)
             ctx.stroke(Path(roundedRect: box, cornerRadius: 5), with: .color(accent.opacity(en ? 0.7 : 0.25)), lineWidth: 1.2)
             let ch = i < busChannels.count ? busChannels[i] : i+1
-            ctx.draw(Text("EMIT \("ABCD"[i]) · CH\(ch)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent.opacity(en ? 1 : 0.4)), at: CGPoint(x: x, y: eY + 22))
+            if !thumbnail {
+                ctx.draw(Text("EMIT \("ABCD"[i]) · CH\(ch)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent.opacity(en ? 1 : 0.4)), at: CGPoint(x: x, y: eY + 22))
+            }
             let lvl = i < ladder.count ? ladder[i] : 0
             for s in 0..<8 {
                 ctx.opacity = Double(lvl) * 8 > Double(s) ? 0.95 : 0.12

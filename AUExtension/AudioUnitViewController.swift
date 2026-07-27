@@ -926,7 +926,7 @@ struct DiagView: View {
                 Text("FLOW ▸").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             }
         } else {                                     // SUBTLE/SHOWCASE: the live mini visualiser (watch-only)
-            FlowView(variation: max(1, flowVariation), scene: scene, colours: docColours, receivers: receivers,
+            FlowView(variation: max(1, flowVariation), thumbnail: true, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
                      playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
                      stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks, receiverSounding: recvHeld.map { $0.max() ?? 0 })
