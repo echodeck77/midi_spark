@@ -16,6 +16,7 @@ import SwiftUI
 struct FlowCell {
     let col: Int, row: Int
     let hue: Color
+    let colourIndex: Int    // index into colourIDs — matches the withheld-mark `col` tint for the fizzle tell
     let label: String
     let ticks: Int          // pulses launched per column (visual approximation of the processor's rate)
     let srcReceiver: Int?   // entry hop from receiver i (MIDI-IN)
@@ -56,6 +57,7 @@ func flowCells(scene: SceneState, colours: [Colour], stepBeats: Double) -> [Flow
             out.append(FlowCell(
                 col: c, row: r,
                 hue: colourColor(cell.colourID) ?? .gray,
+                colourIndex: colourIDs.firstIndex(of: cell.colourID) ?? -1,
                 label: flowLabel(colour.type),
                 ticks: flowTicks(colour, stepBeats: stepBeats),
                 srcReceiver: cell.inputRow == nil ? (cell.inputReceiver ?? 0) : nil,
@@ -282,12 +284,16 @@ extension FlowView {
             let on = traced == nil ? live : fam.contains(idx)
             if !on { continue }
             let ctr = cellCenter(fc.col, fc.row, grid)
-            var hops: [(a: CGPoint, b: CGPoint, cp: CGPoint, bus: Int, recv: Int)] = []
-            if let rc = fc.srcReceiver { let a = recvPt(rc); hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2, y: (a.y+ctr.y)/2), -2, rc)) }   // MIDI-IN hop
+            // CARGO-COLOUR LAW (ferry 2026-07-27): a hop wears the colour of its CARGO (its source). Entry hop =
+            // receiver hue (handled in the −2 branch); REFERENCE hop = the PARENT's colour (its output travelling,
+            // not the child's until transformed); EMISSION hop = this cell's colour. Chains read as transformations.
+            var hops: [(a: CGPoint, b: CGPoint, cp: CGPoint, bus: Int, recv: Int, hue: Color)] = []
+            if let rc = fc.srcReceiver { let a = recvPt(rc); hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2, y: (a.y+ctr.y)/2), -2, rc, fc.hue)) }   // MIDI-IN hop
             if let sr = fc.srcRow, let p = all.first(where: { $0.col == fc.col && $0.row == sr }) {
                 let a = cellCenter(p.col, p.row, grid); let bow: CGFloat = sr > fc.row ? -34 : 34
-                hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2 + bow, y: (a.y+ctr.y)/2), -1, -1)) }
-            for bus in fc.buses { let bpt = emitPt(bus); hops.append((ctr, bpt, CGPoint(x: (ctr.x+bpt.x)/2 + CGFloat(bus-1)*8, y: (ctr.y+bpt.y)/2), bus, -1)) }
+                hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2 + bow, y: (a.y+ctr.y)/2), -1, -1, p.hue)) }   // reference: PARENT's colour
+            for bus in fc.buses { let bpt = emitPt(bus); hops.append((ctr, bpt, CGPoint(x: (ctr.x+bpt.x)/2 + CGFloat(bus-1)*8, y: (ctr.y+bpt.y)/2), bus, -1, fc.hue)) }
+            let claimAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
             for h in hops {
                 // A silent cell's OUTPUT hop (a cycle that never emits) draws its guide edge FAINTLY but flies
                 // NO comets — it must not look like notes reach the emitter. The loop/reference hops still flow.
@@ -306,19 +312,30 @@ extension FlowView {
                     }
                     continue
                 }
-                ctx.stroke(gp, with: .color(fc.hue.opacity(silentOut ? 0.08 : 0.22)), lineWidth: 1)
+                ctx.stroke(gp, with: .color(h.hue.opacity(silentOut ? 0.08 : 0.22)), lineWidth: 1)
                 guard playing, !silentOut else { continue }
+                // THE WITHHELD TELL (FLOW): a CLAIM-suppressed emission hop (a withheld mark on this bus tinted by
+                // THIS cell's Colour) flies HOLLOW comets that FIZZLE mid-flight — they never reach the emitter.
+                let withheld = h.bus >= 0 && h.bus < emitMarks.count
+                    && emitMarks[h.bus].contains { $0.withheld && Int($0.col) == fc.colourIndex }
                 for k in 0..<fc.ticks {
                     let tt = frac * Double(fc.ticks) - Double(k)
                     guard tt >= 0, tt <= 1 else { continue }
+                    if withheld {
+                        guard tt < 0.55 else { continue }                 // fizzle: gone by ~55% of the path, no landing
+                        let p = bez(h.a, h.b, h.cp, CGFloat(tt)); let fade = 1 - tt / 0.55
+                        ctx.stroke(Path(ellipseIn: CGRect(x: p.x-2.5, y: p.y-2.5, width: 5, height: 5)),
+                                   with: .color(claimAmber.opacity(0.7 * fade)), lineWidth: 1)   // hollow amber = withheld
+                        continue                                          // no solid head, no meter bump
+                    }
                     let vel = 0.65 + 0.35 * sin(Double(k) * 2.7 + Double(fc.col))
                     // short fading tail
                     for s in 0..<5 { let ts = max(0, tt - Double(s) * 0.045)
                         let p = bez(h.a, h.b, h.cp, CGFloat(ts))
                         ctx.opacity = (1 - Double(s) / 5) * 0.5
-                        ctx.fill(Path(ellipseIn: CGRect(x: p.x-2, y: p.y-2, width: 4, height: 4)), with: .color(fc.hue)); ctx.opacity = 1 }
+                        ctx.fill(Path(ellipseIn: CGRect(x: p.x-2, y: p.y-2, width: 4, height: 4)), with: .color(h.hue)); ctx.opacity = 1 }
                     let head = bez(h.a, h.b, h.cp, CGFloat(tt))
-                    glowDot(ctx, head, 2.6 + 2.4 * vel, fc.hue, 1)
+                    glowDot(ctx, head, 2.6 + 2.4 * vel, h.hue, 1)
                     if h.bus >= 0, tt > 0.9, h.bus < ladder.count { ladder[h.bus] = min(1, ladder[h.bus] + 0.4 * vel) }
                 }
             }
