@@ -273,7 +273,7 @@ The perform grid is a **readable table that plays**. Reference: v59 preview.
   long-press a palette CHIP (stage by colour) · long-press an EMPTY cell (stage
   the currently selected Colour — by place) · DRAG a chip (stage + preview-in-place).
   **Cell-edit is ONE box — the CELL box** — below the colour grid, shown only
-  while staging: **INPUT (receivers radio + ROW selector) · the ON section (five
+  while staging: **INPUT (receivers radio + ROW selector) · the TRIGGERS section (five
   accordion rows per §9 item 1) · OUTPUT (A–D toggles) · a wide PREVIEW button.**
   The live RECEIVERS/EMITTERS panels stay live (they are never repurposed);
   signal-path order preserved inside the box. Staging wears a **marching-ants
@@ -584,7 +584,7 @@ on, RELEASE does nothing; touch still does everything.**
 - **THE RIG / MUSIC SPLIT (proposed state-model backbone):**
   DOCUMENT-level, survives switches = the RIG: receivers, bus channels
   (hardware doesn't rewire between scenes). PER-SCENE = the MUSIC:
-  grid, Colours + pairings, per-Colour ON assignments, **column ON
+  grid, Colours + pairings, per-Colour TRIGGERS assignments, **column ON
   assignments (each scene chains differently — that's how songs
   branch)**, CLAIM (it shapes the arrangement). **EPHEMERAL perform
   state SURVIVES the switch** (lean): the lap, HOLD captures, velocity
@@ -700,7 +700,7 @@ flash when notes leave).
      sounds, others' new note-ons arrive velocity-scaled; pumping in
      MIDI; "is it sounding" = a refcount query, stateless) · **ALT**
      (pairwise turn-taking — the parked HOCKET's simplest form promoted;
-     round-robin stays parked). COMPOSITION per the ON discipline:
+     round-robin stays parked). COMPOSITION per the TRIGGERS discipline:
      everything composes (FLIP under a claimant yields harder; mutual
      FLATTENers = legal rope); all modes = one-line admission filters or
      velocity transforms on the same ghost/refcount tables;
@@ -831,9 +831,10 @@ every answer at once.
   needs nothing.
 - RECORDED, UNDESIGNED (2026-07 — the user will expand these in a future
   design pass; log, do NOT design, implement, or let them shape other work):
-  1. **THE TRIGGER SYSTEM (2026-07-24 — TOUCH widened to FIVE per-Colour
-     event sections; naming open: the sections read ON TAP / ON HOLD /
-     ON ARRIVE / ON LEAVE / ON SCENE — candidate system name "ON").**
+  1. **TRIGGERS — THE TRIGGER SYSTEM (named 2026-07-27; "ON" retired as a bare
+     label). FIVE per-Colour event sections; the rows read TAP / HOLD / ARRIVE /
+     LEAVE / SCENE under the TRIGGERS header ("TRIGGERS: TAP — flip to B" parses
+     itself). Section-name + prose only — code identifiers stay `OnConfig` etc.**
      **THE LAW that makes it sane: gesture triggers (TAP/HOLD) may MUTATE
      (sparse, performer-intended, ephemeral — audition's category);
      temporal triggers (ARRIVE/LEAVE/SCENE) must be DERIVED** — they fire
@@ -841,17 +842,17 @@ every answer at once.
      the derived counters (effectiveAlt = base XOR pass mod 2; morph =
      f(arrivals); seed(pass)) — replay/relocation-proof, zero new state.
      A candidate that can't be expressed as a derivation doesn't get in.
-     - **ON TAP** (quant + duration axes as designed): ALT · MUTE/UNMUTE
+     - **TAP** (quant + duration axes as designed): ALT · MUTE/UNMUTE
        (the fill pad) · SOLO-EMITTERS · FILL · DICE · REPLAY.
-     - **ON HOLD** (momentary, spring): MOMENTARY-ALT · FREEZE ·
+     - **HOLD** (momentary, spring): MOMENTARY-ALT · FREEZE ·
        SLICE-CYCLE · REVERSE · OCT · COMMIT/STARVE · MORPH-SCRUB.
-     - **ON ARRIVE** (per-pass modulations, all derived): ALT-ALTERNATE
+     - **ARRIVE** (per-pass modulations, all derived): ALT-ALTERNATE
        (faces take turns) · MORPH-DRIFT (±N%/arrival, wrap or ping-pong —
        the discrete morph-LFO) · DICE-PER-PASS · EMITTER-ROTATE (hocket
        at pass rate) · FORCE-RETRIG.
-     - **ON LEAVE** (the closing bracket of ARRIVE; small menu): EXIT
+     - **LEAVE** (the closing bracket of ARRIVE; small menu): EXIT
        STAB · RING-vs-CHOP (once the tail rule lands).
-     - **ON SCENE** (arrangement init, derived from pass-since-entry):
+     - **SCENE** (arrangement init, derived from pass-since-entry):
        **JOIN AT PASS N / LEAVE AT PASS M (scenes that perform their own
        form — transforms multi-scene)** · RESET-MORPH · SET-FACE ·
        CLAIM-on-entry · AUTO-ARM (RECORD Colours).
@@ -954,7 +955,7 @@ every answer at once.
        ON ARRIVE · ON LEAVE (with EVERY-N). Assignments persist in the
        document (scene chains travel with the piece).
      UI (user rev 2026-07-26 — SUPERSEDES the popup-editor section-4 placement;
-     as-built): the ON section renders ONLY in STAGING/cell-edit mode, inside the
+     as-built): the TRIGGERS section renders ONLY in STAGING/cell-edit mode, inside the
      CELL box (below the COLOUR grid) between its INPUT (receivers radio + ROW) and
      OUTPUT (A–D) rows, above the PREVIEW button (scrolling permitted); five rows,
      assigned-only summaries, accordion; assignments write the staged COLOUR's ON

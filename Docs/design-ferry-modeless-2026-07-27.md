@@ -25,7 +25,7 @@ v62 mockup, which had it wrong — the bug is inherited from the drawing; the co
 - ENGINE: the shipped frozen-NotePool chassis; modes differ ONLY in the update rule (replace-set vs
   toggle-membership), Kernel-side. Device exercise grows one line (ADD: join/leave/latch-off).
 
-## 5. RENAME — the "ON" system → **TRIGGERS** — DIRECTIVE (prose only)
+## 5. RENAME — the "ON" system → **TRIGGERS** — APPLIED 2026-07-27 (spec §9 header + rows + prose; code stays)
 "ON" fails as a bare label. New name **TRIGGERS** (Elektron trig-condition recognition; precise scope
 events→actions; row fit: "TRIGGERS: TAP — flip to B" parses itself). Mechanics: **section header + spec
 prose rename only** — the five rows keep their names (TAP · HOLD · ARRIVE · LEAVE · SCENE), menus/axes/
