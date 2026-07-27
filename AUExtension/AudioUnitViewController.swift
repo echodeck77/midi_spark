@@ -180,8 +180,9 @@ struct DiagView: View {
             guard scene.cells[col][row] != nil else { return }
             au.editScene { $0.deleteCellHealing(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
-        case .select:                                       // toggle membership; the set outlives the hold
-            if selection.contains(pos) { selection.remove(pos) } else if scene.cells[col][row] != nil { selection.insert(pos) }
+        case .select:                                       // toggle membership; an empty tap clears (tap-away deselects)
+            if scene.cells[col][row] == nil { selection.removeAll() }
+            else if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
         case .move:                                         // lift-tap, then land-tap
             if let src = moveSource {
                 au.editScene { $0.moveCellTo(from: (src.col, src.row), to: (col, row)) }
@@ -707,6 +708,12 @@ struct DiagView: View {
         case .move, .copy: break                            // row-scope move/copy is deferred (ambiguous)
         }
     }
+    // §11 SELECT "touching edits": recolour every selected cell to `id` (the Colour edit propagates per-Colour).
+    private func recolorSelection(_ id: String) {
+        guard let au, !selection.isEmpty else { return }
+        au.editScene { s in for p in selection { if var c = s.cells[p.col][p.row] { c.colourID = id; s.cells[p.col][p.row] = c } } }
+        refreshFromDocument()
+    }
 
     private var hint: some View {
         Text(flowVariation > 0
@@ -854,7 +861,9 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in pickPalette(id) })       // tap a chip = select the brush (placement returns via PLACE, P2)
+                        onPick: { id in                          // §11 SELECT: a chip recolours the selected set; else sets the brush
+                            if !selection.isEmpty { recolorSelection(id) } else { pickPalette(id) }
+                        })
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
