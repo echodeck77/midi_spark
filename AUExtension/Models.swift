@@ -488,6 +488,43 @@ struct PluginState: Codable, Equatable {
     }
 }
 
+// MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <COLOUR>
+
+extension SceneState {
+    enum EditScope { case thisOne, allIdentical, allColour }
+
+    /// The cells an EDIT at `(col,row)` should touch under `scope`, as encoded positions (col*8 + row), sorted.
+    /// ALL IDENTICAL = same Colour AND same routing (input source + emitter buses); ALL COLOUR = same Colour.
+    /// An empty exemplar ⇒ []. Pure — the counted-chip + flash-set truth behind "EDITING n · ALL GOLD".
+    func editScopeTargets(col: Int, row: Int, scope: EditScope) -> [Int] {
+        guard col >= 0, col < 8, row >= 0, row < 8, col < cells.count, row < cells[col].count,
+              let ex = cells[col][row] else { return [] }
+        var out: [Int] = []
+        for c in 0..<8 where c < cells.count {
+            for r in 0..<8 where r < cells[c].count {
+                guard let cell = cells[c][r] else { continue }
+                let hit: Bool
+                switch scope {
+                case .thisOne:      hit = c == col && r == row
+                case .allColour:    hit = cell.colourID == ex.colourID
+                case .allIdentical: hit = cell.colourID == ex.colourID && cell.inputRow == ex.inputRow
+                                        && cell.inputReceiver == ex.inputReceiver && cell.buses == ex.buses
+                }
+                if hit { out.append(c * 8 + r) }
+            }
+        }
+        return out.sorted()
+    }
+
+    /// Apply `edit` to every cell in the EDIT scope — the propagation multiplier the write-armed panel commits.
+    mutating func applyToScope(col: Int, row: Int, scope: EditScope, _ edit: (inout Cell) -> Void) {
+        for key in editScopeTargets(col: col, row: row, scope: scope) {
+            let c = key / 8, r = key % 8
+            if var cell = cells[c][r] { edit(&cell); cells[c][r] = cell }
+        }
+    }
+}
+
 // MARK: - Session template / clipboard (delta §5) — one STAMP object
 
 /// The session-scoped TEMPLATE = CLIPBOARD (one stamp object, delta §5): a cell's full config minus its

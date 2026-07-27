@@ -112,6 +112,8 @@ struct DiagView: View {
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
     @State private var gridVerb: GridVerb? = nil
     @State private var inspectCol: Int? = nil          // INSPECT: the column whose route panel is shown (nil = console)
+    @State private var editExemplar: GridView.GridPos? = nil   // EDIT: the tapped exemplar (write-armed panel target)
+    @State private var editScope: SceneState.EditScope = .thisOne   // EDIT: THIS · ALL IDENTICAL · ALL <COLOUR>
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
     #if DEBUG
@@ -288,6 +290,10 @@ struct DiagView: View {
         guard let au else { return }
         if gridVerb == .inspect {                        // MODELESS: INSPECT (read-only) → toggle this column's route panel
             inspectCol = (inspectCol == col) ? nil : col
+            return
+        }
+        if gridVerb == .edit {                           // MODELESS: EDIT (write-armed) → target the exemplar; scope resets to THIS
+            if scene.cells[col][row] != nil { editExemplar = GridView.GridPos(col: col, row: row); editScope = .thisOne }
             return
         }
         if editing {
@@ -805,6 +811,8 @@ struct DiagView: View {
                                        playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
                                        stepBeats: stepBeats, emitMarks: emitMarks)
                             .frame(maxWidth: .infinity)
+                    } else if let ex = editExemplar {         // EDIT armed + exemplar tapped → the WRITE-ARMED route panel
+                        editRoutePanel(ex).frame(maxWidth: .infinity)
                     } else {
                         emittersBox.frame(width: half)
                         masterView.frame(maxWidth: .infinity)
@@ -1068,7 +1076,7 @@ struct DiagView: View {
             .frame(maxWidth: .infinity).frame(height: 20)
             .background(RoundedRectangle(cornerRadius: 4).fill(on ? amber : Color.white.opacity(0.07)))
             .contentShape(Rectangle())
-            .onTapGesture { gridVerb = on ? nil : v; if gridVerb != .inspect { inspectCol = nil } }   // radio arm/disarm
+            .onTapGesture { gridVerb = on ? nil : v; if gridVerb != .inspect { inspectCol = nil }; if gridVerb != .edit { editExemplar = nil } }   // radio arm/disarm
     }
     private func gcIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Image(systemName: name).font(.system(size: 10, weight: .heavy))
@@ -1076,6 +1084,48 @@ struct DiagView: View {
             .frame(maxWidth: .infinity).frame(height: 18)
             .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
             .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
+    }
+
+    // MODELESS EDIT (increment 2, scope-after-target): the WRITE-ARMED route panel — the same map as INSPECT
+    // with an amber armed border + the scope banner/chips (THIS · ALL IDENTICAL · ALL <COLOUR>, counted). The
+    // recolour-to-scope loop is wired via the palette; the full rewire-on-map (input/emitter) follows next.
+    private var editAmber: Color { Color(red: 0.98, green: 0.72, blue: 0.12) }
+    private func editRoutePanel(_ ex: GridView.GridPos) -> some View {
+        let colourName = (scene.cells[ex.col][ex.row]?.colourID ?? "").uppercased()
+        let n = scene.editScopeTargets(col: ex.col, row: ex.row, scope: editScope).count
+        let idN = scene.editScopeTargets(col: ex.col, row: ex.row, scope: .allIdentical).count
+        let colN = scene.editScopeTargets(col: ex.col, row: ex.row, scope: .allColour).count
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("EDITING \(n) · \(scopeLabel(colourName))")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(editAmber)
+            HStack(spacing: 4) {
+                scopeChip("THIS", .thisOne)
+                scopeChip("IDENTICAL \(idN)", .allIdentical)
+                scopeChip("\(colourName) \(colN)", .allColour)
+            }
+            RoutePanelView(scene: scene, colours: docColours, receivers: receivers, column: ex.col,
+                           playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
+                           stepBeats: stepBeats, emitMarks: emitMarks)
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(editAmber.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(editAmber.opacity(0.7), lineWidth: 1.5))
+    }
+    private func scopeLabel(_ colour: String) -> String {
+        switch editScope { case .thisOne: return "THIS"; case .allIdentical: return "ALL IDENTICAL"; case .allColour: return "ALL \(colour)" }
+    }
+    private func scopeChip(_ label: String, _ s: SceneState.EditScope) -> some View {
+        let on = editScope == s
+        return Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
+            .padding(.horizontal, 5).frame(height: 16)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? editAmber : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture { editScope = s }
+    }
+    private func recolorScope(_ id: String) {
+        guard let ex = editExemplar, let au else { return }
+        au.editScene { $0.applyToScope(col: ex.col, row: ex.row, scope: editScope) { $0.colourID = id } }
+        scene = au.uiScene(); docColours = au.uiColours()
     }
 
     private var colourBox: some View {
@@ -1088,7 +1138,8 @@ struct DiagView: View {
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                         onPick: { id in                          // staging: tap SELECTED chip → exit; tap ANOTHER → recolour the flashing set
-                            if staging { if id == stagedConfig.colourID { exitStaging() } else { recolorStaged(id) } }
+                            if editExemplar != nil { recolorScope(id) }   // MODELESS EDIT: repaint the whole scoped set
+                            else if staging { if id == stagedConfig.colourID { exitStaging() } else { recolorStaged(id) } }
                             else { pickPalette(id) }
                         },
                         onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,

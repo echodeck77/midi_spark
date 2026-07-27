@@ -267,6 +267,29 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(d.altCountResolved, [1, 8, 2, 1], "clamped to 1…8 and the short array pads with 1")
     }
 
+    // MARK: - MODELESS EDIT scope — target resolution + apply
+
+    func testEditScopeTargets() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+        s.cells[0][1] = Cell(colourID: "gold", buses: [.a])          // identical to (0,0)
+        s.cells[1][0] = Cell(colourID: "gold", buses: [.b])          // same Colour, DIFFERENT routing
+        s.cells[2][0] = Cell(colourID: "cyan", buses: [.a])          // different Colour
+        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .thisOne), [0], "just the exemplar")
+        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allIdentical), [0, 1], "same Colour AND routing")
+        XCTAssertEqual(s.editScopeTargets(col: 0, row: 0, scope: .allColour), [0, 1, 8], "every gold cell (0,0)(0,1)(1,0)")
+        XCTAssertEqual(s.editScopeTargets(col: 5, row: 5, scope: .allColour), [], "an empty exemplar targets nothing")
+    }
+
+    func testApplyToScopeRecolorsTheSet() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold"); s.cells[0][1] = Cell(colourID: "gold"); s.cells[1][0] = Cell(colourID: "cyan")
+        s.applyToScope(col: 0, row: 0, scope: .allColour) { $0.colourID = "wine" }
+        XCTAssertEqual(s.cells[0][0]?.colourID, "wine")
+        XCTAssertEqual(s.cells[0][1]?.colourID, "wine", "the whole gold set is repainted")
+        XCTAssertEqual(s.cells[1][0]?.colourID, "cyan", "a different Colour is untouched")
+    }
+
     func testMasterKeyResolvedClampsAndDefaults() {
         var s = SceneState.empty()
         s.masterKey = nil;  XCTAssertEqual(s.masterKeyResolved, 0, "nil ⇒ no transpose")
