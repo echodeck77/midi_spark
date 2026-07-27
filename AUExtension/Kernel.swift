@@ -182,6 +182,15 @@ final class Kernel {
         let byte = UInt8(value.map { max(1, min(127, $0)) } ?? 0)
         velOverride = Kernel.packLane(velOverride, bus, byte)
     }
+    // §4b THE FADER-KILL — a velocity fader dragged to its BOTTOM silences that emitter entirely (momentary,
+    // ephemeral). Race-safe: single main-thread writer, render reads an aligned byte/bool.
+    private var velKillMask: UInt8 = 0
+    private var masterKill = false
+    func setEmitterVelKill(_ bus: Int, _ kill: Bool) {
+        guard bus >= 0 && bus < 4 else { return }
+        if kill { velKillMask |= UInt8(1) << UInt8(bus) } else { velKillMask &= ~(UInt8(1) << UInt8(bus)) }
+    }
+    func setMasterKill(_ on: Bool) { masterKill = on }
 
     // §6a metering: read-and-clear per-emitter peak velocity + event count since the last call (UI poll).
     func drainEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { router.drainMeters() }
@@ -341,7 +350,8 @@ final class Kernel {
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
-                        emitterOctave: emitterOctave, masterVelOverride: masterVelOverride, panic: panicRequested,
+                        emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
+                        velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: latchArmMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),

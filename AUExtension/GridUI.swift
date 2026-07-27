@@ -857,7 +857,7 @@ struct OutputsView: View {
                     .onChanged { v in
                         guard enabled else { return }
                         let frac = 1 - min(1, max(0, v.location.y / max(1, h)))
-                        let val = max(1, Int((frac * 127).rounded()))
+                        let val = frac < 0.03 ? 0 : max(1, Int((frac * 127).rounded()))   // §4b bottom = KILL (0)
                         faderVel[i] = val
                         onVelOverride(i, val)
                     }
@@ -983,7 +983,7 @@ struct MasterView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4)).contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0).onChanged { v in
                     let frac = 1.0 - min(1, max(0, v.location.y / g.size.height))
-                    faderVel = max(1, Int(frac * 127)); onVelOverride(faderVel)
+                    faderVel = frac < 0.03 ? 0 : max(1, Int(frac * 127)); onVelOverride(faderVel)   // §4b bottom = KILL (0)
                 }.onEnded { _ in
                     if holdLatch { return }
                     faderVel = nil; onVelOverride(nil)

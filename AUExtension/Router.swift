@@ -837,6 +837,8 @@ final class Router {
                  inputVelOverride: UInt32 = 0,
                  emitterOctave: UInt32 = 0,
                  masterVelOverride: UInt8 = 0,
+                 velKillMask: UInt8 = 0,
+                 masterKill: Bool = false,
                  panic: Bool = false,
                  sceneFlush: Bool = false,
                  sceneRestart: Bool = false,
@@ -860,6 +862,12 @@ final class Router {
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
+        // §4b THE FADER-KILL: a velocity fader at its BOTTOM = full silence (not vel-1). It folds into the
+        // EFFECTIVE enabled mask, so the emission guard suppresses AND the enabled→disabled edge-close below
+        // stops any sounding notes (the DJ fader-down). Master fader at the bottom kills every emitter. Ephemeral
+        // (momentary, released → the bit restores → the emitter resumes), so it never touches the persisted toggle.
+        busEnabledMask &= ~velKillMask
+        if masterKill { busEnabledMask = 0 }
         self.velOverride = velOverride              // §6a PERFORM velocity override, this render
         claimMask = box.claimMask                   // §6a CLAIM v2: the claim mask, this render
         claimLeak = box.claimLeak                   // §6a CLAIM v2: per-claimant LEAK %, this render

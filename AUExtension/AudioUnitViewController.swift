@@ -554,7 +554,9 @@ struct DiagView: View {
     // §6a PERFORM velocity override: while a fader is touched, force emitter i to `v` (1–127); nil on
     // release springs it back to natural velocity. Ephemeral — nothing is written to the document.
     private func setVelOverride(_ i: Int, _ v: Int?) {
-        au?.setVelOverride(i, v)
+        // §4b FADER-KILL: the fader's bottom sends 0 = KILL (full silence). 1–127 = velocity override; nil = release.
+        if v == 0 { au?.setEmitterVelKill(i, true); au?.setVelOverride(i, nil) }
+        else { au?.setEmitterVelKill(i, false); au?.setVelOverride(i, v) }
     }
     // delta §9 item 11: RECEIVERS panel edits — channel filter / input cable / input mute (undoable doc edits).
     // MPE is silent auto-detect (user ruling 2026-07-25) — no control.
@@ -630,7 +632,11 @@ struct DiagView: View {
     private func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
     private func masterPanic() { au?.masterPanic() }
     private func nudgeMasterKey(_ d: Int) { au?.nudgeMasterKey(d); masterKey = au?.uiMasterKey() ?? masterKey }
-    private func setMasterVel(_ v: Int?) { au?.setMasterVelOverride(v) }
+    private func setMasterVel(_ v: Int?) {
+        // §4b FADER-KILL: master fader bottom = 0 = KILL every emitter (the DJ master-down).
+        if v == 0 { au?.setMasterKill(true); au?.setMasterVelOverride(nil) }
+        else { au?.setMasterKill(false); au?.setMasterVelOverride(v) }
+    }
     private func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in

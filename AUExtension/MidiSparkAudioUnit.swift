@@ -97,6 +97,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// note-on while its slider is touched; pass `nil` to spring back to natural velocity on release.
     /// Ephemeral, never persisted — the momentary "whisper/slam a bus" gesture, not the parked scale-fader.
     func setVelOverride(_ bus: Int, _ value: Int?) { kernel.setVelOverride(bus, value) }
+    func setEmitterVelKill(_ bus: Int, _ kill: Bool) { kernel.setEmitterVelKill(bus, kill) }   // §4b fader-kill
 
     /// §6a metering: per-emitter peak velocity (0–127) + event count since the last poll (read-and-clear).
     func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
@@ -220,6 +221,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiMasterMute() -> Bool { document.masterMute ?? false }
     func setMasterMute(_ on: Bool) { editDocument { $0.masterMute = on } }
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
+    func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
 
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike

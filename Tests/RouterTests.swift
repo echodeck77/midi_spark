@@ -1978,6 +1978,79 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - §4b THE FADER-KILL: a velocity fader at the bottom = full silence (suppress + close), momentary
+
+    func testEmitterFaderKillSuppressesNewNotesThenResumes() {
+        let b = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(kill: UInt8 = 0) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, velKillMask: kill, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<20 { win() }
+        XCTAssertGreaterThan(e.ons.count, 0, "emitter A emits normally")
+        let onsAtKill = e.ons.count
+        for _ in 0..<12 { win(kill: 0b0001) }              // KILL A (the fader at its bottom)
+        XCTAssertEqual(e.ons.count, onsAtKill, "while killed, emitter A emits NO new note-ons")
+        let onsAtRelease = e.ons.count
+        for _ in 0..<15 { win() }                          // RELEASE the fader
+        XCTAssertGreaterThan(e.ons.count, onsAtRelease, "releasing the fader resumes emission")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    func testFaderKillClosesASustainedNote() {
+        // A passgate HOLD (all-open) sustains the chord on A → the kill edge must send its note-offs (the DJ drop).
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
+        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(kill: UInt8 = 0) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, velKillMask: kill, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<6 { win() }
+        XCTAssertGreaterThan(e.ons.count, 0, "the hold sounds")
+        let offsBefore = e.offs.count
+        win(kill: 0b0001)                                  // fader DOWN → the sustained note closes
+        XCTAssertGreaterThan(e.offs.count, offsBefore, "the kill edge closed the sustained note")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    func testMasterFaderKillSilencesEveryEmitter() {
+        let b = box(colours: arpColours()) {
+            for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]); $0.cells[c][1] = Cell(colourID: "cyan", buses: [.b]) }
+        }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(master: Bool = false) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, masterKill: master, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<20 { win() }
+        XCTAssertGreaterThan(e.ons.count, 0, "both emitters emit normally")
+        let onsAtKill = e.ons.count
+        for _ in 0..<12 { win(master: true) }              // master fader DOWN = all silent
+        XCTAssertEqual(e.ons.count, onsAtKill, "master kill silences EVERY emitter")
+        let onsAtRelease = e.ons.count
+        for _ in 0..<15 { win() }                          // release
+        XCTAssertGreaterThan(e.ons.count, onsAtRelease, "release resumes")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: - T13b: a chord-hold parent (PASS/identity) feeding a tick child (ARP) — the routing hole
 
     func testOpenPassgateParentFeedsArpChild() {
