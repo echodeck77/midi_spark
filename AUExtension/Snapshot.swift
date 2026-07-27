@@ -82,7 +82,8 @@ final class SnapshotBox {
     let cells: [SnapCell]            // 64, index = column * 8 + row
     let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
     let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
-    let claimEmitter: Int8           // delta §6a: the one-claimant CLAIM emitter (0–3), or −1 = none
+    let claimMask: UInt8             // delta §6a CLAIM v2: bit i = emitter i claims (SHARED tier); 0 = no claim
+    let claimLeak: [UInt8]           // delta §6a CLAIM v2: 4 per-claimant LEAK % (0 = full suppression = v1)
     let flattenMask: UInt8           // emitter role family: bit i = emitter i ducks OTHER emitters while it sounds
     let flattenAmount: [UInt8]       // 4 per-emitter FLATTEN amounts (0…100 %)
     let altMask: UInt8               // emitter role family: the ALT turn-taking group (bits A–D)
@@ -95,7 +96,8 @@ final class SnapshotBox {
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
-         claimEmitter: Int8 = -1, flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
+         claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
+         flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
          altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
@@ -108,7 +110,8 @@ final class SnapshotBox {
         self.cells = cells
         self.busChannels = busChannels
         self.busEnabledMask = busEnabledMask
-        self.claimEmitter = claimEmitter
+        self.claimMask = claimMask
+        self.claimLeak = claimLeak
         self.flattenMask = flattenMask
         self.flattenAmount = flattenAmount
         self.altMask = altMask

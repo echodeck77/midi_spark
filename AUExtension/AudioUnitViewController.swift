@@ -51,7 +51,8 @@ struct DiagView: View {
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
-    @State private var claim: Int? = nil                              // delta §6a CLAIM (a7): the exclusive emitter
+    @State private var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
+    @State private var claimLeak: [Int] = [0, 0, 0, 0]                // delta §6a CLAIM v2: per-claimant LEAK % (0…100)
     @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
     @State private var flattenMask: UInt8 = 0                         // role family: FLATTEN set (persisted)
     @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
@@ -440,7 +441,8 @@ struct DiagView: View {
         docColours = au.uiColours()
         busChannels = au.uiBusChannels()
         busEnabled = au.uiBusEnabled()
-        claim = au.uiClaim()
+        claimMask = au.uiClaimMask()
+        claimLeak = au.uiClaimLeak()
         thruReceiver = au.uiThruReceiver()
         flattenMask = au.uiFlattenMask()
         flattenAmount = au.uiFlattenAmount()
@@ -577,13 +579,18 @@ struct DiagView: View {
         clearReceiverLatch()
     }
 
-    // §6a CLAIM: tap an emitter's CLAIM radio → it becomes the sole claimant (releasing any prior);
-    // tapping the current claimant clears the claim. Persisted (the AU toggles + rebuilds).
+    // §6a CLAIM v2: tap an emitter's CLAIM button → toggle it in/out of the claim set (multi-claim, no longer
+    // a radio); vertical drag sets its LEAK % (the bleed-through). Persisted (the AU toggles + rebuilds).
     private func setClaim(_ i: Int) {
         guard let au else { return }
         au.setClaim(i)
-        claim = au.uiClaim()
+        claimMask = au.uiClaimMask()
         thruReceiver = au.uiThruReceiver()
+    }
+    private func setClaimLeak(_ i: Int, _ pct: Int) {
+        guard let au else { return }
+        au.setClaimLeak(i, pct)
+        claimLeak = au.uiClaimLeak()
     }
     // role family: FLATTEN (persisted) — tap toggles the emitter into the ducking set; drag sets its amount %.
     private func toggleFlatten(_ i: Int) {
@@ -699,7 +706,8 @@ struct DiagView: View {
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
-            let cl = au.uiClaim();         if cl != claim { claim = cl }
+            let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
+            let clk = au.uiClaimLeak();    if clk != claimLeak { claimLeak = clk }
             let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }
             let fm = au.uiFlattenMask();   if fm != flattenMask { flattenMask = fm }
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
@@ -918,9 +926,10 @@ struct DiagView: View {
 
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
-                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks, claim: claim, holdLatch: holdLatch,
+                    emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
+                    claimMask: claimMask, claimLeak: claimLeak, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
-                    onVelOverride: setVelOverride, onClaim: setClaim,
+                    onVelOverride: setVelOverride, onClaim: setClaim, onClaimLeak: setClaimLeak,
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
                     octave: emitterOctave, onOct: nudgeEmitterOctave,
                     flattenMask: flattenMask, flattenAmount: flattenAmount,

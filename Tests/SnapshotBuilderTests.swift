@@ -80,16 +80,23 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(SnapshotBuilder.build(from: st).cells[0].inputChannel, 4)
     }
 
-    func testClaimEmitterMapsToSnapshot() {
-        func claim(_ c: Int?) -> Int8 {
+    func testClaimMapsToSnapshot() {
+        // Legacy single field derives the mask bit.
+        func claimMask(_ c: Int?) -> UInt8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
             st.claimEmitter = c
-            return SnapshotBuilder.build(from: st).claimEmitter
+            return SnapshotBuilder.build(from: st).claimMask
         }
-        XCTAssertEqual(claim(nil), -1, "nil ⇒ no claim")
-        XCTAssertEqual(claim(0), 0, "emitter A claims")
-        XCTAssertEqual(claim(3), 3, "emitter D claims")
-        XCTAssertEqual(claim(9), -1, "out-of-range ⇒ no claim")
+        XCTAssertEqual(claimMask(nil), 0, "nil ⇒ no claim")
+        XCTAssertEqual(claimMask(0), 0b0001, "emitter A claims")
+        XCTAssertEqual(claimMask(3), 0b1000, "emitter D claims")
+        XCTAssertEqual(claimMask(9), 0, "out-of-range ⇒ no claim")
+        // v2: an explicit MULTI-claim mask + per-claimant LEAK map straight through.
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.claimMask = 0b0110; st.claimLeak = [0, 40, 0, 0]
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box.claimMask, 0b0110, "explicit mask maps through")
+        XCTAssertEqual(box.claimLeak, [0, 40, 0, 0], "per-claimant leak maps through")
     }
 
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {

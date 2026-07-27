@@ -289,10 +289,25 @@ struct PluginState: Codable, Equatable {
         let e = busEnabled ?? []
         return (0..<4).map { $0 < e.count ? e[$0] : true }
     }
-    // delta §6a CLAIM: the one-claimant emitter with exclusive rights over a pitch (0–3), or nil = none.
-    // Persisted (a document property, unlike the ephemeral velocity override); optional so old docs
-    // decode as nil. Suppression lives at the emission boundary against the live voice table.
+    // delta §6a CLAIM: LEGACY single-claimant field (0–3), kept for lossless decode/downgrade. v2 supersedes
+    // it with `claimMask`; a doc written by v2 also stamps this to the lowest claimed bus so an OLDER build
+    // still reads one claimant. Suppression lives at the emission boundary against the live voice table.
     var claimEmitter: Int? = nil
+    // delta §6a CLAIM v2 (2026-07-27): MULTI-claim mask — bit i set ⇒ emitter i claims (SHARED tier, claimants
+    // never suppress each other; non-claimants yield the union of all claimants' sounding pitch classes).
+    // Persisted. Optional → nil derives from the legacy `claimEmitter` (old docs decode unchanged).
+    var claimMask: UInt8? = nil
+    /// The claim mask (bits A–D), deriving from the legacy single-claimant field when unset. Non-persisting.
+    var claimMaskResolved: UInt8 {
+        if let m = claimMask { return m & 0b1111 }
+        if let e = claimEmitter, (0..<4).contains(e) { return UInt8(1 << e) }
+        return 0
+    }
+    // delta §6a CLAIM v2 LEAK %: per-claimant bleed — a claimed pitch class passes on non-claimants at this
+    // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
+    var claimLeak: [Int]? = nil
+    /// The four LEAK amounts (0…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
+    var claimLeakResolved: [Int] { let a = claimLeak ?? []; return (0..<4).map { $0 < a.count ? max(0, min(100, a[$0])) : 0 } }
     // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter has anything sounding, OTHER
     // emitters' NEW note-ons arrive velocity-scaled by its amount (0…100%). Persisted (structure). Optional →
     // old docs decode nil (off). `flattenMask` = which emitters duck; `flattenAmount` = per-emitter amount.

@@ -91,8 +91,10 @@ enum SnapshotBuilder {
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
         var busEnabledMask: UInt8 = 0
         for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
-        // delta §6a CLAIM: the exclusive-rights emitter (nil/out-of-range ⇒ −1 = no claim).
-        let claim: Int8 = (doc.claimEmitter.map { (0..<4).contains($0) ? Int8($0) : -1 }) ?? -1
+        // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
+        // per-claimant LEAK % (0 = full suppression = v1).
+        let claimMask = doc.claimMaskResolved
+        let claimLeak = doc.claimLeakResolved.map { UInt8($0) }
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
         // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
         // the R1 passthrough gate blocks it (mute ruling 2026-07-26) — one representation, both consumers.
@@ -109,7 +111,8 @@ enum SnapshotBuilder {
                            cells: cells,
                            busChannels: busCh,
                            busEnabledMask: busEnabledMask,
-                           claimEmitter: claim,
+                           claimMask: claimMask,
+                           claimLeak: claimLeak,
                            flattenMask: doc.flattenMask ?? 0,
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
                            altMask: doc.altMask ?? 0,

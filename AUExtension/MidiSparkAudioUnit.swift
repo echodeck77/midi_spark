@@ -135,13 +135,26 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
-    /// delta §6a CLAIM (a7): the one-claimant emitter (0–3), or nil = none. Persisted, RADIO — setting a
-    /// claimant replaces any prior; passing the current claimant (or nil) clears it (a toggle at the UI).
-    func uiClaim() -> Int? { document.claimEmitter }
-    func setClaim(_ i: Int?) {
+    /// delta §6a CLAIM v2: MULTI-claim (persisted). `setClaim` toggles emitter `bus` in/out of the claim set
+    /// (buttons are no longer a radio — several light); `setClaimLeak` sets its 0…100 % bleed. The legacy
+    /// single `claimEmitter` field is kept in sync (lowest claimed bus) so an OLDER build downgrades cleanly.
+    func uiClaimMask() -> UInt8 { document.claimMaskResolved }
+    func uiClaimLeak() -> [Int] { document.claimLeakResolved }
+    func setClaim(_ bus: Int) {
+        guard (0..<4).contains(bus) else { return }
         editDocument { d in
-            if let i, (0..<4).contains(i) { d.claimEmitter = (d.claimEmitter == i) ? nil : i }
-            else { d.claimEmitter = nil }
+            let m = d.claimMaskResolved ^ UInt8(1 << bus)
+            d.claimMask = m
+            d.claimEmitter = m == 0 ? nil : Int(m.trailingZeroBitCount)
+        }
+    }
+    func setClaimLeak(_ bus: Int, _ pct: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.claimLeak ?? d.claimLeakResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = max(0, min(100, pct))
+            d.claimLeak = a
         }
     }
 

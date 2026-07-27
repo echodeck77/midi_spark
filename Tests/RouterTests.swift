@@ -436,18 +436,18 @@ final class RouterTests: XCTestCase {
     }
 
     func testDrainMarksRingCapsAtEight() {
-        // A ratchet floods bus A with note-ons; the per-emitter ring saturates at 8 marks per drain.
-        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        // An arp of a chord floods bus A with note-ons over many beats; the per-emitter ring saturates at 8
+        // marks per drain (drainMarks is called ONCE at the end, so all note-ons since start accumulate).
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        let pool = chord([60, 64, 67]); let sr = 48_000.0; let frames: UInt32 = 2048
         var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
-        for _ in 0..<48 {
+        for _ in 0..<200 {                                   // ~17 beats — well over a ring's worth of arp steps
             router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
                            timestampSample: ts, frameCount: frames, out: e, diag: &diag)
             beat += wb; ts += Double(frames)
         }
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "the ratchet emitted more than a ring's worth")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "the arp emitted more than a ring's worth")
         XCTAssertEqual(router.drainMarks()[0].count, 8, "…but the mark ring saturates at 8 per emitter")
     }
 
@@ -736,6 +736,71 @@ final class RouterTests: XCTestCase {
                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "A sounded during the claim-A phase")
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "B sounded during the claim-B phase")
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: - CLAIM v2 (§6a) — MULTI-claim (SHARED tier) + LEAK %
+
+    /// Build a box with an explicit claim MASK + optional per-claimant LEAK (bypassing the legacy single field).
+    private func claimMaskBox(_ cs: [Colour], mask: UInt8, leak: [Int] = [0, 0, 0, 0],
+                              _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        var st = PluginState(colours: cs, scenes: [s]); st.claimMask = mask; st.claimLeak = leak
+        return SnapshotBuilder.build(from: st)
+    }
+
+    func testMultiClaimSuppressesNonClaimantsAcrossTheUnion() {
+        // A and B both claim (SHARED tier). One cell fans A+B+C. C yields the pitch class (owned by the
+        // union), but A and B BOTH sound it — claimants never suppress each other (deliberate doubling).
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0011) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b, .c])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A (claimant) sounds")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 60 }.count, 0, "B (claimant) also sounds — claimants double")
+        XCTAssertTrue(e.ons.filter { $0.cable == 3 }.isEmpty, "C (non-claimant) yields the claimed class")
+        assertNothingLeftSounding(e)
+    }
+
+    func testClaimLeakBleedsNonClaimantAtScaledVelocity() {
+        // A claims with LEAK 50 %. B (non-claimant) fanned the same pitch now SOUNDS at half velocity — the
+        // shadow — instead of falling silent. Source velocity is 100 (the `chord` helper) → 50.
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        let aVel = Int(e.ons.first { $0.cable == 1 && $0.note == 60 }!.vel)   // the claimant's (un-leaked) velocity
+        let bOns = e.ons.filter { $0.cable == 2 && $0.note == 60 }
+        XCTAssertGreaterThan(bOns.count, 0, "B bleeds through (LEAK 50 % > 0)")
+        XCTAssertTrue(bOns.allSatisfy { Int($0.vel) == aVel * 50 / 100 }, "B sounds at half the claimant velocity (the shadow)")
+        assertNothingLeftSounding(e)
+    }
+
+    func testMultiClaimLeakTakesTheStrictestShadow() {
+        // A leaks 60 %, B leaks 20 %; both claim the same class. A non-claimant C bleeds at the MIN (20 %) —
+        // the strictest claimant's shadow wins.
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0011, leak: [60, 20, 0, 0]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b, .c])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        let aVel = Int(e.ons.first { $0.cable == 1 && $0.note == 60 }!.vel)   // a claimant's (un-leaked) velocity
+        let cOns = e.ons.filter { $0.cable == 3 && $0.note == 60 }
+        XCTAssertGreaterThan(cOns.count, 0, "C bleeds (both leaks > 0)")
+        XCTAssertTrue(cOns.allSatisfy { Int($0.vel) == aVel * 20 / 100 }, "C bleeds at the MIN leak (20 %), not 60 % — strictest wins")
+        assertNothingLeftSounding(e)
+    }
+
+    func testMultiClaimLeakZeroStillFullySuppresses() {
+        // Regression: a claim with LEAK 0 is exactly v1 — the non-claimant is silent, no shadow.
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [0, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "LEAK 0 ⇒ hard suppression (v1 behaviour)")
         assertNothingLeftSounding(e)
     }
 

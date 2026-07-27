@@ -641,12 +641,14 @@ struct OutputsView: View {
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
     var marks: [[VelMark]] = [[], [], [], []]                             // item 4: floating output velocity marks (Colour-tinted)
-    var claim: Int? = nil                                                  // §6a CLAIM: the exclusive emitter, or nil
+    var claimMask: UInt8 = 0                                               // §6a CLAIM v2: the multi-claim mask (bits A–D)
+    var claimLeak: [Int] = [0, 0, 0, 0]                                    // §6a CLAIM v2: per-claimant LEAK % (0…100)
     var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
     let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i (both modes)
     let onSetChannel: (Int, Int) -> Void  // EDIT stepper → set emitter i's stamp channel (1–16)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
-    var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM radio → toggle emitter i as sole claimant
+    var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM → toggle emitter i in/out of the claim set
+    var onClaimLeak: (Int, Int) -> Void = { _, _ in }      // PERFORM CLAIM drag → set emitter i's LEAK % (0…100)
     var soloMask: UInt8 = 0                                 // foot SOLO — additive set (reuses soloEmitterMask)
     var onToggleSolo: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                       // E-2: ephemeral output ±octave nudge
@@ -723,12 +725,16 @@ struct OutputsView: View {
     // gated behind the single-CLAIM device pass — spec 2026-07-26); their slots join here once CLAIM is trusted.
     private func roleColumn(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
+        let claimOn = claimMask & (1 << UInt8(i)) != 0
+        let leak = i < claimLeak.count ? claimLeak[i] : 0
         let flatOn = flattenMask & (1 << UInt8(i)) != 0
         let flatAmt = i < flattenAmount.count ? flattenAmount[i] : 0
         let altOn = altMask & (1 << UInt8(i)) != 0
         let altN = i < altCount.count ? altCount[i] : 1
         return VStack(spacing: 2) {
-            claimRadio(i)
+            // CLAIM: tap toggles membership; drag sets LEAK % (0 = hard suppression, shown as plain "CLAIM").
+            roleButton(i, label: "CLAIM", on: claimOn, value: leak, maxValue: 100,
+                       onToggle: { onClaim(i) }, onDrag: { onClaimLeak(i, $0) })
             roleButton(i, label: "FLAT", on: flatOn, value: flatAmt, maxValue: 100,
                        onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
             roleButton(i, label: "ALT", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
@@ -841,18 +847,6 @@ struct OutputsView: View {
         .frame(maxHeight: .infinity)   // fills the region above the CLAIM footer
     }
 
-    // PERFORM — the CLAIM radio (one-claimant exclusivity). Amber = this emitter holds the claim; tap to
-    // claim (releasing any prior) or tap the claimant again to clear. Distinct from the cyan enable cue.
-    private func claimRadio(_ i: Int) -> some View {
-        let claimed = claim == i
-        return Text("CLAIM").font(.system(size: 7, weight: .heavy, design: .monospaced))
-            .foregroundColor(claimed ? .black : .white.opacity(0.45))
-            .frame(maxWidth: .infinity).frame(height: 18)
-            .background(RoundedRectangle(cornerRadius: 4).fill(claimed ? amber : Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(claimed ? .clear : Color.white.opacity(0.12), lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { onClaim(i) }
-    }
 
     // OVERRIDE (touched) = the LED-ladder FILL bottom-to-finger + set-point; PASSIVE (idle) = item-4 floating
     // velocity MARKS, each tinted in its source cell's Colour (who struck, how hard). Disabled = greyed.

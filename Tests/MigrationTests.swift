@@ -274,6 +274,42 @@ final class MigrationTests: XCTestCase {
         s.masterKey = -20;  XCTAssertEqual(s.masterKeyResolved, -12, "clamped to −12")
     }
 
+    // MARK: - CLAIM v2 (delta §6a) — mask derives from the legacy field; leak clamps; append-only round-trip
+
+    func testClaimMaskResolvedDerivesFromLegacyField() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.claimMask = nil; d.claimEmitter = nil
+        XCTAssertEqual(d.claimMaskResolved, 0, "nil mask + nil legacy ⇒ no claim")
+        d.claimEmitter = 2
+        XCTAssertEqual(d.claimMaskResolved, 0b0100, "the legacy single claimant derives its bit")
+        d.claimMask = 0b1010
+        XCTAssertEqual(d.claimMaskResolved, 0b1010, "an explicit mask wins over the legacy field")
+        d.claimMask = nil; d.claimEmitter = 9
+        XCTAssertEqual(d.claimMaskResolved, 0, "an out-of-range legacy value ⇒ no claim")
+    }
+
+    func testClaimLeakResolvedClampsAndFillsShort() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.claimLeak = nil
+        XCTAssertEqual(d.claimLeakResolved, [0, 0, 0, 0], "nil ⇒ all 0 (full suppression)")
+        d.claimLeak = [150, -5, 50]                              // over / under / short
+        XCTAssertEqual(d.claimLeakResolved, [100, 0, 50, 0], "clamped to 0…100 and the short array pads with 0")
+    }
+
+    func testClaimV2FieldsRoundTripAndOldDocsDecode() throws {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.claimMask = 0b0101; d.claimLeak = [30, 0, 70, 0]
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
+        XCTAssertEqual(back.claimMask, 0b0101, "the mask persists")
+        XCTAssertEqual(back.claimLeakResolved, [30, 0, 70, 0], "the leak persists")
+        // An OLD doc (encoded before the v2 keys existed) has neither key → decodes to no claim, no leak.
+        var old = PluginState(colours: [], scenes: [])
+        old.claimMask = nil; old.claimLeak = nil; old.claimEmitter = nil
+        let oldBack = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(old))
+        XCTAssertEqual(oldBack.claimMaskResolved, 0)
+        XCTAssertEqual(oldBack.claimLeakResolved, [0, 0, 0, 0])
+    }
+
     // Regression: the persisted receiver config (channel/cable/mute) + THRU pip must survive the fullState
     // save→restore path (encode → decode → migrateLegacyRoutingIfNeeded), exactly as MidiSparkAudioUnit does.
     func testReceiverConfigSurvivesFullStateRoundTrip() {

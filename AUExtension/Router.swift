@@ -62,10 +62,14 @@ final class Router {
     // velocity, 0 = no override, 1–127 = flatten every new note-on to this value. Scalar so the
     // main-write/render-read stays race-safe (an aligned UInt32, like heldColumns).
     private var velOverride: UInt32 = 0
-    // §6a CLAIM (persisted, one-claimant RADIO): the emitter with exclusive rights (−1 = none). When set,
-    // a NON-claimant emitting a PITCH CLASS (note % 12) already sounding on the claimant is suppressed (own
-    // cable + its All copy) — the claimant keeps that harmony, others get the residue. Suppress, never defer.
-    private var claimEmitter: Int8 = -1
+    // §6a CLAIM v2 (persisted, MULTI-claim SHARED tier): bit i set ⇒ emitter i claims. A NON-claimant emitting
+    // a PITCH CLASS (note % 12) sounding on ANY claimant is suppressed (own cable + its All copy) — claimants
+    // own that harmony, others get the residue; claimants never suppress each other. Suppress, never defer.
+    private var claimMask: UInt8 = 0
+    // §6a CLAIM v2 LEAK %: per-claimant bleed. When a non-claimant yields a claimed pitch class, it passes at
+    // this scaled velocity instead of falling silent (0 = full suppression = v1). Multi-claim = the MIN leak
+    // among the claimants sounding that class wins (the strictest shadow).
+    private var claimLeak: [UInt8] = [0, 0, 0, 0]
     // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter (bit set) has anything
     // sounding, OTHER emitters' NEW note-ons are velocity-scaled by that emitter's amount. Persisted; refreshed
     // from the box each render. Stateless — a pure query of the live voice table at admission time.
@@ -238,7 +242,7 @@ final class Router {
     /// Callers ADD the receiver/hold octave addends themselves — those differ per site (the preview/
     /// audition sites deliberately omit the receiver octave), so they must NOT be folded in here.
     private func colourTranspose(_ ci: Int, _ colour: SnapColour) -> Int {
-        colourTranspose(ci, colour)
+        Int(over(2 + ci, Double(colour.transpose)).rounded())
     }
 
     /// A real document edit publishes a fresh snapshot generation → it is the new truth, so drop
@@ -375,18 +379,21 @@ final class Router {
         return false
     }
 
-    // §6a CLAIM: does the claimant currently OWN `note`'s PITCH CLASS? Matched on note % 12 (delta §6a,
-    // user fix 2026-07-24): a claimed C3 suppresses ALL C's — every octave — on the other emitters, so the
-    // claimant owns its HARMONY and the residue is different pitch classes, not octave doubles (octave
-    // doubling across synths is exactly the mud exclusivity exists to prevent). Answered from the claimant's
-    // persistent SILENT ghost (emitOneBus opens one per claimant note, enabled or muted), which survives the
-    // audible voice's immediate close — so this is correct for short notes too. Used at the emission boundary.
-    private func pitchSoundingOnClaimant(_ note: UInt8) -> Bool {
-        guard claimEmitter >= 0 else { return false }
-        let cb = UInt8(claimEmitter)
+    // §6a CLAIM v2: is `note`'s PITCH CLASS owned by ANY claimant, and if so at what LEAK %? Returns nil when
+    // unclaimed (the note sounds normally); otherwise the MIN leak among the claimants sounding that class —
+    // the strictest shadow wins (0 = full suppression). Matched on note % 12 (delta §6a user fix): a claimed
+    // C3 owns ALL C's — every octave — so the claimant keeps its HARMONY and octave doubles are the residue
+    // exclusivity prevents. Answered from the claimants' persistent SILENT ghosts (emitOneBus opens one per
+    // claimant note, enabled or muted), which survive the audible voice's immediate close — so this is
+    // rate-independent (a fast arp note that opens+closes inside one window still registers the claim).
+    private func claimedPitchLeak(_ note: UInt8) -> Int? {
+        guard claimMask != 0 else { return nil }
         let pc = note % 12
-        for v in voices where v.active && v.silent && v.bus == cb && v.note % 12 == pc { return true }
-        return false
+        var minLeak = Int.max
+        for v in voices where v.active && v.silent && (claimMask & (1 << v.bus)) != 0 && v.note % 12 == pc {
+            minLeak = min(minLeak, Int(claimLeak[Int(v.bus) & 3]))
+        }
+        return minLeak == Int.max ? nil : minLeak
     }
 
     private func activeVoiceCount() -> Int {
@@ -462,16 +469,19 @@ final class Router {
             }
             busMask = (busMask & ~altMask) | pick
         }
-        // §6a CLAIM: emit the CLAIMANT bus FIRST when this articulation fans to it, so its ownership trace
-        // (the silent ghost opened in emitOneBus) is in the table before any non-claimant in the same
-        // fan-out checks — co-onset suppression is then order-independent. Uncontested fan-out: bus order.
+        // §6a CLAIM v2: emit ALL claimant buses in this fan-out FIRST (any order among them), so every
+        // claimant's ownership trace (the silent ghost opened in emitOneBus) is in the table before any
+        // non-claimant in the same fan-out checks — co-onset suppression is then order-independent.
         var mask = busMask
-        if claimEmitter >= 0, busMask & (1 << UInt8(claimEmitter)) != 0 {
-            let c = emitOneBus(Int(claimEmitter), note: note, velocity: velocity, onSample: onSample,
+        var cm = busMask & claimMask
+        while cm != 0 {
+            let bus = Int(cm.trailingZeroBitCount)            // 0…3 = A…D
+            cm &= cm - 1
+            let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
                                offSample: offSample, windowEnd: windowEnd, out: out)
             if c >= 0 { lastCh = UInt8(c) }
-            mask &= ~(1 << UInt8(claimEmitter))
         }
+        mask &= ~claimMask
         while mask != 0 {
             let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
             mask &= mask - 1
@@ -501,21 +511,25 @@ final class Router {
         let sn = Int(note) + emitterOctaveShift(bus) + (previewMode ? 0 : masterKey)
         guard sn >= 0 && sn <= 127 else { return -1 }
         let note = UInt8(sn)
-        if claimEmitter >= 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
-            if bus == Int(claimEmitter) {
-                // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks the
-                // claimant as sounding this pitch for the note's whole life. It is what non-claimants
-                // check (`pitchSoundingOnClaimant`), decoupled from the AUDIBLE voice below — which is
-                // immediate-closed for short notes. So suppression is RATE-INDEPENDENT: a fast arp note
-                // that opens+closes inside one render window still registers the claim. NOT immediate-
-                // closed here (that is the whole point); drainDue / transport edges / reset close it
-                // sample-accurately. A muted claimant opens ONLY this ghost — the sidechain-style claim.
+        var leakScale = 100   // 100 = no attenuation; a leaked (shadow) non-claimant sets this < 100 below
+        if claimMask != 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
+            if (claimMask & (1 << UInt8(bus))) != 0 {
+                // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks this
+                // claimant as sounding the pitch for the note's whole life. It is what non-claimants check
+                // (`claimedPitchLeak`), decoupled from the AUDIBLE voice below — which is immediate-closed
+                // for short notes. So suppression is RATE-INDEPENDENT: a fast arp note that opens+closes
+                // inside one render window still registers the claim. NOT immediate-closed here (that is the
+                // whole point); drainDue / transport edges / reset close it sample-accurately. A muted
+                // claimant opens ONLY this ghost. Claimants never suppress each other (SHARED tier), so a
+                // claimant emitter always reaches its ghost — never the yield branch below.
                 openVoice(note: note, chan: 0, cable: UInt8(bus + 1), bus: UInt8(bus),
                           onSample: onSample, offSample: offSample, velocity: 0, out: out, silent: true)
-            } else if pitchSoundingOnClaimant(note) {
-                // Non-claimant yields a pitch the claimant owns — own cable AND its All copy. Suppress,
-                // never defer: no voice opens, so there is no off to emit and the refcount is untouched.
-                return -1
+            } else if let leak = claimedPitchLeak(note) {
+                // Non-claimant yields a pitch class a claimant owns. LEAK 0 → suppress, never defer: no voice
+                // opens, no off to emit, refcount untouched (v1). LEAK > 0 → the hole becomes a SHADOW: fall
+                // through and emit at scaled velocity (the strictest claimant's leak already won upstream).
+                if leak == 0 { return -1 }
+                leakScale = leak
             }
         }
         // delta §6a: a DISABLED emitter emits nothing audible (its claim ghost, if any, was opened above,
@@ -543,6 +557,9 @@ final class Router {
             }
             if duck > 0 { v = UInt8(max(1, Int(v) * (100 - duck) / 100)) }
         }
+        // §6a CLAIM v2 LEAK: a leaked non-claimant (a claimed pitch class bleeding through) sounds at scaled
+        // velocity — the SHADOW. Same tier as FLATTEN (a per-note-on duck); the master fader below still wins.
+        if leakScale < 100 { v = UInt8(max(1, Int(v) * leakScale / 100)) }
         // master panel FADER: a momentary-absolute override over ALL output — applied LAST so it wins over the
         // per-emitter/input overrides and FLATTEN (the whisper-drop). 0 = untouched. previewMode bypasses.
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
@@ -811,7 +828,8 @@ final class Router {
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
         self.velOverride = velOverride              // §6a PERFORM velocity override, this render
-        claimEmitter = box.claimEmitter             // §6a CLAIM: the exclusive-rights emitter, this render
+        claimMask = box.claimMask                   // §6a CLAIM v2: the claim mask, this render
+        claimLeak = box.claimLeak                   // §6a CLAIM v2: per-claimant LEAK %, this render
         flattenMask = box.flattenMask               // role family: FLATTEN ducking set, this render
         flattenAmount = box.flattenAmount
         altMask = box.altMask                       // role family: ALT turn-taking group, this render

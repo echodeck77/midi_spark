@@ -650,7 +650,17 @@ flash when notes leave).
      (automatable mix) remains parked as a separate future variant.]
   3. the **CLAIM button** (promotes the parked exclusivity/spillover
      design): the claiming emitter takes EXCLUSIVE rights to incoming
-     notes; others receive the residue. **CLAIM MATCHES BY PITCH CLASS
+     notes; others receive the residue.
+     **SHIPPED — CLAIM v2 (2026-07-27, off-device verified; device pass pending):
+     pitch-class match + MULTI-claim (SHARED) + LEAK % are all built.** Engine:
+     `claimMask` (persisted; legacy `claimEmitter` kept in sync = lowest bit for
+     lossless downgrade) + per-claimant `claimLeak[4]`; suppression on `note % 12`
+     against the union of claimants' ghosts; MIN leak wins (strictest shadow);
+     claimants emit first + never suppress each other; a muted claimant still
+     reserves. UI: the CLAIM button is a `roleButton` (tap = toggle membership,
+     multiple light; vertical drag = LEAK %). Still parked: CASCADE mode + the
+     EXACT-NOTE option (the config popover). The paragraphs below are the design
+     record that led here. **CLAIM MATCHES BY PITCH CLASS
      (user fix 2026-07-24): a claimed C3 suppresses ALL C's — every
      octave — on the other emitters.** The claimant owns its HARMONY;
      residue = different pitch classes, not octave doubles (octave

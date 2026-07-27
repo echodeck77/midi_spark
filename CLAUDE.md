@@ -315,11 +315,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   still reserves (sidechain-style). Claimant is emitted FIRST within a fan-out. Known caveat
   (L1, accepted): two DIFFERENT cells whose same-pitch notes both NEWLY onset in one render
   window are row-order-dependent. Device procedures in test-procedures.md (a7 T-intent + CLAIM).
-  **SPEC FIX pending (2026-07-24, delta §6a): CLAIM matches by PITCH
-  CLASS, not exact pitch** — a claimed C3 suppresses all C's on other
-  emitters (note mod 12 in the suppression check, ghosts included).
-  As-built is exact-pitch: one-line engine change + an octave case in the
-  CLAIM procedure; fold into the a7 device pass.
+  **CLAIM v2 — SHIPPED (2026-07-27, off-device verified; device pass pending). delta §6a.**
+  Three deltas built on the ghost/refcount machinery: ① PITCH-CLASS match (note mod 12 in the
+  suppression check + ghost comparison — a claimed C3 suppresses every C on other emitters);
+  ② MULTI-claim SHARED tier — `claimMask` (persisted; legacy `claimEmitter` kept synced = lowest
+  bit for lossless downgrade); non-claimants yield the UNION of claimants' sounding classes,
+  claimants never suppress each other + emit first, a muted claimant still reserves; ③ LEAK % —
+  per-claimant `claimLeak[4]` (persisted); a yielded class bleeds through at scaled velocity (the
+  SHADOW) instead of silence, MIN leak wins in multi (strictest shadow); LEAK 0 == v1 suppression.
+  UI: the CLAIM button is now a `roleButton` (tap = toggle membership, multiple light; vertical drag
+  = LEAK %). STILL PARKED: CASCADE mode + EXACT-NOTE option (the config popover). L1 caveat widens
+  (pitch-class = more collisions). DEVICE-VERIFY next: octave suppression, A+B double while C/D yield,
+  LEAK bleed-at-reduced-velocity.
   (Review-fixed alongside: M1 — a per-event render-thread allocation in `handleIncoming` →
   reused scratch; L2 — audition reconcile now excludes silent ghosts; L4 comment.)
   (b) MORPH desk (16 faders) — parked per delta.
