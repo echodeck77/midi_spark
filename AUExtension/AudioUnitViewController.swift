@@ -663,21 +663,55 @@ struct DiagView: View {
                      stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks, receiverSounding: recvHeld.map { $0.max() ?? 0 })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-        GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                 cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
-                 selCol: selCol, selRow: selRow, onTap: tapCell,
-                 onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
-                 selection: selection, verbInvite: activeVerb?.hue,   // §11 SELECT ring + verb-invite glow
-                 tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
+        HStack(spacing: 3) {
+            rowRail(cellHeight)                             // §11 ROW SELECT buttons (appear while a verb is held)
+            GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+                     beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
+                     cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
+                     selCol: selCol, selRow: selRow, onTap: tapCell,
+                     onAuditionStart: startAudition, onAuditionEnd: endAudition,
+                     laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                     selection: selection, verbInvite: activeVerb?.hue,   // §11 SELECT ring + verb-invite glow
+                     tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
+        }
+        }
+    }
+    // §11 ROW SELECT buttons — slim, left of the grid, aligned to the rows (the column-key row is one cell tall).
+    // Present only while a verb is held; tapping a row applies the active verb to that row's 8 cells.
+    @ViewBuilder private func rowRail(_ cellHeight: CGFloat) -> some View {
+        if let v = activeVerb {
+            VStack(spacing: GridGeometry.vGap) {
+                Color.clear.frame(width: 16, height: cellHeight)          // align past the column-key row
+                ForEach(0..<8, id: \.self) { r in
+                    Text("\(r + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(v.hue.opacity(0.95))
+                        .frame(width: 16, height: cellHeight)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(v.hue.opacity(0.14)))
+                        .contentShape(Rectangle()).onTapGesture { doVerbOnRow(v, r) }
+                }
+            }
+        }
+    }
+    // §11 apply the active verb across a whole row (all 8 columns).
+    private func doVerbOnRow(_ v: Verb, _ row: Int) {
+        guard let au else { return }
+        switch v {
+        case .place: au.editScene { for c in 0..<8 where $0.cells[c][row] == nil { $0.cells[c][row] = Cell(colourID: brush, buses: [.a]) } }; refreshFromDocument()
+        case .delete: au.editScene { for c in 0..<8 { $0.deleteCellHealing(col: c, row: row) } }
+                      for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
+        case .select:
+            for c in 0..<8 where scene.cells[c][row] != nil {
+                let p = GridView.GridPos(col: c, row: row)
+                if selection.contains(p) { selection.remove(p) } else { selection.insert(p) }
+            }
+        case .move, .copy: break                            // row-scope move/copy is deferred (ambiguous)
         }
     }
 
     private var hint: some View {
         Text(flowVariation > 0
              ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · comets = the PLAN · bright rings = LIVE (where notes really fired) · TAP a cell → TRACE"
-             : "TAP cell → ALT flip · HOLD cell → ON HOLD · HOLD column keys → lap · HOLD → latch")
+             : "HOLD a verb → the grid does it (release = done; long-press = latch) · else TAP = ALT flip · HOLD cell → ON HOLD")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
