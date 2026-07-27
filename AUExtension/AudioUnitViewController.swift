@@ -52,6 +52,9 @@ struct DiagView: View {
     @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State private var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    @State private var showPresets = false             // §3 PRESETS: the browser sheet
+    @State private var presetList: [String] = []       // §3 the user preset names (refreshed on open)
+    @State private var currentPreset = ""              // §3 the loaded preset's name
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
@@ -701,6 +704,11 @@ struct DiagView: View {
                             onChanged: { receivers = au?.uiReceivers() ?? receivers; busChannels = au?.uiBusChannels() ?? busChannels },
                             onClose: { showSettings = false })
                 }
+                if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
+                    PresetBrowser(presets: presetList, current: currentPreset,
+                                  onSave: savePreset, onLoad: loadPreset, onDelete: deletePreset,
+                                  onClose: { showPresets = false })
+                }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
                 #endif
@@ -1202,7 +1210,31 @@ struct DiagView: View {
                        sceneEmpty: sceneEmpty, activeSceneIdx: activeSceneIdx,
                        onToggleMode: toggleMode, onUndo: undo, onRedo: redo,
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
-                       onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes)
+                       onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
+                       currentPreset: currentPreset, onOpenPresets: openPresets)
+    }
+    // §3 PRESETS wiring
+    private func openPresets() {
+        presetList = au?.listPresets() ?? []
+        currentPreset = au?.uiCurrentPreset() ?? ""
+        showPresets = true
+    }
+    private func savePreset(_ name: String) {
+        au?.savePreset(named: name)
+        presetList = au?.listPresets() ?? []
+        currentPreset = au?.uiCurrentPreset() ?? ""
+    }
+    private func loadPreset(_ name: String) {
+        au?.loadPreset(named: name)
+        refreshFromDocument()
+        receivers = au?.uiReceivers() ?? receivers
+        currentPreset = au?.uiCurrentPreset() ?? ""
+        showPresets = false
+    }
+    private func deletePreset(_ name: String) {
+        au?.deletePreset(named: name)
+        presetList = au?.listPresets() ?? []
+        currentPreset = au?.uiCurrentPreset() ?? ""
     }
 
     // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter

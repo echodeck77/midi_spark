@@ -24,6 +24,8 @@ struct ArrangementBar: View {
     let onOpenSettings: () -> Void          // the ⚙ → the cog page (rendered at the VC's top level; full-screen)
     let onRevertLiveFlips: () -> Void       // re-cue reverts the live ON-TAP flips (VC's clearOnTap)
     let onSceneOpDone: () -> Void           // after any op the VC re-polls sceneEmpty/activeSceneIdx + refreshes the grid
+    var currentPreset: String = ""          // §3 PRESETS: the loaded preset's name ("" = unsaved)
+    var onOpenPresets: () -> Void = {}       // the folder button → the preset browser (rendered at the VC top level)
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -44,6 +46,7 @@ struct ArrangementBar: View {
             Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
                 .foregroundColor(.white.opacity(0.85)).fixedSize()
                 .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
+            presetButton                                                       // §3 PRESETS: the selector, right of the logo
             HStack(spacing: 2) {                                                // TRANSITIONAL mode toggle
                 barModeChip("EDIT", on: editing, hue: sceneAmber)
                 barModeChip("PERFORM", on: !editing, hue: barCyan)
@@ -70,6 +73,19 @@ struct ArrangementBar: View {
         }
     }
 
+    // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.
+    private var presetButton: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "folder.fill").font(.system(size: 9))
+            Text(currentPreset.isEmpty ? "PRESETS" : currentPreset)
+                .font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).truncationMode(.tail)
+        }
+        .foregroundColor(.white.opacity(0.7))
+        .padding(.horizontal, 7).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.07)))
+        .frame(maxWidth: 108).fixedSize(horizontal: true, vertical: false)
+        .contentShape(Rectangle()).onTapGesture { onOpenPresets() }
+    }
     private var sceneChipRow: some View {
         GeometryReader { geo in
             let chipW = geo.size.width / CGFloat(PluginState.maxScenes)

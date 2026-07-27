@@ -84,6 +84,7 @@ targets:
       - path: AUExtension/Emission.swift    # MIDIEmitter seam — tests inject a recording double
       - path: AUExtension/Diag.swift        # KernelDiag (moved out of Kernel so Router is pure)
       - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
+      - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

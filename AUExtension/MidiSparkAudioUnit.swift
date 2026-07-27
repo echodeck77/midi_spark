@@ -482,6 +482,32 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return ok
     }
 
+    // MARK: - PRESETS v1 (§3): whole-document named files (PresetStore) — distinct from the host fullState
+    private var currentPresetName = ""
+    func uiCurrentPreset() -> String { currentPresetName }
+    func listPresets() -> [String] { PresetStore.list() }
+    /// SAVE AS — write the WHOLE current document (preview restored, exactly like fullState) under a named file.
+    @discardableResult func savePreset(named name: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let doc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
+        let ok = PresetStore.save(doc, as: name)
+        if ok { currentPresetName = PresetStore.sanitize(name) }
+        return ok
+    }
+    /// LOAD — replace the document in ONE undoable step (§3), closing sounding voices via the transition machinery.
+    func loadPreset(named name: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let doc = PresetStore.load(name) else { return }
+        kernel.flushVoices()                 // a session act — no arm ceremony
+        editDocument { $0 = doc }            // one undoable step
+        currentPresetName = PresetStore.sanitize(name)
+    }
+    func deletePreset(named name: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        PresetStore.delete(name)
+        if currentPresetName == PresetStore.sanitize(name) { currentPresetName = "" }
+    }
+
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {
         let scene = document.activeSceneState
