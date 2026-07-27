@@ -1222,7 +1222,19 @@ struct DiagView: View {
                 ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i) }
             }
         }
-        .onChange(of: d.pass) { _ in commitArmedScene() }   // ARM fires at the pass boundary (§5d)
+        .background(sceneArmWatcher)                         // S2c: tight commit at the pass boundary (~1 render window)
+        .onChange(of: d.pass) { _ in commitArmedScene() }   // 4 Hz fallback (e.g. backgrounded, watcher paused)
+    }
+    // S2c: while a switch is ARMED, poll the ENGINE's live pass at display rate and commit on the boundary —
+    // ~1 render window (≈40ms) vs the 4 Hz poll's ~250ms, which fixes the scene-start dropout (bug 4a). Present
+    // only when armed (no churn otherwise; obeys the coming invisible=frozen rule since it's a TimelineView).
+    @ViewBuilder private var sceneArmWatcher: some View {
+        if pendingScene != nil {
+            TimelineView(.animation) { _ in
+                let livePass = au?.uiPass() ?? 0
+                Color.clear.onChange(of: livePass) { _ in commitArmedScene() }
+            }
+        }
     }
     private func sceneChip(_ i: Int) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]

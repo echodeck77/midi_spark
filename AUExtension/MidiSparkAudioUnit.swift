@@ -25,6 +25,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Live kernel diagnostics for the debug UI (polled; torn reads are fine for display).
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
+    func uiPass() -> Int { kernel.diag.pass }   // MULTI-SCENE S2c: the live pass, polled fast while a switch is armed
 
     /// Read-only view of the active scene for the grid UI (main thread; value copy).
     func uiScene() -> SceneState { document.activeSceneState }   // MULTI-SCENE: bounds-safe active scene
