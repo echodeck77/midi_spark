@@ -384,6 +384,48 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(tapExpiryBeat(onsetBeat: 6.0, duration: .oneLap, stepBeats: 2.0), 22.0, accuracy: 1e-9)
     }
 
+    // MARK: - ON-TAP overlay: apply (retap/replace) + live masks (expire/onset gate/solo union)
+
+    func testApplyTapReplacesPriorForSameCellAndKind() {
+        var a: [TapOverlay] = []
+        a = applyTapOverlay(a, cell: 5, kind: .alt, busMask: 1, onset: 0, expiry: .infinity, retap: false)
+        a = applyTapOverlay(a, cell: 5, kind: .alt, busMask: 1, onset: 8, expiry: .infinity, retap: false)  // re-tap same cell/kind
+        XCTAssertEqual(a.count, 1, "a second non-retap tap REPLACES, never stacks")
+        XCTAssertEqual(a.first?.onset, 8, "…with the fresh onset")
+    }
+
+    func testApplyTapRetapTogglesOffThenBackOn() {
+        var a: [TapOverlay] = []
+        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
+        XCTAssertEqual(a.count, 1, "first RETAP arms it")
+        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
+        XCTAssertTrue(a.isEmpty, "second RETAP toggles it off")
+        a = applyTapOverlay(a, cell: 3, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: true)
+        XCTAssertEqual(a.count, 1, "third RETAP arms again")
+    }
+
+    func testApplyTapKeepsDifferentKindsAndCellsSeparate() {
+        var a: [TapOverlay] = []
+        a = applyTapOverlay(a, cell: 5, kind: .alt,  busMask: 0, onset: 0, expiry: .infinity, retap: false)
+        a = applyTapOverlay(a, cell: 5, kind: .mute, busMask: 0, onset: 0, expiry: .infinity, retap: false)  // same cell, other kind
+        a = applyTapOverlay(a, cell: 6, kind: .alt,  busMask: 0, onset: 0, expiry: .infinity, retap: false)  // other cell
+        XCTAssertEqual(a.count, 3, "a tap only replaces the SAME cell+kind — others coexist")
+    }
+
+    func testTapOverlayMasksExpireDropOnsetGateAndSoloUnion() {
+        let acts: [TapOverlay] = [
+            TapOverlay(cell: 5, kind: .alt,  busMask: 0,    onset: 4,  expiry: 20),   // onset reached at now=10
+            TapOverlay(cell: 9, kind: .mute, busMask: 0,    onset: 12, expiry: .infinity),  // onset NOT yet reached
+            TapOverlay(cell: 0, kind: .solo, busMask: 0b10, onset: 0,  expiry: 8),    // EXPIRED by now=10
+            TapOverlay(cell: 1, kind: .solo, busMask: 0b01, onset: 0,  expiry: .infinity),
+        ]
+        let r = tapOverlayMasks(acts, now: 10, footSolo: 0b1000)
+        XCTAssertEqual(r.surviving.count, 3, "the expired solo action is dropped")
+        XCTAssertEqual(r.alt, 1 << 5, "the onset-reached alt contributes its cell bit")
+        XCTAssertEqual(r.mute, 0, "the not-yet-onset mute does NOT contribute")
+        XCTAssertEqual(r.solo, 0b1001, "live solo busMask ∪ footSolo; the expired one is gone")
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {

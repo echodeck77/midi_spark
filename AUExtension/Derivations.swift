@@ -504,6 +504,41 @@ func tapExpiryBeat(onsetBeat: Double, duration: OnTapFor, stepBeats: Double) -> 
     }
 }
 
+/// One ON-TAP overlay: a timed, ephemeral flip on a cell (never a document write). `cell` = col*8+row;
+/// `busMask` carries the emitter bits (used by SOLO). Pure value type so the overlay logic stays testable.
+/// (Distinct from `TapAction`, the persisted per-scene setting in Models — this is a live overlay instance.)
+enum TapKind { case alt, mute, solo }
+struct TapOverlay: Equatable { let cell: Int; let kind: TapKind; let busMask: UInt8; let onset: Double; let expiry: Double }
+
+/// Apply a tap to the live overlay list. RETAP toggles OFF an existing same-cell+kind overlay; otherwise the
+/// tap REPLACES any prior for that cell+kind with a fresh one (re-tap re-arms). Pure — returns the new list.
+func applyTapOverlay(_ overlays: [TapOverlay], cell: Int, kind: TapKind, busMask: UInt8,
+                     onset: Double, expiry: Double, retap: Bool) -> [TapOverlay] {
+    if retap, let i = overlays.firstIndex(where: { $0.cell == cell && $0.kind == kind }) {
+        var a = overlays; a.remove(at: i); return a      // RETAP: a second tap toggles it off
+    }
+    var a = overlays.filter { !($0.cell == cell && $0.kind == kind) }
+    a.append(TapOverlay(cell: cell, kind: kind, busMask: busMask, onset: onset, expiry: expiry))
+    return a
+}
+
+/// The live ON-TAP masks at beat `now`: expired overlays dropped; only overlays whose onset has arrived
+/// contribute. alt/mute are per-cell bitmasks (bit = col*8+row); solo is a per-emitter busMask union
+/// (seeded with `footSolo`, the emitter-strip foot SOLO). Pure — drives `refreshTapMasks` each poll + tap.
+func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
+    -> (surviving: [TapOverlay], alt: UInt64, mute: UInt64, solo: UInt8) {
+    let surviving = overlays.filter { now < $0.expiry }
+    var alt: UInt64 = 0, mute: UInt64 = 0, solo: UInt8 = footSolo
+    for a in surviving where a.onset <= now {
+        switch a.kind {
+        case .alt:  alt  |= 1 << UInt64(a.cell)
+        case .mute: mute |= 1 << UInt64(a.cell)
+        case .solo: solo |= a.busMask
+        }
+    }
+    return (surviving, alt, mute, solo)
+}
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)

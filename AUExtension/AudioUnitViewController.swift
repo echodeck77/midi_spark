@@ -132,9 +132,8 @@ struct DiagView: View {
     @State private var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
-    private enum TapKind { case alt, mute, solo }
-    private struct TapAction { let cell: Int; let kind: TapKind; let busMask: UInt8; let onset: Double; let expiry: Double }
-    @State private var tapActions: [TapAction] = []
+    // ON-TAP overlay: TapKind/TapOverlay + the apply/mask logic are pure functions in Derivations (testable).
+    @State private var tapActions: [TapOverlay] = []
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
@@ -341,12 +340,8 @@ struct DiagView: View {
             for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
             let onset = tapOnsetBeat(tapBeat: d.beat, quant: on.tapWhen, stepBeats: stepBeats)
             let expiry = tapExpiryBeat(onsetBeat: onset, duration: on.tapFor, stepBeats: stepBeats)
-            if on.tapFor == .retap, let i = tapActions.firstIndex(where: { $0.cell == idx && $0.kind == kind }) {
-                tapActions.remove(at: i)                       // RETAP: a second tap toggles it off
-            } else {
-                tapActions.removeAll { $0.cell == idx && $0.kind == kind }   // re-tap replaces any prior for this cell/action
-                tapActions.append(TapAction(cell: idx, kind: kind, busMask: buses, onset: onset, expiry: expiry))
-            }
+            tapActions = applyTapOverlay(tapActions, cell: idx, kind: kind, busMask: buses,
+                                         onset: onset, expiry: expiry, retap: on.tapFor == .retap)
             refreshTapMasks()
         }
     }
@@ -354,20 +349,11 @@ struct DiagView: View {
     // §9 item 1 ON TAP (4c): derive the three ephemeral masks from the actions live at the current beat —
     // pruning expired ones. Runs on tap AND each poll (so onsets fire + durations expire). Dedup-guarded.
     private func refreshTapMasks() {
-        let now = d.beat
-        if tapActions.contains(where: { now >= $0.expiry }) { tapActions.removeAll { now >= $0.expiry } }  // only mutate @State on real expiry
-        var alt: UInt64 = 0, mute: UInt64 = 0, solo: UInt8 = 0
-        for a in tapActions where a.onset <= now {
-            switch a.kind {
-            case .alt:  alt  |= 1 << UInt64(a.cell)
-            case .mute: mute |= 1 << UInt64(a.cell)
-            case .solo: solo |= a.busMask
-            }
-        }
-        solo |= emitterFootSolo   // emitter strip: the foot SOLO buttons union with any ON-TAP solo
-        if alt  != tapAltMask     { tapAltMask = alt;      au?.setTapAltMask(alt) }
-        if mute != tapMuteMask    { tapMuteMask = mute;    au?.setTapMuteMask(mute) }
-        if solo != soloEmitterMask { soloEmitterMask = solo; au?.setSoloEmitterMask(solo) }
+        let r = tapOverlayMasks(tapActions, now: d.beat, footSolo: emitterFootSolo)   // pure: expire + build masks
+        if r.surviving.count != tapActions.count { tapActions = r.surviving }          // only mutate @State on real expiry
+        if r.alt  != tapAltMask      { tapAltMask = r.alt;        au?.setTapAltMask(r.alt) }
+        if r.mute != tapMuteMask     { tapMuteMask = r.mute;      au?.setTapMuteMask(r.mute) }
+        if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
     }
 
     // Cell-edit STAGING banner (user 2026-07-25) — the mode indicator + DONE exit. Cyan to match the
