@@ -194,22 +194,13 @@ struct FlowView: View {
         return fam
     }
 
-    // MARK: quadratic-bezier hop
+    // MARK: quadratic-bezier hop — the theater draws through the shared RouteRenderer seam (one drawer).
 
     private func bez(_ a: CGPoint, _ b: CGPoint, _ cp: CGPoint, _ t: CGFloat) -> CGPoint {
-        let u = 1 - t
-        return CGPoint(x: u*u*a.x + 2*u*t*cp.x + t*t*b.x, y: u*u*a.y + 2*u*t*cp.y + t*t*b.y)
+        RouteRenderer.bez(a, b, cp, t)
     }
-
-    // A soft glowing dot (comet head / node).
     private func glowDot(_ context: GraphicsContext, _ p: CGPoint, _ radius: CGFloat, _ color: Color, _ intensity: Double) {
-        var glow = context
-        glow.addFilter(.blur(radius: radius * 1.6))
-        glow.opacity = 0.55 * intensity
-        glow.fill(Path(ellipseIn: CGRect(x: p.x - radius*1.8, y: p.y - radius*1.8, width: radius*3.6, height: radius*3.6)), with: .color(color))
-        var core = context
-        core.opacity = intensity
-        core.fill(Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius, width: radius*2, height: radius*2)), with: .color(color))
+        RouteRenderer.glowDot(context, p, radius, color, intensity)
     }
 }
 
@@ -539,17 +530,28 @@ private extension String {
 // (the withheld tell). References resolve WITHIN-COLUMN, so a column IS the whole truth (ferry item 3).
 // Shares its hop/comet primitives with the FLOW theater — the one-engine-many-renderers seam.
 
+// The one-engine-many-renderers seam: the shared hop/comet/fizzle primitives. The FLOW theater and the INSPECT
+// route panel both draw through these (FlowView's private bez/glowDot now delegate here — one drawer).
 enum RouteRenderer {
-    /// Point on the panel's standard bowed quadratic hop at parameter t∈[0,1].
-    static func bez(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
-        let cp = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10)
+    /// Point on a quadratic hop a→b bowed through the explicit control point `cp`, at parameter t∈[0,1].
+    static func bez(_ a: CGPoint, _ b: CGPoint, _ cp: CGPoint, _ t: CGFloat) -> CGPoint {
         let u = 1 - t
         return CGPoint(x: u*u*a.x + 2*u*t*cp.x + t*t*b.x, y: u*u*a.y + 2*u*t*cp.y + t*t*b.y)
     }
+    /// A soft glowing dot (comet head / node) — a blurred halo + a solid core.
+    static func glowDot(_ context: GraphicsContext, _ p: CGPoint, _ radius: CGFloat, _ color: Color, _ intensity: Double) {
+        var glow = context
+        glow.addFilter(.blur(radius: radius * 1.6))
+        glow.opacity = 0.55 * intensity
+        glow.fill(Path(ellipseIn: CGRect(x: p.x - radius*1.8, y: p.y - radius*1.8, width: radius*3.6, height: radius*3.6)), with: .color(color))
+        var core = context
+        core.opacity = intensity
+        core.fill(Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius, width: radius*2, height: radius*2)), with: .color(color))
+    }
+    /// The route panel's simple bowed hop control point (midpoint lifted 10pt).
+    static func cp(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10) }
     static func path(_ a: CGPoint, _ b: CGPoint) -> Path {
-        var p = Path(); p.move(to: a)
-        p.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10))
-        return p
+        var p = Path(); p.move(to: a); p.addQuadCurve(to: b, control: cp(a, b)); return p
     }
     /// Draw an edge + its running comet (or a hollow amber FIZZLE when withheld). `phase` 0…1 drives the comet.
     static func edge(_ ctx: GraphicsContext, _ a: CGPoint, _ b: CGPoint, hue: Color, playing: Bool,
@@ -557,14 +559,15 @@ enum RouteRenderer {
         let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
         ctx.stroke(path(a, b), with: .color(hue.opacity(withheld ? 0.12 : 0.3)), lineWidth: 1)
         guard playing else { return }
+        let control = cp(a, b)
         if withheld {
             let t = phase.truncatingRemainder(dividingBy: 1)
             guard t < 0.55 else { return }
-            let p = bez(a, b, CGFloat(t)); let fade = 1 - t / 0.55
+            let p = bez(a, b, control, CGFloat(t)); let fade = 1 - t / 0.55
             ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)),
                        with: .color(amber.opacity(0.75 * fade)), lineWidth: 1)
         } else {
-            let p = bez(a, b, CGFloat(phase.truncatingRemainder(dividingBy: 1)))
+            let p = bez(a, b, control, CGFloat(phase.truncatingRemainder(dividingBy: 1)))
             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.6, y: p.y - 2.6, width: 5.2, height: 5.2)), with: .color(hue))
         }
     }
