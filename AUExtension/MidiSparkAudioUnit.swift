@@ -204,6 +204,17 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// emitter role family: FLIP — the anti-claim (persisted). Toggle emitter `bus` in/out of the FLIP set.
+    func uiFlipMask() -> UInt8 { document.flipMask ?? 0 }
+    func setFlip(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.flipMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.flipMask = m
+        }
+    }
+
     // MASTER PANEL. KEY = per-scene transpose (persisted); MUTE = global emission kill (persisted); the FADER
     // = the momentary master velocity override (ephemeral kernel feed); PANIC = the one-shot hard flush.
     private func activeSceneIndex() -> Int { max(0, min(document.activeScene, document.scenes.count - 1)) }

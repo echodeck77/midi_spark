@@ -88,6 +88,7 @@ final class SnapshotBox {
     let flattenAmount: [UInt8]       // 4 per-emitter FLATTEN amounts (0…100 %)
     let altMask: UInt8               // emitter role family: the ALT turn-taking group (bits A–D)
     let altCount: [UInt8]            // 4 per-emitter ALT notes-per-turn (1…8)
+    let flipMask: UInt8              // emitter role family: FLIP (anti-claim) — bit i sounds only NObody-else classes
     let masterKey: Int8              // master panel: per-scene master transpose (−12…12), on every output note
     let masterMute: Bool             // master panel: global emission kill
     let thruReceiver: Int8           // receiver strip: the THRU-pip receiver (0–3) passthrough follows (default 0 = R1)
@@ -99,7 +100,7 @@ final class SnapshotBox {
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
          claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
          flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
-         altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
+         altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1], flipMask: UInt8 = 0,
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0) {
@@ -117,6 +118,7 @@ final class SnapshotBox {
         self.flattenAmount = flattenAmount
         self.altMask = altMask
         self.altCount = altCount
+        self.flipMask = flipMask
         self.masterKey = masterKey
         self.masterMute = masterMute
         self.thruReceiver = thruReceiver

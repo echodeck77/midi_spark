@@ -120,6 +120,7 @@ enum SnapshotBuilder {
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
                            altMask: doc.altMask ?? 0,
                            altCount: doc.altCountResolved.map { UInt8($0) },
+                           flipMask: doc.flipMask ?? 0,
                            masterKey: Int8(scene.masterKeyResolved),
                            masterMute: doc.masterMute ?? false,
                            thruReceiver: Int8(doc.thruReceiverResolved),

@@ -328,6 +328,10 @@ struct PluginState: Codable, Equatable {
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
     var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    // emitter role family: FLIP — the anti-claim (2026-07-27). A FLIP emitter admits a note ONLY if its PITCH
+    // CLASS is sounding on NO OTHER emitter — it takes the negative space (counterpoint as a channel property;
+    // structurally incapable of doubling anyone). Persisted; bit i = emitter i FLIPs. Optional → old docs nil.
+    var flipMask: UInt8? = nil
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
     var masterMute: Bool? = nil
