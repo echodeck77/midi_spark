@@ -141,3 +141,27 @@ Panel title row: `[emblem] ARP ▾ · COPY · PASTE` (type always visible, emble
 → PICKER POPOVER: one row per type (emblem · NAME · one-line description), emblems ANIMATING on a shared beat
 (the zoo). B's picker leads with **OFF** ("no B-side"); A's has no OFF. The segment rows die. Budget law: visible
 emblems only, derivation clock, no timers. Vertical portrait stacking (P1) gives the titles room.
+
+---
+
+## GUI DE-INTIMIDATION — DIRECTIVE (user, 2026-07-27; zero capability loss — changes what's LOUD, not what exists)
+Sequenced with P2 (title-as-picker + emblems), the spine + first-light sweep, and the thumbnail text ban.
+- **① THE COLOUR LAW — musical colour is loud; chrome colour is quiet.** The cells' Colours are the only
+  saturated things on a resting screen; console accents (LIVE pads, segment highlights, role lights) drop a
+  saturation step (lit can be pale). The grid becomes the protagonist.
+- **② THE RESTING-CALM PASS — defaults recede** (deviation-announces, applied globally): unselected segments,
+  unassigned roles, idle solos dim a full step; the screen quiets when silent, comes alive where the action is.
+  Nit: the SWING knob is the brightest object on a resting screen — make it small + dim at 50.
+- **③ HIERARCHY:** panel titles/section labels drop a weight step; the grid gets the contrast crown; padding
+  rhythm between bands so regions read as places.
+- The audience reads a full cockpit as capability; the fix is ORDER, not removal.
+
+## THE THUMBNAIL TEXT BAN — APPLIED 2026-07-27 (GUIDANCE item 3)
+The VIZ thumbnail speaks COLOUR + MOTION only: cell blocks in their hues, comets, the meter row — **no labels**
+(text belongs to the full theater; the DIAG dev face may keep its text). Implemented as `FlowView.thumbnail`
+gating the variation-1 label draws (cell glyph + receiver/emitter band labels). Other variations can be gated
+the same way if they read noisy as thumbnails.
+
+## THE ∞ BADGE (answer to the render question) — it's FREE PHASE
+The cell-face `∞` = the arp's FREE phase mode (§3.5), derived from `paramsA.phase == .free` (GridUI cell digest).
+Not CYCLES/unbounded; a real field. The digest grammar (transpose · ∞ · rate) is the shipped v59 cell face.

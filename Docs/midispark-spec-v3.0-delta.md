@@ -692,10 +692,11 @@ flash when notes leave).
      ROLES, one radio each):** NONE · **CLAIM + LEAK %** (suppression
      with bleed: claimed classes pass at scaled velocity — the hole
      becomes a SHADOW; current claim = LEAK 0, so it's ONE param on
-     shipped machinery) · **FLIP** (the anti-claim: only pitch classes
-     NOBODY is sounding — actively takes the negative space, even with
-     no claimants; a FLIP'd pad is structurally incapable of doubling
-     anyone — counterpoint as a channel property) · **FLATTEN + amount**
+     shipped machinery) · **FLIP — CUT 2026-07-26 (user equivalence proof):
+     FLIP(x) ≡ CLAIM(all others) under SHARED. The sole inexpressible case
+     (mutual multi-flip avoidance) is tick-order-dependent + musically
+     dubious. Express it by claiming the others. NEVER BUILD.** (Built +
+     reverted 2026-07-27, `52fad50`.) · **FLATTEN + amount**
      (the other axis — ACTIVITY-based ducking: while the flattener
      sounds, others' new note-ons arrive velocity-scaled; pumping in
      MIDI; "is it sounding" = a refcount query, stateless) · **ALT**
@@ -704,8 +705,8 @@ flash when notes leave).
      everything composes (FLIP under a claimant yields harder; mutual
      FLATTENers = legal rope); all modes = one-line admission filters or
      velocity transforms on the same ghost/refcount tables;
-     suppress-never-defer inherits family-wide. SHIP ORDER: LEAK → FLIP
-     → FLATTEN → ALT — ALL gated behind single-CLAIM device validation
+     suppress-never-defer inherits family-wide. SHIP ORDER: LEAK →
+     FLATTEN → ALT (FLIP cut) — ALL gated behind single-CLAIM device validation
      + the hang fix (the family stands on the ghost machinery under
      suspicion). Suppress, never defer (released notes don't
      retroactively sound elsewhere — §6a doctrine). CLAIM IS PERSISTED
