@@ -41,6 +41,9 @@ struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpo
 ///  · TREE morph moving but PARAM EVENTS static → host uses setValue (observer/snapshot path).
 ///  · Neither moving → the mapping isn't reaching this instance (host-side routing).
 ///  · CC IN rising → raw CC arrives at the MIDI input (and is passed through on A).
+/// MODELESS (2026-07-27): the GRID CONTROLS verbs — the entry surface of the verb-then-noun model.
+enum GridVerb: String, CaseIterable { case inspect = "INSPECT", copy = "COPY", edit = "EDIT", audition = "AUDITION" }
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -105,6 +108,9 @@ struct DiagView: View {
     @State private var stepIndex = 2
     @State private var swing = 50
     @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
+    // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
+    // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
+    @State private var gridVerb: GridVerb? = nil
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
     #if DEBUG
@@ -787,8 +793,8 @@ struct DiagView: View {
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
-                HStack(spacing: 6) {                          // [colour picker] · EMITTERS · [MASTER]
-                    colourBox.frame(maxWidth: .infinity)
+                HStack(spacing: 6) {                          // [GRID CONTROLS] · EMITTERS · [MASTER]
+                    gridControlsView.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half)
                     masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
@@ -838,8 +844,9 @@ struct DiagView: View {
     // below the grid), not here.
     private var identityColumn: some View {
         VStack(spacing: 8) {
-            if staging { cellBox }         // COLOUR moved to the emitter row; cell-edit surface stays here
-            processorPanels                // procA | procB, side by side
+            colourBox                      // 2026-07-27: the COLOUR palette lives TOP-RIGHT, above the processors
+            if staging { cellBox }         // cell-edit surface (staging only)
+            processorPanels(vertical: false)   // procA | procB, side by side (landscape width exists)
         }
     }
 
@@ -849,10 +856,15 @@ struct DiagView: View {
     private func colourFlowBand(_ width: CGFloat, _ height: CGFloat) -> some View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap)
+        // 2026-07-27: PALETTE on the LEFT, the processors (stacked A-above-B) on the right. The processors are
+        // the sanctioned portrait SCROLL region (two 200-pt panels can exceed the band; the palette stays put).
         return HStack(alignment: .top, spacing: gap) {
-            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.34) }   // cell-edit surface (staging only)
-            processorPanels.frame(maxWidth: .infinity)
+            colourBox.frame(width: min(150, avail * 0.34))
+            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.30) }   // cell-edit surface (staging only)
+            ScrollView(.vertical, showsIndicators: false) { processorPanels(vertical: true) }
+                .frame(maxWidth: .infinity)
         }
+        .frame(height: height)
     }
 
     // VISUALIZATION tenant (design item 2): the top-right flank — the picture IS the button. A compact live
@@ -1019,6 +1031,41 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
+    // MODELESS (2026-07-27): GRID CONTROLS — the verb palette, in the flank the COLOUR picker vacated (beside
+    // MIDI OUTPUT). Radio verbs (one armed, LOUD) + UNDO/REDO. INSPECT is wired functional in 1b; the others
+    // render inert until their increments land. EDIT mode survives alongside (pin ⑤) until verb coverage completes.
+    private var gridControlsView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("GRID CONTROLS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            HStack(spacing: 4) { verbButton(.inspect); verbButton(.copy) }
+            HStack(spacing: 4) { verbButton(.edit); verbButton(.audition) }
+            HStack(spacing: 4) {
+                gcIcon("arrow.uturn.backward", enabled: au?.uiCanUndo ?? false, action: undo)
+                gcIcon("arrow.uturn.forward", enabled: au?.uiCanRedo ?? false, action: redo)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+    private func verbButton(_ v: GridVerb) -> some View {
+        let on = gridVerb == v
+        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+        return Text(v.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity).frame(height: 20)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? amber : Color.white.opacity(0.07)))
+            .contentShape(Rectangle())
+            .onTapGesture { gridVerb = on ? nil : v }   // radio arm/disarm (1b makes INSPECT act)
+    }
+    private func gcIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Image(systemName: name).font(.system(size: 10, weight: .heavy))
+            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
+            .frame(maxWidth: .infinity).frame(height: 18)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
+            .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
+    }
+
     private var colourBox: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -1066,19 +1113,23 @@ struct DiagView: View {
 
     // delta item 8 PROCESSOR PANELS — procA and procB side by side, each a self-contained face editor with
     // its own COPY (+ PASTE when the clipboard holds a processor).
-    @ViewBuilder private var processorPanels: some View {
+    // §6d: the two PROCESSOR panels (A/B). PORTRAIT stacks them VERTICALLY (A above B, shorter) so each gets
+    // full width (2026-07-27 layout); LANDSCAPE keeps them side by side (the width exists).
+    @ViewBuilder private func processorPanels(vertical: Bool) -> some View {
         if let bc = brushColour {
-            HStack(alignment: .top, spacing: 8) {
-                ProcessorBox(colour: bc, colourIndex: brushIndex, face: .a,
-                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                             onSetTypeA: setBrushType, canPaste: procClipboard != nil,
-                             onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) })
-                    .frame(maxWidth: .infinity)
-                ProcessorBox(colour: bc, colourIndex: brushIndex, face: .b,
-                             onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                             canPaste: procClipboard != nil,
-                             onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) })
-                    .frame(maxWidth: .infinity)
+            let h: CGFloat = vertical ? 200 : ProcessorBox.panelHeight
+            let a = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .a,
+                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                                 onSetTypeA: setBrushType, canPaste: procClipboard != nil,
+                                 onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) }, height: h)
+            let b = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .b,
+                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
+                                 canPaste: procClipboard != nil,
+                                 onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) }, height: h)
+            if vertical {
+                VStack(spacing: 8) { a; b }
+            } else {
+                HStack(alignment: .top, spacing: 8) { a.frame(maxWidth: .infinity); b.frame(maxWidth: .infinity) }
             }
         }
     }

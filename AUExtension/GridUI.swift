@@ -1197,6 +1197,7 @@ struct ProcessorBox: View {
     var canPaste: Bool = false                          // clipboard non-empty ⇒ show PASTE
     var onCopy: () -> Void = {}
     var onPaste: () -> Void = {}
+    var height: CGFloat = panelHeight                   // portrait A-above-B stacking passes a shorter height
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1232,7 +1233,7 @@ struct ProcessorBox: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(8).frame(height: Self.panelHeight, alignment: .top).clipped()
+        .padding(8).frame(height: height, alignment: .top).clipped()
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
