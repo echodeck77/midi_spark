@@ -42,7 +42,6 @@ struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpo
 ///  · Neither moving → the mapping isn't reaching this instance (host-side routing).
 ///  · CC IN rising → raw CC arrives at the MIDI input (and is passed through on A).
 /// MODELESS (2026-07-27): the GRID CONTROLS verbs — the entry surface of the verb-then-noun model.
-enum GridVerb: String, CaseIterable { case inspect = "INSPECT", copy = "COPY", edit = "EDIT", audition = "AUDITION" }
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
@@ -77,35 +76,7 @@ struct DiagView: View {
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
-    // Cell-edit STAGING (user 2026-07-25): long-press a Colour → the receivers/emitters panels configure a
-    // PENDING cell (input source + output buses). `stagedConfig` is ephemeral and RECALLED across enter/exit;
-    // only the colour is set fresh by whichever chip is long-pressed. The drag-to-grid + live preview is
-    // DEFERRED to the design spec — this scaffold is EDIT-only panel staging.
-    @State private var staging = false
-    @State private var stagedConfig = StampConfig(colourID: "gold")
-    @State private var cellPreview = false      // the CELL box PREVIEW toggle (Phase 1: UI state; engine routing = Phase 2)
-    // Hide-with-undo: a single tap HIDES a cell (muted, recoverable) and rings it in its own colour;
-    // re-tapping restores it; touching ANY other cell COMMITS the deletion (nil = none).
-    @State private var hiddenPending: GridView.GridPos? = nil
-    // Live PREVIEW while dragging a staged cell over the grid: the staged cell is transiently placed at the
-    // hovered position via the NON-undoable edit path, so it sounds IN CONTEXT (the LIVE LAW does the voice
-    // transitions). `previewPos` = where it's placed; `previewUnder` = the cell it displaced (restored on
-    // move-away / cancel). Never persisted, never recorded for undo. Committed for real only on DROP.
-    @State private var previewPos: GridView.GridPos? = nil
-    @State private var previewUnder: Cell? = nil
-    // The cells PLACED during the current staging session — they pulse colour↔black (like their palette
-    // chip), gate the empty-cell flash (empties only invite once ≥1 is placed), and are the "selected
-    // cells" that live-reflect receiver/emitter edits. Cleared on enter/retarget/exit. View-local.
-    @State private var stagedCells: Set<GridView.GridPos> = []
-    // Hide-with-undo (user 2026-07-25): a single tap HIDES a cell (muted, recoverable) and marks it with a
-    // ring in its own colour; re-tapping restores it; touching ANY other cell COMMITS the deletion. This is
-    // the just-hidden cell in its undo window (nil = none).
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
-    // §5 palette-to-grid drag: the grid's captured global frame, the in-flight chip drag, and the set of
-    // provisional (palette-created, unreviewed) cells shown FADED until first opened in the editor.
-    @State private var gridFrame: CGRect = .zero
-    @State private var paletteDragColour: String? = nil
-    @State private var paletteDragPoint: CGPoint? = nil
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -118,13 +89,8 @@ struct DiagView: View {
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
     @State private var swing = 50
-    @State private var editing = true          // EDIT vs PERFORM (§6.1/6.2)
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
-    @State private var gridVerb: GridVerb? = nil
-    @State private var inspectCol: Int? = nil          // INSPECT: the column whose route panel is shown (nil = console)
-    @State private var editExemplar: GridView.GridPos? = nil   // EDIT: the tapped exemplar (write-armed panel target)
-    @State private var editScope: SceneState.EditScope = .thisOne   // EDIT: THIS · ALL IDENTICAL · ALL <COLOUR>
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
     #if DEBUG
@@ -149,7 +115,6 @@ struct DiagView: View {
     private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
-    private func toggleMode() { commitHiddenPending(); editing.toggle(); if editing { setLane(0); setHold(false); clearOnTap(); clearReceiverLatch() } else { exitStaging() } }   // §5c: HOLD PERFORM-only; staging + ON-TAP overlays + LATCH EDIT-clear
 
     // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (timed actions + alt flips, mutes, emitter solo).
     private func clearOnTap() {
@@ -176,181 +141,27 @@ struct DiagView: View {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
-    // Close the hide-undo window: the recently-hidden cell is DELETED for good (recorded for undo).
-    private func commitHiddenPending() {
-        guard let au, let hp = hiddenPending else { return }
-        au.editScene { $0.cells[hp.col][hp.row] = nil }
-        hiddenPending = nil; scene = au.uiScene()
-    }
-
-    // Cell-edit STAGING (user 2026-07-25) — long-press a Colour opens the staging mode; the receivers/
-    // emitters panels reconfigure `stagedConfig` (input source + output buses). Ephemeral, recalled.
-    // Long-press a Colour (from EITHER mode) OR tap a Colour while staging → stage a cell of that Colour.
-    // Forces EDIT on so it's always possible to re-enter after a drop drops us into PERFORM (bug fix
-    // 2026-07-25); tapping a different chip while staging shifts focus to that Colour (same entry point).
-    private func enterStaging(_ id: String) {
-        commitHiddenPending()                       // moving into cell-edit closes any open hide-undo window
-        stagedConfig.colourID = id; brush = id      // set/retarget the staged colour + reflect it in the desk
-        stagedCells = []                            // fresh session (also on retarget): nothing placed yet
-        editing = true                              // long-press always brings us into EDIT + staging
-        staging = true
-    }
-
-    // Long-press a GRID CELL in EDIT → enter cell-edit for it: adopt its config as the staged config and
-    // make it a FLASHING cell (exactly the dropped-in-staging state). An empty cell stages the brush + a
-    // fresh flashing cell there. From here it behaves like any staging session (place more / recolour / commit).
-    private func enterStagingForCell(_ col: Int, _ row: Int) {
-        guard let au, editing else { return }
-        commitHiddenPending()                       // long-pressing to stage closes any open hide-undo window
-        let pos = GridView.GridPos(col: col, row: row)
-        if let cell = scene.cells[col][row] {
-            stagedConfig = StampConfig.from(cell); brush = cell.colourID     // adopt the cell's colour + routing
-        } else {
-            stagedConfig.colourID = brush                                    // empty: stage the brush, place a fresh cell
-            au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
-        }
-        stagedCells = [pos]                                                  // this cell flashes + tracks staged edits
-        editing = true; staging = true
-        scene = au.uiScene(); docColours = au.uiColours()
-    }
-
-    // The staging accent = the SELECTED Colour's own hue (the moving outline follows it), cyan as fallback.
-    private var stagingColor: Color { colourColor(stagedConfig.colourID) ?? Color(red: 0.15, green: 0.88, blue: 0.94) }
-
-    private func exitStaging() {
-        clearPreview(); staging = false; stagedCells = []
-        setHold(false); cellPreview = false; au?.clearPreview()   // drop any latched cell preview + the HOLD
-    }
-
-    // Selecting a DIFFERENT Colour while staging recolours every FLASHING cell to it (keeping their staged
-    // routing) and stages that Colour going forward — the flashing set persists, it does not reset.
-    private func recolorStaged(_ id: String) {
-        guard let au else { return }
-        stagedConfig.colourID = id; brush = id
-        if !stagedCells.isEmpty {
-            au.editScene { s in
-                for p in stagedCells {
-                    guard var c = s.cells[p.col][p.row] else { continue }
-                    c.colourID = id
-                    s.cells[p.col][p.row] = c
-                }
-            }
-            scene = au.uiScene(); docColours = au.uiColours()
-        }
-    }
-
-    // A receiver/emitter edit while staging live-updates every cell placed this session (the "selected
-    // cells") — input source + output buses; the staged Colour is unchanged within a session.
-    private func applyStagedToPlaced() {
-        guard let au, !stagedCells.isEmpty else { return }
-        au.editScene { s in
-            for p in stagedCells {
-                guard var c = s.cells[p.col][p.row] else { continue }
-                stagedConfig.applyRouting(to: &c)
-                s.cells[p.col][p.row] = c
-            }
-        }
-        scene = au.uiScene(); docColours = au.uiColours()
-    }
-
-    // Live preview: move the transient staged cell to the hovered grid cell (or clear it off-grid). Restores
-    // whatever it displaces before moving, so the arrangement is never permanently altered until DROP.
-    private func updatePreview(_ point: CGPoint) {
-        guard let au, staging else { return }
-        let hover = cellAtGlobal(point)
-        if hover == previewPos { return }                     // same cell → nothing to do
-        if let pp = previewPos { au.editScene(record: false) { $0.cells[pp.col][pp.row] = previewUnder } }  // restore prior
-        if let h = hover {
-            let fresh = au.uiScene()
-            previewUnder = fresh.cells[h.col][h.row]           // remember what we're covering
-            let cell = stagedConfig.makeCell()                 // the staged cell (input + emitters + colour)
-            au.editScene(record: false) { $0.cells[h.col][h.row] = cell }
-            au.setPreviewOverlay(col: h.col, row: h.row, under: previewUnder)   // fullState strips this
-            previewPos = h
-        } else {
-            previewPos = nil; previewUnder = nil; au.clearPreviewOverlay()
-        }
-        scene = au.uiScene()
-    }
-    // Remove any live preview, restoring the cell it displaced. No-op if nothing is previewing.
-    private func clearPreview() {
-        guard let au, let pp = previewPos else { return }
-        au.editScene(record: false) { $0.cells[pp.col][pp.row] = previewUnder }
-        previewPos = nil; previewUnder = nil; au.clearPreviewOverlay()
-        scene = au.uiScene()
-    }
-    private func setStagedReceiver(_ i: Int) { stagedConfig.inputRow = nil; stagedConfig.inputReceiver = max(0, min(3, i)); applyStagedToPlaced() }
-    private func pickStagedRow() { stagedConfig.inputRow = stagedConfig.inputRow ?? 0; applyStagedToPlaced() }   // select FROM ROW (default row 1)
-    private func stepStagedRow(_ delta: Int) {
-        let cur = stagedConfig.inputRow ?? 0
-        stagedConfig.inputRow = ((cur + delta) % 8 + 8) % 8
-        applyStagedToPlaced()
-    }
-    private func toggleStagedBus(_ i: Int) {
-        let bus = Bus.allCases[i]
-        if stagedConfig.buses.contains(bus) { stagedConfig.buses.remove(bus) } else { stagedConfig.buses.insert(bus) }
-        applyStagedToPlaced()
-    }
-
-    // Tap a cell. EDIT (user 2026-07-26): while STAGING, tapping any populated/flashing cell COMMITS the
-    // flashing set and tapping an empty cell PLACES another staged cell. NOT staging → HIDE-with-undo:
-    // tap a visible cell to hide it (recoverable), re-tap to restore, touch another cell to commit the
-    // deletion. (Long-press, not tap, puts a cell into cell-edit.) PERFORM: flip ALT.
+    // §9 item 1 ON TAP (4b/4c): a tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL overlay — onset from
+    // tapWhen (NOW/STEP/PASS/LAP), expiry from tapFor (RETAP toggle / 1-PASS / 1-LAP). Never a document write;
+    // cleared on transport stop. (Post-demolition: taps are TRIGGERS-only — the whole grid is one dispatch path.)
     private func tapCell(_ col: Int, _ row: Int) {
-        guard let au else { return }
-        if gridVerb == .inspect {                        // MODELESS: INSPECT (read-only) → toggle this column's route panel
-            inspectCol = (inspectCol == col) ? nil : col
-            return
+        guard scene.cells[col][row] != nil, let c = scene.cells[col][row] else { return }
+        let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
+        let kind: TapKind
+        switch on.tap {
+        case .mute:        kind = .mute
+        case .solo:        kind = .solo
+        case .alt, .none:  kind = .alt
+        case .fill, .replay: return                       // not yet wired (design clarification pending)
         }
-        if gridVerb == .edit {                           // MODELESS: EDIT (write-armed) → target the exemplar; scope resets to THIS
-            if scene.cells[col][row] != nil { editExemplar = GridView.GridPos(col: col, row: row); editScope = .thisOne }
-            return
-        }
-        if editing {
-            let pos = GridView.GridPos(col: col, row: row)
-            if staging {
-                if scene.cells[col][row] == nil {            // EMPTY → place another staged (flashing) cell
-                    au.editScene { $0.cells[col][row] = stagedConfig.makeCell() }
-                    stagedCells.insert(pos)
-                    selCol = col; selRow = row; scene = au.uiScene(); docColours = au.uiColours()
-                } else {                                     // POPULATED (flashing or other) → commit the flashing set + leave cell-edit
-                    exitStaging()
-                }
-                return
-            }
-            if hiddenPending == pos {                        // re-tap the recently-hidden cell → restore
-                au.editScene { s in if var c = s.cells[col][row] { c.muted = false; s.cells[col][row] = c } }
-                hiddenPending = nil; selCol = col; selRow = row; scene = au.uiScene()
-                return
-            }
-            commitHiddenPending()                           // touched a different cell → delete the prior pending-hidden one
-            if scene.cells[col][row] != nil {               // a visible populated cell → hide it (recoverable)
-                au.editScene { s in if var c = s.cells[col][row] { c.muted = true; s.cells[col][row] = c } }
-                hiddenPending = pos
-            }
-            selCol = col; selRow = row; scene = au.uiScene()
-        } else {
-            // §9 item 1 ON TAP (4b/4c): a PERFORM tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL
-            // overlay — onset from tapWhen (NOW/STEP/PASS/LAP), expiry from tapFor (RETAP toggle / 1-PASS /
-            // 1-LAP). Never a document write; cleared on transport stop / EDIT switch. FILL/REPLAY await design.
-            guard let c = scene.cells[col][row] else { return }
-            let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
-            let kind: TapKind
-            switch on.tap {
-            case .mute:        kind = .mute
-            case .solo:        kind = .solo
-            case .alt, .none:  kind = .alt
-            case .fill, .replay: return                       // not yet wired (design clarification pending)
-            }
-            let idx = col * 8 + row
-            var buses: UInt8 = 0
-            for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
-            let onset = tapOnsetBeat(tapBeat: d.beat, quant: on.tapWhen, stepBeats: stepBeats)
-            let expiry = tapExpiryBeat(onsetBeat: onset, duration: on.tapFor, stepBeats: stepBeats)
-            tapActions = applyTapOverlay(tapActions, cell: idx, kind: kind, busMask: buses,
-                                         onset: onset, expiry: expiry, retap: on.tapFor == .retap)
-            refreshTapMasks()
-        }
+        let idx = col * 8 + row
+        var buses: UInt8 = 0
+        for b in c.buses { if let i = Bus.allCases.firstIndex(of: b) { buses |= (1 << UInt8(i)) } }
+        let onset = tapOnsetBeat(tapBeat: d.beat, quant: on.tapWhen, stepBeats: stepBeats)
+        let expiry = tapExpiryBeat(onsetBeat: onset, duration: on.tapFor, stepBeats: stepBeats)
+        tapActions = applyTapOverlay(tapActions, cell: idx, kind: kind, busMask: buses,
+                                     onset: onset, expiry: expiry, retap: on.tapFor == .retap)
+        refreshTapMasks()
     }
 
     // §9 item 1 ON TAP (4c): derive the three ephemeral masks from the actions live at the current beat —
@@ -362,74 +173,6 @@ struct DiagView: View {
         if r.mute != tapMuteMask     { tapMuteMask = r.mute;      au?.setTapMuteMask(r.mute) }
         if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
     }
-
-    // Cell-edit STAGING banner (user 2026-07-25) — the mode indicator + DONE exit. Cyan to match the
-    // marching-ants outline on the repurposed panels. (Drag-to-grid hand-off is deferred to the spec.)
-    private var stagingBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "square.dashed").font(.system(size: 11, weight: .heavy))
-            if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
-            Text("STAGING \(stagedConfig.colourID.uppercased()) — drag or tap empty cells to place · tap its chip to exit")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            Spacer()
-            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .padding(.horizontal, 12).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.35)))
-                .contentShape(Rectangle()).onTapGesture { exitStaging() }
-        }
-        .foregroundColor(.black)
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(Color(red: 0.15, green: 0.88, blue: 0.94))
-    }
-
-    // Relocate a cell (user 2026-07-26): long-press then drag → MOVE it to the target, OVERWRITING even a
-    // populated cell; the source empties. Undoable. If the moved cell was flashing, its flash follows it.
-    private func moveCell(_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) {
-        guard let au, from.col != to.col || from.row != to.row else { return }
-        au.editScene { s in
-            s.cells[to.col][to.row] = s.cells[from.col][from.row]   // overwrite the target
-            s.cells[from.col][from.row] = nil                        // source empties
-        }
-        let f = GridView.GridPos(col: from.col, row: from.row), t = GridView.GridPos(col: to.col, row: to.row)
-        if stagedCells.remove(f) != nil { stagedCells.insert(t) }    // the flash moves with the cell
-        scene = au.uiScene()
-    }
-
-    // §5 palette-to-grid: map a GLOBAL drop point to a grid cell (cell height derived from the captured
-    // grid frame), then RECOLOUR a populated cell or CREATE a faded one on empty. EDIT only.
-    private func cellAtGlobal(_ p: CGPoint) -> GridView.GridPos? {
-        guard gridFrame.width > 0, gridFrame.height > 0 else { return nil }
-        let local = CGPoint(x: p.x - gridFrame.minX, y: p.y - gridFrame.minY)
-        let cellH = (gridFrame.height - GridGeometry.headH - 8 * GridGeometry.vGap) / 8
-        return GridGeometry.cell(atLocal: local, gridWidth: gridFrame.width, cellHeight: cellH)
-            .map { GridView.GridPos(col: $0.col, row: $0.row) }
-    }
-    private func paletteDragChanged(_ id: String, _ point: CGPoint) {
-        guard editing else { return }                 // EDIT-only
-        if !staging { enterStaging(id) }              // a QUICK drag enters cell-edit for this colour (unifies with long-press+drag)
-        paletteDragColour = id; paletteDragPoint = point
-        updatePreview(point)                          // staging now true → live-preview the staged cell at the hover
-    }
-    // Cell-edit staging: a chip drag is in flight while staging → the moving outline hands off to the grid.
-    private var stagingDragging: Bool { staging && paletteDragPoint != nil }
-
-    // A palette drop is ALWAYS a staging drop now (the drag entered staging above): clear the preview, then
-    // commit the flashing cell. No faded/ghost path — quick-drag and long-press+drag both stage.
-    private func paletteDrop(_ id: String, _ point: CGPoint) {
-        defer { paletteDragColour = nil; paletteDragPoint = nil }
-        guard let au, staging else { return }
-        clearPreview()                                // remove the transient placement (restores what it covered)
-        if editing, let pos = cellAtGlobal(point) {
-            var c = stagedConfig.makeCell(); c.colourID = id     // staged input + emitters, colour from the chip
-            au.editScene { $0.cells[pos.col][pos.row] = c }      // recorded for undo
-            stagedCells.insert(pos)                             // a placed FLASHING cell: pulses + tracks staged edits
-            brush = id; scene = au.uiScene(); docColours = au.uiColours()
-            // STAY in cell-edit: empty cells now pulse; tap them / drag again to place more; tap a flashing cell to commit.
-        } else {
-            scene = au.uiScene()                      // dropped off-grid → preview cleared, stay in staging
-        }
-    }
-
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
     // v1 captures: §6a velocity overrides (in OutputsView) + audition (below). Lap + ON-HOLD deferred.
@@ -441,7 +184,6 @@ struct DiagView: View {
             au?.setHoldCell(-1); abox.held = false          // §9 item 1: a latched ON HOLD drops too
             au?.setLaneMask(0); laneMask = 0     // §5c: the latched lap set drops too (velocity springs
                                                  // back via OutputsView's onChange(holdLatch))
-            if cellPreview { cellPreview = false; au?.clearPreview() }   // §5c: a latched cell PREVIEW drops too
         }
     }
     private func toggleHold() { setHold(!holdLatch) }
@@ -475,23 +217,14 @@ struct DiagView: View {
     final class AuditionBox { var target: (col: Int, row: Int)? = nil; var held = false }
     @State private var abox = AuditionBox()
 
-    // PERFORM press-hold. STOPPED → AUDITION (the cell alone). PLAYING → ON HOLD (§9 item 1): the cell's ON
-    // HOLD treatment overlays while held. Both are kernel-only (no @State / re-render, like the audition path).
+    // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
+    // Kernel-only (no @State / re-render). (Stopped-audition retired with the editing UI — it returns via PLACE.)
     private func startAudition(_ col: Int, _ row: Int) {
-        guard let au, scene.cells[col][row] != nil else { return }
-        if d.playing {
-            au.setHoldCell(col * 8 + row); abox.held = true          // ON HOLD overlay (idempotent per onChanged)
-            return
-        }
-        if abox.target?.col == col && abox.target?.row == row { return }
-        abox.target = (col, row)
-        au.setAudition(col: col, row: row)
+        guard let au, scene.cells[col][row] != nil, d.playing else { return }
+        au.setHoldCell(col * 8 + row); abox.held = true             // ON HOLD overlay (idempotent per onChanged)
     }
     private func endAudition() {                                     // release (SPRING); §5c-HOLD latch keeps it (see setHold)
         if abox.held { au?.setHoldCell(-1); abox.held = false }
-        guard au != nil, abox.target != nil else { return }
-        abox.target = nil
-        au?.clearAudition()
     }
 
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
@@ -501,18 +234,6 @@ struct DiagView: View {
     private var brushGlides: Bool {
         guard let c = brushColour, let tb = c.typeB else { return false }
         return tb == c.type
-    }
-    // ON-section greying input (staged Colour = brush during staging): has a second processor (procB).
-    private var stagedAltPaired: Bool { brushColour?.hasProcB ?? false }
-    private var stagedStochastic: Bool {
-        guard let c = brushColour else { return false }
-        return c.type == .chance || (c.type == .arp && c.paramsA.pattern == .random)
-    }
-    // Write the staged Colour's ON config; per-Colour so it propagates to the whole flashing set, undo-covered.
-    private func editStagedOn(_ mutate: @escaping (inout OnConfig) -> Void) {
-        guard let au else { return }
-        au.editColour(brushIndex) { c in var on = c.on ?? OnConfig(); mutate(&on); c.on = on }
-        docColours = au.uiColours()
     }
 
     private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
@@ -693,17 +414,6 @@ struct DiagView: View {
                     }
                     .padding(12)
                 }
-                if staging { VStack(spacing: 0) { stagingBanner; Spacer() } }
-                // §5 palette-to-grid: a chip ghost following the finger (positioned in the GeometryReader's
-                // local space = the global drag point minus the reader's global origin).
-                if let id = paletteDragColour, let pt = paletteDragPoint {
-                    let o = geo.frame(in: .global).origin
-                    RoundedRectangle(cornerRadius: 4).fill(colourColor(id) ?? .gray)
-                        .frame(width: 44, height: 22).opacity(0.85)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white, lineWidth: 1))
-                        .position(x: pt.x - o.x, y: pt.y - o.y)
-                        .allowsHitTesting(false)
-                }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
@@ -823,19 +533,10 @@ struct DiagView: View {
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
-                HStack(spacing: 6) {                          // [GRID CONTROLS] · EMITTERS · [MASTER]
-                    gridControlsView.frame(maxWidth: .infinity)
-                    if let ic = inspectCol {                  // INSPECT armed + a column tapped → the route panel replaces OUTPUT+MASTER
-                        RoutePanelView(scene: scene, colours: docColours, receivers: receivers, column: ic,
-                                       playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                                       stepBeats: stepBeats, emitMarks: emitMarks)
-                            .frame(maxWidth: .infinity)
-                    } else if let ex = editExemplar {         // EDIT armed + exemplar tapped → the WRITE-ARMED route panel
-                        editRoutePanel(ex).frame(maxWidth: .infinity)
-                    } else {
-                        emittersBox.frame(width: half)
-                        masterView.frame(maxWidth: .infinity)
-                    }
+                HStack(spacing: 6) {                          // EMITTERS · MASTER (the verb row is retired; the rebuild's
+                    Spacer(minLength: 0)                       // round verb cluster lands here in P2)
+                    emittersBox.frame(width: half)
+                    masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
             }
         }
@@ -852,27 +553,18 @@ struct DiagView: View {
         } else {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                 cellHeight: cellHeight, editing: editing,
+                 cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 onLongPressStageCell: enterStagingForCell,
-                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch, onMoveCell: moveCell,
-                 dropHoverCell: paletteDragPoint.flatMap(cellAtGlobal),
-                 staging: staging, stagingColor: stagingColor, stagedCells: stagedCells,
-                 hiddenPending: hiddenPending, tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
-            .background(GeometryReader { g in Color.clear   // §5: capture the grid's global frame for palette drops
-                .onAppear { gridFrame = g.frame(in: .global) }
-                .onChange(of: g.frame(in: .global)) { gridFrame = $0 } })
-            .marchingAnts(stagingDragging, color: stagingColor, cornerRadius: 8)   // staging: the outline hands off to the grid mid-drag
+                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                 tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
         }
     }
 
     private var hint: some View {
         Text(flowVariation > 0
              ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · comets = the PLAN · bright rings = LIVE (where notes really fired) · TAP a cell → TRACE"
-             : editing
-             ? "EDIT · TAP cell → hide (tap again to restore) · HOLD cell → cell-edit · drag a colour → place"
-             : "PERFORM · TAP cell → ALT flip · HOLD cell → audition (stopped) · HOLD column keys → lap · HOLD → latch")
+             : "TAP cell → ALT flip · HOLD cell → ON HOLD · HOLD column keys → lap · HOLD → latch")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -885,7 +577,6 @@ struct DiagView: View {
         // LANDSCAPE (user rev 2026-07-27): COLOUR · A · B STACKED top-to-bottom in the narrow right column.
         VStack(spacing: 8) {
             colourBox
-            if staging { cellBox }         // cell-edit surface (staging only)
             processorPanels(vertical: true)   // procA above procB (stacked)
         }
     }
@@ -900,7 +591,6 @@ struct DiagView: View {
         // palette on the left, the two panels side by side taking the rest.
         return HStack(alignment: .top, spacing: gap) {
             colourBox.frame(width: min(160, avail * 0.28))
-            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.24) }   // cell-edit surface (staging only)
             processorPanels(vertical: false).frame(maxWidth: .infinity)
         }
         .frame(height: height)
@@ -963,7 +653,7 @@ struct DiagView: View {
     // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
     // the (now slimmed) header.
     private var controlsView: some View {
-        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch, editing: editing,
+        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch, editing: false,
                      onStep: { au?.setStepRateIndex($0); refreshTiming() },
                      onSwing: { au?.setSwing($0); refreshTiming() },
                      onToggleHold: toggleHold)
@@ -978,7 +668,7 @@ struct DiagView: View {
     }
 
     private var emittersBox: some View {
-        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: editing,
+        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: false,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
                     claimMask: claimMask, claimLeak: claimLeak, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
@@ -993,70 +683,8 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // THE CELL BOX (user 2026-07-26) — cell-edit's single surface, below the COLOUR grid, shown only in
-    // staging. Top→bottom: INPUT (receivers radio + ROW) · ON section · OUTPUT (A–D) · a wide PREVIEW toggle.
-    // Moving border like the other cell-edit affordances; hands off to the grid during a drag.
-    @ViewBuilder private var cellBox: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            StagingInputView(inputRow: stagedConfig.inputRow, inputReceiver: stagedConfig.inputReceiver,
-                             receivers: receivers, onPickReceiver: setStagedReceiver,
-                             onPickRow: pickStagedRow, onStepRow: stepStagedRow)
-            OnSectionView(config: brushColour?.onResolved ?? OnConfig(),
-                          altPaired: stagedAltPaired, morphCompatible: brushGlides, stochastic: stagedStochastic,
-                          onEdit: editStagedOn)
-            StagingEmittersView(buses: stagedConfig.buses, onToggle: toggleStagedBus)
-            HStack(spacing: 6) { previewButton; previewHoldChip }
-        }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-        .marchingAnts(staging && !stagingDragging, color: stagingColor)
-    }
-
-    // PREVIEW — cell audition, a momentary HOLD button (user 2026-07-26): active only while pressed, and it
-    // takes PRIORITY over the drag's preview-in-place (no longer suppressed during a grid drag). Phase 1: UI
-    // state only. Phase 2 wires the routing (solo the staged cell + row-source-in-time; wins over in-place).
-    private var previewButton: some View {
-        let active = cellPreview
-        return Text(active ? "PREVIEW ●" : "PREVIEW (hold)")
-            .font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(active ? .black : .white.opacity(0.7))
-            .frame(maxWidth: .infinity).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 6).fill(active ? stagingColor : Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? .clear : Color.white.opacity(0.12), lineWidth: 1))
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)                 // press-and-hold: down = preview on, release = off
-                .onChanged { _ in if !cellPreview { cellPreview = true; startCellPreview() } }
-                .onEnded { _ in if !holdLatch { cellPreview = false; au?.clearPreview() } })   // §5c HOLD → LATCH (stays on)
-    }
-
-    // §5c HOLD in the CELL box — the sustain pedal for the PREVIEW spring: while ON, releasing PREVIEW
-    // latches it (hands-free audition); toggling HOLD off (or leaving cell-edit) drops it.
-    private var previewHoldChip: some View {
-        Text("HOLD").font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(holdLatch ? .black : .white.opacity(0.6))
-            .padding(.horizontal, 8).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 6).fill(holdLatch ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(holdLatch ? .clear : Color.white.opacity(0.12), lineWidth: 1))
-            .contentShape(Rectangle()).onTapGesture { toggleHold() }
-    }
-
-    // Increment 2: while PREVIEW is held, tell the engine the staged VIRTUAL cell (colour + input filter +
-    // bus mask) so it solos. Also suspends the drag's preview-in-place (PREVIEW wins, per the design).
-    // NOTE: audible only for an ARP colour with held notes (Increment 1 scope: arp of the source pool).
-    private func startCellPreview() {
-        guard let au else { return }
-        let ci = colourIDs.firstIndex(of: stagedConfig.colourID) ?? -1
-        var mask: UInt8 = 0
-        for b in stagedConfig.buses { mask |= (1 as UInt8) << b.cable }
-        // receiver input → its channel filter (0 = OMNI); row input's live feed is Increment 1b → OMNI source for now.
-        let filter = (stagedConfig.inputRow == nil && stagedConfig.inputReceiver < receivers.count)
-            ? receivers[stagedConfig.inputReceiver].channel : 0
-        au.setPreview(colourIndex: ci, filter: filter, busMask: mask, inputRow: stagedConfig.inputRow ?? -1)
-        clearPreview()   // suspend any in-place hover preview while PREVIEW is held
-    }
-
     @ViewBuilder private var receiversBox: some View {
-        ReceiversView(receivers: receivers, editing: editing, peak: receiverPeak, peakAt: receiverPeakAt,
+        ReceiversView(receivers: receivers, editing: false, peak: receiverPeak, peakAt: receiverPeakAt,
                       heldVels: recvHeld, thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
@@ -1070,83 +698,6 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // MODELESS (2026-07-27): GRID CONTROLS — the verb palette, in the flank the COLOUR picker vacated (beside
-    // MIDI OUTPUT). Radio verbs (one armed, LOUD) + UNDO/REDO. INSPECT is wired functional in 1b; the others
-    // render inert until their increments land. EDIT mode survives alongside (pin ⑤) until verb coverage completes.
-    private var gridControlsView: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("GRID CONTROLS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            HStack(spacing: 4) { verbButton(.inspect); verbButton(.copy) }
-            HStack(spacing: 4) { verbButton(.edit); verbButton(.audition) }
-            HStack(spacing: 4) {
-                gcIcon("arrow.uturn.backward", enabled: au?.uiCanUndo ?? false, action: undo)
-                gcIcon("arrow.uturn.forward", enabled: au?.uiCanRedo ?? false, action: redo)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-    private func verbButton(_ v: GridVerb) -> some View {
-        let on = gridVerb == v
-        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-        return Text(v.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity).frame(height: 20)
-            .background(RoundedRectangle(cornerRadius: 4).fill(on ? amber : Color.white.opacity(0.07)))
-            .contentShape(Rectangle())
-            .onTapGesture { gridVerb = on ? nil : v; if gridVerb != .inspect { inspectCol = nil }; if gridVerb != .edit { editExemplar = nil } }   // radio arm/disarm
-    }
-    private func gcIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Image(systemName: name).font(.system(size: 10, weight: .heavy))
-            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
-            .frame(maxWidth: .infinity).frame(height: 18)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
-            .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
-    }
-
-    // MODELESS EDIT (increment 2, scope-after-target): the WRITE-ARMED route panel — the same map as INSPECT
-    // with an amber armed border + the scope banner/chips (THIS · ALL IDENTICAL · ALL <COLOUR>, counted). The
-    // recolour-to-scope loop is wired via the palette; the full rewire-on-map (input/emitter) follows next.
-    private var editAmber: Color { Color(red: 0.98, green: 0.72, blue: 0.12) }
-    private func editRoutePanel(_ ex: GridView.GridPos) -> some View {
-        let colourName = (scene.cells[ex.col][ex.row]?.colourID ?? "").uppercased()
-        let n = scene.editScopeTargets(col: ex.col, row: ex.row, scope: editScope).count
-        let idN = scene.editScopeTargets(col: ex.col, row: ex.row, scope: .allIdentical).count
-        let colN = scene.editScopeTargets(col: ex.col, row: ex.row, scope: .allColour).count
-        return VStack(alignment: .leading, spacing: 3) {
-            Text("EDITING \(n) · \(scopeLabel(colourName))")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(editAmber)
-            HStack(spacing: 4) {
-                scopeChip("THIS", .thisOne)
-                scopeChip("IDENTICAL \(idN)", .allIdentical)
-                scopeChip("\(colourName) \(colN)", .allColour)
-            }
-            RoutePanelView(scene: scene, colours: docColours, receivers: receivers, column: ex.col,
-                           playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                           stepBeats: stepBeats, emitMarks: emitMarks)
-        }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 6).fill(editAmber.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(editAmber.opacity(0.7), lineWidth: 1.5))
-    }
-    private func scopeLabel(_ colour: String) -> String {
-        switch editScope { case .thisOne: return "THIS"; case .allIdentical: return "ALL IDENTICAL"; case .allColour: return "ALL \(colour)" }
-    }
-    private func scopeChip(_ label: String, _ s: SceneState.EditScope) -> some View {
-        let on = editScope == s
-        return Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.6)
-            .padding(.horizontal, 5).frame(height: 16)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? editAmber : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture { editScope = s }
-    }
-    private func recolorScope(_ id: String) {
-        guard let ex = editExemplar, let au else { return }
-        au.editScene { $0.applyToScope(col: ex.col, row: ex.row, scope: editScope) { $0.colourID = id } }
-        scene = au.uiScene(); docColours = au.uiColours()
-    }
-
     private var colourBox: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -1156,14 +707,7 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in                          // staging: tap SELECTED chip → exit; tap ANOTHER → recolour the flashing set
-                            if editExemplar != nil { recolorScope(id) }   // MODELESS EDIT: repaint the whole scoped set
-                            else if staging { if id == stagedConfig.colourID { exitStaging() } else { recolorStaged(id) } }
-                            else { pickPalette(id) }
-                        },
-                        onChipDrag: paletteDragChanged, onChipDrop: paletteDrop,
-                        onLongPress: enterStaging,                // hold stays the drag/enter gesture — NOT an exit (user 2026-07-25)
-                        stagingID: staging ? stagedConfig.colourID : nil)
+                        onPick: { id in pickPalette(id) })       // tap a chip = select the brush (placement returns via PLACE, P2)
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
@@ -1223,9 +767,8 @@ struct DiagView: View {
     // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
     // colours: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
     private var arrangementBar: some View {
-        ArrangementBar(au: au, d: d, stepBeats: stepBeats, editing: editing,
+        ArrangementBar(au: au, d: d, stepBeats: stepBeats,
                        sceneEmpty: sceneEmpty, activeSceneIdx: activeSceneIdx,
-                       onToggleMode: toggleMode, onUndo: undo, onRedo: redo,
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
                        currentPreset: currentPreset, onOpenPresets: openPresets)

@@ -15,12 +15,8 @@ struct ArrangementBar: View {
     let au: MidiSparkAudioUnit?
     let d: KernelDiag                       // the VC's polled diagnostics (playing/pass/beat/tempo)
     let stepBeats: Double
-    let editing: Bool
     let sceneEmpty: [Bool]                  // polled by the VC, passed down (per-slot occupancy)
     let activeSceneIdx: Int                 // polled by the VC, passed down (the playing scene)
-    let onToggleMode: () -> Void
-    let onUndo: () -> Void
-    let onRedo: () -> Void
     let onSecretTap: () -> Void             // dev: a long-press on the logotype reveals the T-session loader
     let onOpenSettings: () -> Void          // the ⚙ → the cog page (rendered at the VC's top level; full-screen)
     let onRevertLiveFlips: () -> Void       // re-cue reverts the live ON-TAP flips (VC's clearOnTap)
@@ -48,16 +44,6 @@ struct ArrangementBar: View {
                 .foregroundColor(.white.opacity(0.85)).fixedSize()
                 .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
             presetButton                                                       // §3 PRESETS: the selector, right of the logo
-            HStack(spacing: 2) {                                                // TRANSITIONAL mode toggle
-                barModeChip("EDIT", on: editing, hue: sceneAmber)
-                barModeChip("PERFORM", on: !editing, hue: barCyan)
-            }.fixedSize().onTapGesture { onToggleMode() }
-            if editing {
-                HStack(spacing: 3) {
-                    barIcon("arrow.uturn.backward", enabled: au?.uiCanUndo ?? false, action: onUndo)
-                    barIcon("arrow.uturn.forward", enabled: au?.uiCanRedo ?? false, action: onRedo)
-                }.fixedSize()
-            }
             sceneChipRow                                                        // THE CHIPS — flex to fill; never yield
             if d.playing {
                 Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
@@ -113,19 +99,6 @@ struct ArrangementBar: View {
             }
         }
         .frame(width: 34, height: 26).contentShape(Rectangle())
-    }
-    private func barModeChip(_ label: String, on: Bool, hue: Color) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.5))
-            .padding(.vertical, 3).padding(.horizontal, 7)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue : Color.white.opacity(0.08)))
-    }
-    private func barIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Image(systemName: name).font(.system(size: 11, weight: .heavy))
-            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
-            .frame(width: 24, height: 22)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
-            .contentShape(Rectangle()).onTapGesture { if enabled { action() } }
     }
     private func sceneChip(_ i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]
