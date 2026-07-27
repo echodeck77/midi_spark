@@ -195,9 +195,10 @@ final class Kernel {
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
-    func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32]) {
-        let r = (inputPeak, inputEvents)
-        for i in 0..<4 { inputPeak[i] = 0; inputEvents[i] = 0 }
+    private var inputChannelMask = [UInt16](repeating: 0, count: 4)   // §MPE: channels (bit = ch-1) a receiver heard this window
+    func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) {
+        let r = (inputPeak, inputEvents, inputChannelMask)
+        for i in 0..<4 { inputPeak[i] = 0; inputEvents[i] = 0; inputChannelMask[i] = 0 }
         return r
     }
     // item 4 VELOCITY MARKS (input side): per receiver, recent note-on velocities since the last poll (input
@@ -408,6 +409,7 @@ final class Kernel {
                                   && receiverHears(filter: receiverChannels[i], channel: channel) {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
+                    inputChannelMask[i] |= UInt16(1) << UInt16(channel)   // §MPE: track the channel spread this window
                     if recvMarkCount[i] < 8 { recvMarkVel[i][recvMarkCount[i]] = vel; recvMarkCount[i] += 1 }   // item 4 mark
                 }
             }

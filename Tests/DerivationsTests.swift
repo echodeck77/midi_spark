@@ -426,6 +426,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(r.solo, 0b1001, "live solo busMask ∪ footSolo; the expired one is gone")
     }
 
+    func testMpeLikelyNeedsTwoOrMoreChannels() {
+        XCTAssertFalse(mpeLikely(channelMask: 0), "silence is not MPE")
+        XCTAssertFalse(mpeLikely(channelMask: 1 << 0), "a chord all on ch 1 is a normal controller")
+        XCTAssertFalse(mpeLikely(channelMask: 1 << 5), "one channel, however high, is not MPE")
+        XCTAssertTrue(mpeLikely(channelMask: (1 << 1) | (1 << 2)), "notes on ch 2 + ch 3 = per-note channels = MPE")
+        XCTAssertTrue(mpeLikely(channelMask: 0xFFFE), "the whole lower zone spread = MPE")
+    }
+
     // MARK: - UI peak-hold decay (delta §6a metering — shared by both meter views)
 
     func testPeakHoldLevelDecaysLinearly() {

@@ -104,6 +104,7 @@ struct DiagView: View {
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
     @State private var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
+    @State private var mpeSeenAt: [Date] = Array(repeating: .distantPast, count: 4)   // §MPE: last auto-detected per receiver
     @State private var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State private var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
@@ -693,7 +694,13 @@ struct DiagView: View {
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
-                if showSettings { settingsOverlay }     // §5 the cog page (overlay on the running instrument)
+                if showSettings {                       // §5 the cog page (overlay on the running instrument)
+                    CogPage(au: au, receivers: receivers, busChannels: busChannels, d: d,
+                            inAt: receiverPeakAt, outAt: emitPeakAt, mpeAt: mpeSeenAt, aboutLine: aboutLine,
+                            onSetEmitterChannel: setEmitterChannel,
+                            onChanged: { receivers = au?.uiReceivers() ?? receivers; busChannels = au?.uiBusChannels() ?? busChannels },
+                            onClose: { showSettings = false })
+                }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
                 #endif
@@ -731,9 +738,12 @@ struct DiagView: View {
             for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
                 emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date()
             }
-            let rin = au.pollReceiverActivity()      // §9 item 11: per-receiver INPUT metering
-            for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 {
-                receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
+            let rin = au.pollReceiverActivity()      // §9 item 11: per-receiver INPUT metering (+ §MPE channel spread)
+            for i in 0..<4 {
+                if i < rin.events.count && rin.events[i] > 0 {
+                    receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
+                }
+                if i < rin.channels.count && mpeLikely(channelMask: rin.channels[i]) { mpeSeenAt[i] = Date() }
             }
             // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
             let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), wmk = au.pollWithheldMarks(), mnow = Date()
@@ -1195,35 +1205,8 @@ struct DiagView: View {
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes)
     }
 
-    // §5 THE COG PAGE (shell): a full-screen overlay on the RUNNING instrument — the engine never stops, audio
-    // flows, latches hold; dismiss returns to uninterrupted play. Birth: a health readout (the stuck-note monitor
-    // graduating here) + about/version. NEXT increment homes the MIDI I/O config (which retires the strip EDIT faces).
-    private var settingsOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.82).ignoresSafeArea().onTapGesture { showSettings = false }
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("SETTINGS").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                    Spacer()
-                    Text("✕").font(.system(size: 18, weight: .heavy)).foregroundColor(.white.opacity(0.7))
-                        .contentShape(Rectangle()).onTapGesture { showSettings = false }
-                }
-                Text("The engine keeps running — changes apply live.").font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                Divider().overlay(Color.white.opacity(0.12))
-                Text("HEALTH").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                stuckNoteMonitor
-                Divider().overlay(Color.white.opacity(0.12))
-                Text("MIDI I/O CONFIG lands here next — receiver cable/channel/latch · emitter channel. Until then it stays on the strip EDIT faces.")
-                    .font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.32)).fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Text(aboutLine).font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            }
-            .padding(22).frame(maxWidth: 460, maxHeight: 480)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.1)))
-            .padding(24)
-        }
-    }
+    // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter
+    //  channel, live activity + MPE-detect indicators). `showSettings` gates it; the ⚙ in the bar opens it.
     private var aboutLine: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         return "8×8 STATE · MidiSpark engine · v\(v)"

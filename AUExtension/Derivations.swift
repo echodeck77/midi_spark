@@ -539,6 +539,14 @@ func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
     return (surviving, alt, mute, solo)
 }
 
+// MARK: - MPE detection (§ receiver property) — auto-detect the MPE controller for the cog-page indicator
+
+/// A receiver is likely fed by an MPE controller when its recent note-ons spanned ≥2 distinct channels — MPE
+/// spreads each note to its own member channel, an ordinary source uses one. `channelMask` bit i = channel i
+/// (0-based) heard this window. Pure — drives the per-receiver MPE-detected light (a single-channel receiver
+/// never trips it, so detection is meaningful only under OMNI / MPE-merge).
+func mpeLikely(channelMask: UInt16) -> Bool { channelMask.nonzeroBitCount >= 2 }
+
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
 /// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
 @inline(__always)

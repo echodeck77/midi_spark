@@ -102,7 +102,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollEmitterActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainEmitterActivity() }
 
     /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
-    func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainReceiverActivity() }
+    func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) { kernel.drainReceiverActivity() }
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
@@ -117,7 +117,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setReceiverCable(_ i: Int, _ mask: Int?)  { editReceiver(i) { $0.cable = mask } }   // §item 11 INPUT CABLES
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // TWO LATCH MODES
-    // MPE is silent auto-detect (user ruling 2026-07-25) — no setter/UI; the `mpeMerge` field is reserved.
+    // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
+    // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).
+    func setReceiverMpeMerge(_ i: Int, _ on: Bool) { editReceiver(i) { $0.mpeMerge = on } }
     private func editReceiver(_ i: Int, _ f: (inout Receiver) -> Void) {
         guard (0..<4).contains(i) else { return }
         editDocument { d in
