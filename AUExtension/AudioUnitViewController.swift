@@ -52,6 +52,11 @@ struct DiagView: View {
     @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     @State private var pendingScene: Int? = nil       // MULTI-SCENE S2: armed switch (fires at the next pass start)
     @State private var sceneBlink = false             // pending-chip blink (toggled by the 4 Hz poll)
+    @State private var beatSampledAt = Date()         // S3: when d.beat was last polled — extrapolates the chip pass-sweep
+    @State private var dragSceneSrc: Int? = nil       // S3: the lifted chip mid-drag
+    @State private var dragSceneTarget: Int? = nil    // S3: chip under the finger (drop = MOVE/SWAP)
+    @State private var dragOverTrash = false          // S3: finger dragged below the strip = the can
+    @State private var sceneShakeX: CGFloat = 0       // S3: the active-refuses-trash shake offset
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
@@ -727,7 +732,10 @@ struct DiagView: View {
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
             }
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
-                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
+                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) {
+                if nd.beat != d.beat { beatSampledAt = Date() }   // S3: re-anchor the sweep extrapolation
+                d = nd
+            }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
@@ -1218,12 +1226,108 @@ struct DiagView: View {
     private var sceneStrip: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            HStack(spacing: 4) {
-                ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i) }
+            GeometryReader { geo in
+                let chipW = geo.size.width / CGFloat(PluginState.maxScenes)
+                HStack(spacing: 4) {
+                    ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i, chipW: chipW) }
+                }
+                .coordinateSpace(name: "sceneStripRow")
+                .overlay { if dragSceneSrc != nil { sceneTrashCan } }   // the can — only while dragging
             }
+            .frame(height: 26)
         }
+        .offset(x: sceneShakeX)                              // S3: shake when the active scene refuses the trash
         .background(sceneArmWatcher)                         // S2c: tight commit at the pass boundary (~1 render window)
         .onChange(of: d.pass) { _ in commitArmedScene() }   // 4 Hz fallback (e.g. backgrounded, watcher paused)
+    }
+    // The TRASH: a red can, present only during a drag, centred over the strip. Drag a chip DOWN (out the
+    // bottom, y > 44) to arm it — it brightens red — then release to delete. The active scene refuses (shakes).
+    private var sceneTrashCan: some View {
+        Image(systemName: "trash.fill")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundColor(dragOverTrash ? Color(red: 0.98, green: 0.32, blue: 0.28) : .white.opacity(0.45))
+            .padding(6)
+            .background(Circle().fill(Color.black.opacity(dragOverTrash ? 0.88 : 0.55)))
+            .scaleEffect(dragOverTrash ? 1.3 : 1)
+            .animation(.easeOut(duration: 0.12), value: dragOverTrash)
+            .allowsHitTesting(false)
+    }
+    private func sceneChip(_ i: Int, chipW: CGFloat) -> some View {
+        let empty = i >= sceneEmpty.count || sceneEmpty[i]
+        let active = i == activeSceneIdx && !empty
+        let pending = i == pendingScene && !empty
+        let lifted = i == dragSceneSrc
+        let target = i == dragSceneTarget
+        return Text(empty ? "+" : "\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(active ? .black : (empty ? .white.opacity(0.3) : .white.opacity(0.8)))
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 4).fill(active ? sceneAmber : Color.white.opacity(empty ? 0.03 : 0.08)))
+            .overlay { if active { passSweepOverlay } }         // S3: the active chip wears the pass-sweep
+            .overlay(RoundedRectangle(cornerRadius: 4)          // PENDING = blinking amber · drop TARGET = white ring
+                .stroke(target ? Color.white.opacity(0.9)
+                        : sceneAmber.opacity(pending ? (sceneBlink ? 0.95 : 0.25) : 0),
+                        lineWidth: target ? 2 : 1.5))
+            .scaleEffect(lifted ? 1.12 : 1)
+            .shadow(color: .black.opacity(lifted ? 0.5 : 0), radius: lifted ? 4 : 0, y: lifted ? 2 : 0)
+            .zIndex(lifted ? 1 : 0)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { doubleTapScene(i) }
+            .onTapGesture { tapScene(i) }
+            .gesture(sceneDragGesture(source: i, chipW: chipW))
+    }
+    // S3: the active chip's pass-sweep — a 2pt mini-playhead crossing L→R once per pass, extrapolated between
+    // the 4 Hz polls (one-clock, same liveBeat idea as the cell mutation lines). Present only while playing.
+    @ViewBuilder private var passSweepOverlay: some View {
+        if d.playing {
+            GeometryReader { g in
+                TimelineView(.animation) { tl in
+                    Rectangle().fill(Color.black.opacity(0.5)).frame(width: 2)
+                        .position(x: max(1, min(g.size.width - 1, CGFloat(passFraction(tl.date)) * g.size.width)),
+                                  y: g.size.height / 2)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+    private func passFraction(_ now: Date) -> Double {
+        let cyc = 8.0 * stepBeats; guard cyc > 0 else { return 0 }
+        let lb = d.beat + now.timeIntervalSince(beatSampledAt) * d.tempo / 60.0
+        let m = lb.truncatingRemainder(dividingBy: cyc)
+        return (m < 0 ? m + cyc : m) / cyc
+    }
+    // S3: long-press a chip to LIFT it, then drag — sideways to another chip = MOVE (onto +) / SWAP (onto a
+    // scene); down (out the bottom) onto the can = TRASH. Never overwrites; the active scene refuses the trash.
+    private func sceneDragGesture(source i: Int, chipW: CGFloat) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("sceneStripRow")))
+            .onChanged { value in
+                guard case .second(true, let drag?) = value else { return }
+                if dragSceneSrc == nil {
+                    guard i < sceneEmpty.count, !sceneEmpty[i] else { return }   // only real scenes lift (not a +)
+                    dragSceneSrc = i
+                }
+                let downToTrash = drag.location.y > 44
+                dragOverTrash = downToTrash
+                if downToTrash { dragSceneTarget = nil }
+                else {
+                    let t = max(0, min(PluginState.maxScenes - 1, Int(drag.location.x / max(1, chipW))))
+                    dragSceneTarget = (t == dragSceneSrc) ? nil : t
+                }
+            }
+            .onEnded { _ in resolveSceneDrag() }
+    }
+    private func resolveSceneDrag() {
+        defer { dragSceneSrc = nil; dragSceneTarget = nil; dragOverTrash = false }
+        guard let au, let src = dragSceneSrc else { return }
+        if dragOverTrash {
+            if au.deleteScene(src) { refreshScenes() } else { refuseTrashShake() }   // active refused
+        } else if let t = dragSceneTarget, t != src {
+            au.moveOrSwapScene(from: src, to: t); refreshScenes()
+        }
+    }
+    private func refuseTrashShake() {
+        withAnimation(.linear(duration: 0.05).repeatCount(5, autoreverses: true)) { sceneShakeX = 5 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { sceneShakeX = 0 }
     }
     // S2c: while a switch is ARMED, poll the ENGINE's live pass at display rate and commit on the boundary —
     // ~1 render window (≈40ms) vs the 4 Hz poll's ~250ms, which fixes the scene-start dropout (bug 4a). Present

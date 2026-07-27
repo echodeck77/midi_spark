@@ -466,6 +466,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         dispatchPrecondition(condition: .onQueue(.main))
         kernel.restartPass()
     }
+    /// S3 drag: MOVE (onto empty) / SWAP (onto occupied) — never overwrite. The active scene's CONTENT is
+    /// unchanged (it only moves slot), so no voice flush — the music plays on through a re-arrange.
+    func moveOrSwapScene(from a: Int, to b: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        editDocument { $0.dragScene(from: a, to: b) }
+    }
+    /// S3 trash: delete a scene. Refuses (returns false) the ACTIVE scene / empty / out-of-range — the UI shakes.
+    @discardableResult func deleteScene(_ i: Int) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        var ok = false
+        editDocument { ok = $0.deleteScene(i) }
+        return ok
+    }
 
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {

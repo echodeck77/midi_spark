@@ -328,6 +328,52 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(d.activeScene, 0, "save-here does NOT switch")
     }
 
+    // MARK: - S3 drag: MOVE / SWAP / DELETE (never overwrite; active follows content; active refuses trash)
+
+    func testDragOntoEmptyMovesAndEmptiesSource() {
+        var d = multi()
+        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
+        d.dragScene(from: 2, to: 9)                        // 9 is empty ⇒ MOVE
+        XCTAssertEqual(d.scenes[9].cells[0][0]?.colourID, "gold", "the scene relocated to 9")
+        XCTAssertTrue(d.scenes[2].isEmpty, "the source slot is now empty")
+    }
+
+    func testDragOntoOccupiedSwapsNeverOverwrites() {
+        var d = multi()
+        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[5].cells[0][0] = Cell(colourID: "cyan")
+        d.dragScene(from: 2, to: 5)                        // 5 occupied ⇒ SWAP, not overwrite
+        XCTAssertEqual(d.scenes[5].cells[0][0]?.colourID, "gold", "dragged content lands in 5")
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "cyan", "the displaced scene survives in 2 (no data lost)")
+    }
+
+    func testMoveCarriesTheActiveIndexWithItsContent() {
+        var d = multi()
+        d.scenes[3].cells[0][0] = Cell(colourID: "gold"); d.activeScene = 3
+        d.moveScene(from: 3, to: 11)
+        XCTAssertEqual(d.activeScene, 11, "the playing scene follows its content to the new slot")
+    }
+
+    func testSwapCarriesTheActiveIndex() {
+        var d = multi()
+        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[6].cells[0][0] = Cell(colourID: "cyan")
+        d.activeScene = 6
+        d.swapScenes(3, 6)
+        XCTAssertEqual(d.activeScene, 3, "active followed its content across the swap")
+        XCTAssertEqual(d.scenes[3].cells[0][0]?.colourID, "cyan", "…which is now in slot 3")
+    }
+
+    func testDeleteEmptiesTheSlotButRefusesTheActiveScene() {
+        var d = multi()
+        d.scenes[4].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[7].cells[0][0] = Cell(colourID: "cyan"); d.activeScene = 7
+        XCTAssertTrue(d.deleteScene(4), "a non-active scene deletes")
+        XCTAssertTrue(d.scenes[4].isEmpty, "the slot is now empty")
+        XCTAssertFalse(d.deleteScene(7), "the ACTIVE scene refuses the trash")
+        XCTAssertFalse(d.scenes[7].isEmpty, "…and survives")
+    }
+
     func testActiveSceneResolvedIsBoundsSafe() {
         var d = multi(); d.activeScene = 99
         XCTAssertTrue((0..<d.scenes.count).contains(d.activeSceneResolved), "out-of-range clamps in-bounds, never crashes")

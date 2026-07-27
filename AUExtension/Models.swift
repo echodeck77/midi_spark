@@ -389,6 +389,34 @@ struct PluginState: Codable, Equatable {
         activeScene = i
     }
 
+    // MARK: - S3: drag on the strip = MOVE / SWAP / DELETE (never overwrite — the precious-scene law)
+
+    /// DRAG a scene onto another slot. The model decides: EMPTY target = MOVE (relocate; source empties);
+    /// OCCUPIED target = SWAP (exchange). Never an overwrite. The active (playing) scene follows its content.
+    mutating func dragScene(from a: Int, to b: Int) {
+        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b), !scenes[a].isEmpty else { return }
+        if scenes[b].isEmpty { moveScene(from: a, to: b) } else { swapScenes(a, b) }
+    }
+    /// MOVE onto an empty slot: the scene relocates, the source becomes empty. The active index follows.
+    mutating func moveScene(from a: Int, to b: Int) {
+        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b), scenes[b].isEmpty else { return }
+        scenes[b] = scenes[a]; scenes[a] = .empty()
+        if activeScene == a { activeScene = b }
+    }
+    /// SWAP two slots (exchange — never overwrite). The active (playing) scene follows its content to its new slot.
+    mutating func swapScenes(_ a: Int, _ b: Int) {
+        guard a != b, scenes.indices.contains(a), scenes.indices.contains(b) else { return }
+        scenes.swapAt(a, b)
+        if activeScene == a { activeScene = b } else if activeScene == b { activeScene = a }
+    }
+    /// DELETE a scene (the trash). The ACTIVE scene REFUSES — the instrument always has a playing scene.
+    /// Returns false (rejected) when the slot is the active one, empty, or out of range — the UI shakes on false.
+    @discardableResult mutating func deleteScene(_ i: Int) -> Bool {
+        guard scenes.indices.contains(i), i != activeSceneResolved, !scenes[i].isEmpty else { return false }
+        scenes[i] = .empty()
+        return true
+    }
+
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
     /// test session). Mapping (migration-tree-routing.md §1): a cell fed under the old model — i.e.
