@@ -844,47 +844,6 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(drainWithheldAfter(b).allSatisfy { $0.isEmpty }, "no claim ⇒ nothing withheld")
     }
 
-    // MARK: - FLIP (§6a anti-claim) — an emitter sounds only pitch classes NObody else is sounding
-
-    private func flipBox(_ cs: [Colour], flip: UInt8, claim: UInt8 = 0, _ build: (inout SceneState) -> Void) -> SnapshotBox {
-        var s = SceneState.empty(); build(&s)
-        var st = PluginState(colours: cs, scenes: [s]); st.flipMask = flip; st.claimMask = claim
-        return SnapshotBuilder.build(from: st)
-    }
-
-    func testFlipSuppressesAClassSoundingOnAnotherEmitter() {
-        // gold fans A (normal) + B (FLIP), both the held 60. A sounds it; B emits LAST, sees 60 on A → yields.
-        let b = flipBox(claimColours(transposeB: 0), flip: 0b0010) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
-        }
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A (normal) sounds 60")
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "B (FLIP) yields — the class is already taken")
-        assertNothingLeftSounding(e)
-    }
-
-    func testFlipAdmitsNegativeSpace() {
-        // gold→A holds 60 (class 0); cyan→B (FLIP) holds 65 (class 5, transpose +5) — a DIFFERENT class → B sounds it.
-        let b = flipBox(claimColours(transposeB: 5), flip: 0b0010) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.b])
-        }
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 65 }.count, 0, "B (FLIP) sounds 65 — nobody else holds that class")
-        assertNothingLeftSounding(e)
-    }
-
-    func testFlipYieldsToAClaimant() {
-        // Composition: A claims + B FLIPs, both the held 60. The claimant's ghost occupies class 0 → B yields harder.
-        let b = flipBox(claimColours(transposeB: 0), flip: 0b0010, claim: 0b0001) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
-        }
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
-        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "the claimant A sounds")
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "B (FLIP) yields to the claimant's reserved class")
-        assertNothingLeftSounding(e)
-    }
-
     // MARK: - COVERAGE HARDENING — device topologies (T-series) with no prior unit coverage
 
     func testCollisionRefcountKeepsSustainedNoteAliveThroughArpRestrikes() {

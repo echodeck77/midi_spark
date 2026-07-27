@@ -61,7 +61,6 @@ struct DiagView: View {
     @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State private var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
     @State private var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
-    @State private var flipMask: UInt8 = 0                          // role family: FLIP (anti-claim) set (persisted)
     @State private var masterMute = false                           // master panel: global emission kill (persisted)
     @State private var masterKey = 0                                // master panel: per-scene transpose (persisted)
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
@@ -466,7 +465,6 @@ struct DiagView: View {
         flattenAmount = au.uiFlattenAmount()
         altMask = au.uiAltMask()
         altCount = au.uiAltCount()
-        flipMask = au.uiFlipMask()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
     }
@@ -632,12 +630,6 @@ struct DiagView: View {
         au?.setAltCount(i, count)
         altCount = au?.uiAltCount() ?? altCount
     }
-    // role family: FLIP (anti-claim, persisted) — tap toggles the emitter into the FLIP set (toggle only).
-    private func toggleFlip(_ i: Int) {
-        let on = flipMask & (1 << UInt8(i)) != 0
-        au?.setFlip(i, !on)
-        flipMask = au?.uiFlipMask() ?? flipMask
-    }
     // master panel: MUTE (persisted, tap) / PANIC (long-press) / KEY ± (persisted per-scene) / the momentary fader.
     private func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
     private func masterPanic() { au?.masterPanic() }
@@ -739,7 +731,6 @@ struct DiagView: View {
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
-            let fpm = au.uiFlipMask();     if fpm != flipMask { flipMask = fpm }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
@@ -978,8 +969,7 @@ struct DiagView: View {
                     flattenMask: flattenMask, flattenAmount: flattenAmount,
                     onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount,
                     altMask: altMask, altCount: altCount,
-                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
-                    flipMask: flipMask, onToggleFlip: toggleFlip)
+                    onToggleAlt: toggleAlt, onAltCount: setAltCnt)
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

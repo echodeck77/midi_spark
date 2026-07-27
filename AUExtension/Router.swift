@@ -87,10 +87,6 @@ final class Router {
     private var altMask: UInt8 = 0
     private var altSequence: [UInt8] = []
     private var altTurn = 0
-    // emitter role family: FLIP (anti-claim). A FLIP emitter admits a note only if its PITCH CLASS sounds on NO
-    // OTHER emitter — negative space. FLIP buses emit LAST (they must see everyone else's space first); the note
-    // yields if the class is on any other bus's voice, ghosts included (a reserved class blocks it). previewMode bypasses.
-    private var flipMask: UInt8 = 0
     // master panel: per-scene KEY (transpose, from the box), global MUTE (from the box), and the ephemeral
     // master velocity FADER (from process(), like the emitter override) — all applied in emitOneBus.
     private var masterKey: Int = 0
@@ -420,15 +416,6 @@ final class Router {
         return minLeak == Int.max ? nil : minLeak
     }
 
-    // emitter role family: FLIP — is `note`'s PITCH CLASS already sounding on ANY OTHER emitter (audible OR a
-    // claim ghost/reservation)? A FLIP emitter yields (takes only negative space) when this is true. FLIP buses
-    // emit LAST, so by here every claimant + normal bus of this window has opened its voice.
-    private func pitchSoundingOnOtherBus(_ note: UInt8, excluding bus: Int) -> Bool {
-        let pc = note % 12
-        for v in voices where v.active && v.bus != UInt8(bus) && v.note % 12 == pc { return true }
-        return false
-    }
-
     private func activeVoiceCount() -> Int {
         var n = 0
         for v in voices where v.active { n += 1 }
@@ -514,20 +501,10 @@ final class Router {
                                offSample: offSample, windowEnd: windowEnd, out: out)
             if c >= 0 { lastCh = UInt8(c) }
         }
-        // Then the NORMAL buses (not claim, not flip)…
-        var mid = mask & ~claimMask & ~flipMask
-        while mid != 0 {
-            let bus = Int(mid.trailingZeroBitCount)          // 0…3 = A…D
-            mid &= mid - 1
-            let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
-                               offSample: offSample, windowEnd: windowEnd, out: out)
-            if c >= 0 { lastCh = UInt8(c) }
-        }
-        // …and FLIP LAST — a FLIP emitter must see everyone else's occupied pitch classes before it decides.
-        var fb = mask & flipMask & ~claimMask
-        while fb != 0 {
-            let bus = Int(fb.trailingZeroBitCount)
-            fb &= fb - 1
+        mask &= ~claimMask
+        while mask != 0 {
+            let bus = Int(mask.trailingZeroBitCount)          // 0…3 = A…D
+            mask &= mask - 1
             let c = emitOneBus(bus, note: note, velocity: velocity, onSample: onSample,
                                offSample: offSample, windowEnd: windowEnd, out: out)
             if c >= 0 { lastCh = UInt8(c) }
@@ -581,12 +558,6 @@ final class Router {
                 }
                 leakScale = leak
             }
-        }
-        // emitter role family: FLIP (anti-claim) — a FLIP emitter sounds ONLY pitch classes NObody else is
-        // sounding. It emits LAST (see emitArtic), so every claimant + normal voice is already in the table;
-        // yield if the class is occupied. Its designed behaviour, not a surprise → no withheld tell recorded.
-        if (flipMask & (1 << UInt8(bus))) != 0 && !previewMode && pitchSoundingOnOtherBus(note, excluding: bus) {
-            return -1   // the class is taken → FLIP takes negative space only (suppress, never defer)
         }
         // delta §6a: a DISABLED emitter emits nothing audible (its claim ghost, if any, was opened above,
         // so a muted claimant still reserves). All is then exactly the sum of ENABLED emitters.
@@ -889,7 +860,6 @@ final class Router {
         flattenMask = box.flattenMask               // role family: FLATTEN ducking set, this render
         flattenAmount = box.flattenAmount
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
-        flipMask = box.flipMask                     // role family: FLIP (anti-claim) set, this render
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
         masterMute = box.masterMute

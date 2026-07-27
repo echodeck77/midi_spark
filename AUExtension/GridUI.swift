@@ -685,8 +685,6 @@ struct OutputsView: View {
     var altCount: [Int] = [1, 1, 1, 1]
     var onToggleAlt: (Int) -> Void = { _ in }
     var onAltCount: (Int, Int) -> Void = { _, _ in }
-    var flipMask: UInt8 = 0                                // role family: FLIP (anti-claim) set
-    var onToggleFlip: (Int) -> Void = { _ in }
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
@@ -757,7 +755,6 @@ struct OutputsView: View {
         let flatAmt = i < flattenAmount.count ? flattenAmount[i] : 0
         let altOn = altMask & (1 << UInt8(i)) != 0
         let altN = i < altCount.count ? altCount[i] : 1
-        let flipOn = flipMask & (1 << UInt8(i)) != 0
         return VStack(spacing: 2) {
             // CLAIM: tap toggles membership; drag sets LEAK % (0 = hard suppression, shown as plain "CLAIM").
             roleButton(i, label: "CLAIM", on: claimOn, value: leak, maxValue: 100,
@@ -766,9 +763,6 @@ struct OutputsView: View {
                        onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
             roleButton(i, label: "ALT", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
                        onToggle: { onToggleAlt(i) }, onDrag: { onAltCount(i, max(1, $0)) })
-            // FLIP (anti-claim): toggle only — sounds only pitch classes nobody else is sounding.
-            roleButton(i, label: "FLIP", on: flipOn, value: 0, maxValue: 0,
-                       onToggle: { onToggleFlip(i) }, onDrag: { _ in })
             HStack(spacing: 2) {
                 octBtn("OCT−") { onOct(i, -1) }
                 octBtn("OCT+") { onOct(i, +1) }
