@@ -49,6 +49,9 @@ enum PresetStore {
         guard let data = try? Data(contentsOf: fileURL(for: name)) else { return nil }
         return decode(data)
     }
+    /// The raw encoded document bytes for a preset — the SAME bytes fullState puts under its state key, so the
+    /// host's `presetState(for:)` can hand them straight back to the fullState setter. nil if the file is missing.
+    static func rawData(for name: String) -> Data? { try? Data(contentsOf: fileURL(for: name)) }
     static func delete(_ name: String) { try? FileManager.default.removeItem(at: fileURL(for: name)) }
 
     /// User preset names (no extension), case-insensitively sorted.

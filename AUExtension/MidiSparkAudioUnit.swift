@@ -482,30 +482,90 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return ok
     }
 
-    // MARK: - PRESETS v1 (§3): whole-document named files (PresetStore) — distinct from the host fullState
+    // MARK: - PRESETS v1 (§3): whole-document named files (PresetStore), surfaced through BOTH our in-plugin
+    // browser AND the standard AUv3 user-preset API (so AUM et al. list them in their own preset menu). One
+    // store (PresetStore), two front doors. Distinct from `fullState` (that stays the host's session autosave).
     private var currentPresetName = ""
+    private var _currentPreset: AUAudioUnitPreset? = nil
     func uiCurrentPreset() -> String { currentPresetName }
     func listPresets() -> [String] { PresetStore.list() }
-    /// SAVE AS — write the WHOLE current document (preview restored, exactly like fullState) under a named file.
-    @discardableResult func savePreset(named name: String) -> Bool {
-        dispatchPrecondition(condition: .onQueue(.main))
-        let doc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
-        let ok = PresetStore.save(doc, as: name)
-        if ok { currentPresetName = PresetStore.sanitize(name) }
-        return ok
+
+    /// The document the host would persist right now (preview restored, exactly like `fullState`).
+    private var documentToSave: PluginState {
+        previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
     }
-    /// LOAD — replace the document in ONE undoable step (§3), closing sounding voices via the transition machinery.
-    func loadPreset(named name: String) {
-        dispatchPrecondition(condition: .onQueue(.main))
+    /// Apply a preset's document — ONE undoable step (§3), voices closed via the transition machinery. No host
+    /// notification (the caller owns that): used by both our LOAD and the host's `currentPreset` setter.
+    private func applyPresetDocument(named name: String) {
         guard let doc = PresetStore.load(name) else { return }
         kernel.flushVoices()                 // a session act — no arm ceremony
         editDocument { $0 = doc }            // one undoable step
         currentPresetName = PresetStore.sanitize(name)
     }
+    private func presetNumber(for name: String) -> Int {
+        (PresetStore.list().firstIndex(of: name).map { -($0 + 1) }) ?? -1   // user presets use negative numbers
+    }
+    private func makeCurrent(named name: String) {                 // update the host-visible current preset + KVO
+        let s = PresetStore.sanitize(name)
+        let p = AUAudioUnitPreset(); p.name = s; p.number = presetNumber(for: s)
+        willChangeValue(forKey: "currentPreset"); _currentPreset = p; didChangeValue(forKey: "currentPreset")
+    }
+    private func userPresetsChanged() { willChangeValue(forKey: "userPresets"); didChangeValue(forKey: "userPresets") }
+
+    /// SAVE AS (our browser + the host's saveUserPreset both land here). Returns false on a write failure.
+    @discardableResult func savePreset(named name: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let ok = PresetStore.save(documentToSave, as: name)
+        if ok { currentPresetName = PresetStore.sanitize(name); userPresetsChanged(); makeCurrent(named: name) }
+        return ok
+    }
+    /// LOAD (our browser). Applies the document AND updates the host's current-preset selection.
+    func loadPreset(named name: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        applyPresetDocument(named: name)
+        makeCurrent(named: name)
+    }
     func deletePreset(named name: String) {
         dispatchPrecondition(condition: .onQueue(.main))
         PresetStore.delete(name)
-        if currentPresetName == PresetStore.sanitize(name) { currentPresetName = "" }
+        if currentPresetName == PresetStore.sanitize(name) {
+            currentPresetName = ""
+            willChangeValue(forKey: "currentPreset"); _currentPreset = nil; didChangeValue(forKey: "currentPreset")
+        }
+        userPresetsChanged()
+    }
+
+    // MARK: standard AUv3 user-preset API (§ host compliance) — the host's own preset menu drives these
+    public override var supportsUserPresets: Bool { true }
+    public override var userPresets: [AUAudioUnitPreset] {
+        PresetStore.list().enumerated().map { i, name in
+            let p = AUAudioUnitPreset(); p.name = name; p.number = -(i + 1); return p
+        }
+    }
+    public override var currentPreset: AUAudioUnitPreset? {
+        get { _currentPreset }
+        set {
+            _currentPreset = newValue
+            if let p = newValue, p.number < 0 { applyPresetDocument(named: p.name) }   // a user preset → load its doc
+        }
+    }
+    public override func saveUserPreset(_ userPreset: AUAudioUnitPreset) throws {
+        guard savePreset(named: userPreset.name) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not write preset."])
+        }
+    }
+    public override func deleteUserPreset(_ userPreset: AUAudioUnitPreset) throws {
+        deletePreset(named: userPreset.name)
+    }
+    /// The state blob for a user preset — the SAME shape `fullState` returns, so the host round-trips it through
+    /// the fullState setter. We hand back the raw stored bytes under our state key.
+    public override func presetState(for userPreset: AUAudioUnitPreset) throws -> [String: Any] {
+        guard let data = PresetStore.rawData(for: userPreset.name) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Preset not found."])
+        }
+        var state = super.fullState ?? [:]
+        state[Self.stateKey] = data
+        return state
     }
 
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
