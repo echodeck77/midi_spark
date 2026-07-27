@@ -51,6 +51,7 @@ struct DiagView: View {
     @State private var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
     @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     @State private var pendingScene: Int? = nil       // MULTI-SCENE S2: armed switch (fires at the next pass start)
+    @State private var pendingRecue = false           // tap the ACTIVE chip: armed re-cue of the saved scene at next pass
     @State private var sceneBlink = false             // pending-chip blink (toggled by the 4 Hz poll)
     @State private var beatSampledAt = Date()         // S3: when d.beat was last polled — extrapolates the chip pass-sweep
     @State private var dragSceneSrc: Int? = nil       // S3: the lifted chip mid-drag
@@ -748,7 +749,7 @@ struct DiagView: View {
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
             let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi }
-            if pendingScene != nil { sceneBlink.toggle() } else if sceneBlink { sceneBlink = false }   // S2 pending-chip blink
+            if pendingScene != nil || pendingRecue { sceneBlink.toggle() } else if sceneBlink { sceneBlink = false }   // S2 pending-chip blink
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
@@ -1331,7 +1332,7 @@ struct DiagView: View {
     private func sceneChip(_ i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]
         let active = i == activeSceneIdx && !empty
-        let pending = i == pendingScene && !empty
+        let pending = (i == pendingScene || (pendingRecue && i == activeSceneIdx)) && !empty
         let lifted = i == dragSceneSrc
         let target = i == dragSceneTarget
         return Text(empty ? "+" : "\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -1339,9 +1340,9 @@ struct DiagView: View {
             .frame(maxWidth: .infinity).frame(height: 26)
             .background(RoundedRectangle(cornerRadius: 4).fill(active ? sceneAmber : Color.white.opacity(empty ? 0.03 : 0.08)))
             .overlay { if active { passSweepOverlay } }         // S3: the active chip wears the pass-sweep
-            .overlay(RoundedRectangle(cornerRadius: 4)          // PENDING = blinking amber · drop TARGET = white ring
+            .overlay(RoundedRectangle(cornerRadius: 4)          // PENDING blink (black on the amber active chip, else amber) · drop TARGET = white
                 .stroke(target ? Color.white.opacity(0.9)
-                        : sceneAmber.opacity(pending ? (sceneBlink ? 0.95 : 0.25) : 0),
+                        : (active ? Color.black : sceneAmber).opacity(pending ? (sceneBlink ? 0.95 : 0.25) : 0),
                         lineWidth: target ? 2 : 1.5))
             .scaleEffect(lifted ? 1.12 : 1)
             .shadow(color: .black.opacity(lifted ? 0.5 : 0), radius: lifted ? 4 : 0, y: lifted ? 2 : 0)
@@ -1410,7 +1411,7 @@ struct DiagView: View {
     // ~1 render window (≈40ms) vs the 4 Hz poll's ~250ms, which fixes the scene-start dropout (bug 4a). Present
     // only when armed (no churn otherwise; obeys the coming invisible=frozen rule since it's a TimelineView).
     @ViewBuilder private var sceneArmWatcher: some View {
-        if pendingScene != nil {
+        if pendingScene != nil || pendingRecue {
             TimelineView(.animation) { _ in
                 let livePass = au?.uiPass() ?? 0
                 Color.clear.onChange(of: livePass) { _ in commitArmedScene() }
@@ -1436,20 +1437,28 @@ struct DiagView: View {
     private func tapScene(_ i: Int) {
         guard let au else { return }
         if i >= sceneEmpty.count || sceneEmpty[i] { au.saveSceneHere(i); refreshScenes(); return }
-        if i == activeSceneIdx { au.restartPass(); return }   // RESTART the pass ("take it from the top")
+        if i == activeSceneIdx {                          // the ACTIVE chip: re-cue the SAVED scene at the next pass
+            if pendingRecue { pendingRecue = false; return }   // tap again = CANCEL the armed re-cue
+            if d.playing { pendingRecue = true }               // ARM: revert live flips + play from the top at the next pass
+            else { clearOnTap(); refreshScenes() }             // stopped ⇒ no pass to wait for; just drop the live flips
+            return
+        }
         if i == pendingScene { pendingScene = nil; return }   // CANCEL the arm
         if d.playing { pendingScene = i }                 // ARM — fires at the next pass start
         else { au.setActiveScene(i); pendingScene = nil; refreshScenes() }   // stopped ⇒ no pass to wait for
     }
-    // Double tap: another non-empty chip = IMMEDIATE switch; the ACTIVE chip = RESTART the pass.
+    // Double tap: another non-empty chip = IMMEDIATE switch; the ACTIVE chip = re-cue the saved scene NOW.
     private func doubleTapScene(_ i: Int) {
         guard let au, !(i >= sceneEmpty.count || sceneEmpty[i]) else { return }
-        if i == activeSceneIdx { au.restartPass(); return }
+        if i == activeSceneIdx { pendingRecue = false; clearOnTap(); au.restartPass(); return }   // NOW: from the top, flips reverted
         au.setActiveScene(i); pendingScene = nil; refreshScenes()
     }
     private func commitArmedScene() {
-        guard let au, let p = pendingScene else { return }
-        au.setActiveScene(p); pendingScene = nil; refreshScenes()
+        guard let au else { return }
+        if pendingRecue {                                 // re-cue the saved scene from the top (live flips reverted, voices flushed)
+            clearOnTap(); au.restartPass(); pendingRecue = false
+        }
+        if let p = pendingScene { au.setActiveScene(p); pendingScene = nil; refreshScenes() }
     }
     private func refreshScenes() {
         guard let au else { return }

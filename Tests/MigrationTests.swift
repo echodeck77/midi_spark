@@ -303,14 +303,14 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(s.isEmpty, "a placed cell ⇒ not empty")
     }
 
-    func testPadScenesFillsToSixteenIdempotently() {
+    func testPadScenesFillsToEightIdempotently() {
         var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.scenes[0].cells[0][0] = Cell(colourID: "gold")
         d.padScenes()
-        XCTAssertEqual(d.scenes.count, 16)
+        XCTAssertEqual(d.scenes.count, 8)
         XCTAssertFalse(d.scenes[0].isEmpty, "slot 0 preserved")
-        XCTAssertTrue(d.scenes[15].isEmpty, "padded slots are empty +")
-        d.padScenes(); XCTAssertEqual(d.scenes.count, 16, "idempotent — never grows past 16")
+        XCTAssertTrue(d.scenes[7].isEmpty, "padded slots are empty +")
+        d.padScenes(); XCTAssertEqual(d.scenes.count, 8, "idempotent — never grows past 8")
     }
 
     func testSwitchSceneOnlyToNonEmpty() {
@@ -333,8 +333,8 @@ final class MigrationTests: XCTestCase {
     func testDragOntoEmptyMovesAndEmptiesSource() {
         var d = multi()
         d.scenes[2].cells[0][0] = Cell(colourID: "gold")
-        d.dragScene(from: 2, to: 9)                        // 9 is empty ⇒ MOVE
-        XCTAssertEqual(d.scenes[9].cells[0][0]?.colourID, "gold", "the scene relocated to 9")
+        d.dragScene(from: 2, to: 6)                        // 6 is empty ⇒ MOVE
+        XCTAssertEqual(d.scenes[6].cells[0][0]?.colourID, "gold", "the scene relocated to 6")
         XCTAssertTrue(d.scenes[2].isEmpty, "the source slot is now empty")
     }
 
@@ -350,8 +350,8 @@ final class MigrationTests: XCTestCase {
     func testMoveCarriesTheActiveIndexWithItsContent() {
         var d = multi()
         d.scenes[3].cells[0][0] = Cell(colourID: "gold"); d.activeScene = 3
-        d.moveScene(from: 3, to: 11)
-        XCTAssertEqual(d.activeScene, 11, "the playing scene follows its content to the new slot")
+        d.moveScene(from: 3, to: 7)
+        XCTAssertEqual(d.activeScene, 7, "the playing scene follows its content to the new slot")
     }
 
     func testSwapCarriesTheActiveIndex() {
@@ -392,10 +392,10 @@ final class MigrationTests: XCTestCase {
         XCTAssertLessThan(box.cells[0].colourIndex, 0, "the inactive scene's cell is NOT")
     }
 
-    func testMigrationPadsScenesToSixteen() {
+    func testMigrationPadsScenesToEight() {
         var d = doc { $0.cells[0][0] = Cell(colourID: "gold") }   // v2, length-1
         d.migrateLegacyRoutingIfNeeded()
-        XCTAssertEqual(d.scenes.count, 16, "old length-1 docs pad to the 16-slot strip")
+        XCTAssertEqual(d.scenes.count, 8, "old length-1 docs pad to the 8-slot strip")
         XCTAssertFalse(d.scenes[0].isEmpty, "the original scene stays in slot 0")
     }
 
