@@ -586,6 +586,33 @@ extension SceneState {
             if var cell = cells[c][r] { edit(&cell); cells[c][r] = cell }
         }
     }
+
+    // MARK: - §11 VERB LOGIC (the testable model ops behind the round verbs; PLACE stamps a Cell directly)
+
+    /// REMOVE — §10b THE INHERIT-ON-DELETE LAW: delete the cell, and its CHILDREN (same-column cells whose
+    /// `inputRow` points at this row) INHERIT its input — chain-fed ⇒ re-point to the grandparent; receiver-fed
+    /// ⇒ hear the receiver directly. Orphan-silence never happens by accident. One step; the caller records undo.
+    mutating func deleteCellHealing(col: Int, row: Int) {
+        guard cells.indices.contains(col), cells[col].indices.contains(row), let victim = cells[col][row] else { return }
+        cells[col][row] = nil
+        for r in cells[col].indices {
+            guard var child = cells[col][r], child.inputRow == row else { continue }
+            child.inputRow = victim.inputRow                    // inherit the victim's parent (nil = MIDI-IN)
+            if victim.inputRow == nil { child.inputReceiver = victim.inputReceiver }
+            cells[col][r] = child
+        }
+    }
+
+    /// MOVE — §11b: relocate a cell to a target, OVERWRITING an occupied one (undo-covered). MOVES NEVER REWRITE
+    /// REFERENCES — the cell's fields (incl. inputRow) travel as-is. No-op onto itself, out of range, or empty source.
+    mutating func moveCellTo(from f: (col: Int, row: Int), to t: (col: Int, row: Int)) {
+        guard f.col != t.col || f.row != t.row,
+              cells.indices.contains(f.col), cells[f.col].indices.contains(f.row),
+              cells.indices.contains(t.col), cells[t.col].indices.contains(t.row),
+              cells[f.col][f.row] != nil else { return }
+        cells[t.col][t.row] = cells[f.col][f.row]
+        cells[f.col][f.row] = nil
+    }
 }
 
 // MARK: - Session template / clipboard (delta §5) — one STAMP object

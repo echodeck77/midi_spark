@@ -41,7 +41,21 @@ struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpo
 ///  · TREE morph moving but PARAM EVENTS static → host uses setValue (observer/snapshot path).
 ///  · Neither moving → the mapping isn't reaching this instance (host-side routing).
 ///  · CC IN rising → raw CC arrives at the MIDI input (and is passed through on A).
-/// MODELESS (2026-07-27): the GRID CONTROLS verbs — the entry surface of the verb-then-noun model.
+/// §11/11b THE ROUND HELD VERBS — the rebuilt authoring surface. Hold a verb → the grid invites → taps do the
+/// verb → release = done (no armed state). Long-press a verb = LATCH (tap again releases). No verb held → taps
+/// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
+enum Verb: String, CaseIterable {
+    case place = "PLACE", delete = "DELETE", select = "SELECT", move = "MOVE", copy = "COPY"
+    var hue: Color {
+        switch self {
+        case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
+        case .delete: return Color(red: 0.98, green: 0.35, blue: 0.30)   // red — destructive
+        case .select: return Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — inspect/edit
+        case .move:   return Color(red: 0.98, green: 0.72, blue: 0.12)   // amber
+        case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet
+        }
+    }
+}
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
@@ -59,6 +73,13 @@ struct DiagView: View {
     @State private var currentPreset = ""              // §3 the loaded preset's name
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
+    // §11b the held quasimode: the active verb is the latched one, else the pressed-and-held one (nil = triggers).
+    @State private var heldVerb: Verb? = nil          // pressed-and-held (spring)
+    @State private var latchedVerb: Verb? = nil       // long-press latched (sticky; tap again releases)
+    @State private var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
+    @State private var moveSource: GridView.GridPos? = nil      // MOVE: the lifted cell (land-tap completes)
+    @State private var copySource: GridView.GridPos? = nil      // COPY: the source (each subsequent tap pastes)
+    private var activeVerb: Verb? { latchedVerb ?? heldVerb }
     @State private var selCol = -1
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -141,10 +162,42 @@ struct DiagView: View {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
-    // §9 item 1 ON TAP (4b/4c): a tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL overlay — onset from
-    // tapWhen (NOW/STEP/PASS/LAP), expiry from tapFor (RETAP toggle / 1-PASS / 1-LAP). Never a document write;
-    // cleared on transport stop. (Post-demolition: taps are TRIGGERS-only — the whole grid is one dispatch path.)
+    // §11b PERFECT SEPARATION: no verb held → the tap is a TRIGGER (ON TAP); a verb held → the tap does the verb.
     private func tapCell(_ col: Int, _ row: Int) {
+        if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
+    }
+
+    // §11 dispatch a grid tap to the active verb.
+    private func doVerb(_ v: Verb, _ col: Int, _ row: Int) {
+        guard let au else { return }
+        let pos = GridView.GridPos(col: col, row: row)
+        switch v {
+        case .place:                                        // stamp the brush Colour (empty cells; keeps the wiring simple in v1)
+            guard scene.cells[col][row] == nil else { return }
+            au.editScene { $0.cells[col][row] = Cell(colourID: brush, buses: [.a]) }   // MIDI-IN → A default
+            refreshFromDocument()
+        case .delete:                                       // §10b heal-on-delete: children inherit the input
+            guard scene.cells[col][row] != nil else { return }
+            au.editScene { $0.deleteCellHealing(col: col, row: row) }
+            selection.remove(pos); refreshFromDocument()
+        case .select:                                       // toggle membership; the set outlives the hold
+            if selection.contains(pos) { selection.remove(pos) } else if scene.cells[col][row] != nil { selection.insert(pos) }
+        case .move:                                         // lift-tap, then land-tap
+            if let src = moveSource {
+                au.editScene { $0.moveCellTo(from: (src.col, src.row), to: (col, row)) }
+                moveSource = nil; refreshFromDocument()
+            } else if scene.cells[col][row] != nil { moveSource = pos }
+        case .copy:                                         // first tap = source; every next tap pastes it
+            if let src = copySource, let cell = scene.cells[src.col][src.row], src != pos {
+                au.editScene { $0.cells[col][row] = cell }
+                refreshFromDocument()
+            } else if scene.cells[col][row] != nil { copySource = pos }
+        }
+    }
+
+    // §9 item 1 ON TAP (4b/4c): the TRIGGER path — a tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL
+    // overlay. Never a document write; cleared on transport stop.
+    private func triggerTap(_ col: Int, _ row: Int) {
         guard scene.cells[col][row] != nil, let c = scene.cells[col][row] else { return }
         let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
         let kind: TapKind
@@ -172,6 +225,65 @@ struct DiagView: View {
         if r.alt  != tapAltMask      { tapAltMask = r.alt;        au?.setTapAltMask(r.alt) }
         if r.mute != tapMuteMask     { tapMuteMask = r.mute;      au?.setTapMuteMask(r.mute) }
         if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
+    }
+
+    // §11b THE VERB CLUSTER — six round buttons, bottom-left (thumb reach): PLACE·HOLD / DELETE·SELECT / MOVE·COPY.
+    // HELD quasimode: press-hold a verb = spring-active; long-press (0.5s) = LATCH (tap again releases). HOLD is
+    // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
+    private var verbCluster: some View {
+        VStack(spacing: 6) {
+            if let v = activeVerb {
+                Text(verbHint(v)).font(.system(size: 7, weight: .heavy, design: .monospaced))
+                    .foregroundColor(v.hue).lineLimit(2).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 6) { verbButton(.place); holdButton }
+            HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
+            HStack(spacing: 6) { verbButton(.move); verbButton(.copy) }
+            Spacer(minLength: 0)
+        }
+        .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    private func verbHint(_ v: Verb) -> String {
+        switch v {
+        case .place:  return "PLACE \(brush.uppercased()) — tap empties"
+        case .delete: return "DELETE — tap cells (children heal)"
+        case .select: return "SELECT \(selection.count) — tap to toggle"
+        case .move:   return moveSource == nil ? "MOVE — tap to lift" : "MOVE — tap to drop"
+        case .copy:   return copySource == nil ? "COPY — tap the source" : "COPY — tap to paste"
+        }
+    }
+    private func verbButton(_ v: Verb) -> some View {
+        let active = activeVerb == v, latched = latchedVerb == v
+        let badge: String? = v == .select && !selection.isEmpty ? "\(selection.count)"
+            : ((v == .move && moveSource != nil) || (v == .copy && copySource != nil)) ? "•" : nil
+        return roundVerb(label: v.rawValue, hue: v.hue, active: active, latched: latched, badge: badge)
+            .onLongPressGesture(minimumDuration: 0.5, pressing: { down in
+                if down {
+                    if latchedVerb == v { latchedVerb = nil; heldVerb = nil }   // tap a latched verb = unlatch
+                    else { heldVerb = v; onVerbEngaged(v) }
+                } else if latchedVerb != v { heldVerb = nil }                    // spring release = done
+            }, perform: { latchedVerb = v })                                    // held 0.5s → LATCH
+    }
+    private func onVerbEngaged(_ v: Verb) {
+        if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
+        if v != .copy { copySource = nil }
+    }
+    private var holdButton: some View {                     // §5c the gesture-latch (toggle), sits with the verbs
+        roundVerb(label: "HOLD", hue: Color(red: 0.98, green: 0.72, blue: 0.12), active: holdLatch, latched: holdLatch, badge: nil)
+            .onTapGesture { toggleHold() }
+    }
+    private func roundVerb(label: String, hue: Color, active: Bool, latched: Bool, badge: String?) -> some View {
+        Circle().fill(active ? hue : Color.white.opacity(0.06))
+            .overlay(Circle().stroke(latched ? hue : hue.opacity(active ? 0 : 0.4), lineWidth: latched ? 2.5 : 1.5))
+            .overlay(Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(active ? .black : hue.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5).padding(1))
+            .overlay(alignment: .topTrailing) {
+                if let b = badge {
+                    Text(b).font(.system(size: 7, weight: .heavy)).foregroundColor(.black)
+                        .frame(width: 13, height: 13).background(Circle().fill(hue)).offset(x: 2, y: -2)
+                }
+            }
+            .frame(width: 46, height: 46).contentShape(Circle())
     }
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
@@ -533,8 +645,8 @@ struct DiagView: View {
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
-                HStack(spacing: 6) {                          // EMITTERS · MASTER (the verb row is retired; the rebuild's
-                    Spacer(minLength: 0)                       // round verb cluster lands here in P2)
+                HStack(spacing: 6) {                          // [VERB CLUSTER] · EMITTERS · MASTER
+                    verbCluster.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half)
                     masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
@@ -557,6 +669,7 @@ struct DiagView: View {
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                 selection: selection, verbInvite: activeVerb?.hue,   // §11 SELECT ring + verb-invite glow
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
         }
     }

@@ -100,6 +100,8 @@ struct GridView: View {
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
+    var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
+    var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
     var tapMuteMask: UInt64 = 0                       // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute (dims the cell)
 
@@ -253,6 +255,14 @@ struct GridView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(isSel ? accentAmber : (activeGlow ? Color.white.opacity(0.7) : cellEdge),
                             lineWidth: isSel ? 2 : (activeGlow ? 1.5 : 1))
+            }
+        }
+        .overlay {                                          // §11 SELECT ring + verb-invite glow
+            let pos = GridPos(col: col, row: row)
+            if selection.contains(pos) {
+                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2.5)
+            } else if let inv = verbInvite {                // a verb is held: empties glow (PLACE), cells glow (edit verbs)
+                RoundedRectangle(cornerRadius: 8).stroke(inv.opacity(0.55), lineWidth: 1.5)
             }
         }
         .overlay {                                          // ALT (B-state) breathing ring (§6.5) — effective ALT

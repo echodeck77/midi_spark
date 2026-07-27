@@ -290,6 +290,40 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[1][0]?.colourID, "cyan", "a different Colour is untouched")
     }
 
+    // MARK: - §11 VERB LOGIC — REMOVE (heal-on-delete §10b) + MOVE
+
+    func testDeleteHealsChildrenToGrandparentInSameColumn() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold")                                  // row0: receiver-fed root (inputRow nil)
+        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)        // row2 ⇐ row0
+        s.cells[0][4] = Cell(colourID: "wine", buses: [.b], inputRow: 2)        // row4 ⇐ row2 (the child of the victim)
+        s.deleteCellHealing(col: 0, row: 2)                                     // delete the middle link
+        XCTAssertNil(s.cells[0][2], "the victim is gone")
+        XCTAssertEqual(s.cells[0][4]?.inputRow, 0, "its child re-points to the GRANDPARENT (row 0)")
+    }
+
+    func testDeleteHealsChildrenToReceiverWhenVictimWasReceiverFed() {
+        var s = SceneState.empty()
+        var root = Cell(colourID: "gold"); root.inputRow = nil; root.inputReceiver = 2   // MIDI-IN via receiver 2
+        s.cells[3][1] = root
+        s.cells[3][5] = Cell(colourID: "cyan", buses: [.a], inputRow: 1)                 // ⇐ row1
+        s.deleteCellHealing(col: 3, row: 1)
+        XCTAssertEqual(s.cells[3][5]?.inputRow, nil, "the child becomes MIDI-IN…")
+        XCTAssertEqual(s.cells[3][5]?.inputReceiver, 2, "…on the victim's receiver (no orphan-silence)")
+    }
+
+    func testMoveRelocatesAndOverwrites() {
+        var s = SceneState.empty()
+        s.cells[1][1] = Cell(colourID: "gold", buses: [.a], inputRow: 3)   // reference travels as-is
+        s.cells[4][4] = Cell(colourID: "cyan")                             // occupied target (overwritten)
+        s.moveCellTo(from: (1, 1), to: (4, 4))
+        XCTAssertNil(s.cells[1][1], "source empties")
+        XCTAssertEqual(s.cells[4][4]?.colourID, "gold", "overwrites the target (undo covers it)")
+        XCTAssertEqual(s.cells[4][4]?.inputRow, 3, "MOVE never rewrites references — inputRow travels as-is")
+        s.moveCellTo(from: (4, 4), to: (4, 4))                             // self = no-op
+        XCTAssertEqual(s.cells[4][4]?.colourID, "gold")
+    }
+
     // MARK: - MULTI-SCENE — sparse scenes, switch, save-here, bounds-safety
 
     private func multi() -> PluginState {
