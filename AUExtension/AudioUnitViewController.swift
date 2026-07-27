@@ -548,6 +548,7 @@ struct DiagView: View {
     private func setReceiverChannel(_ i: Int, _ ch: Int) { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers }
     private func setReceiverCable(_ i: Int, _ mask: Int?) { au?.setReceiverCable(i, mask); receivers = au?.uiReceivers() ?? receivers }
     private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
+    private func setReceiverLatchAdd(_ i: Int, _ add: Bool) { au?.setReceiverLatchAdd(i, add); receivers = au?.uiReceivers() ?? receivers }   // TWO LATCH MODES
     private func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
@@ -1010,6 +1011,8 @@ struct DiagView: View {
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
+                      latchAddMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.latchAddResolved ? $0 | UInt8(1 << $1.offset) : $0 },
+                      onSetLatchAdd: setReceiverLatchAdd,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch)
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)

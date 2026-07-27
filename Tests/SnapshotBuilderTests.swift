@@ -99,6 +99,18 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box.claimLeak, [0, 40, 0, 0], "per-claimant leak maps through")
     }
 
+    func testLatchAddMaskFromReceivers() {
+        // TWO LATCH MODES: the per-receiver ADD flag packs into the box mask (bit i = receiver i toggles).
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.receivers = [Receiver(name: "1"),
+                        { var r = Receiver(name: "2"); r.latchAdd = true; return r }(),
+                        Receiver(name: "3"),
+                        { var r = Receiver(name: "4"); r.latchAdd = true; return r }()]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1010, "receivers 2 and 4 in ADD mode")
+        st.receivers = nil   // no receivers ⇒ all CHORD (mask 0)
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0, "default (nil) ⇒ all CHORD")
+    }
+
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
         // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE
         // type's own value, not a stash left over from a different type. (The render reads SnapColour

@@ -458,6 +458,8 @@ struct ReceiversView: View {
     var onToggleSolo: (Int) -> Void = { _ in }
     var latchMask: UInt8 = 0                            // inc 5: per-receiver chord LATCH
     var onToggleLatch: (Int) -> Void = { _ in }
+    var latchAddMask: UInt8 = 0                          // TWO LATCH MODES: bit i = receiver i latches in ADD mode
+    var onSetLatchAdd: (Int, Bool) -> Void = { _, _ in } // EDIT-face CHORD|ADD segment
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
@@ -548,15 +550,28 @@ struct ReceiversView: View {
                     .foregroundColor(.white.opacity(0.85)).frame(maxWidth: .infinity)
                 stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
             }
+            // TWO LATCH MODES: the latch update rule for this receiver — CHORD (replace) | ADD (toggle-accumulate).
+            HStack(spacing: 1) {
+                latchModeSeg("CHORD", on: !rec.latchAddResolved) { onSetLatchAdd(i, false) }
+                latchModeSeg("ADD", on: rec.latchAddResolved) { onSetLatchAdd(i, true) }
+            }
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
     }
 
-    // PERFORM face — LATCH toggle over OCT−/OCT+ (with the deviation readout). Inert until incs 3/5 wire them.
+    private func latchModeSeg(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 6, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .frame(maxWidth: .infinity).frame(height: 13)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? soloHue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    // PERFORM face — LATCH toggle over OCT−/OCT+ (with the deviation readout). LATCH+ = the receiver's ADD mode.
     private func performFeatures(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
         return VStack(spacing: 2) {
-            featBtn("LATCH", lit: bit(latchMask, i)) { onToggleLatch(i) }
+            featBtn(bit(latchAddMask, i) ? "LATCH+" : "LATCH", lit: bit(latchMask, i)) { onToggleLatch(i) }
             HStack(spacing: 2) {
                 featBtn("OCT−", lit: false) { onOct(i, -1) }
                 featBtn("OCT+", lit: false) { onOct(i, +1) }

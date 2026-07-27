@@ -121,6 +121,9 @@ final class Kernel {
     private let latchedPools: [NotePool] = [NotePool(), NotePool(), NotePool(), NotePool()]
     private var latchArmMask: UInt8 = 0
     private var prevLatchArmMask: UInt8 = 0
+    // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
+    private var latchAddMask: UInt8 = 0
+    private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
         guard latchArmMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed now or before
@@ -128,10 +131,19 @@ final class Kernel {
         for i in 0..<4 {
             let bit = UInt8(1 << i)
             let isArmed = latchArmMask & bit != 0, wasArmed = prevLatchArmMask & bit != 0
-            if isArmed && !wasArmed { latchedPools[i].reset() }   // fresh arm → start empty (no stale chord)
-            if isArmed, pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i])) > 0 {
+            if isArmed && !wasArmed {
+                latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
+                for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
+            }
+            guard isArmed else { continue }
+            if latchAddMask & bit != 0 {
+                // ADD: note-toggle accumulation — each new note-on flips its membership in the frozen pool.
+                latchedPools[i].latchAddStep(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                                             prevHeld: &latchPrevHeld[i])
+            } else if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i])) > 0 {
+                // CHORD: detect-and-replace while fingers are down; freeze the last chord when they lift.
                 latchedPools[i].captureFiltered(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]))
-            }   // armed + fingers up ⇒ keep the last captured chord (FREEZE)
+            }
         }
         prevLatchArmMask = latchArmMask
     }
@@ -233,6 +245,7 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
+        latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode
         thruReceiver = min(3, max(0, Int(box.thruReceiver)))   // receiver strip: which receiver passthrough follows
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation

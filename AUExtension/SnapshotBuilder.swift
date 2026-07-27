@@ -102,6 +102,9 @@ enum SnapshotBuilder {
             $0.muted ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
         }
         let recvCable = doc.receiversResolved.map { UInt8($0.cableResolved & 0b1111) }   // §item 11 INPUT CABLES
+        // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
+        var latchAddMask: UInt8 = 0
+        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.latchAddResolved { latchAddMask |= 1 << UInt8(i) }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -121,7 +124,8 @@ enum SnapshotBuilder {
                            masterMute: doc.masterMute ?? false,
                            thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
-                           receiverCables: recvCable)
+                           receiverCables: recvCable,
+                           latchAddMask: latchAddMask)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

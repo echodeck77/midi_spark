@@ -808,4 +808,36 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(columnSweepFraction(realBeat: colEnd - 1e-4, stepBeats: S, swing: 62), 1.0, accuracy: 1e-3)
         XCTAssertEqual(columnSweepFraction(realBeat: colEnd, stepBeats: S, swing: 62), 0.0, accuracy: 1e-9)  // wraps AT the column end
     }
+
+    // MARK: - TWO LATCH MODES — latchAddStep (note-toggle accumulation)
+
+    func testLatchAddStepTogglesMembershipOnRisingEdges() {
+        let frozen = NotePool(), live = NotePool()
+        var prev = [Bool](repeating: false, count: 128)
+        func step() { frozen.latchAddStep(from: live, filter: 0, cableMask: 0b1111, prevHeld: &prev) }
+        func has(_ n: UInt8) -> Bool { frozen.velocity(n) != 0 }
+
+        live.noteOn(60, velocity: 100, channel: 0); step()
+        XCTAssertTrue(has(60), "playing 60 adds it to the frozen pool")
+        step()
+        XCTAssertTrue(has(60), "holding 60 is idempotent — no re-toggle without a new edge")
+        live.noteOn(64, velocity: 90, channel: 0); step()
+        XCTAssertTrue(has(60) && has(64), "64 joins the cluster")
+        XCTAssertEqual(frozen.velocity(64), 90, "the joined note keeps its live velocity")
+        live.noteOff(60); live.noteOff(64); step()
+        XCTAssertTrue(has(60) && has(64), "releasing keeps the frozen pool (no rising edges to toggle)")
+        live.noteOn(60, velocity: 100, channel: 0); step()
+        XCTAssertFalse(has(60), "replaying 60 toggles it OUT")
+        XCTAssertTrue(has(64), "…and 64 stays — the cluster is sculpted note by note")
+    }
+
+    func testLatchAddStepRespectsTheReceiverFilter() {
+        let frozen = NotePool(), live = NotePool()
+        var prev = [Bool](repeating: false, count: 128)
+        live.noteOn(60, velocity: 100, channel: 2)   // wire ch 2 → matches receiver filter 3 (chan == filter−1)
+        live.noteOn(62, velocity: 100, channel: 0)   // wire ch 0 → does NOT match filter 3
+        frozen.latchAddStep(from: live, filter: 3, cableMask: 0b1111, prevHeld: &prev)
+        XCTAssertNotEqual(frozen.velocity(60), 0, "the matching-channel note toggles in")
+        XCTAssertEqual(frozen.velocity(62), 0, "the filtered-out note never enters the frozen pool")
+    }
 }

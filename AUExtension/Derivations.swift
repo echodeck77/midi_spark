@@ -141,6 +141,25 @@ final class NotePool {
         }
         rebuildSorted()
     }
+
+    /// TWO LATCH MODES — ADD (note-toggle accumulation): one render's step for an armed ADD receiver, applied
+    /// to `self` (the frozen pool). Each note whose FILTERED hold RISES this render — held now, not held last
+    /// render — TOGGLES its membership: present ⇒ removed, absent ⇒ added at the live note's velocity (channel/
+    /// cable preserved, so a subscriber's own filter is a no-op pass-through, exactly like `captureFiltered`).
+    /// `prevHeld` (128 flags, caller-owned + preallocated) carries the held state across renders for rising-edge
+    /// detection. Allocation-free (fixed 0…127 sweep); safe on the render thread.
+    func latchAddStep(from live: NotePool, filter: UInt8, cableMask: Int, prevHeld: inout [Bool]) {
+        for n in 0..<128 {
+            let note = UInt8(n)
+            let held = live.vel[n] != 0 && live.matches(note, filter, cableMask)
+            if held && !prevHeld[n] {                       // rising edge → toggle membership
+                if vel[n] != 0 { noteOff(note) }            // already in the frozen pool → leave
+                else { noteOn(note, velocity: live.vel[n], channel: live.chan[n], cable: live.cbl[n]) }   // → join
+            }
+            prevHeld[n] = held
+        }
+        rebuildSorted()
+    }
 }
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)
