@@ -85,10 +85,14 @@ BADGE "⇐R2 · ▸2" = two non-default options; defaults invisible, deviations 
 CARD (source radio + FROM ROW + option rows in the ACCORDION discipline). GUARD: intake owns INPUT, panels
 own TREATMENT, forever (the boundary that keeps "heavy" from becoming everywhere).
 
-**Item 8 ruling (GRANTED): the route panel is the ONLY place a cell's input/output is edited; the palette
-only ever chooses Colours.** Receiver/emitter toggles are DELETED from the colour grid (not greyed —
-deleted). The CELL box dissolves into the route panel (INPUT→head, OUTPUT→tails, TRIGGERS→the card,
-PREVIEW→the panel's button).
+**Item 8 ruling (GRANTED, wording clarified 2026-07-27): the route panel owns all CELL WIRING (a cell's
+input source + its bus MEMBERSHIP); the palette only ever chooses Colours.** The wiring toggles are DELETED
+from the colour grid (not greyed — deleted). The CELL box dissolves into the route panel (INPUT→head,
+OUTPUT→tails, TRIGGERS→the card, PREVIEW→the panel's button).
+**Roles ruling (2026-07-27): EMITTER-LEVEL properties STAY ON THE STRIP** — CLAIM/FLATTEN/ALT/OCT, channels,
+mutes, solos, faders. Two different nouns, no collision: the panel's emitter chips answer "which emitters
+does THIS CELL feed" (membership); the strip's role buttons answer "how do the emitters treat EACH OTHER"
+(output-shaping structure + performance surface). The mixer-as-instrument design survives modeless whole.
 
 **Phased retirement:** EDIT mode survives as a shrinking legacy door until the strip SPANNERS
 (receiver/emitter config doors) land; then the mode dies. **STATUS: the modeless design is COMPLETE, awaiting
