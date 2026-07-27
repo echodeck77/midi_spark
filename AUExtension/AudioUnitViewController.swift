@@ -172,9 +172,10 @@ struct DiagView: View {
         guard let au else { return }
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
-        case .place:                                        // stamp the brush Colour (empty cells; keeps the wiring simple in v1)
+        case .place:                                        // stamp the brush Colour into an empty cell
             guard scene.cells[col][row] == nil else { return }
-            au.editScene { $0.cells[col][row] = Cell(colourID: brush, buses: [.a]) }   // MIDI-IN → A default
+            let parentAbove = (row > 0 && scene.cells[col][row - 1] != nil) ? row - 1 : nil   // §9.③ downhill nudge
+            au.editScene { var cell = Cell(colourID: brush, buses: [.a]); cell.inputRow = parentAbove; $0.cells[col][row] = cell }
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
