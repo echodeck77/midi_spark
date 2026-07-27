@@ -87,6 +87,7 @@ func flowCells(scene: SceneState, colours: [Colour], stepBeats: Double) -> [Flow
 // MARK: - the view
 
 struct FlowView: View {
+    @Environment(\.animationsPaused) private var animPaused
     var variation: Int = 1      // 1…5 (0 = not shown; the parent swaps back to the grid)
     var thumbnail = false       // VIZ thumbnail: colour + motion only — NO labels (text belongs to the theater)
     let scene: SceneState
@@ -122,7 +123,7 @@ struct FlowView: View {
     private var cells: [FlowCell] { flowCells(scene: scene, colours: colours, stepBeats: stepBeats) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: false)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
                 let b = liveBeat(tl.date)
                 switch variation {
@@ -581,6 +582,7 @@ enum RouteRenderer {
 }
 
 struct RoutePanelView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let scene: SceneState
     let colours: [Colour]
     let receivers: [Receiver]
@@ -628,7 +630,7 @@ struct RoutePanelView: View {
                 Text("empty column").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: animPaused)) { tl in
                     Canvas { ctx, size in draw(ctx, size, ns, now: tl.date) }
                 }
             }

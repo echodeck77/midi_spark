@@ -8,6 +8,17 @@
 import SwiftUI
 import UIKit   // ColumnHoldOverlay: multi-touch column-key holds (§5b) need a UIView, not a SwiftUI gesture
 
+// §4c INVISIBLE = FROZEN: set true at the root when the plugin view is hidden/backgrounded; every animated
+// TimelineView ORs it into its `paused:`, so the whole canvas freezes (the render engine is untouched). One
+// environment value → no parameter plumbing through the view tree.
+private struct AnimationsPausedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var animationsPaused: Bool {
+        get { self[AnimationsPausedKey.self] }
+        set { self[AnimationsPausedKey.self] = newValue }
+    }
+}
+
 extension Color {
     /// 0xRRGGBB → Color. Used for the 16 canonical Colour hexes (do not "harmonise" them, §ui-guide).
     init(hex: UInt32) {
@@ -61,6 +72,7 @@ private let dimInk = Color(hex: 0x5C6472)
 /// empty cells show a row-number watermark. `scene.cells` is [column][row]. `colours` maps a cell's
 /// colourID → its type/params for the body text.
 struct GridView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let scene: SceneState
     let colours: [Colour]
     let playColumn: Int
@@ -159,7 +171,7 @@ struct GridView: View {
     private var masterArrow: some View {
         GeometryReader { geo in
             let cycle = max(0.001, stepBeats * Double(Snap.cols))
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
                 let b = liveBeat(tl.date)
                 let frac = (b.truncatingRemainder(dividingBy: cycle) / cycle + 1).truncatingRemainder(dividingBy: 1)
                 Text("▼")
@@ -181,7 +193,7 @@ struct GridView: View {
         GeometryReader { geo in
             let cellW = (geo.size.width - 7 * Self.vGap) / 8
             let colX = CGFloat(playColumn) * (cellW + Self.vGap) + cellW / 2
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
                 // within-column fraction (0 at column entry → 1 at exit), swing-aware so it spans the
                 // real (swung) column window rather than finishing early and wrapping.
                 let f = columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing)
@@ -260,7 +272,7 @@ struct GridView: View {
         }
         .overlay {                                          // staging: EVERY empty cell pulses a border in the staged hue → tap to place
             if staging, cell == nil {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.9)
                     RoundedRectangle(cornerRadius: 8).strokeBorder(stagingColor.opacity(0.2 + 0.7 * f), lineWidth: 2)
                 }
@@ -269,7 +281,7 @@ struct GridView: View {
         }
         .overlay {                                          // staging: a PLACED cell pulses colour↔black, like its palette chip
             if stagedCells.contains(GridPos(col: col, row: row)) {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.85)
                     RoundedRectangle(cornerRadius: 8).fill(Color.black).opacity(f * 0.72)
                 }
@@ -443,6 +455,7 @@ func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Col
 /// MPE is SILENT AUTO-DETECT (user ruling 2026-07-25) — no interface anywhere. Receiver colours are the
 /// fixed "infrastructure family" (muted).
 struct ReceiversView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let receivers: [Receiver]
     let editing: Bool
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
@@ -610,7 +623,7 @@ struct ReceiversView: View {
     // latches). A bright set-point line marks the forced value while touched.
     private func slider(_ i: Int) -> some View {
         let touched = (i < faderVel.count ? faderVel[i] : nil) != nil
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             let level = touched ? Double(faderVel[i] ?? 0) / 127.0 : decayed(i, now: tl.date)
             GeometryReader { g in
                 ZStack(alignment: .bottom) {
@@ -659,6 +672,7 @@ struct ReceiversView: View {
 /// absolute override — drag to whisper/slam the bus, release springs it back). Both faces fill the
 /// SAME strip height, so the desk box never resizes across the mode flip (§6a static-frame law).
 struct OutputsView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let busEnabled: [Bool]        // 4 flags (short/empty ⇒ enabled)
     let busChannels: [Int]        // 4 values, 1–16
     let editing: Bool
@@ -846,7 +860,7 @@ struct OutputsView: View {
         let enabled = on(i)
         return GeometryReader { g in
             let h = g.size.height
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
                 let touched = faderVel[i] != nil
                 let level = touched ? Double(faderVel[i]!) / 127.0 : decayed(i, now: tl.date)
                 faderBody(i: i, level: level, touched: touched, enabled: enabled, now: tl.date)
@@ -920,6 +934,7 @@ struct OutputsView: View {
 /// a feature column — MUTE (tap = kill · long-press = PANIC) · KEY −/+ (per-scene transpose). REVERT + INS are
 /// reserved seats (snapshot + wire work). Fader = weather; MUTE/KEY = structure. NO SOLO (solo against nothing).
 struct MasterView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let mute: Bool
     let key: Int
     var peak: Double = 0                                   // the sum meter (max of the emitter peaks)
@@ -966,7 +981,7 @@ struct MasterView: View {
     // The master fader: idle shows the sum meter; touched forces velocity over ALL output (spring / HOLD-latch).
     private var fader: some View {
         let touched = faderVel != nil
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             let level = touched ? Double(faderVel ?? 0) / 127.0 : peakHoldLevel(peak: peak, since: peakAt, now: tl.date)
             GeometryReader { g in
                 ZStack(alignment: .bottom) {
@@ -1296,6 +1311,7 @@ struct ProcessorBox: View {
 
 /// The Colour brush palette — 16 chips in bank order; the active brush is ringed.
 struct PaletteView: View {
+    @Environment(\.animationsPaused) private var animPaused
     let brush: String
     var columns: Int = 4        // 4×4 in the desk (delta §6); callers may widen for a band
     // delta §6b — COLOUR-chip ACTIVITY PLAYHEADS: a chip sweeps while its Colour works in the live
@@ -1363,7 +1379,7 @@ struct PaletteView: View {
     // Staging pulse — the staged chip breathes from its original colour to black (~0.85s) to pull the eye
     // back to the long-press gesture. A black overlay whose opacity rides a cosine; pure UI.
     private var stagedPulse: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             let f = stagingPulseFraction(tl.date, period: 0.85)
             RoundedRectangle(cornerRadius: 3).fill(Color.black).opacity(f * 0.85)
         }
@@ -1372,7 +1388,7 @@ struct PaletteView: View {
 
     private func chipSweep(_ a: (faint: Bool, alt: Bool)) -> some View {
         GeometryReader { g in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
                 let f = CGFloat(columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing))
                 Rectangle()
                     .fill(Color.white.opacity(a.faint ? 0.35 : 0.9))
@@ -1404,6 +1420,7 @@ func stagingPulseFraction(_ date: Date, period: Double) -> Double {
 /// Marching-ants animated dashed border — the "prominent moving outline" marking a panel in cell-edit
 /// state. Pure UI (an animated dashPhase); no render-path involvement.
 struct MarchingAnts: ViewModifier {
+    @Environment(\.animationsPaused) private var animPaused
     var active: Bool
     var color: Color
     var cornerRadius: CGFloat = 6
@@ -1413,7 +1430,7 @@ struct MarchingAnts: ViewModifier {
             if active {
                 // Drive the dash phase off the clock (TimelineView), not withAnimation — animating
                 // StrokeStyle.dashPhase via withAnimation doesn't march reliably; a per-frame phase does.
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
                     let period = 0.6                                   // seconds per 11pt dash cycle (7 on + 4 off)
                     let phase = -11 * CGFloat(tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period)
                     RoundedRectangle(cornerRadius: cornerRadius)

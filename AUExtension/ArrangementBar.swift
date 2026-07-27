@@ -11,6 +11,7 @@ import SwiftUI
 /// TRANSITIONAL: the EDIT/PERFORM toggle + undo/redo stay until the modeless verbs cover grid authoring AND the
 /// cog page hosts the strip EDIT-face config (§6) — only then does the toggle die and the bar go pure.
 struct ArrangementBar: View {
+    @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
     let d: KernelDiag                       // the VC's polled diagnostics (playing/pass/beat/tempo)
     let stepBeats: Double
@@ -154,7 +155,7 @@ struct ArrangementBar: View {
     @ViewBuilder private var passSweepOverlay: some View {
         if d.playing {
             GeometryReader { g in
-                TimelineView(.animation) { tl in
+                TimelineView(.animation(minimumInterval: nil, paused: animPaused)) { tl in
                     Rectangle().fill(Color.black.opacity(0.5)).frame(width: 2)
                         .position(x: max(1, min(g.size.width - 1, CGFloat(passFraction(tl.date)) * g.size.width)),
                                   y: g.size.height / 2)
@@ -209,7 +210,7 @@ struct ArrangementBar: View {
     // only when armed (no churn otherwise; obeys the coming invisible=frozen rule since it's a TimelineView).
     @ViewBuilder private var sceneArmWatcher: some View {
         if pendingScene != nil || pendingRecue {
-            TimelineView(.animation) { _ in
+            TimelineView(.animation(minimumInterval: nil, paused: animPaused)) { _ in
                 let livePass = au?.uiPass() ?? 0
                 Color.clear.onChange(of: livePass) { _ in commitArmedScene() }
             }

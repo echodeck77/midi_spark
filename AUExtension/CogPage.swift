@@ -7,6 +7,7 @@ import SwiftUI
 /// INPUT (4 receivers): cable · channel/OMNI · latch CHORD|ADD · MPE-merge toggle — each with a live IN dot and
 /// an auto-detect MPE dot. OUTPUT (4 emitters A–D): stamp channel — each with a live OUT dot.
 struct CogPage: View {
+    @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
     let receivers: [Receiver]
     let busChannels: [Int]
@@ -175,7 +176,7 @@ struct CogPage: View {
     // MARK: indicators — a dot that fades from its last activity time (live while the page is open)
 
     private func liveDot(_ at: Date, _ hue: Color) -> some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { tl in
+        TimelineView(.animation(minimumInterval: 0.1, paused: animPaused)) { tl in
             let lit = max(0, 1 - tl.date.timeIntervalSince(at) / 0.35)
             Circle().fill(hue.opacity(0.12 + 0.88 * lit)).frame(width: 8, height: 8)
                 .overlay(Circle().stroke(hue.opacity(0.35), lineWidth: 0.5))
@@ -184,7 +185,7 @@ struct CogPage: View {
     // MPE dot: a small "M" — bright when MPE input is auto-detected now; dim outline when merge is toggled on
     // but nothing MPE is arriving; invisible when both off.
     private func mpeDot(_ at: Date, on: Bool) -> some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { tl in
+        TimelineView(.animation(minimumInterval: 0.1, paused: animPaused)) { tl in
             let lit = max(0, 1 - tl.date.timeIntervalSince(at) / 0.6)
             Text("M").font(.system(size: 9, weight: .heavy, design: .monospaced))
                 .foregroundColor(green.opacity(lit > 0.05 ? (0.3 + 0.7 * lit) : (on ? 0.28 : 0)))

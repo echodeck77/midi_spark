@@ -47,6 +47,9 @@ enum GridVerb: String, CaseIterable { case inspect = "INSPECT", copy = "COPY", e
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
+    @State private var uiAppeared = true     // §4c INVISIBLE=FROZEN: this view is on-screen (host shows our plugin)
+    @State private var appActive = true      // §4c: the app is foregrounded
+    private var animationsPaused: Bool { !(uiAppeared && appActive) }   // hidden OR backgrounded ⇒ freeze the canvas
     @State private var loadedID = "—"
     @State private var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
     @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
@@ -783,6 +786,14 @@ struct DiagView: View {
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
         }
+        // §4c INVISIBLE = FROZEN: freeze every animated TimelineView (sweeps · marks · flow · emblems · dots)
+        // when our plugin view is hidden or the app is backgrounded — the render engine is untouched. onAppear/
+        // onDisappear catch the host showing/hiding us; the notifications catch app background/foreground.
+        .environment(\.animationsPaused, animationsPaused)
+        .onAppear { uiAppeared = true }
+        .onDisappear { uiAppeared = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
     }
 
     // MARK: - layout pieces
