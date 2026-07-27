@@ -1243,14 +1243,15 @@ struct DiagView: View {
     private func tapScene(_ i: Int) {
         guard let au else { return }
         if i >= sceneEmpty.count || sceneEmpty[i] { au.saveSceneHere(i); refreshScenes(); return }
-        if i == activeSceneIdx { return }                 // RESTART-the-pass → S2b
+        if i == activeSceneIdx { au.restartPass(); return }   // RESTART the pass ("take it from the top")
         if i == pendingScene { pendingScene = nil; return }   // CANCEL the arm
         if d.playing { pendingScene = i }                 // ARM — fires at the next pass start
         else { au.setActiveScene(i); pendingScene = nil; refreshScenes() }   // stopped ⇒ no pass to wait for
     }
-    // Double tap another non-empty chip = IMMEDIATE switch (the quantise-open override).
+    // Double tap: another non-empty chip = IMMEDIATE switch; the ACTIVE chip = RESTART the pass.
     private func doubleTapScene(_ i: Int) {
-        guard let au, !(i >= sceneEmpty.count || sceneEmpty[i]), i != activeSceneIdx else { return }
+        guard let au, !(i >= sceneEmpty.count || sceneEmpty[i]) else { return }
+        if i == activeSceneIdx { au.restartPass(); return }
         au.setActiveScene(i); pendingScene = nil; refreshScenes()
     }
     private func commitArmedScene() {

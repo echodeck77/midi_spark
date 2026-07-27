@@ -1955,6 +1955,29 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(diag.panics, 0, "PANIC is logged by the hang kit")
     }
 
+    // MARK: - MULTI-SCENE S2b — RESTART-the-pass re-anchors the clock to column 0
+
+    func testRestartPassReanchorsToColumnZero() {
+        let b = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(_ restart: Bool = false) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, sceneRestart: restart, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<60 { win() }                        // advance well past column 0
+        XCTAssertGreaterThan(diag.effColumn, 0, "we've advanced into the pass")
+        win(true)                                        // RESTART — this moment becomes column 0
+        XCTAssertEqual(diag.effColumn, 0, "RESTART re-anchors the pass to column 0")
+        for _ in 0..<30 { win() }                        // > one column of step (2 beats) → advances off 0
+        XCTAssertGreaterThan(diag.effColumn, 0, "…and the pass advances forward again from the top")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
     // MARK: - T13b: a chord-hold parent (PASS/identity) feeding a tick child (ARP) — the routing hole
 
     func testOpenPassgateParentFeedsArpChild() {

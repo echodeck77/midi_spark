@@ -118,6 +118,10 @@ final class Router {
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
+    // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
+    // becomes column 0 ("take it from the top"). 0 = no restart (normal play is byte-identical). Reset on the
+    // transport-start edge; captured = the raw beat at the restart. Shifts musicalOf + sampleOf together.
+    private var passAnchor: Double = 0
 
     // AUDITION (§6.4 / delta §5): the held cell's target (col*rows+row, −1 = none), the sample the hold
     // began (its free phase clock's origin), and a dedicated tick-dedup slot. All ephemeral — audition
@@ -835,6 +839,7 @@ final class Router {
                  masterVelOverride: UInt8 = 0,
                  panic: Bool = false,
                  sceneFlush: Bool = false,
+                 sceneRestart: Bool = false,
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
@@ -896,6 +901,7 @@ final class Router {
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
             altTurn = 0                                  // role family ALT: the turn counter resets with transport
+            passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
@@ -947,6 +953,18 @@ final class Router {
             return
         }
         prevAudition = -1   // playing ⇒ any audition was auto-released by the transport-start edge
+
+        // MULTI-SCENE S2b RESTART-the-pass: capture the RAW beat as the anchor so THIS moment becomes column 0,
+        // flush the old pass's voices + reset the tick phases (a self-switch; invariant 4). Then the WHOLE playing
+        // clock shifts by `passAnchor` (0 ⇒ no shift ⇒ byte-identical normal play): musicalOf + sampleOf both take
+        // the shifted `beatPos`, so columns/arp-phase/sample-timing restart together and land forward from NOW.
+        if sceneRestart {
+            passAnchor = beatPos
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            prevEffColumn = -1; altTurn = 0
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+        }
+        let beatPos = beatPos - passAnchor
 
         // ---- derived column (§7). Musical space, so swing warps the beat→column map consistently
         //      with the arp ticks below. The COLUMN-SUBSET LAP (§5b) warps WHICH column is effective

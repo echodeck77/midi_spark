@@ -459,6 +459,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         dispatchPrecondition(condition: .onQueue(.main))
         editDocument { $0.saveCurrentScene(toSlot: i) }
     }
+    /// RESTART-the-pass (tap the active chip): re-anchor the playing clock so the current moment becomes column 0
+    /// ("take it from the top"), flushing the old pass's voices. A transport gesture — no document edit/rebuild.
+    func restartPass() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        kernel.restartPass()
+    }
 
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {
