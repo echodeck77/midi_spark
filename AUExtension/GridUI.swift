@@ -412,17 +412,26 @@ struct GridView: View {
 
 /// A floating velocity MARK: a note-on drawn at its velocity height, fading ~250ms. `col` is the source
 /// colourIndex — emitters tint by the source Colour, −1 = the strip's own hue (receivers / master).
-struct VelMark: Equatable { let vel: Double; let col: Int8; let born: Date }
+struct VelMark: Equatable { let vel: Double; let col: Int8; let born: Date; var withheld: Bool = false }
 
 /// Draw a strip's velocity marks — horizontal ticks at each mark's velocity height, opacity fading over
 /// ~250ms. Behind a TimelineView (the caller animates by passing `now`). `hueFor` maps a mark to its colour.
+/// §6a THE WITHHELD TELL: a `withheld` mark (a note CLAIM fully suppressed) draws HOLLOW (a stroked outline
+/// in the source hue) + a small amber CLAIM tick, fading a touch slower — suppression made visible, not silent.
 func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Color) -> some View {
-    GeometryReader { g in
+    let claimAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    return GeometryReader { g in
         ForEach(Array(marks.enumerated()), id: \.offset) { _, m in
-            let op = max(0, 1 - now.timeIntervalSince(m.born) / 0.25)
-            Rectangle().fill(hueFor(m.col).opacity(op))
-                .frame(height: 2)
-                .position(x: g.size.width / 2, y: g.size.height * (1 - CGFloat(max(0, min(1, m.vel)))))
+            let op = max(0, 1 - now.timeIntervalSince(m.born) / (m.withheld ? 0.4 : 0.25))
+            let y = g.size.height * (1 - CGFloat(max(0, min(1, m.vel))))
+            if m.withheld {
+                ZStack {
+                    Rectangle().stroke(hueFor(m.col).opacity(op * 0.8), lineWidth: 1).frame(height: 3)
+                    Rectangle().fill(claimAmber.opacity(op)).frame(width: 4, height: 3)
+                }.position(x: g.size.width / 2, y: y)
+            } else {
+                Rectangle().fill(hueFor(m.col).opacity(op)).frame(height: 2).position(x: g.size.width / 2, y: y)
+            }
         }
     }
 }

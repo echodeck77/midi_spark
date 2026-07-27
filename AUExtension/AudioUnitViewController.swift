@@ -725,11 +725,12 @@ struct DiagView: View {
                 receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
             }
             // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
-            let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), mnow = Date()
+            let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), wmk = au.pollWithheldMarks(), mnow = Date()
             var markE = emitMarks, markR = recvMarks
             for i in 0..<4 {
-                markE[i] = markE[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
+                markE[i] = markE[i].filter { mnow.timeIntervalSince($0.born) < ($0.withheld ? 0.4 : 0.25) }
                 for m in emk[i] { markE[i].append(VelMark(vel: Double(m.vel) / 127.0, col: m.col, born: mnow)) }
+                for m in wmk[i] { markE[i].append(VelMark(vel: Double(m.vel) / 127.0, col: m.col, born: mnow, withheld: true)) }   // §6a the withheld tell
                 if markE[i].count > 6 { markE[i] = Array(markE[i].suffix(6)) }
                 markR[i] = markR[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
                 for v in rmk[i] { markR[i].append(VelMark(vel: Double(v) / 127.0, col: -1, born: mnow)) }

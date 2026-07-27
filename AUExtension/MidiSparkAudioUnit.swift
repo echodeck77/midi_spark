@@ -103,6 +103,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
     func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32]) { kernel.drainReceiverActivity() }
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
+    func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes
 

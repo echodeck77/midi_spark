@@ -108,6 +108,13 @@ final class Router {
     private var markVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
     private var markCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
     private var markCount = [Int](repeating: 0, count: 4)
+    // §6a THE WITHHELD TELL: a parallel bounded buffer of note-ons SUPPRESSED by CLAIM (leak 0) since the last
+    // drain — same (velocity, source colourIndex) shape. The UI renders these HOLLOW + a claim-hue tick so a
+    // suppressed note reads as "withheld here", not a silent bug. Only full CLAIM suppression records (a LEAK
+    // shadow already sounds as a dimmer mark; solo/mute/disabled are intentional silences, not withholdings).
+    private var withheldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
+    private var withheldCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
+    private var withheldCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
@@ -212,7 +219,7 @@ final class Router {
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
-        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0 }
+        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -328,6 +335,19 @@ final class Router {
             var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(markCount[bus])
             for i in 0..<markCount[bus] { m.append((markVel[bus][i], markCol[bus][i])) }
             markCount[bus] = 0
+            out.append(m)
+        }
+        return out
+    }
+
+    /// §6a THE WITHHELD TELL: read-and-clear the per-emitter note-ons CLAIM fully suppressed (leak 0) since
+    /// the last poll — each a (would-be velocity, source colourIndex). The UI draws these hollow + a claim tick.
+    func drainWithheld() -> [[(vel: UInt8, col: Int8)]] {
+        var out = [[(vel: UInt8, col: Int8)]]()
+        for bus in 0..<4 {
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(withheldCount[bus])
+            for i in 0..<withheldCount[bus] { m.append((withheldVel[bus][i], withheldCol[bus][i])) }
+            withheldCount[bus] = 0
             out.append(m)
         }
         return out
@@ -528,7 +548,14 @@ final class Router {
                 // Non-claimant yields a pitch class a claimant owns. LEAK 0 → suppress, never defer: no voice
                 // opens, no off to emit, refcount untouched (v1). LEAK > 0 → the hole becomes a SHADOW: fall
                 // through and emit at scaled velocity (the strictest claimant's leak already won upstream).
-                if leak == 0 { return -1 }
+                if leak == 0 {
+                    // THE WITHHELD TELL: record the fully-suppressed note-on so the strip can render it hollow.
+                    if withheldCount[bus] < 8 {
+                        withheldVel[bus][withheldCount[bus]] = velocity; withheldCol[bus][withheldCount[bus]] = currentColourIndex
+                        withheldCount[bus] += 1
+                    }
+                    return -1
+                }
                 leakScale = leak
             }
         }

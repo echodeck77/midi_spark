@@ -327,6 +327,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   = LEAK %). STILL PARKED: CASCADE mode + EXACT-NOTE option (the config popover). L1 caveat widens
   (pitch-class = more collisions). DEVICE-VERIFY next: octave suppression, A+B double while C/D yield,
   LEAK bleed-at-reduced-velocity.
+  **THE WITHHELD TELL — strip slice SHIPPED (off-device verified).** CLAIM-suppressed (leak 0) note-ons
+  now feed a parallel `Router.drainWithheld()` ring (→ Kernel `drainWithheldMarks` → AU `pollWithheldMarks`
+  → VC merges into `emitMarks` as `VelMark(withheld: true)`); `velMarkLayer` draws them HOLLOW (source-hue
+  outline) + an amber CLAIM tick, fading ~0.4 s. So a suppressed note reads as "withheld here", not a silent
+  bug. Only full CLAIM suppression records (a LEAK shadow already shows as a dimmer normal mark; solo/mute/
+  disabled are intentional). DEFERRED (slice 2): hollow comet-fizzles in FLOW (FlowView).
   (Review-fixed alongside: M1 — a per-event render-thread allocation in `handleIncoming` →
   reused scratch; L2 — audition reconcile now excludes silent ghosts; L4 comment.)
   (b) MORPH desk (16 faders) — parked per delta.

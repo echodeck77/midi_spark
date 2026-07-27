@@ -804,6 +804,46 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // §6a THE WITHHELD TELL — the drainWithheld() feed reports CLAIM-suppressed note-ons (for the hollow strip mark).
+    private func drainWithheldAfter(_ box: SnapshotBox, windows: Int = 8) -> [[(vel: UInt8, col: Int8)]] {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        for _ in 0..<windows {
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        return router.drainWithheld()
+    }
+
+    func testWithheldTellRecordsClaimSuppressedNotes() {
+        // CLAIM (leak 0) fully suppresses B → drainWithheld reports B's note, tinted by the source Colour
+        // (gold = 0); the claimant A withholds nothing (it sounds).
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let wh = drainWithheldAfter(b)
+        XCTAssertFalse(wh[1].isEmpty, "B's CLAIM-suppressed note is recorded as withheld")
+        XCTAssertTrue(wh[1].allSatisfy { $0.col == 0 }, "the withheld mark carries the source Colour (gold = 0)")
+        XCTAssertTrue(wh[0].isEmpty, "the claimant (A) withholds nothing — it sounds")
+    }
+
+    func testLeakedNoteIsNotWithheld() {
+        // A LEAK bleed (leak > 0) sounds as a shadow, so it is NOT a withholding — no hollow mark.
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0b0001, leak: [50, 0, 0, 0]) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        XCTAssertTrue(drainWithheldAfter(b)[1].isEmpty, "a LEAK bleed sounds → not withheld")
+    }
+
+    func testNoClaimWithholdsNothing() {
+        let b = claimMaskBox(claimColours(transposeB: 0), mask: 0) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        XCTAssertTrue(drainWithheldAfter(b).allSatisfy { $0.isEmpty }, "no claim ⇒ nothing withheld")
+    }
+
     // MARK: - COVERAGE HARDENING — device topologies (T-series) with no prior unit coverage
 
     func testCollisionRefcountKeepsSustainedNoteAliveThroughArpRestrikes() {
