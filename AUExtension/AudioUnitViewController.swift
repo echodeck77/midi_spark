@@ -872,10 +872,11 @@ struct DiagView: View {
     // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
     // below the grid), not here.
     private var identityColumn: some View {
+        // LANDSCAPE (user rev 2026-07-27): COLOUR · A · B STACKED top-to-bottom in the narrow right column.
         VStack(spacing: 8) {
-            colourBox                      // 2026-07-27: the COLOUR palette lives TOP-RIGHT, above the processors
+            colourBox
             if staging { cellBox }         // cell-edit surface (staging only)
-            processorPanels(vertical: false)   // procA | procB, side by side (landscape width exists)
+            processorPanels(vertical: true)   // procA above procB (stacked)
         }
     }
 
@@ -885,13 +886,12 @@ struct DiagView: View {
     private func colourFlowBand(_ width: CGFloat, _ height: CGFloat) -> some View {
         let gap: CGFloat = 8
         let avail = max(0, width - gap)
-        // 2026-07-27: PALETTE on the LEFT, the processors (stacked A-above-B) on the right. The processors are
-        // the sanctioned portrait SCROLL region (two 200-pt panels can exceed the band; the palette stays put).
+        // PORTRAIT (user rev 2026-07-27): COLOUR · PROCESSOR A · PROCESSOR B all on ONE ROW (the wide-short band),
+        // palette on the left, the two panels side by side taking the rest.
         return HStack(alignment: .top, spacing: gap) {
-            colourBox.frame(width: min(150, avail * 0.34))
-            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.30) }   // cell-edit surface (staging only)
-            ScrollView(.vertical, showsIndicators: false) { processorPanels(vertical: true) }
-                .frame(maxWidth: .infinity)
+            colourBox.frame(width: min(160, avail * 0.28))
+            if staging { VStack(spacing: gap) { cellBox }.frame(width: avail * 0.24) }   // cell-edit surface (staging only)
+            processorPanels(vertical: false).frame(maxWidth: .infinity)
         }
         .frame(height: height)
     }
