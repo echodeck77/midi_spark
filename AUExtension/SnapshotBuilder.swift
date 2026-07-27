@@ -8,7 +8,7 @@ import Foundation
 enum SnapshotBuilder {
 
     static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
-        let scene = doc.scenes[doc.activeScene]
+        let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
         // ---- colours: resolve A (procA); B = this Colour's OWN procB (delta item 8, two-processor model).
         //      typeB == nil ⇒ B-less ⇒ b = a, tier none. paramsB is resolved with fallback A, so a SPARSE

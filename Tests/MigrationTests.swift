@@ -290,6 +290,69 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[1][0]?.colourID, "cyan", "a different Colour is untouched")
     }
 
+    // MARK: - MULTI-SCENE — sparse scenes, switch, save-here, bounds-safety
+
+    private func multi() -> PluginState {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.padScenes(); return d
+    }
+
+    func testSceneStateIsEmpty() {
+        XCTAssertTrue(SceneState.empty().isEmpty)
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
+        XCTAssertFalse(s.isEmpty, "a placed cell ⇒ not empty")
+    }
+
+    func testPadScenesFillsToSixteenIdempotently() {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        d.padScenes()
+        XCTAssertEqual(d.scenes.count, 16)
+        XCTAssertFalse(d.scenes[0].isEmpty, "slot 0 preserved")
+        XCTAssertTrue(d.scenes[15].isEmpty, "padded slots are empty +")
+        d.padScenes(); XCTAssertEqual(d.scenes.count, 16, "idempotent — never grows past 16")
+    }
+
+    func testSwitchSceneOnlyToNonEmpty() {
+        var d = multi()
+        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
+        d.switchScene(to: 3); XCTAssertEqual(d.activeScene, 3)
+        d.switchScene(to: 5); XCTAssertEqual(d.activeScene, 3, "empty slots aren't playable — the switch is ignored")
+    }
+
+    func testSaveCurrentSceneCopiesActiveIntoSlotWithoutSwitching() {
+        var d = multi()
+        d.scenes[0].cells[2][2] = Cell(colourID: "cyan")
+        d.saveCurrentScene(toSlot: 7)
+        XCTAssertEqual(d.scenes[7].cells[2][2]?.colourID, "cyan", "slot 7 = a copy of the active scene")
+        XCTAssertEqual(d.activeScene, 0, "save-here does NOT switch")
+    }
+
+    func testActiveSceneResolvedIsBoundsSafe() {
+        var d = multi(); d.activeScene = 99
+        XCTAssertTrue((0..<d.scenes.count).contains(d.activeSceneResolved), "out-of-range clamps in-bounds, never crashes")
+        _ = d.activeSceneState   // must not crash
+        d.activeScene = -5
+        XCTAssertEqual(d.activeSceneResolved, 0, "a negative index clamps to 0")
+    }
+
+    func testSnapshotReflectsTheActiveScene() {
+        var d = multi()
+        d.scenes[0].cells[0][0] = Cell(colourID: "gold")   // scene 0 → cell (0,0)
+        d.scenes[1].cells[3][0] = Cell(colourID: "cyan")   // scene 1 → cell (3,0)
+        d.activeScene = 1
+        let box = SnapshotBuilder.build(from: d)
+        XCTAssertGreaterThanOrEqual(box.cells[3 * 8 + 0].colourIndex, 0, "the ACTIVE scene's cell is in the snapshot")
+        XCTAssertLessThan(box.cells[0].colourIndex, 0, "the inactive scene's cell is NOT")
+    }
+
+    func testMigrationPadsScenesToSixteen() {
+        var d = doc { $0.cells[0][0] = Cell(colourID: "gold") }   // v2, length-1
+        d.migrateLegacyRoutingIfNeeded()
+        XCTAssertEqual(d.scenes.count, 16, "old length-1 docs pad to the 16-slot strip")
+        XCTAssertFalse(d.scenes[0].isEmpty, "the original scene stays in slot 0")
+    }
+
     func testMasterKeyResolvedClampsAndDefaults() {
         var s = SceneState.empty()
         s.masterKey = nil;  XCTAssertEqual(s.masterKeyResolved, 0, "nil ⇒ no transpose")

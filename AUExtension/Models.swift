@@ -266,6 +266,9 @@ struct SceneState: Codable, Equatable {
         SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
     }
 
+    /// A scene with no placed cells — the sparse "+" slot on the strip (never destroyed; just absent).
+    var isEmpty: Bool { cells.allSatisfy { $0.allSatisfy { $0 == nil } } }
+
     /// delta §5 drag-and-drop: relocate a cell. Onto an empty slot = MOVE; onto an occupied slot = SWAP.
     /// Both are one swap of the cell structs — fields move AS-IS (MOVES NEVER REWRITE REFERENCES: inputRow
     /// is row-level, so within-row drags stay reference-safe and cross-row drags rewire meaning visibly).
@@ -358,6 +361,34 @@ struct PluginState: Codable, Equatable {
         return s
     }
 
+    // MARK: - MULTI-SCENE (2026-07-27) — the scene strip switches activeScene within one document
+
+    static let maxScenes = 16          // the strip's fixed slot count (numbers only in v1)
+
+    /// The active scene index, always in-bounds (clamped; falls back to 0 if the doc is odd). Never crashes.
+    var activeSceneResolved: Int { scenes.isEmpty ? 0 : max(0, min(scenes.count - 1, activeScene)) }
+    /// The active scene (bounds-safe), for the render + UI.
+    var activeSceneState: SceneState { scenes.isEmpty ? .empty() : scenes[activeSceneResolved] }
+
+    /// Extend `scenes` to exactly `n` fixed slots (padding with empty "+" scenes). Idempotent; never shrinks
+    /// below the current count. The strip is a fixed 16 slots, so old length-1 docs pad to 16 on load.
+    mutating func padScenes(to n: Int = maxScenes) {
+        if scenes.isEmpty { scenes = [.empty()] }
+        while scenes.count < n { scenes.append(.empty()) }
+    }
+    /// SAVE-HERE: copy the ACTIVE scene into slot `i` (self-advertising save-as on an empty +), padding first.
+    /// Precious-scene law: this is the ONLY write onto a slot; drag SWAPs, never overwrites (see the strip).
+    mutating func saveCurrentScene(toSlot i: Int) {
+        guard i >= 0, i < Self.maxScenes else { return }
+        padScenes(to: max(i + 1, scenes.count))
+        scenes[i] = activeSceneState
+    }
+    /// Switch the active scene to a NON-EMPTY slot. Empty slots aren't playable (they're + save targets).
+    mutating func switchScene(to i: Int) {
+        guard i >= 0, i < scenes.count, !scenes[i].isEmpty else { return }
+        activeScene = i
+    }
+
     /// Migrate a legacy (v2.x) document to the v3.0 routing schema, in place. Idempotent and gated
     /// on formatVersion, so it is safe to call on every document entering the AU (load / factory /
     /// test session). Mapping (migration-tree-routing.md §1): a cell fed under the old model — i.e.
@@ -386,6 +417,7 @@ struct PluginState: Codable, Equatable {
         }
         synthesizeReceiversIfNeeded()   // delta §9 item 11 — runs for v3 docs too (they have no receivers yet)
         migrateColourPairsIfNeeded()    // delta item 8 — fold each Colour's partner into its own procB
+        padScenes()                     // MULTI-SCENE: a fixed 16-slot strip — old length-1 docs pad with empties
     }
 
     /// delta item 8 (TWO-PROCESSOR Colours): fold the retired pair reference into each Colour's own procB.
@@ -484,6 +516,7 @@ struct PluginState: Codable, Equatable {
         // without stranding the common case. Only the factory default changes here — old-doc migration keeps
         // synthesizing OMNI pads (never invents absent filters).
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
+        state.padScenes()   // MULTI-SCENE: slot 0 = the designed scene, slots 1–15 empty (+) — the strip is 16
         return state
     }
 }

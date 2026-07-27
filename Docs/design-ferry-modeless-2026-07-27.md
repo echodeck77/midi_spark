@@ -165,3 +165,33 @@ the same way if they read noisy as thumbnails.
 ## THE ∞ BADGE (answer to the render question) — it's FREE PHASE
 The cell-face `∞` = the arp's FREE phase mode (§3.5), derived from `paramsA.phase == .free` (GridUI cell digest).
 Not CYCLES/unbounded; a real field. The digest grammar (transpose · ∞ · rate) is the shipped v59 cell face.
+
+---
+
+## THE SCENE STRIP / MULTI-SCENE — DIRECTIVE (user, 2026-07-27; implementing now)
+_(GUI-polish directive re-ferried alongside — already logged above; no new action.)_
+
+### Item 2 — sparse slots · save-here · drag-and-drop
+- **No titles in v1** — the caption line dies; chips show NUMBERS only (names → future scene NOTES).
+- **Sparse slots**: an empty slot renders a **+** box; **tap + = write the CURRENT scene there** (save-as,
+  self-advertising). Schema: the scenes array admits EMPTIES; factory ships full (no migration pain).
+- **Long-press a chip = DRAG**: drop on EMPTY = MOVE · drop on OCCUPIED = **SWAP** — NEVER overwrite (scenes
+  are precious; unlike cheap-to-repaint cells, scene drags exchange or relocate, never destroy).
+- **The TRASH**: a red can appears ONLY during a drag; drop = delete (undo-covered, no confirmation); the
+  **ACTIVE scene REFUSES the trash** (brief shake — the instrument always has a playing scene).
+- Overwrite-by-save DIES (long-press = drag now). Rare save-onto-occupied = delete-then-+, two explicit steps.
+
+### Item 2b — performance grammar + visuals
+- **CHIP STATES**: ACTIVE = wears the PASS SWEEP (a mini-playhead crossing the chip L→R — cueing timable by
+  eye) · PENDING = blinking outline · occupied = quiet · empty = +.
+- **Tap another chip = ARM** (switch fires at the NEXT PASS START, §5d). **Tap the PENDING chip again = CANCEL
+  the arm**; tapping a different chip re-targets.
+- **Double-tap another chip = IMMEDIATE override — QUANTISE OPEN** (truly-instant vs next-column-boundary;
+  lean COLUMN-QUANTISED, ≤1 step latency, lands on the grid's teeth; decide by FEEL on device).
+- **Tap OR double-tap the CURRENT chip = RESTART THE PASS** (playhead → column 1). SUBSUMES assert-the-present
+  (a self-switch → invariant-4's transition closes lingering/foreign voices; one gesture, top-of-loop + cleanup).
+- **Full strip gesture table:** tap = arm/cancel/restart · double-tap = now/restart · long-press = drag · + = save-here.
+
+### Build note (Code): the switch must be INVARIANT-4 CLEAN (no stuck notes on scene change). Scope in increments:
+model (sparse scenes + activeScene switch) → engine timing (arm-at-pass / immediate / restart, voice flush) →
+strip UI (states, + , drag/swap/trash gestures). Each with a testable layer where possible.

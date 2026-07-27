@@ -48,6 +48,8 @@ struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
     @State private var loadedID = "—"
+    @State private var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
+    @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var selCol = -1
@@ -467,6 +469,8 @@ struct DiagView: View {
         altCount = au.uiAltCount()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
+        sceneEmpty = au.uiScenes().map { $0.isEmpty }   // MULTI-SCENE strip occupancy + active
+        activeSceneIdx = au.uiActiveScene()
     }
 
     // AUDITION (§6.4 / delta §5): press-hold a cell (stopped) → hear its processor alone. The held
@@ -732,6 +736,8 @@ struct DiagView: View {
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
+            let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
+            let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi }
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
@@ -1202,24 +1208,35 @@ struct DiagView: View {
     private func pickPalette(_ id: String) { brush = id }
 
     // SCENE strip — the 16 factory scenes (Docs/factory-scenes.md), full-width along the bottom.
+    // MULTI-SCENE (2026-07-27): the strip switches the DOCUMENT's scenes (no titles in v1 — numbers only).
+    // A non-empty slot = its number (tap = SWITCH, active = amber); an empty slot = "+" (tap = SAVE-HERE the
+    // current scene). Drag/swap/trash + arm-at-pass/restart timing are the next increments (S2/S3).
     private var sceneStrip: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                Text(sceneName).font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            }
+        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("SCENE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(spacing: 4) {
-                ForEach(Array(SceneFactory.scenes.enumerated()), id: \.offset) { i, _ in
-                    let id = "S\(i + 1)"
-                    Text("\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(id == loadedID ? .black : .white.opacity(0.8))
+                ForEach(0..<PluginState.maxScenes, id: \.self) { i in
+                    let empty = i >= sceneEmpty.count || sceneEmpty[i]
+                    let active = i == activeSceneIdx && !empty
+                    Text(empty ? "+" : "\(i + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(active ? .black : (empty ? .white.opacity(0.3) : .white.opacity(0.8)))
                         .frame(maxWidth: .infinity).frame(height: 26)
-                        .background(RoundedRectangle(cornerRadius: 4)
-                            .fill(id == loadedID ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
-                        .onTapGesture { au?.loadFactoryScene(i); loadedID = id }
+                        .background(RoundedRectangle(cornerRadius: 4).fill(active ? amber : Color.white.opacity(empty ? 0.03 : 0.08)))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if empty { au?.saveSceneHere(i) } else { au?.setActiveScene(i) }
+                            refreshScenes()
+                        }
                 }
             }
         }
+    }
+    private func refreshScenes() {
+        guard let au else { return }
+        let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }
+        let a = au.uiActiveScene(); if a != activeSceneIdx { activeSceneIdx = a }
+        scene = au.uiScene(); docColours = au.uiColours()   // the grid follows the switched scene
     }
 
     // Dev-only: the canned TestSessions loader (portrait scroll; not part of the release strip).

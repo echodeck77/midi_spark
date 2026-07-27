@@ -114,6 +114,10 @@ final class Kernel {
     func setMasterVelOverride(_ value: Int?) { masterVelOverride = UInt8(value.map { max(1, min(127, $0)) } ?? 0) }
     private var panicRequested = false
     func panic() { panicRequested = true }
+    // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
+    // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).
+    private var flushRequested = false
+    func flushVoices() { flushRequested = true }
     // receiver strip LATCH (chord-hold): 4 FROZEN input pools + the armed mask. Each render, an armed
     // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
     // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
@@ -334,10 +338,12 @@ final class Kernel {
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride, panic: panicRequested,
+                        sceneFlush: flushRequested,
                         latchMask: latchArmMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
+        flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
 
         // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
         //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —

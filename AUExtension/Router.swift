@@ -834,6 +834,7 @@ final class Router {
                  emitterOctave: UInt32 = 0,
                  masterVelOverride: UInt8 = 0,
                  panic: Bool = false,
+                 sceneFlush: Bool = false,
                  latchMask: UInt8 = 0,
                  latchedPools: [NotePool] = [],
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
@@ -902,6 +903,12 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1; altTurn = 0
             diag.panics &+= 1
+        }
+        // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
+        // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
+        if sceneFlush {
+            allNotesOff(atSample: renderSampleImmediate, out: out)
+            prevEffColumn = -1; altTurn = 0
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).

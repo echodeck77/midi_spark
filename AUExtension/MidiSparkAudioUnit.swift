@@ -27,7 +27,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
 
     /// Read-only view of the active scene for the grid UI (main thread; value copy).
-    func uiScene() -> SceneState { document.scenes[document.activeScene] }
+    func uiScene() -> SceneState { document.activeSceneState }   // MULTI-SCENE: bounds-safe active scene
 
     /// The single grid-edit path: mutate the active scene, then publish a fresh snapshot. MAIN
     /// THREAD (SwiftUI actions already are). All UI edits — paint, clear, wiring — go through here,
@@ -35,7 +35,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// brush) never touches the document.
     func editScene(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout SceneState) -> Void) {
         if record { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
-        mutate(&document.scenes[document.activeScene])
+        mutate(&document.scenes[document.activeSceneResolved])   // MULTI-SCENE: edit the ACTIVE scene, bounds-safe
         scheduleRebuild()
     }
 
@@ -268,8 +268,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
-    func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.scenes[document.activeScene].stepRate) ?? 2 }
-    func uiSwing() -> Int { document.scenes[document.activeScene].swing }
+    func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2 }
+    func uiSwing() -> Int { document.activeSceneState.swing }
     func setStepRateIndex(_ i: Int) {
         _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value = AUValue(max(0, min(StepRate.allCases.count - 1, i)))
     }
@@ -382,9 +382,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             switch param.address {
             case ParamAddress.stepRate:
                 let all = StepRate.allCases
-                self.document.scenes[0].stepRate = all[min(all.count - 1, max(0, Int(value)))]
+                self.document.scenes[self.document.activeSceneResolved].stepRate = all[min(all.count - 1, max(0, Int(value)))]
             case ParamAddress.swing:
-                self.document.scenes[0].swing = Int(value)
+                self.document.scenes[self.document.activeSceneResolved].swing = Int(value)
             case ParamAddress.morphMaster:
                 self.document.morphMaster = Double(value)
             case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
@@ -398,8 +398,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             guard let self else { return 0 }
             switch param.address {
             case ParamAddress.stepRate:
-                return AUValue(StepRate.allCases.firstIndex(of: self.document.scenes[0].stepRate) ?? 2)
-            case ParamAddress.swing: return AUValue(self.document.scenes[0].swing)
+                return AUValue(StepRate.allCases.firstIndex(of: self.document.activeSceneState.stepRate) ?? 2)
+            case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
             case ParamAddress.morphMaster: return AUValue(self.document.morphMaster)
             case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
                 return AUValue(self.document.colours[Int(a - 200)].morph)
@@ -443,9 +443,26 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    // MARK: - MULTI-SCENE — the strip switches activeScene within one document (2026-07-27)
+    func uiScenes() -> [SceneState] { document.scenes }
+    func uiActiveScene() -> Int { document.activeSceneResolved }
+    /// SWITCH to a non-empty scene (immediate, v1). Arms a one-shot voice flush so the old scene's notes close
+    /// cleanly as the new scene's snapshot publishes (a generation change alone doesn't flush — no stuck notes).
+    func setActiveScene(_ i: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard i >= 0, i < document.scenes.count, !document.scenes[i].isEmpty, i != document.activeSceneResolved else { return }
+        kernel.flushVoices()
+        editDocument { $0.switchScene(to: i) }
+    }
+    /// SAVE-HERE: write the ACTIVE scene into slot `i` (the "+" gesture). No flush — the playing scene is unchanged.
+    func saveSceneHere(_ i: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        editDocument { $0.saveCurrentScene(toSlot: i) }
+    }
+
     /// Push document values out to the AUParameterTree so host-visible state matches reality.
     private func syncParameterTreeToDocument() {
-        let scene = document.scenes[document.activeScene]
+        let scene = document.activeSceneState
         _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value =
             AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
