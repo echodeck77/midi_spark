@@ -530,3 +530,154 @@ extension FlowView {
 private extension String {
     subscript(_ i: Int) -> Character { self[index(startIndex, offsetBy: i)] }
 }
+
+// MARK: - MODELESS INSPECT — the ROUTE PANEL (2026-07-27)
+//
+// A read-only left→right map of a cell's COLUMN subgraph: receiver → ancestors → the cell → children →
+// emitters. Edges wear their CARGO colour (entry = receiver hue · reference = the PARENT's colour · emission
+// = the cell's colour), comets run them while playing, and a CLAIM-suppressed emission edge fizzles hollow
+// (the withheld tell). References resolve WITHIN-COLUMN, so a column IS the whole truth (ferry item 3).
+// Shares its hop/comet primitives with the FLOW theater — the one-engine-many-renderers seam.
+
+enum RouteRenderer {
+    /// Point on the panel's standard bowed quadratic hop at parameter t∈[0,1].
+    static func bez(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+        let cp = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10)
+        let u = 1 - t
+        return CGPoint(x: u*u*a.x + 2*u*t*cp.x + t*t*b.x, y: u*u*a.y + 2*u*t*cp.y + t*t*b.y)
+    }
+    static func path(_ a: CGPoint, _ b: CGPoint) -> Path {
+        var p = Path(); p.move(to: a)
+        p.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10))
+        return p
+    }
+    /// Draw an edge + its running comet (or a hollow amber FIZZLE when withheld). `phase` 0…1 drives the comet.
+    static func edge(_ ctx: GraphicsContext, _ a: CGPoint, _ b: CGPoint, hue: Color, playing: Bool,
+                     phase: Double, withheld: Bool) {
+        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+        ctx.stroke(path(a, b), with: .color(hue.opacity(withheld ? 0.12 : 0.3)), lineWidth: 1)
+        guard playing else { return }
+        if withheld {
+            let t = phase.truncatingRemainder(dividingBy: 1)
+            guard t < 0.55 else { return }
+            let p = bez(a, b, CGFloat(t)); let fade = 1 - t / 0.55
+            ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)),
+                       with: .color(amber.opacity(0.75 * fade)), lineWidth: 1)
+        } else {
+            let p = bez(a, b, CGFloat(phase.truncatingRemainder(dividingBy: 1)))
+            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.6, y: p.y - 2.6, width: 5.2, height: 5.2)), with: .color(hue))
+        }
+    }
+}
+
+struct RoutePanelView: View {
+    let scene: SceneState
+    let colours: [Colour]
+    let receivers: [Receiver]
+    let column: Int
+    var playColumn = 0
+    var playing = false
+    var beat = 0.0
+    var tempo = 120.0
+    var stepBeats = 0.5
+    var emitMarks: [[VelMark]] = [[], [], [], []]
+
+    private let recvHues = [Color(red: 0.56, green: 0.63, blue: 0.75), Color(red: 0.66, green: 0.56, blue: 0.75),
+                            Color(red: 0.56, green: 0.75, blue: 0.65), Color(red: 0.75, green: 0.69, blue: 0.56)]
+
+    private struct Node { let row, depth: Int; let hue: Color; let glyph: String; let colourIndex: Int
+                          let srcReceiver: Int?; let srcRow: Int?; let buses: [Int] }
+
+    // The column's placed cells, each tagged with its reference DEPTH (0 = MIDI-IN; +1 per reference hop up).
+    private var nodes: [Node] {
+        guard column >= 0, column < scene.cells.count else { return [] }
+        func depth(_ row: Int, _ guard0: Int) -> Int {
+            guard guard0 < 8, row >= 0, row < 8, let c = scene.cells[column][row] else { return 0 }
+            guard let sr = c.inputRow, sr != row else { return 0 }
+            return 1 + depth(sr, guard0 + 1)
+        }
+        var out: [Node] = []
+        for r in 0..<min(8, scene.cells[column].count) {
+            guard let cell = scene.cells[column][r], !cell.muted,
+                  let colour = colours.first(where: { $0.colourID == cell.colourID }) else { continue }
+            out.append(Node(row: r, depth: depth(r, 0),
+                            hue: colourColor(cell.colourID) ?? .gray, glyph: flowLabel(colour.type),
+                            colourIndex: colourIDs.firstIndex(of: cell.colourID) ?? -1,
+                            srcReceiver: cell.inputRow == nil ? (cell.inputReceiver ?? 0) : nil,
+                            srcRow: cell.inputRow, buses: Bus.allCases.enumerated().filter { cell.buses.contains($0.element) }.map { $0.offset }))
+        }
+        return out
+    }
+
+    var body: some View {
+        let ns = nodes
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("INSPECTING · COLUMN \(column + 1)")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(red: 0.98, green: 0.72, blue: 0.12))
+            if ns.isEmpty {
+                Text("empty column").font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                    Canvas { ctx, size in draw(ctx, size, ns, now: tl.date) }
+                }
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    private func draw(_ ctx: GraphicsContext, _ size: CGSize, _ ns: [Node], now: Date) {
+        let maxDepth = max(1, (ns.map { $0.depth }.max() ?? 0) + 1)
+        let cols = maxDepth + 2                                   // receiver col + depth cols + emitter col
+        let colW = size.width / CGFloat(cols)
+        let rowH = size.height / CGFloat(max(1, ns.count))
+        func nodePt(_ n: Node) -> CGPoint {
+            let idx = ns.firstIndex { $0.row == n.row } ?? 0
+            return CGPoint(x: colW * (CGFloat(n.depth) + 1.5), y: rowH * (CGFloat(idx) + 0.5))
+        }
+        let recvX = colW * 0.5, emitX = size.width - colW * 0.5
+        let phase = playing ? (beat / max(0.03, stepBeats)).truncatingRemainder(dividingBy: 1) : 0
+        // edges
+        for n in ns {
+            let pt = nodePt(n)
+            if let rc = n.srcReceiver {                           // ENTRY hop: receiver hue
+                RouteRenderer.edge(ctx, CGPoint(x: recvX, y: pt.y), pt, hue: recvHues[rc % 4], playing: playing, phase: phase, withheld: false)
+            }
+            if let sr = n.srcRow, let parent = ns.first(where: { $0.row == sr }) {   // REFERENCE hop: PARENT's colour
+                RouteRenderer.edge(ctx, nodePt(parent), pt, hue: parent.hue, playing: playing, phase: phase, withheld: false)
+            }
+            for bus in n.buses {                                 // EMISSION hop: cell colour (fizzle if withheld)
+                let withheld = bus < emitMarks.count && emitMarks[bus].contains { $0.withheld && Int($0.col) == n.colourIndex }
+                RouteRenderer.edge(ctx, pt, CGPoint(x: emitX, y: pt.y), hue: n.hue, playing: playing, phase: phase, withheld: withheld)
+            }
+        }
+        // receiver chips (left) + emitter chips (right)
+        for n in ns where n.srcReceiver != nil {
+            let y = nodePt(n).y, rc = n.srcReceiver!
+            chip(ctx, CGPoint(x: recvX, y: y), recvHues[rc % 4], String("ABCD"[rc % 4]))
+        }
+        for bus in Set(ns.flatMap { $0.buses }).sorted() {
+            let ys = ns.filter { $0.buses.contains(bus) }.map { nodePt($0).y }
+            chip(ctx, CGPoint(x: emitX, y: ys.reduce(0,+) / CGFloat(max(1, ys.count))), .white.opacity(0.5), String("ABCD"[bus % 4]))
+        }
+        // node cards — colour swatch + type glyph + the RESERVED EMBLEM SLOT (static now; living emblem at P2)
+        for n in ns {
+            let pt = nodePt(n); let w: CGFloat = min(colW * 0.82, 74), h: CGFloat = min(rowH * 0.72, 30)
+            let rect = CGRect(x: pt.x - w/2, y: pt.y - h/2, width: w, height: h)
+            let active = playing && n.depth == 0 && column == playColumn
+            ctx.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(n.hue.opacity(active ? 0.32 : 0.18)))
+            ctx.stroke(Path(roundedRect: rect, cornerRadius: 4), with: .color(n.hue.opacity(0.8)), lineWidth: active ? 1.5 : 1)
+            let slot = CGRect(x: rect.minX + 3, y: rect.midY - 7, width: 14, height: 14)   // reserved emblem slot
+            ctx.stroke(Path(roundedRect: slot, cornerRadius: 3), with: .color(n.hue.opacity(0.5)), lineWidth: 1)
+            ctx.draw(Text(n.glyph).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white),
+                     at: CGPoint(x: rect.minX + 20 + (w - 24) / 2, y: pt.y), anchor: .center)
+        }
+    }
+
+    private func chip(_ ctx: GraphicsContext, _ c: CGPoint, _ hue: Color, _ label: String) {
+        let r = CGRect(x: c.x - 9, y: c.y - 9, width: 18, height: 18)
+        ctx.fill(Path(ellipseIn: r), with: .color(hue.opacity(0.85)))
+        ctx.draw(Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black), at: c, anchor: .center)
+    }
+}

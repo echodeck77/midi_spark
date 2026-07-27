@@ -111,6 +111,7 @@ struct DiagView: View {
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
     @State private var gridVerb: GridVerb? = nil
+    @State private var inspectCol: Int? = nil          // INSPECT: the column whose route panel is shown (nil = console)
     @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
     #if DEBUG
@@ -285,6 +286,10 @@ struct DiagView: View {
     // deletion. (Long-press, not tap, puts a cell into cell-edit.) PERFORM: flip ALT.
     private func tapCell(_ col: Int, _ row: Int) {
         guard let au else { return }
+        if gridVerb == .inspect {                        // MODELESS: INSPECT (read-only) → toggle this column's route panel
+            inspectCol = (inspectCol == col) ? nil : col
+            return
+        }
         if editing {
             let pos = GridView.GridPos(col: col, row: row)
             if staging {
@@ -795,8 +800,15 @@ struct DiagView: View {
                 gridBlock(cell)
                 HStack(spacing: 6) {                          // [GRID CONTROLS] · EMITTERS · [MASTER]
                     gridControlsView.frame(maxWidth: .infinity)
-                    emittersBox.frame(width: half)
-                    masterView.frame(maxWidth: .infinity)
+                    if let ic = inspectCol {                  // INSPECT armed + a column tapped → the route panel replaces OUTPUT+MASTER
+                        RoutePanelView(scene: scene, colours: docColours, receivers: receivers, column: ic,
+                                       playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
+                                       stepBeats: stepBeats, emitMarks: emitMarks)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        emittersBox.frame(width: half)
+                        masterView.frame(maxWidth: .infinity)
+                    }
                 }.frame(height: bandH)
             }
         }
@@ -1056,7 +1068,7 @@ struct DiagView: View {
             .frame(maxWidth: .infinity).frame(height: 20)
             .background(RoundedRectangle(cornerRadius: 4).fill(on ? amber : Color.white.opacity(0.07)))
             .contentShape(Rectangle())
-            .onTapGesture { gridVerb = on ? nil : v }   // radio arm/disarm (1b makes INSPECT act)
+            .onTapGesture { gridVerb = on ? nil : v; if gridVerb != .inspect { inspectCol = nil } }   // radio arm/disarm
     }
     private func gcIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Image(systemName: name).font(.system(size: 10, weight: .heavy))
