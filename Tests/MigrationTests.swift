@@ -374,6 +374,46 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(d.scenes[7].isEmpty, "…and survives")
     }
 
+    // Guard paths: can't drag a "+", no-op on self/out-of-range, delete of empty/oob — all bounds-safe no-ops.
+    func testDragFromEmptySlotIsIgnored() {
+        var d = multi()
+        d.scenes[3].cells[0][0] = Cell(colourID: "gold")
+        d.dragScene(from: 5, to: 3)                       // 5 is a "+" — nothing to lift
+        XCTAssertEqual(d.scenes[3].cells[0][0]?.colourID, "gold", "the occupied target is untouched")
+        XCTAssertTrue(d.scenes[5].isEmpty, "the empty source stays empty")
+    }
+    func testDragToSelfIsNoOp() {
+        var d = multi()
+        d.scenes[2].cells[0][0] = Cell(colourID: "gold")
+        d.dragScene(from: 2, to: 2)
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "gold", "dragging onto itself changes nothing")
+    }
+    func testDragOutOfRangeDoesNotCrashOrChange() {
+        var d = multi()
+        d.scenes[1].cells[0][0] = Cell(colourID: "gold")
+        d.dragScene(from: 1, to: 99); d.dragScene(from: -1, to: 1); d.moveScene(from: 1, to: 50); d.swapScenes(1, 99)
+        XCTAssertEqual(d.scenes[1].cells[0][0]?.colourID, "gold", "out-of-range indices are ignored, no crash")
+    }
+    func testMoveOntoOccupiedIsIgnored() {
+        var d = multi()
+        d.scenes[1].cells[0][0] = Cell(colourID: "gold")
+        d.scenes[2].cells[0][0] = Cell(colourID: "cyan")
+        d.moveScene(from: 1, to: 2)                        // MOVE only relocates onto EMPTY — occupied is a SWAP job
+        XCTAssertEqual(d.scenes[1].cells[0][0]?.colourID, "gold", "source untouched")
+        XCTAssertEqual(d.scenes[2].cells[0][0]?.colourID, "cyan", "occupied target NOT overwritten by move")
+    }
+    func testDeleteEmptyOrOutOfRangeReturnsFalse() {
+        var d = multi()
+        XCTAssertFalse(d.deleteScene(6), "deleting an empty slot is a no-op (false)")
+        XCTAssertFalse(d.deleteScene(99), "out-of-range is a no-op (false), no crash")
+    }
+    func testSaveBeyondSlotCountIsIgnored() {
+        var d = multi()
+        d.scenes[0].cells[0][0] = Cell(colourID: "gold")
+        d.saveCurrentScene(toSlot: PluginState.maxScenes)   // one past the last slot
+        XCTAssertEqual(d.scenes.count, PluginState.maxScenes, "no slot is created past the fixed strip")
+    }
+
     func testActiveSceneResolvedIsBoundsSafe() {
         var d = multi(); d.activeScene = 99
         XCTAssertTrue((0..<d.scenes.count).contains(d.activeSceneResolved), "out-of-range clamps in-bounds, never crashes")

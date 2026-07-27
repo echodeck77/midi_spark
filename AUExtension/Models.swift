@@ -400,14 +400,16 @@ struct PluginState: Codable, Equatable {
     /// MOVE onto an empty slot: the scene relocates, the source becomes empty. The active index follows.
     mutating func moveScene(from a: Int, to b: Int) {
         guard a != b, scenes.indices.contains(a), scenes.indices.contains(b), scenes[b].isEmpty else { return }
+        let act = activeSceneResolved
         scenes[b] = scenes[a]; scenes[a] = .empty()
-        if activeScene == a { activeScene = b }
+        if act == a { activeScene = b }
     }
     /// SWAP two slots (exchange — never overwrite). The active (playing) scene follows its content to its new slot.
     mutating func swapScenes(_ a: Int, _ b: Int) {
         guard a != b, scenes.indices.contains(a), scenes.indices.contains(b) else { return }
+        let act = activeSceneResolved
         scenes.swapAt(a, b)
-        if activeScene == a { activeScene = b } else if activeScene == b { activeScene = a }
+        if act == a { activeScene = b } else if act == b { activeScene = a }
     }
     /// DELETE a scene (the trash). The ACTIVE scene REFUSES — the instrument always has a playing scene.
     /// Returns false (rejected) when the slot is the active one, empty, or out of range — the UI shakes on false.

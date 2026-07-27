@@ -1110,73 +1110,8 @@ private struct ColumnHoldOverlay: UIViewRepresentable {
     }
 }
 
-struct HeaderView: View {
-    let playing: Bool
-    let pass: Int
-    let tempo: Double
-    let editing: Bool           // EDIT vs PERFORM mode
-    let onToggleMode: () -> Void
-    var canUndo = false                 // delta §5 / a6 — EDIT-mode undo/redo
-    var canRedo = false
-    var onUndo: () -> Void = {}
-    var onRedo: () -> Void = {}
-    var onSecretTap: () -> Void = {}    // dev-build: a hidden long-press on the logotype reveals the T-session loader
-    // STEP · SWING · HOLD moved to the CONTROLS flank; FLOW to the VISUALIZATION flank; the build stamp was
-    // retired — so the header carries only the logotype, mode toggle, undo/redo, and the PASS/bpm readout.
-
-    private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)         // PERFORM / cyan
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)          // EDIT
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("8×8 STATE").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(4)
-                .foregroundColor(.white.opacity(0.85))
-                .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
-
-            // EDIT / PERFORM mode (§6.1/6.2)
-            HStack(spacing: 2) {
-                modeChip("EDIT", on: editing, hue: amber)
-                modeChip("PERFORM", on: !editing, hue: accent)
-            }
-            .onTapGesture { onToggleMode() }
-
-            // delta §5 / a6: undo/redo — EDIT only (undoing mid-performance is surprising, spec scope-lean).
-            // STEP · SWING · HOLD moved to the CONTROLS flank panel (item 2 — the header slimmed).
-            if editing {
-                HStack(spacing: 3) {
-                    headerIcon("arrow.uturn.backward", enabled: canUndo, action: onUndo)
-                    headerIcon("arrow.uturn.forward", enabled: canRedo, action: onRedo)
-                }
-            }
-
-            // FLOW retired into the VISUALIZATION flank thumbnail (item 2 — the picture is the button).
-
-            Spacer()
-
-            if playing {
-                Text(String(format: "PASS %d · %.1f bpm", pass + 1, tempo))
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(accent)
-            }
-        }
-    }
-
-    private func headerIcon(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Image(systemName: name).font(.system(size: 11, weight: .heavy))
-            .foregroundColor(enabled ? .white.opacity(0.75) : .white.opacity(0.2))
-            .frame(width: 26, height: 22)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06)))
-            .contentShape(Rectangle())
-            .onTapGesture { if enabled { action() } }
-    }
-
-    private func modeChip(_ label: String, on: Bool, hue: Color) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.5))
-            .padding(.vertical, 3).padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue : Color.white.opacity(0.08)))
-    }
-}
+// (HeaderView retired — the header + scene strip merged into the VC's `arrangementBar` for AB-1; its
+//  logotype / mode-toggle / undo-redo / PASS-readout live inline there now.)
 
 /// A PROCESSOR PANEL (delta item 8, TWO-PROCESSOR Colours): one self-contained editor for ONE face of the
 /// selected Colour (= the palette brush) — the A face or the optional B face. Title row (PROCESSOR A/B +

@@ -788,15 +788,6 @@ struct DiagView: View {
 
     // MARK: - layout pieces
 
-    private var header: some View {
-        HeaderView(playing: d.playing, pass: d.pass, tempo: d.tempo,
-                   editing: editing,
-                   onToggleMode: toggleMode,
-                   canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,
-                   onUndo: undo, onRedo: redo,
-                   onSecretTap: secretDevTap)
-    }
-
     // Dev-build only: a 1.2s long-press on the "8×8 STATE" logotype toggles the hidden T-session loader
     // overlay (the canned rigs for device passes). No-op in release — the loader never ships on the product face.
     private func secretDevTap() {
@@ -1225,6 +1216,7 @@ struct DiagView: View {
     // tap another = IMMEDIATE (now) · empty = "+" = SAVE-HERE. RESTART-the-pass (tap the active chip) = S2b.
     private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let sceneStripSpace = "sceneStripRow"        // one name for the chip-row coordinate space + its drag gesture
     // §2 THE ARRANGEMENT BAR: the header IS the arrangement — LOGO · the 16 scene chips · ⚙ — one row (the old
     // header + scene strip merged; the reclaimed row goes to the grid). PIN: the LOGO yields (compressed to the
     // "8×8" mark), never the chips; the chips flex to fill. The ⚙ BECOMES the red trash can during a scene drag.
@@ -1262,7 +1254,7 @@ struct DiagView: View {
             HStack(spacing: 4) {
                 ForEach(0..<PluginState.maxScenes, id: \.self) { i in sceneChip(i, chipW: chipW, rowWidth: geo.size.width) }
             }
-            .coordinateSpace(name: "sceneStripRow")
+            .coordinateSpace(name: sceneStripSpace)
         }
         .frame(height: 26).frame(minWidth: 180)             // the chips keep a usable floor; the logo yields, not them
     }
@@ -1377,7 +1369,7 @@ struct DiagView: View {
     // the active scene refuses. The can lives where the cog is (§2), so dragging a chip toward it reads as trash.
     private func sceneDragGesture(source i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some Gesture {
         LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("sceneStripRow")))
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(sceneStripSpace)))
             .onChanged { value in
                 guard case .second(true, let drag?) = value else { return }
                 if dragSceneSrc == nil {
