@@ -901,9 +901,9 @@ struct OutputsView: View {
     private func roleButton(_ i: Int, label: String, on: Bool, value: Int, maxValue: Int,
                             onToggle: @escaping () -> Void, onDrag: @escaping (Int) -> Void) -> some View {
         Text(on && value != 0 ? "\(label) \(value)" : label)
-            .font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .font(.system(size: 8, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : .white.opacity(0.65))
-            .frame(maxWidth: .infinity).frame(height: 16)
+            .frame(maxWidth: .infinity).frame(height: 24)   // taller, more inviting emitter buttons (user 2026-07-28)
             .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber : Color.white.opacity(0.08)))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
@@ -920,15 +920,15 @@ struct OutputsView: View {
                 })
     }
     private func octBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
-            .frame(maxWidth: .infinity).frame(height: 16)
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 22)   // taller emitter buttons (user 2026-07-28)
             .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
     private func footBtn(_ label: String, lit: Bool, hue: Color, dim: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced))
             .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
-            .frame(maxWidth: .infinity).frame(height: 15)
+            .frame(maxWidth: .infinity).frame(height: 20)   // taller emitter buttons (user 2026-07-28)
             .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue : Color.white.opacity(0.06)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
