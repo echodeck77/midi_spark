@@ -951,7 +951,7 @@ struct DiagView: View {
     // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
     // the (now slimmed) header.
     private var controlsView: some View {
-        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch, editing: false,
+        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch,
                      onStep: { au?.setStepRateIndex($0); refreshTiming() },
                      onSwing: { au?.setSwing($0); refreshTiming() },
                      onToggleHold: toggleHold)

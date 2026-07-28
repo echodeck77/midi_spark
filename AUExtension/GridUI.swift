@@ -1134,7 +1134,6 @@ struct ControlsView: View {
     let stepIndex: Int
     let swing: Int
     let holdLatch: Bool
-    let editing: Bool
     let onStep: (Int) -> Void
     let onSwing: (Int) -> Void
     let onToggleHold: () -> Void
@@ -1167,10 +1166,10 @@ struct ControlsView: View {
             // HOLD — PERFORM's gesture latch. SPACE-FILL: it's the corner's headline control, so it GROWS into
             // the dead area below (thumb-sized dignity). Dim/inactive in EDIT (the latch only bites performing).
             Text("HOLD").font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(holdLatch ? .black : .white.opacity(editing ? 0.3 : 0.7))
+                .foregroundColor(holdLatch ? .black : .white.opacity(0.7))
                 .frame(maxWidth: .infinity, minHeight: 34, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 5).fill(holdLatch ? amber : Color.white.opacity(0.08)))
-                .contentShape(Rectangle()).onTapGesture { if !editing { onToggleHold() } }
+                .contentShape(Rectangle()).onTapGesture { onToggleHold() }
         }
         .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
