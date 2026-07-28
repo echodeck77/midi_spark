@@ -84,7 +84,8 @@ struct DiagView: View {
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
     @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
-    @State private var placeSnapshot: [[Cell?]]? = nil         // the grid before this PLACE hold — CANCEL reverts to it
+    @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
+    @State private var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
     private var activeVerb: Verb? { heldVerb }
     private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
     @State private var selCol = -1
@@ -180,24 +181,7 @@ struct DiagView: View {
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
         case .place:                                        // PLACE CELL(S) — a toggle with restore (user 2026-07-28)
-            if placeFresh.contains(pos) {                   // placed onto empty this hold → re-tap REMOVES it
-                au.editScene { $0.cells[col][row] = nil }
-                placeFresh.remove(pos)
-            } else if let original = placeUndo[pos] {       // replaced a populated cell this hold → re-tap RESTORES the original
-                au.editScene { $0.cells[col][row] = original }
-                placeUndo.removeValue(forKey: pos)
-            } else if let existing = scene.cells[col][row] { // fresh tap on a populated cell → REPLACE (remember the original; keep its wiring)
-                placeUndo[pos] = existing
-                au.editScene { var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver; $0.cells[col][row] = c }
-            } else {                                         // fresh tap on empty → PLACE (§9.③ downhill nudge)
-                placeFresh.insert(pos)
-                let parentAbove = (row > 0 && scene.cells[col][row - 1] != nil) ? row - 1 : nil
-                au.editScene {
-                    var c = Cell(colourID: brush, buses: [.a]); c.inputRow = parentAbove
-                    if parentAbove == nil { c.inputReceiver = 0 }   // MIDI-IN cells must point at R1 (else they bypass the receiver)
-                    $0.cells[col][row] = c
-                }
-            }
+            au.editScene { placeToggle(&$0, col, row) }
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
@@ -216,6 +200,28 @@ struct DiagView: View {
                 au.editScene { $0.cells[col][row] = cell }
                 refreshFromDocument()
             } else if scene.cells[col][row] != nil { copySource = pos }
+        }
+    }
+
+    // PLACE toggle-with-memory for ONE cell (used by a cell tap AND, looped, by a row chevron). Call inside
+    // `au.editScene { placeToggle(&$0, …) }`. Re-tapping a placed empty REMOVES it; re-tapping a replaced cell
+    // RESTORES the original (wiring preserved); a fresh tap PLACES (empty, downhill-nudge) or REPLACES (populated).
+    private func placeToggle(_ s: inout SceneState, _ col: Int, _ row: Int) {
+        let pos = GridView.GridPos(col: col, row: row)
+        if placeFresh.contains(pos) {                        // placed onto empty this hold → REMOVE
+            s.cells[col][row] = nil; placeFresh.remove(pos)
+        } else if let original = placeUndo[pos] {            // replaced this hold → RESTORE the original
+            s.cells[col][row] = original; placeUndo.removeValue(forKey: pos)
+        } else if let existing = s.cells[col][row] {         // fresh tap on populated → REPLACE (remember; keep wiring)
+            placeUndo[pos] = existing
+            var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver
+            s.cells[col][row] = c
+        } else {                                             // fresh tap on empty → PLACE (§9.③ downhill nudge)
+            placeFresh.insert(pos)
+            let parentAbove = (row > 0 && s.cells[col][row - 1] != nil) ? row - 1 : nil
+            var c = Cell(colourID: brush, buses: [.a]); c.inputRow = parentAbove
+            if parentAbove == nil { c.inputReceiver = 0 }    // MIDI-IN cells must point at R1 (else they bypass the receiver)
+            s.cells[col][row] = c
         }
     }
 
@@ -290,28 +296,47 @@ struct DiagView: View {
     private func onVerbEngaged(_ v: Verb) {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
         if v != .copy { copySource = nil }
-        if v == .place { placeFresh = []; placeUndo = [:]; placeSnapshot = scene.cells }   // fresh session; snapshot for CANCEL
+        switch v {                                          // snapshot the state CANCEL reverts to, per verb
+        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells
+        case .delete: gridSnapshot = scene.cells
+        case .select: selectionSnapshot = selection
+        default: break
+        }
     }
-    // §11 CANCEL a PLACE session — revert the grid to the snapshot taken when PLACE was engaged (all placements undone).
-    private func cancelPlace() {
-        guard let au, let snap = placeSnapshot else { return }
-        au.editScene { $0.cells = snap }
-        placeFresh = []; placeUndo = [:]
-        refreshFromDocument()
+    // §11 CANCEL (user 2026-07-28): revert the in-progress changes to the state when the verb was engaged AND
+    // END the held status (release the button). PLACE/DELETE revert the grid; SELECT reverts the built selection.
+    private var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete || activeVerb == .select }
+    private func cancelVerb() {
+        switch heldVerb {
+        case .place, .delete:
+            if let au, let snap = gridSnapshot { au.editScene { $0.cells = snap }; refreshFromDocument() }
+            placeFresh = []; placeUndo = [:]
+        case .select:
+            if let s = selectionSnapshot { selection = s }
+        default: break
+        }
+        heldVerb = nil                                      // end the held status
     }
-    // The PLACE banner — an overlay at the top of the page while PLACE is held (tap CANCEL with the free hand to revert).
-    private var placeBanner: some View {
-        HStack(spacing: 12) {
-            Text("Place cells on grid and choose routing")
-                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+    // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
+    private func verbBanner(_ v: Verb) -> some View {
+        let text: String
+        switch v {
+        case .place:  text = "Place cell(s) — tap the grid or a row · choose routing"
+        case .delete: text = "Delete cell(s) — tap the grid or a row · children heal"
+        case .select: text = "Select cell(s) — tap to toggle · recolour with the palette"
+        default:      text = ""
+        }
+        return HStack(spacing: 12) {
+            Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .lineLimit(1).minimumScaleFactor(0.6)
             Spacer(minLength: 8)
             Text("CANCEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 12).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
-                .contentShape(Rectangle()).onTapGesture { cancelPlace() }
+                .contentShape(Rectangle()).onTapGesture { cancelVerb() }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(Verb.place.hue)
+        .background(v.hue)
     }
     private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
         RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
@@ -581,8 +606,8 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onDelete: deletePreset,
                                   onClose: { showPresets = false })
                 }
-                if heldVerb == .place {                 // §11 PLACE session banner (top overlay; CANCEL reverts)
-                    VStack(spacing: 0) { placeBanner; Spacer() }
+                if verbHasBanner, let v = activeVerb {  // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts + ends)
+                    VStack(spacing: 0) { verbBanner(v); Spacer() }
                 }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
@@ -716,7 +741,7 @@ struct DiagView: View {
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
-                     verbInvite: activeVerb == .place ? nil : activeVerb?.hue,   // PLACE lights the chevrons only, not cells
+                     verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
@@ -743,9 +768,7 @@ struct DiagView: View {
     private func doVerbOnRow(_ v: Verb, _ row: Int) {
         guard let au else { return }
         switch v {
-        case .place: au.editScene { for c in 0..<8 where $0.cells[c][row] == nil {
-            var cell = Cell(colourID: brush, buses: [.a]); cell.inputReceiver = 0   // MIDI-IN → R1 (honour receiver config)
-            $0.cells[c][row] = cell } }; refreshFromDocument()
+        case .place: au.editScene { for c in 0..<8 { placeToggle(&$0, c, row) } }; refreshFromDocument()   // row toggle-with-memory
         case .delete: au.editScene { for c in 0..<8 { $0.deleteCellHealing(col: c, row: row) } }
                       for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
         case .select:
