@@ -631,11 +631,12 @@ struct ReceiversView: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    // PERFORM face — LATCH toggle over OCT−/OCT+ (with the deviation readout). LATCH+ = the receiver's ADD mode.
+    // PERFORM face — the LATCH ARM (the performance control, prominent + inviting) over the OCT−/OCT+ nudges
+    // (utility, quiet) + the deviation readout. LATCH+ = the receiver's ADD mode (set in the cog's CHORD|ADD).
     private func performFeatures(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
-        return VStack(spacing: 2) {
-            featBtn(bit(latchAddMask, i) ? "LATCH+" : "LATCH", lit: bit(latchMask, i)) { onToggleLatch(i) }
+        return VStack(spacing: 3) {
+            latchArm(i)
             HStack(spacing: 2) {
                 featBtn("OCT−", lit: false) { onOct(i, -1) }
                 featBtn("OCT+", lit: false) { onOct(i, +1) }
@@ -645,6 +646,22 @@ struct ReceiversView: View {
                 .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
+    }
+
+    // The LATCH ARM — the receiver's headline performance control: a lock glyph + label, taller than the
+    // utility rows, hue-tinted even at rest (reads as "the arm, tap to hold"), a solid glow when armed so
+    // an armed receiver is legible at a glance across the band. LATCH+ shows the cog's ADD mode.
+    private func latchArm(_ i: Int) -> some View {
+        let armed = bit(latchMask, i), add = bit(latchAddMask, i)
+        return HStack(spacing: 3) {
+            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 9, weight: .heavy))
+            Text(add ? "LATCH+" : "LATCH").font(.system(size: 8, weight: .heavy, design: .monospaced))
+        }
+        .foregroundColor(armed ? .black : soloHue.opacity(0.95))
+        .frame(maxWidth: .infinity).frame(height: 22)
+        .background(RoundedRectangle(cornerRadius: 4).fill(armed ? soloHue : soloHue.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(soloHue.opacity(armed ? 0 : 0.55), lineWidth: 1))
+        .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
     }
 
     private func featBtn(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
@@ -839,8 +856,9 @@ struct OutputsView: View {
         }
     }
 
-    // PERFORM role column: CLAIM (existing radio) + OCT−/OCT+. FLATTEN + ALT are DEFERRED (the role family is
-    // gated behind the single-CLAIM device pass — spec 2026-07-26); their slots join here once CLAIM is trusted.
+    // PERFORM role column — the emitter's playable roles in the roleButton grammar (tap = toggle · vertical
+    // drag = the one param): CLAIM (leak %) · DUCK (the FLAT rename — activity ducking amount) · ALT (count),
+    // over the OCT−/OCT+ nudges. Code identifiers stay flatten* (the no-rename rule).
     private func roleColumn(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
         let claimOn = claimMask & (1 << UInt8(i)) != 0
@@ -853,7 +871,7 @@ struct OutputsView: View {
             // CLAIM: tap toggles membership; drag sets LEAK % (0 = hard suppression, shown as plain "CLAIM").
             roleButton(i, label: "CLAIM", on: claimOn, value: leak, maxValue: 100,
                        onToggle: { onClaim(i) }, onDrag: { onClaimLeak(i, $0) })
-            roleButton(i, label: "FLAT", on: flatOn, value: flatAmt, maxValue: 100,
+            roleButton(i, label: "DUCK", on: flatOn, value: flatAmt, maxValue: 100,   // "DUCK" = the ruled rename of FLAT (label only; code stays flatten*)
                        onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
             roleButton(i, label: "ALT", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
                        onToggle: { onToggleAlt(i) }, onDrag: { onAltCount(i, max(1, $0)) })
