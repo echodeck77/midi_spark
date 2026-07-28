@@ -42,3 +42,20 @@ duck/adoption reply.)_
    defaults recede, so the band reads calm at rest and alive where music moves.
 
 _Not this wave: the ALT baton + entry-pulse ambience (the later per-panel process-view pass)._
+
+## ADDENDUM (user, 22:42 frame 2026-07-28) — SPACE-FILL + the verbs ruling
+AUDIT vs this doc: **DUCK ✓** landed · **LATCH ✓** restored (padlock, inviting) · roles/single-face/THRU ✓.
+Outstanding-as-queued: marks (③) · chrome-quiet (④) · session-face polish (device-verify).
+
+**DIVERGENCE — the user's ruling: the verbs are PILLS, not ROUND.** "Round and inviting" was the word —
+enforce **circles** on the verb cluster (PLACE/HOLD · DELETE/SELECT · COPY/PASTE) or the user amends the word.
+
+**THE SPACE-FILL DIRECTIVE — dead space is spent on TOUCH, not content** (every reclaimed pixel goes to
+something a FINGER touches or a MARK draws — never to new controls; gutters tighten accordingly):
+- **MIDI INPUT / MIDI OUTPUT boxes GROW to fill their bands**; inside, the strips stretch VERTICALLY — taller
+  sliders (the marks get room; touch improves), the feature column distributes over the height (header ·
+  LATCH/roles · OCT · foot spread, no crowding, no voids).
+- **MASTER fills its column**: the fader gets full height beside a distributed feature stack (MUTE · KEY ·
+  REVERT · INS seats spaced).
+- **CONTROLS spends its dead area on HOLD** — the performance latch grows into the empty region below it
+  (the corner's headline control; thumb-sized dignity).

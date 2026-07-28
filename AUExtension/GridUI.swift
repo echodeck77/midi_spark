@@ -527,10 +527,14 @@ struct ReceiversView: View {
     }
 
     var body: some View {
+        // SPACE-FILL: the box grows to fill its band; the strips stretch VERTICALLY so the slider (and its
+        // marks) gets the room — reclaimed pixels go to touch, not new controls.
         VStack(alignment: .leading, spacing: 3) {
             Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
+                .frame(maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // The strip: header (hue dot + R-label + THRU pip) · control region (SLIDER | features, faces swap) ·
@@ -547,16 +551,16 @@ struct ReceiversView: View {
                 thruPip(i, isThru: isThru, muted: muted)
             }
             HStack(alignment: .top, spacing: 3) {
-                slider(i).frame(width: 14).frame(maxHeight: .infinity)   // input meter + momentary velocity override
+                slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + momentary velocity override — grows tall
                 if editing { editFeatures(i, rec) } else { performFeatures(i) }
             }
-            .frame(height: Self.controlHeight)
+            .frame(minHeight: Self.controlHeight, maxHeight: .infinity)  // SPACE-FILL: control region spends the band's height
             HStack(spacing: 3) {                                // foot: MUTE · SOLO
                 footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: hues[i], dim: muted) { onToggleMute(i) }
                 footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
             }
         }
-        .padding(4).frame(maxWidth: .infinity)
+        .padding(4).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: strip fills the band height
         .background(RoundedRectangle(cornerRadius: 6)
             .fill(muted ? Color.white.opacity(0.02) : hues[i].opacity(soloed ? 0.22 : 0.12)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(soloed ? soloHue.opacity(0.8) : .clear, lineWidth: 1))
@@ -788,10 +792,13 @@ struct OutputsView: View {
     }
 
     var body: some View {
+        // SPACE-FILL: the box grows to fill its band; strips stretch VERTICALLY so the fader + its marks get room.
         VStack(alignment: .leading, spacing: 3) {
             Text("MIDI OUTPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
+                .frame(maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onChange(of: holdLatch) { latched in            // §5c: HOLD-off = the drop → every fader springs home
             if !latched { for i in 0..<4 { faderVel[i] = nil; onVelOverride(i, nil) } }
         }
@@ -808,13 +815,13 @@ struct OutputsView: View {
                 fader(i).frame(width: 16).frame(maxHeight: .infinity)
                 if editing { channelStepper(i) } else { roleColumn(i) }
             }
-            .frame(height: controlHeight)
+            .frame(minHeight: controlHeight, maxHeight: .infinity)   // SPACE-FILL: fader region spends the band's height
             HStack(spacing: 3) {                             // foot: MUTE (the enable gate) · SOLO
                 footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: cyan, dim: muted) { onToggle(i) }
                 footBtn("SOLO", lit: soloed, hue: amber, dim: excluded) { onToggleSolo(i) }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: strip fills the band height
         .opacity(wiring ? 0.3 : (excluded ? 0.5 : 1))       // §10 dim-content-beneath while wiring
         .allowsHitTesting(!wiring)
         .overlay { if wiring { routeOutFace(i) } }           // ROUTE OUT session face on top
@@ -1070,9 +1077,9 @@ struct MasterView: View {
                     HStack(spacing: 2) { seat("REVERT"); seat("INS") }   // reserved seats (item 7 / item 14)
                     Spacer(minLength: 0)
                 }.frame(maxWidth: .infinity)
-            }.frame(height: Self.controlHeight)
+            }.frame(minHeight: Self.controlHeight, maxHeight: .infinity)   // SPACE-FILL: the fader takes the column's height
         }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
@@ -1154,15 +1161,15 @@ struct ControlsView: View {
                 Text("SWING \(swing)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(accent)
             }
-            // HOLD — big, PERFORM's gesture latch (dim/inactive in EDIT; the latch only bites while performing).
-            Text("HOLD").font(.system(size: 11, weight: .heavy, design: .monospaced))
+            // HOLD — PERFORM's gesture latch. SPACE-FILL: it's the corner's headline control, so it GROWS into
+            // the dead area below (thumb-sized dignity). Dim/inactive in EDIT (the latch only bites performing).
+            Text("HOLD").font(.system(size: 13, weight: .heavy, design: .monospaced))
                 .foregroundColor(holdLatch ? .black : .white.opacity(editing ? 0.3 : 0.7))
-                .frame(maxWidth: .infinity).frame(height: 34)
+                .frame(maxWidth: .infinity, minHeight: 34, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 5).fill(holdLatch ? amber : Color.white.opacity(0.08)))
                 .contentShape(Rectangle()).onTapGesture { if !editing { onToggleHold() } }
-            Spacer(minLength: 0)
         }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 }

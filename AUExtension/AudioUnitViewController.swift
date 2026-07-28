@@ -763,13 +763,13 @@ struct DiagView: View {
             let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
             let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
             VStack(spacing: 3) {
-                HStack(spacing: 6) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION]
+                HStack(spacing: 4) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION] — gutters tightened (SPACE-FILL)
                     controlsView.frame(maxWidth: .infinity)
                     receiversBox.frame(width: half)           // §10 strips wear ROUTE IN faces in-place while wiring
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
-                HStack(spacing: 6) {                          // [VERB CLUSTER] · EMITTERS · MASTER
+                HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half)            // §10 strips wear ROUTE OUT faces in-place while wiring
                     masterView.frame(maxWidth: .infinity)
@@ -962,7 +962,7 @@ struct DiagView: View {
                     onToggleAlt: toggleAlt, onAltCount: setAltCnt,
                     wiring: routeFocus != nil, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
                     onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) })
-            .padding(8)
+            .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
@@ -979,7 +979,7 @@ struct DiagView: View {
                       onVelOverride: setReceiverVel, holdLatch: holdLatch,
                       wiring: routeFocus != nil, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face
                       onRouteIn: routeInReceiver)
-            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
