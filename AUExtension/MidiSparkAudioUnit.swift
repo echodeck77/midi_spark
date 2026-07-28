@@ -492,6 +492,27 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func uiCurrentPreset() -> String { currentPresetName }
     func listPresets() -> [String] { PresetStore.list() }
 
+    // §3 FACTORY presets (READ-ONLY): DEFAULT (the 3-scene arc) + THE CURRICULUM (SceneFactory's teaching scenes).
+    // Code-defined builders, not files — so no save/overwrite/delete. Numbered non-negative for the host API.
+    static let factoryPresetBuilders: [(name: String, make: () -> PluginState)] =
+        [("DEFAULT", PluginState.defaultArc)] + SceneFactory.scenes.map { s in (s.name, s.make) }
+    func factoryPresetNames() -> [String] { Self.factoryPresetBuilders.map { $0.name } }
+    /// Apply a factory preset's document — one undoable step + voice flush (from a builder, not a file). No KVO.
+    private func applyFactoryDocument(named name: String) {
+        guard let fp = Self.factoryPresetBuilders.first(where: { $0.name == name }) else { return }
+        kernel.flushVoices()
+        editDocument { $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded() }   // migrate is a no-op for v4 builders
+        currentPresetName = name
+    }
+    /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
+    func loadFactoryPreset(named name: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        applyFactoryDocument(named: name)
+        let p = AUAudioUnitPreset(); p.name = name
+        p.number = Self.factoryPresetBuilders.firstIndex(where: { $0.name == name }) ?? 0   // factory ⇒ non-negative
+        willChangeValue(forKey: "currentPreset"); _currentPreset = p; didChangeValue(forKey: "currentPreset")
+    }
+
     /// The document the host would persist right now (preview restored, exactly like `fullState`).
     private var documentToSave: PluginState {
         previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
@@ -544,11 +565,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             let p = AUAudioUnitPreset(); p.name = name; p.number = -(i + 1); return p
         }
     }
+    public override var factoryPresets: [AUAudioUnitPreset]? {                          // §3 read-only, non-negative numbers
+        Self.factoryPresetBuilders.enumerated().map { i, fp in let p = AUAudioUnitPreset(); p.name = fp.name; p.number = i; return p }
+    }
     public override var currentPreset: AUAudioUnitPreset? {
         get { _currentPreset }
         set {
             _currentPreset = newValue
-            if let p = newValue, p.number < 0 { applyPresetDocument(named: p.name) }   // a user preset → load its doc
+            guard let p = newValue else { return }
+            if p.number < 0 { applyPresetDocument(named: p.name) }      // a user preset → load its file
+            else { applyFactoryDocument(named: p.name) }               // a factory preset → build it
         }
     }
     public override func saveUserPreset(_ userPreset: AUAudioUnitPreset) throws {

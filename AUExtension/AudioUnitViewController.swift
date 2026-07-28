@@ -676,9 +676,9 @@ struct DiagView: View {
                             onClose: { showSettings = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
-                    PresetBrowser(presets: presetList, current: currentPreset,
-                                  onSave: savePreset, onLoad: loadPreset, onDelete: deletePreset,
-                                  onClose: { showPresets = false })
+                    PresetBrowser(presets: presetList, factory: au?.factoryPresetNames() ?? [], current: currentPreset,
+                                  onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
+                                  onDelete: deletePreset, onClose: { showPresets = false })
                 }
                 if let f = routeFocus {                 // §10 ROUTE bar (SELECT held, exactly one cell selected)
                     VStack(spacing: 0) { routeBar(f); Spacer() }
@@ -1090,6 +1090,13 @@ struct DiagView: View {
     }
     private func loadPreset(_ name: String) {
         au?.loadPreset(named: name)
+        refreshFromDocument()
+        receivers = au?.uiReceivers() ?? receivers
+        currentPreset = au?.uiCurrentPreset() ?? ""
+        showPresets = false
+    }
+    private func loadFactoryPreset(_ name: String) {        // §3 read-only DEFAULT / curriculum
+        au?.loadFactoryPreset(named: name)
         refreshFromDocument()
         receivers = au?.uiReceivers() ?? receivers
         currentPreset = au?.uiCurrentPreset() ?? ""

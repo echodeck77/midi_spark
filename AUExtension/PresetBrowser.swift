@@ -5,9 +5,11 @@ import SwiftUI
 /// Factory presets (DEFAULT arc + the relocated curriculum) + live transient-load previews are later increments.
 struct PresetBrowser: View {
     let presets: [String]
+    var factory: [String] = []                  // §3 read-only factory presets (DEFAULT + the curriculum)
     let current: String
     let onSave: (String) -> Void
     let onLoad: (String) -> Void
+    var onLoadFactory: (String) -> Void = { _ in }
     let onDelete: (String) -> Void
     let onClose: () -> Void
 
@@ -48,13 +50,20 @@ struct PresetBrowser: View {
                 .padding(.bottom, 12)
                 Divider().overlay(ink.opacity(0.12)).padding(.bottom, 8)
 
-                if presets.isEmpty {
-                    Text("No presets yet — name the current state above and SAVE it.")
-                        .font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.35))
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
-                } else {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 4) { ForEach(presets, id: \.self) { row($0) } }
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !factory.isEmpty {
+                            sectionHeader("FACTORY")
+                            ForEach(factory, id: \.self) { factoryRow($0) }
+                        }
+                        sectionHeader("YOUR PRESETS")
+                        if presets.isEmpty {
+                            Text("None yet — name the current state above and SAVE it.")
+                                .font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.35))
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
+                        } else {
+                            ForEach(presets, id: \.self) { row($0) }
+                        }
                     }
                 }
                 Spacer(minLength: 0)
@@ -68,6 +77,23 @@ struct PresetBrowser: View {
         }
     }
 
+    private func sectionHeader(_ t: String) -> some View {
+        Text(t).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.45)).tracking(1.5)
+            .padding(.top, 6).padding(.bottom, 2)
+    }
+    // §3 a read-only factory preset — tap to LOAD; no rename/overwrite/delete (a lock marks it).
+    private func factoryRow(_ name: String) -> some View {
+        let isCurrent = name == current
+        return HStack(spacing: 10) {
+            Text(name).font(.system(size: 12, weight: isCurrent ? .heavy : .semibold, design: .monospaced))
+                .foregroundColor(isCurrent ? amber : ink.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundColor(ink.opacity(0.3))
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(isCurrent ? 0.08 : 0.03)))
+        .contentShape(Rectangle()).onTapGesture { onLoadFactory(name) }
+    }
     private func row(_ name: String) -> some View {
         let isCurrent = name == current
         let arming = confirmDelete == name
