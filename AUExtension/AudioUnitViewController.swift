@@ -73,13 +73,13 @@ struct DiagView: View {
     @State private var currentPreset = ""              // §3 the loaded preset's name
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
-    // §11b the held quasimode: the active verb is the latched one, else the pressed-and-held one (nil = triggers).
-    @State private var heldVerb: Verb? = nil          // pressed-and-held (spring)
-    @State private var latchedVerb: Verb? = nil       // long-press latched (sticky; tap again releases)
+    // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
+    // (release = done). No latch/toggle. Nil = taps are triggers.
+    @State private var heldVerb: Verb? = nil          // the currently-pressed verb
     @State private var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
     @State private var moveSource: GridView.GridPos? = nil      // MOVE: the lifted cell (land-tap completes)
     @State private var copySource: GridView.GridPos? = nil      // COPY: the source (each subsequent tap pastes)
-    private var activeVerb: Verb? { latchedVerb ?? heldVerb }
+    private var activeVerb: Verb? { heldVerb }
     @State private var selCol = -1
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -242,7 +242,7 @@ struct DiagView: View {
                 Text(verbHint(v)).font(.system(size: 7, weight: .heavy, design: .monospaced))
                     .foregroundColor(v.hue).lineLimit(2).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 6) { verbButton(.place); holdButton }
+            verbButton(.place)                             // PLACE — top, full width
             HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
             HStack(spacing: 6) { verbButton(.move); verbButton(.copy) }
             Spacer(minLength: 0)
@@ -258,38 +258,33 @@ struct DiagView: View {
         case .copy:   return copySource == nil ? "COPY — tap the source" : "COPY — tap to paste"
         }
     }
+    // §11b SPRING-ONLY (user 2026-07-27): the verb is active ONLY while the button is held; release = done.
+    // No latch, no toggle. A plain press/release DragGesture gives exactly that.
     private func verbButton(_ v: Verb) -> some View {
-        let active = activeVerb == v, latched = latchedVerb == v
+        let active = activeVerb == v
         let badge: String? = v == .select && !selection.isEmpty ? "\(selection.count)"
             : ((v == .move && moveSource != nil) || (v == .copy && copySource != nil)) ? "•" : nil
-        return roundVerb(label: v.rawValue, hue: v.hue, active: active, latched: latched, badge: badge)
-            .onLongPressGesture(minimumDuration: 0.5, pressing: { down in
-                if down {
-                    if latchedVerb == v { latchedVerb = nil; heldVerb = nil }   // tap a latched verb = unlatch
-                    else { heldVerb = v; onVerbEngaged(v) }
-                } else if latchedVerb != v { heldVerb = nil }                    // spring release = done
-            }, perform: { latchedVerb = v })                                    // held 0.5s → LATCH
+        return roundVerb(label: v.rawValue, hue: v.hue, active: active, badge: badge)
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
+                .onEnded { _ in heldVerb = nil })
     }
     private func onVerbEngaged(_ v: Verb) {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
         if v != .copy { copySource = nil }
     }
-    private var holdButton: some View {                     // §5c the gesture-latch (toggle), sits with the verbs
-        roundVerb(label: "HOLD", hue: Color(red: 0.98, green: 0.72, blue: 0.12), active: holdLatch, latched: holdLatch, badge: nil)
-            .onTapGesture { toggleHold() }
-    }
-    private func roundVerb(label: String, hue: Color, active: Bool, latched: Bool, badge: String?) -> some View {
-        Circle().fill(active ? hue : Color.white.opacity(0.06))
-            .overlay(Circle().stroke(latched ? hue : hue.opacity(active ? 0 : 0.4), lineWidth: latched ? 2.5 : 1.5))
-            .overlay(Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(active ? .black : hue.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.5).padding(1))
+    private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
+        RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(active ? 0 : 0.4), lineWidth: 1.5))
+            .overlay(Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(active ? .black : hue.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.6).padding(3))
             .overlay(alignment: .topTrailing) {
                 if let b = badge {
-                    Text(b).font(.system(size: 7, weight: .heavy)).foregroundColor(.black)
-                        .frame(width: 13, height: 13).background(Circle().fill(hue)).offset(x: 2, y: -2)
+                    Text(b).font(.system(size: 8, weight: .heavy)).foregroundColor(.black)
+                        .frame(width: 15, height: 15).background(Circle().fill(hue)).offset(x: 3, y: -3)
                 }
             }
-            .frame(width: 46, height: 46).contentShape(Circle())
+            .frame(height: 42).frame(maxWidth: .infinity).contentShape(RoundedRectangle(cornerRadius: 12))
     }
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
@@ -670,7 +665,6 @@ struct DiagView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         HStack(spacing: 3) {
-            rowRail(cellHeight)                             // §11 ROW SELECT buttons (appear while a verb is held)
             GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                      beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                      cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
@@ -679,22 +673,22 @@ struct DiagView: View {
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
                      selection: selection, verbInvite: activeVerb?.hue,   // §11 SELECT ring + verb-invite glow
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
+            rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
         }
     }
-    // §11 ROW SELECT buttons — slim, left of the grid, aligned to the rows (the column-key row is one cell tall).
-    // Present only while a verb is held; tapping a row applies the active verb to that row's 8 cells.
-    @ViewBuilder private func rowRail(_ cellHeight: CGFloat) -> some View {
-        if let v = activeVerb {
-            VStack(spacing: GridGeometry.vGap) {
-                Color.clear.frame(width: 16, height: cellHeight)          // align past the column-key row
-                ForEach(0..<8, id: \.self) { r in
-                    Text("\(r + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(v.hue.opacity(0.95))
-                        .frame(width: 16, height: cellHeight)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(v.hue.opacity(0.14)))
-                        .contentShape(Rectangle()).onTapGesture { doVerbOnRow(v, r) }
-                }
+    // §11 ROW SELECT — a left-pointing chevron per row, RIGHT of the grid, always visible (aligned past the
+    // column-key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held).
+    private func rowRail(_ cellHeight: CGFloat) -> some View {
+        let hue = activeVerb?.hue ?? Color.white.opacity(0.35)
+        return VStack(spacing: GridGeometry.vGap) {
+            Color.clear.frame(width: 20, height: cellHeight)          // align past the column-key row
+            ForEach(0..<8, id: \.self) { r in
+                Image(systemName: "chevron.left").font(.system(size: 12, weight: .heavy))
+                    .foregroundColor(hue)
+                    .frame(width: 20, height: cellHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let v = activeVerb { doVerbOnRow(v, r) } }
             }
         }
     }
