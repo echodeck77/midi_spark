@@ -269,10 +269,10 @@ struct GridView: View {
                 RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2)
             } else if routeOut.contains(pos) {              // a graftable HEAD below — tap to GRAFT
                 RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.35, green: 0.92, blue: 0.50), lineWidth: 2)
-            } else if whiteBorder.contains(pos) {
+            } else if whiteBorder.contains(pos) || selection.contains(pos) {
+                // /btw ③ THE TWO-SOURCES LAW: a cell reads SELECTED only when PLACE-placed (this hold) or
+                // SELECT-selected — the ONLY two sources — and both wear the SAME white ring (one shared look).
                 RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
-            } else if selection.contains(pos) {
-                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2.5)
             } else if let inv = verbInvite {                // a verb is held (not PLACE): cells glow the verb hue
                 RoundedRectangle(cornerRadius: 8).stroke(inv.opacity(0.55), lineWidth: 1.5)
             }
