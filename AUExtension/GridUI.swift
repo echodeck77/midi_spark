@@ -499,6 +499,12 @@ struct ReceiversView: View {
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
     var holdLatch: Bool = false                        // §5c HOLD latches the touched slider value
+    // §10 STRIP SESSION FACE — while a verb is held the whole strip becomes one large ROUTE IN target: the
+    // real content dims beneath (meters show through), the strip hue glows, a big label; the CURRENT source
+    // wears a solid ring, the other (candidate) strips BREATHE. Tap routes the focus cell's input here.
+    var wiring: Bool = false
+    var routeCurrent: Int? = nil                       // the focus cell's current receiver (nil ⇒ row-fed/none — no ring)
+    var onRouteIn: (Int) -> Void = { _ in }
 
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]   // the touched slider value (nil = released → springs back)
 
@@ -554,7 +560,30 @@ struct ReceiversView: View {
         .background(RoundedRectangle(cornerRadius: 6)
             .fill(muted ? Color.white.opacity(0.02) : hues[i].opacity(soloed ? 0.22 : 0.12)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(soloed ? soloHue.opacity(0.8) : .clear, lineWidth: 1))
-        .opacity(excluded ? 0.5 : 1)
+        .opacity(wiring ? 0.3 : (excluded ? 0.5 : 1))       // §10 dim-content-beneath while wiring (meters show through)
+        .allowsHitTesting(!wiring)                          // the session face owns taps while wiring
+        .overlay { if wiring { routeInFace(i) } }           // ROUTE IN session face on top
+    }
+
+    // §10 the ROUTE IN session face — the whole strip is one target: hue glow, big label, the CURRENT source a
+    // SOLID ring, the other (candidate) strips BREATHE. Tap routes the focus cell's input to this receiver.
+    private func routeInFace(_ i: Int) -> some View {
+        let hue = hues[i], isCurrent = routeCurrent == i
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+            let breathe = stagingPulseFraction(tl.date, period: 1.8)     // 0→1→0, shared cadence
+            let ring = isCurrent ? 1.0 : (0.3 + 0.5 * breathe)          // current solid; candidates pulse
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(hue.opacity(isCurrent ? 0.22 : 0.08 + 0.06 * breathe))
+                RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(ring), lineWidth: isCurrent ? 2.5 : 1.5)
+                VStack(spacing: 1) {
+                    Text("ROUTE IN").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(0.85)).tracking(1)
+                    Text(["A", "B", "C", "D"][i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(isCurrent ? .white : hue)
+                    Text(isCurrent ? "SOURCE" : "TAP").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(isCurrent ? 0.75 : 0.32))
+                }
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture { onRouteIn(i) }
     }
 
     private let soloHue = Color(red: 0.98, green: 0.72, blue: 0.12)
@@ -721,6 +750,11 @@ struct OutputsView: View {
     var altCount: [Int] = [1, 1, 1, 1]
     var onToggleAlt: (Int) -> Void = { _ in }
     var onAltCount: (Int, Int) -> Void = { _, _ in }
+    // §10 STRIP SESSION FACE — while a verb is held the emitter strip becomes a ROUTE OUT toggle, large and
+    // geographic (content dims beneath, green glow; lit = this emitter carries the focus cell). Tap toggles.
+    var wiring: Bool = false
+    var routeOn: [Bool] = [false, false, false, false]     // the focus cell's enabled emitters (A–D)
+    var onRouteOut: (Int) -> Void = { _ in }
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
@@ -764,7 +798,31 @@ struct OutputsView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .opacity(excluded ? 0.5 : 1)
+        .opacity(wiring ? 0.3 : (excluded ? 0.5 : 1))       // §10 dim-content-beneath while wiring
+        .allowsHitTesting(!wiring)
+        .overlay { if wiring { routeOutFace(i) } }           // ROUTE OUT session face on top
+    }
+
+    // §10 the ROUTE OUT session face — the emitter strip is a big geographic toggle: green glow, lit when this
+    // emitter carries the focus cell (candidates breathe when off). Tap toggles the cell's emitter.
+    private func routeOutFace(_ i: Int) -> some View {
+        let green = Color(red: 0.35, green: 0.92, blue: 0.50)
+        let lit = i < routeOn.count && routeOn[i]
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+            let breathe = stagingPulseFraction(tl.date, period: 1.8)
+            let ring = lit ? 1.0 : (0.3 + 0.5 * breathe)
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(green.opacity(lit ? 0.28 : 0.07 + 0.05 * breathe))
+                RoundedRectangle(cornerRadius: 6).stroke(green.opacity(ring), lineWidth: lit ? 2.5 : 1.5)
+                VStack(spacing: 1) {
+                    Text("ROUTE OUT").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(green.opacity(0.85)).tracking(1)
+                    Text(letters[i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black : green)
+                    Text(lit ? "ON" : "TAP").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.6) : .white.opacity(0.32))
+                }
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture { onRouteOut(i) }
     }
 
     private func bit(_ mask: UInt8, _ i: Int) -> Bool { mask & (1 << UInt8(i)) != 0 }
