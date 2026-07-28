@@ -483,6 +483,7 @@ struct ReceiversView: View {
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
+    var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
     let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
@@ -703,11 +704,13 @@ struct ReceiversView: View {
                     if touched {                                   // OVERRIDE: the fill bottom-to-finger + set-point
                         Rectangle().fill(hues[i]).frame(height: g.size.height * CGFloat(level))
                         Rectangle().fill(Color.white).frame(height: 1.5).offset(y: -g.size.height * CGFloat(level) + 0.75)
-                    } else {                                       // hold-while-ringing: a steady tick per currently-HELD input note (strip hue)
+                    } else {                                       // ③ VELOCITY MARKS: a steady tick per currently-HELD input
+                        // note (holds while sounding, strip hue) + a FADING mark for each just-released note (~250ms).
                         ForEach(Array((i < heldVels.count ? heldVels[i] : []).enumerated()), id: \.offset) { _, v in
-                            Rectangle().fill(hues[i].opacity(0.85)).frame(height: 2)
+                            Rectangle().fill(hues[i].opacity(0.9)).frame(height: 2)
                                 .position(x: g.size.width / 2, y: g.size.height * (1 - CGFloat(max(0, min(1, v)))))
                         }
+                        velMarkLayer(i < releaseMarks.count ? releaseMarks[i] : [], now: tl.date) { _ in hues[i] }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))

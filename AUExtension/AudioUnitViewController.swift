@@ -115,6 +115,7 @@ struct DiagView: View {
     @State private var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State private var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
+    @State private var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
     @State private var docColours: [Colour] = []
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
@@ -735,6 +736,20 @@ struct DiagView: View {
             if markR != recvMarks { recvMarks = markR }
             // duration: the currently-held input notes per receiver (present-while-held → the MIDI-IN line + hold-while-ringing marks)
             let held = au.pollReceiverSounding().map { $0.map { Double($0) / 127.0 } }
+            // ③ FADE-ON-RELEASE: a held input velocity that dropped from the set leaves a fading mark (~250ms),
+            // so the receiver meter holds while sounding then fades on release (multiset-diff old held vs new).
+            var rel = recvRelease
+            for i in 0..<4 {
+                rel[i] = rel[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
+                var newCounts: [Int: Int] = [:]
+                for v in (i < held.count ? held[i] : []) { newCounts[Int((v * 127).rounded()), default: 0] += 1 }
+                for v in (i < recvHeld.count ? recvHeld[i] : []) {
+                    let k = Int((v * 127).rounded())
+                    if let c = newCounts[k], c > 0 { newCounts[k] = c - 1 } else { rel[i].append(VelMark(vel: v, col: -1, born: mnow)) }
+                }
+                if rel[i].count > 6 { rel[i] = Array(rel[i].suffix(6)) }
+            }
+            if rel != recvRelease { recvRelease = rel }
             if held != recvHeld { recvHeld = held }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
@@ -979,7 +994,7 @@ struct DiagView: View {
 
     @ViewBuilder private var receiversBox: some View {
         ReceiversView(receivers: receivers, editing: false, peak: receiverPeak, peakAt: receiverPeakAt,
-                      heldVels: recvHeld, thruReceiver: thruReceiver,
+                      heldVels: recvHeld, releaseMarks: recvRelease, thruReceiver: thruReceiver,
                       onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
                       onSetCable: setReceiverCable, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
