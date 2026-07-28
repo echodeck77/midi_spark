@@ -2026,6 +2026,43 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - §2 CONTINUITY (the design's verification ask) — drone flow vs re-strike at the column boundary
+
+    /// A drone of identical adjacent PASS-class cells. Two boundaries crossed → count note-offs on the wire.
+    private func droneOffs(phase: ArpPhase, windows: Int = 48) -> (offs: Int, ons: Int, e: RecordingEmitter) {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = phase; return c }()
+        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<windows {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        return (e.offs.count, e.ons.count, e)
+    }
+
+    func testLegatoDroneShouldContinueAcrossColumnBoundary() {
+        // §2 THE DRONE LAW: identical adjacent LEGATO cells + held input ⇒ the voice CONTINUES — ZERO note-off/on
+        // should cross the boundary (PASS · LEGATO · GATE 100 = a drone that flows).
+        let r = droneOffs(phase: .legato)
+        XCTExpectFailure("KNOWN GAP (2026-07-28): LEGATO voice-adoption at the column boundary is NOT implemented. " +
+                         "The Router closes ALL voices at every column transition (allNotesOff) then re-opens the new " +
+                         "column, so an identical-adjacent-cell drone MACHINE-GUNS (offs=12 across 2 boundaries). Fix = " +
+                         "boundary ADOPTION: a matching voice (same note+emitter+colour/face) continues. Remove when fixed.")
+        XCTAssertEqual(r.offs, 0, "LEGATO drone: ZERO note-offs should cross a boundary")
+    }
+
+    func testRetrigDroneReStrikesAtEachColumnEntry() {
+        // §2 the complement: under RETRIG the chord RE-STRIKES each column — off/on pairs cross every boundary.
+        // (Currently the engine re-strikes regardless of phase; this pins the re-strike side of the pair.)
+        let r = droneOffs(phase: .retrig)
+        XCTAssertGreaterThan(r.offs, 0, "RETRIG: the chord re-strikes at each column entry (off/on per boundary)")
+        XCTAssertEqual(r.offs % 6, 0, "each re-strike = 3 notes × 2 cables (own + All)")
+    }
+
     func testMasterFaderKillSilencesEveryEmitter() {
         let b = box(colours: arpColours()) {
             for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]); $0.cells[c][1] = Cell(colourID: "cyan", buses: [.b]) }
