@@ -681,7 +681,7 @@ struct ReceiversView: View {
         Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
             .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
             .frame(maxWidth: .infinity).frame(height: 15)
-            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue : Color.white.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.72) : Color.white.opacity(0.06)))   // ④ chrome quiet: the default LIVE pad recedes a step
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
@@ -904,7 +904,7 @@ struct OutputsView: View {
             .font(.system(size: 8, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : .white.opacity(0.65))
             .frame(maxWidth: .infinity).frame(height: 24)   // taller, more inviting emitter buttons (user 2026-07-28)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber : Color.white.opacity(0.08)))
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber.opacity(0.82) : Color.white.opacity(0.08)))   // ④ chrome quiet: role lights drop a step
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { v in
@@ -929,7 +929,7 @@ struct OutputsView: View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced))
             .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
             .frame(maxWidth: .infinity).frame(height: 20)   // taller emitter buttons (user 2026-07-28)
-            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue : Color.white.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.72) : Color.white.opacity(0.06)))   // ④ chrome quiet: the default LIVE pad recedes a step
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
