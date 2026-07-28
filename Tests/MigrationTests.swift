@@ -324,6 +324,70 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[4][4]?.colourID, "gold")
     }
 
+    // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core)
+
+    private func headed(_ colourID: String, receiver: Int) -> Cell { var c = Cell(colourID: colourID, buses: [.a]); c.inputRow = nil; c.inputReceiver = receiver; return c }
+    private func bodied(_ colourID: String, from row: Int) -> Cell { var c = Cell(colourID: colourID, buses: [.a]); c.inputRow = row; return c }
+
+    func testIsChainHeadIsReceiverFedRoot() {
+        var s = SceneState.empty()
+        s.cells[0][0] = headed("gold", receiver: 0)   // receiver-fed → head
+        s.cells[0][2] = bodied("cyan", from: 0)        // row-fed → body
+        XCTAssertTrue(s.isChainHead(col: 0, row: 0), "a receiver-fed cell is a chain head")
+        XCTAssertFalse(s.isChainHead(col: 0, row: 2), "a row-fed cell is a body, not a head")
+        XCTAssertFalse(s.isChainHead(col: 0, row: 5), "an empty cell is not a head")
+    }
+
+    func testRouteCandidates_sourcesAbove_headsBelow() {
+        var s = SceneState.empty()
+        s.cells[0][0] = headed("gold", receiver: 0)    // above X
+        s.cells[0][2] = headed("cyan", receiver: 0)    // X (at row 2)
+        s.cells[0][4] = headed("mint", receiver: 1)    // a HEAD below X
+        s.cells[0][6] = bodied("teal", from: 4)         // a BODY below X (child of row 4)
+        XCTAssertEqual(s.routeInSourcesAbove(col: 0, row: 2), [0], "only occupied cells above light as sources")
+        XCTAssertEqual(s.graftHeadsBelow(col: 0, row: 2), [4], "only chain HEADS below light — the body (row 6) does not")
+    }
+
+    func testGraftCarriesTheWholeSubtree() {
+        var s = SceneState.empty()
+        s.cells[0][0] = headed("gold", receiver: 0)    // parent X at row 0
+        s.cells[0][3] = headed("cyan", receiver: 1)    // a HEAD below (row 3)
+        s.cells[0][5] = bodied("mint", from: 3)         // the head's CHILD (references row 3)
+        s.graftHeadBelow(headRow: 3, under: 0, col: 0)
+        XCTAssertEqual(s.cells[0][3]?.inputRow, 0, "the grafted head is now fed by the parent row")
+        XCTAssertEqual(s.cells[0][5]?.inputRow, 3, "its subtree follows — the child still references the head's row")
+    }
+
+    func testGraftRefusesBodiesAndCycles() {
+        var s = SceneState.empty()
+        s.cells[0][0] = headed("gold", receiver: 0)
+        s.cells[0][2] = bodied("cyan", from: 0)         // a BODY below (not a head)
+        s.graftHeadBelow(headRow: 2, under: 0, col: 0)
+        XCTAssertEqual(s.cells[0][2]?.inputRow, 0, "a body is not grafted (its inputRow is untouched)")
+        // cycle: parent (row 4) is fed by the head (row 1) → grafting head under parent would loop → refused
+        var t = SceneState.empty()
+        t.cells[0][1] = headed("gold", receiver: 0)
+        t.cells[0][4] = bodied("cyan", from: 1)         // row 4 is a child of the head at row 1
+        t.graftHeadBelow(headRow: 1, under: 4, col: 0)  // would make head⇐row4 while row4⇐head → cycle
+        XCTAssertNil(t.cells[0][1]?.inputRow, "the grafting head stays receiver-fed — the cycle is refused")
+    }
+
+    func testRouteInAndToggleEmitter() {
+        var s = SceneState.empty()
+        s.cells[0][3] = headed("gold", receiver: 0)
+        s.routeInRow(col: 0, row: 3, sourceRow: 1)      // no cell at row 1 → no-op (empty source)
+        XCTAssertNil(s.cells[0][3]?.inputRow, "routeInRow onto an empty source is ignored")
+        s.cells[0][1] = headed("cyan", receiver: 0)
+        s.routeInRow(col: 0, row: 3, sourceRow: 1)      // now valid (occupied, above)
+        XCTAssertEqual(s.cells[0][3]?.inputRow, 1, "routeInRow feeds X from the row above")
+        s.routeInReceiver(col: 0, row: 3, receiver: 2)  // back to a door
+        XCTAssertNil(s.cells[0][3]?.inputRow); XCTAssertEqual(s.cells[0][3]?.inputReceiver, 2)
+        s.toggleEmitter(col: 0, row: 3, bus: .b)         // add B
+        XCTAssertEqual(s.cells[0][3]?.buses.contains(.b), true)
+        s.toggleEmitter(col: 0, row: 3, bus: .a)         // remove A (was the default)
+        XCTAssertEqual(s.cells[0][3]?.buses.contains(.a), false)
+    }
+
     // MARK: - MULTI-SCENE — sparse scenes, switch, save-here, bounds-safety
 
     private func multi() -> PluginState {

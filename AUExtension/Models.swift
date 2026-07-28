@@ -613,6 +613,57 @@ extension SceneState {
         cells[t.col][t.row] = cells[f.col][f.row]
         cells[f.col][f.row] = nil
     }
+
+    // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core; the UI projection lights + taps these)
+
+    /// A CHAIN HEAD (11f) — a root fed by a RECEIVER (`inputRow == nil`); a tree of one counts. A BODY is row-fed.
+    func isChainHead(col: Int, row: Int) -> Bool {
+        guard cells.indices.contains(col), cells[col].indices.contains(row) else { return false }
+        return cells[col][row]?.inputRow == nil && cells[col][row] != nil
+    }
+    /// ROUTE IN candidate SOURCES for cell X: OCCUPIED cells in the rows ABOVE X (same column). Empties don't light
+    /// (nothing to hear). The four RECEIVERS are always candidates too — the UI adds them alongside these.
+    func routeInSourcesAbove(col: Int, row: Int) -> [Int] {
+        guard cells.indices.contains(col), row > 0 else { return [] }
+        return (0..<row).filter { cells[col][$0] != nil }
+    }
+    /// ROUTE OUT graft targets for cell X: CHAIN HEADS in the rows BELOW X (same column). Heads light; bodies don't (11f).
+    func graftHeadsBelow(col: Int, row: Int) -> [Int] {
+        guard cells.indices.contains(col) else { return [] }
+        return ((row + 1)..<cells[col].count).filter { isChainHead(col: col, row: $0) }
+    }
+    /// Would feeding (col,row) FROM `sourceRow` create a cycle (sourceRow's input chain already reaches row)? Bounded.
+    private func wouldCycle(col: Int, row: Int, feedingFrom sourceRow: Int) -> Bool {
+        var cur: Int? = sourceRow, hops = 0
+        while let r = cur, hops < 8 { if r == row { return true }; cur = cells[col][r]?.inputRow; hops += 1 }
+        return false
+    }
+    /// ROUTE IN (single-select radio) — feed cell X from a RECEIVER door: inputRow = nil, inputReceiver = r (0–3).
+    mutating func routeInReceiver(col: Int, row: Int, receiver: Int) {
+        guard cells.indices.contains(col), cells[col].indices.contains(row), var c = cells[col][row] else { return }
+        c.inputRow = nil; c.inputReceiver = max(0, min(3, receiver)); cells[col][row] = c
+    }
+    /// ROUTE IN (single-select radio) — feed cell X from a ROW strictly ABOVE. No-op if not above, empty, or a cycle.
+    mutating func routeInRow(col: Int, row: Int, sourceRow: Int) {
+        guard cells.indices.contains(col), cells[col].indices.contains(row), sourceRow >= 0, sourceRow < row,
+              cells[col][sourceRow] != nil, !wouldCycle(col: col, row: row, feedingFrom: sourceRow),
+              var c = cells[col][row] else { return }
+        c.inputRow = sourceRow; cells[col][row] = c
+    }
+    /// ROUTE OUT GRAFT (11f) — graft a CHAIN HEAD below under cell X: the head becomes row-fed by X and its whole
+    /// SUBTREE follows (children reference the head's row, unchanged). Only a head grafts; its door assignment drops.
+    mutating func graftHeadBelow(headRow: Int, under parentRow: Int, col: Int) {
+        guard cells.indices.contains(col), cells[col].indices.contains(headRow), parentRow >= 0, parentRow < headRow,
+              var h = cells[col][headRow], h.inputRow == nil,                       // only a head below grafts
+              !wouldCycle(col: col, row: headRow, feedingFrom: parentRow) else { return }
+        h.inputRow = parentRow; cells[col][headRow] = h
+    }
+    /// ROUTE OUT emitters — toggle cell X's membership of an emitter bus (multi).
+    mutating func toggleEmitter(col: Int, row: Int, bus: Bus) {
+        guard cells.indices.contains(col), cells[col].indices.contains(row), var c = cells[col][row] else { return }
+        if c.buses.contains(bus) { c.buses.remove(bus) } else { c.buses.insert(bus) }
+        cells[col][row] = c
+    }
 }
 
 // MARK: - Session template / clipboard (delta §5) — one STAMP object
