@@ -170,17 +170,15 @@ struct DiagView: View {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
-    // §11b/11c dispatch: a verb held → the tap does the verb; else a single-cell SELECTION is the ROUTING
-    // interface (tap a candidate to wire); else (no verb, no selection) the tap is a TRIGGER (ON TAP).
+    // §11b dispatch: a verb held → the tap does the verb (SELECT also routes candidates in-session); else a tap
+    // is a TRIGGER (ON TAP). Routing happens WHILE SELECT is held (user 2026-07-28): the world offers wiring for
+    // the selected cell, tapping a candidate wires it, RELEASE applies, CANCEL reverts.
     private func tapCell(_ col: Int, _ row: Int) {
-        if let v = activeVerb { doVerb(v, col, row) }
-        else if let f = routeFocus { doRoute(from: f, col, row) }
-        else { triggerTap(col, row) }
+        if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
-    // §10/11c ROUTE mode is live when exactly ONE cell is selected and no verb is held (the projection is the
-    // routing interface). That cell's sources light ABOVE, its graftable heads light BELOW; the route bar wires
-    // receivers/emitters. Tapping a candidate wires it; tapping the focus (or a non-candidate) ends route mode.
-    private var routeFocus: GridView.GridPos? { (heldVerb == nil && selection.count == 1) ? selection.first : nil }
+    // §10/11c ROUTE FOCUS — the single cell being wired DURING a SELECT hold. Its sources light ABOVE, its
+    // graftable heads light BELOW, and the route bar offers receivers/emitters. (Multi-select = batch, no routing.)
+    private var routeFocus: GridView.GridPos? { (heldVerb == .select && selection.count == 1) ? selection.first : nil }
     private var routeInCandidates: Set<GridView.GridPos> {
         guard let f = routeFocus else { return [] }
         return Set(scene.routeInSourcesAbove(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
@@ -188,18 +186,6 @@ struct DiagView: View {
     private var routeOutCandidates: Set<GridView.GridPos> {
         guard let f = routeFocus else { return [] }
         return Set(scene.graftHeadsBelow(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
-    }
-    private func doRoute(from f: GridView.GridPos, _ col: Int, _ row: Int) {
-        guard let au else { return }
-        let pos = GridView.GridPos(col: col, row: row)
-        if pos == f { selection.removeAll(); return }                       // tap the focus = DONE
-        if routeInCandidates.contains(pos) {                               // an occupied cell ABOVE → ROUTE IN
-            au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument()
-        } else if routeOutCandidates.contains(pos) {                       // a chain HEAD below → GRAFT it under the focus
-            au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument()
-        } else {
-            selection.removeAll()                                          // tap-away = DONE (no candidate)
-        }
     }
     // §10 the ROUTE BAR — receivers (single-select ROUTE IN) + emitters (multi ROUTE OUT) for the focused cell.
     private func routeInReceiver(_ r: Int) {
@@ -223,11 +209,12 @@ struct DiagView: View {
             Spacer(minLength: 6)
             Text("OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.55))
             ForEach(Bus.allCases, id: \.self) { b in routeChip(b.rawValue, on: buses.contains(b)) { toggleFocusEmitter(b) } }
+            Text("· release to apply").font(.system(size: 8, design: .monospaced)).foregroundColor(.black.opacity(0.4))
             Spacer(minLength: 6)
-            Text("DONE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+            Text("CANCEL").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
-                .contentShape(Rectangle()).onTapGesture { selection.removeAll() }
+                .contentShape(Rectangle()).onTapGesture { cancelVerb() }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color(red: 0.15, green: 0.88, blue: 0.94))   // cyan — the SELECT/route hue
@@ -252,8 +239,16 @@ struct DiagView: View {
             guard scene.cells[col][row] != nil else { return }
             au.editScene { $0.deleteCellHealing(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
-        case .select:                                       // toggle membership; an empty tap clears (tap-away deselects)
-            if scene.cells[col][row] == nil { selection.removeAll() }
+        case .select:                                       // one cell selected → tapping a candidate WIRES it (not selectable);
+            if selection.count == 1, let f = selection.first, f != pos {   // else tapping toggles membership (build the stack)
+                if routeInCandidates.contains(pos) {                       // an occupied cell ABOVE → ROUTE IN
+                    au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument(); return
+                }
+                if routeOutCandidates.contains(pos) {                      // a chain HEAD below → GRAFT under the focus
+                    au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument(); return
+                }
+            }
+            if scene.cells[col][row] == nil { selection.removeAll() }      // an empty tap clears the stack
             else if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
         case .move:                                         // lift-tap, then land-tap
             if let src = moveSource {
@@ -356,7 +351,7 @@ struct DiagView: View {
         return roundVerb(label: v.label, hue: v.hue, active: active, badge: badge)
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
-                .onEnded { _ in heldVerb = nil })
+                .onEnded { _ in if v == .select { selection.removeAll() }; heldVerb = nil })   // release = APPLY (clear the stack)
     }
     private func onVerbEngaged(_ v: Verb) {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
@@ -364,7 +359,7 @@ struct DiagView: View {
         switch v {                                          // snapshot the state CANCEL reverts to, per verb
         case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells
         case .delete: gridSnapshot = scene.cells
-        case .select: selectionSnapshot = selection
+        case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
         default: break
         }
     }
@@ -373,13 +368,12 @@ struct DiagView: View {
     private var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete || activeVerb == .select }
     private func cancelVerb() {
         switch heldVerb {
-        case .place, .delete:
+        case .place, .delete, .select:                      // SELECT reverts its routing edits too (grid → prior state)
             if let au, let snap = gridSnapshot { au.editScene { $0.cells = snap }; refreshFromDocument() }
             placeFresh = []; placeUndo = [:]
-        case .select:
-            if let s = selectionSnapshot { selection = s }
         default: break
         }
+        selection.removeAll()                               // CANCEL clears the stack (user 2026-07-28)
         heldVerb = nil                                      // end the held status
     }
     // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
@@ -671,10 +665,10 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onDelete: deletePreset,
                                   onClose: { showPresets = false })
                 }
-                if verbHasBanner, let v = activeVerb {  // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts + ends)
-                    VStack(spacing: 0) { verbBanner(v); Spacer() }
-                } else if let f = routeFocus {          // §10 ROUTE bar (one cell selected, no verb held)
+                if let f = routeFocus {                 // §10 ROUTE bar (SELECT held, exactly one cell selected)
                     VStack(spacing: 0) { routeBar(f); Spacer() }
+                } else if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts)
+                    VStack(spacing: 0) { verbBanner(v); Spacer() }
                 }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
