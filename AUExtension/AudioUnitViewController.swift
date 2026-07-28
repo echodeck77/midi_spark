@@ -46,6 +46,7 @@ struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpo
 /// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
 enum Verb: String, CaseIterable {
     case place = "PLACE", delete = "DELETE", select = "SELECT", move = "MOVE", copy = "COPY"
+    var label: String { self == .place ? "PLACE CELL(S)" : rawValue }
     var hue: Color {
         switch self {
         case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
@@ -79,6 +80,10 @@ struct DiagView: View {
     @State private var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
     @State private var moveSource: GridView.GridPos? = nil      // MOVE: the lifted cell (land-tap completes)
     @State private var copySource: GridView.GridPos? = nil      // COPY: the source (each subsequent tap pastes)
+    // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
+    // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
+    @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
+    @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     private var activeVerb: Verb? { heldVerb }
     @State private var selCol = -1
     @State private var selRow = -1
@@ -172,13 +177,24 @@ struct DiagView: View {
         guard let au else { return }
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
-        case .place:                                        // stamp the brush Colour into an empty cell
-            guard scene.cells[col][row] == nil else { return }
-            let parentAbove = (row > 0 && scene.cells[col][row - 1] != nil) ? row - 1 : nil   // §9.③ downhill nudge
-            au.editScene {
-                var cell = Cell(colourID: brush, buses: [.a]); cell.inputRow = parentAbove
-                if parentAbove == nil { cell.inputReceiver = 0 }   // a MIDI-IN cell MUST point at a receiver (R1) —
-                $0.cells[col][row] = cell                          // else it bypasses the receiver's mute/channel/cable/MPE
+        case .place:                                        // PLACE CELL(S) — a toggle with restore (user 2026-07-28)
+            if placeFresh.contains(pos) {                   // placed onto empty this hold → re-tap REMOVES it
+                au.editScene { $0.cells[col][row] = nil }
+                placeFresh.remove(pos)
+            } else if let original = placeUndo[pos] {       // replaced a populated cell this hold → re-tap RESTORES the original
+                au.editScene { $0.cells[col][row] = original }
+                placeUndo.removeValue(forKey: pos)
+            } else if let existing = scene.cells[col][row] { // fresh tap on a populated cell → REPLACE (remember the original; keep its wiring)
+                placeUndo[pos] = existing
+                au.editScene { var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver; $0.cells[col][row] = c }
+            } else {                                         // fresh tap on empty → PLACE (§9.③ downhill nudge)
+                placeFresh.insert(pos)
+                let parentAbove = (row > 0 && scene.cells[col][row - 1] != nil) ? row - 1 : nil
+                au.editScene {
+                    var c = Cell(colourID: brush, buses: [.a]); c.inputRow = parentAbove
+                    if parentAbove == nil { c.inputReceiver = 0 }   // MIDI-IN cells must point at R1 (else they bypass the receiver)
+                    $0.cells[col][row] = c
+                }
             }
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
@@ -264,7 +280,7 @@ struct DiagView: View {
         let active = activeVerb == v
         let badge: String? = v == .select && !selection.isEmpty ? "\(selection.count)"
             : ((v == .move && moveSource != nil) || (v == .copy && copySource != nil)) ? "•" : nil
-        return roundVerb(label: v.rawValue, hue: v.hue, active: active, badge: badge)
+        return roundVerb(label: v.label, hue: v.hue, active: active, badge: badge)
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
                 .onEnded { _ in heldVerb = nil })
@@ -272,6 +288,7 @@ struct DiagView: View {
     private func onVerbEngaged(_ v: Verb) {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
         if v != .copy { copySource = nil }
+        if v == .place { placeFresh = []; placeUndo = [:] }   // each PLACE hold is a fresh toggle session
     }
     private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
         RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
@@ -682,11 +699,12 @@ struct DiagView: View {
     private func rowRail(_ cellHeight: CGFloat) -> some View {
         let hue = activeVerb?.hue ?? Color.white.opacity(0.35)
         return VStack(spacing: GridGeometry.vGap) {
-            Color.clear.frame(width: 20, height: cellHeight)          // align past the column-key row
+            Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
-                Image(systemName: "chevron.left").font(.system(size: 12, weight: .heavy))
+                Image(systemName: "chevron.left").font(.system(size: 20, weight: .heavy))
                     .foregroundColor(hue)
-                    .frame(width: 20, height: cellHeight)
+                    .frame(width: 40, height: cellHeight)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(hue.opacity(0.1)))
                     .contentShape(Rectangle())
                     .onTapGesture { if let v = activeVerb { doVerbOnRow(v, r) } }
             }
