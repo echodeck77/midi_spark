@@ -317,18 +317,27 @@ struct DiagView: View {
     // HELD quasimode: press-hold a verb = spring-active; long-press (0.5s) = LATCH (tap again releases). HOLD is
     // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
     private var verbCluster: some View {
-        VStack(spacing: 6) {
-            if let v = activeVerb {
-                Text(verbHint(v)).font(.system(size: 7, weight: .heavy, design: .monospaced))
-                    .foregroundColor(v.hue).lineLimit(2).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+        // ROUND verbs (user ruling): circular pads — PLACE centred over DELETE·SELECT and MOVE·COPY. Sized to
+        // fill the corner (SPACE-FILL) within a diameter that fits both the width (2-across) and the height.
+        GeometryReader { g in
+            let gap: CGFloat = 10
+            let diam = max(34, min(76, min((g.size.width - gap) / 2, (g.size.height - 22) / 3.3)))
+            VStack(spacing: gap) {
+                if let v = activeVerb {
+                    Text(verbHint(v)).font(.system(size: 7, weight: .heavy, design: .monospaced))
+                        .foregroundColor(v.hue).lineLimit(2).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+                verbPad(.place, diam)                                                    // PLACE — centred
+                HStack(spacing: gap) { verbPad(.delete, diam); verbPad(.select, diam) }
+                HStack(spacing: gap) { verbPad(.move, diam); verbPad(.copy, diam) }
+                Spacer(minLength: 0)
             }
-            verbButton(.place)                             // PLACE — top, full width
-            HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
-            HStack(spacing: 6) { verbButton(.move); verbButton(.copy) }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(6)
     }
+    private func verbPad(_ v: Verb, _ diam: CGFloat) -> some View { verbButton(v).frame(width: diam, height: diam) }
     private func verbHint(_ v: Verb) -> String {
         switch v {
         case .place:  return "PLACE \(brush.uppercased()) — tap empties"
@@ -393,18 +402,20 @@ struct DiagView: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(v.hue)
     }
+    // §11 the verbs are ROUND (user ruling 2026-07-28: "round and inviting" = circles). A circular pad; the
+    // caller frames it to a diameter. Active = filled in the verb hue; idle = a hue ring inviting the press.
     private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
-        RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(active ? 0 : 0.4), lineWidth: 1.5))
-            .overlay(Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(active ? .black : hue.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.6).padding(3))
+        Circle().fill(active ? hue : Color.white.opacity(0.06))
+            .overlay(Circle().stroke(hue.opacity(active ? 0 : 0.55), lineWidth: 2))
+            .overlay(Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(active ? .black : hue.opacity(0.95)).lineLimit(1).minimumScaleFactor(0.5).padding(5))
             .overlay(alignment: .topTrailing) {
                 if let b = badge {
                     Text(b).font(.system(size: 8, weight: .heavy)).foregroundColor(.black)
-                        .frame(width: 15, height: 15).background(Circle().fill(hue)).offset(x: 3, y: -3)
+                        .frame(width: 15, height: 15).background(Circle().fill(hue)).offset(x: 1, y: -1)
                 }
             }
-            .frame(height: 42).frame(maxWidth: .infinity).contentShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(Circle())
     }
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
