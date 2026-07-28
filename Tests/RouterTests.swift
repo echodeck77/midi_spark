@@ -2046,13 +2046,11 @@ final class RouterTests: XCTestCase {
 
     func testLegatoDroneShouldContinueAcrossColumnBoundary() {
         // §2 THE DRONE LAW: identical adjacent LEGATO cells + held input ⇒ the voice CONTINUES — ZERO note-off/on
-        // should cross the boundary (PASS · LEGATO · GATE 100 = a drone that flows).
+        // should cross the boundary (PASS · LEGATO · GATE 100 = a drone that flows). Boundary ADOPTION keeps a
+        // matching voice (same note+emitter+colour/face); the chord is struck ONCE and never re-speaks.
         let r = droneOffs(phase: .legato)
-        XCTExpectFailure("KNOWN GAP (2026-07-28): LEGATO voice-adoption at the column boundary is NOT implemented. " +
-                         "The Router closes ALL voices at every column transition (allNotesOff) then re-opens the new " +
-                         "column, so an identical-adjacent-cell drone MACHINE-GUNS (offs=12 across 2 boundaries). Fix = " +
-                         "boundary ADOPTION: a matching voice (same note+emitter+colour/face) continues. Remove when fixed.")
         XCTAssertEqual(r.offs, 0, "LEGATO drone: ZERO note-offs should cross a boundary")
+        XCTAssertEqual(r.ons, 6, "struck exactly ONCE (3 notes × 2 cables) — no re-strike at any boundary")
     }
 
     func testRetrigDroneReStrikesAtEachColumnEntry() {
@@ -2061,6 +2059,51 @@ final class RouterTests: XCTestCase {
         let r = droneOffs(phase: .retrig)
         XCTAssertGreaterThan(r.offs, 0, "RETRIG: the chord re-strikes at each column entry (off/on per boundary)")
         XCTAssertEqual(r.offs % 6, 0, "each re-strike = 3 notes × 2 cables (own + All)")
+    }
+
+    // A LEGATO drone occupying only SOME columns — the cell sits in column 0 only.
+    private func partialDrone() -> (router: Router, box: SnapshotBox, pool: NotePool, e: RecordingEmitter,
+                                    tempo: Double, sr: Double, frames: UInt32, wb: Double) {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // ONLY column 0
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        return (Router(), b, chord([60, 64, 67]), RecordingEmitter(), tempo, sr, frames, Double(frames) * tempo / 60.0 / sr)
+    }
+
+    func testPartialRowLegatoDroneIsPassLengthEnvelope() {
+        // §2 item 2③: a LEGATO drone that occupies only SOME columns = a PASS-LENGTH ENVELOPE — it CLOSES when
+        // the playhead leaves its last column (first empty column) and RE-OPENS at the wrap. Contrast the
+        // full-row drone (testLegatoDrone…), which never closes.
+        let d = partialDrone(); var diag = KernelDiag(); var beat = 0.0, ts = 0.0
+        for _ in 0..<480 {   // ≥ 2 full 8-column passes (a pass ≈ 192 windows at the default step)
+            d.router.process(box: d.box, pool: d.pool, playing: true, beatPos: beat, tempo: d.tempo, sampleRate: d.sr,
+                             timestampSample: ts, frameCount: d.frames, out: d.e, diag: &diag)
+            beat += d.wb; ts += Double(d.frames)
+        }
+        XCTAssertGreaterThan(d.e.offs.count, 0, "the drone CLOSES when the playhead leaves column 0 (the envelope)")
+        XCTAssertEqual(d.e.offs.count % 6, 0, "closes the whole chord (3 notes × 2 cables) cleanly")
+        XCTAssertGreaterThan(d.e.ons.count, 6, "and RE-OPENS at each wrap — struck more than once")
+    }
+
+    func testLegatoDroneClosesOnTransportStop() {
+        // §2 invariant 4: an IMMORTAL (offSample .max) legato drone is not a stuck note — a transport-stop
+        // edge closes it like any other voice, leaving silence.
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        let b = box(colours: cs) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<24 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertGreaterThan(e.ons.count, 0, "the drone sounded")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // transport STOP
+        assertNothingLeftSounding(e)
     }
 
     func testMasterFaderKillSilencesEveryEmitter() {

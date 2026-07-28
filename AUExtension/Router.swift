@@ -43,6 +43,13 @@ final class Router {
         var offSample: Int64 = .max  // close exactly its notes (own cable + its All copy).
         var silent = false           // delta §6a CLAIM: a MUTED claimant's ghost voice — tracked for
                                      // exclusivity but never emitted (no wire, no refcount).
+        // §2 CONTINUITY (LEGATO adoption): a legato chord-hold voice is IMMORTAL (offSample .max) and
+        // carries the identity the adoption law keys on — same NOTE (wire) + same EMITTER (bus) + same
+        // COLOUR-AND-FACE (colourIndex + alt). At a column boundary a re-held identical voice is ADOPTED
+        // (kept, no off/on); a changed one closes and the new one strikes. Stamped for every voice
+        // (harmless on non-hold voices — only audible immortal voices are ever adoption-matched).
+        var colourIndex: Int8 = -1
+        var alt = false
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -116,6 +123,10 @@ final class Router {
     private var withheldCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
     private var withheldCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
+    private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
+    // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
+    // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
+    private var holdCandidate = [Bool](repeating: false, count: 128)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
     // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
@@ -319,6 +330,8 @@ final class Router {
         voices[slot].bus = bus
         voices[slot].offSample = offSample
         voices[slot].silent = silent
+        voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
+        voices[slot].alt = currentAlt
         return slot
     }
 
@@ -396,6 +409,35 @@ final class Router {
     /// Close every sounding voice at one sample time (transport edge, column transition, reset).
     func allNotesOff(atSample time: Int64, out: MIDIEmitter?) {
         for i in voices.indices where voices[i].active { closeVoice(i, atSample: time, out: out) }
+    }
+
+    /// §2 CONTINUITY: the column-transition close, minus the legato drones. Truncates every voice at the
+    /// boundary (arp tails, retrig/chance/harmonize holds, claim ghosts) EXCEPT audible IMMORTAL voices —
+    /// the legato chord-holds. Those survive into `emitColumnHolds`, which then ADOPTS the ones the new
+    /// column re-holds identically and closes the rest (the reconcile). Everything else re-strikes as before.
+    private func closeExceptLegatoHolds(atSample time: Int64, out: MIDIEmitter?) {
+        // Keep every IMMORTAL voice (offSample .max) — the audible legato drones AND, if a drone landed on a
+        // CLAIM emitter, its silent ownership ghost. Both share note+bus+colour+face, so the reconcile adopts
+        // or closes them in lockstep (no orphaned ghost leaking a slot). During play these are the ONLY
+        // immortal voices (arp/retrig ghosts carry a finite offSample; audition is stopped-only).
+        for i in voices.indices where voices[i].active && voices[i].offSample != .max {
+            closeVoice(i, atSample: time, out: out)
+        }
+    }
+
+    /// §2 CONTINUITY: ADOPT a legato hold. Scan the transition's candidate voices for the ones matching this
+    /// re-held identity — same wire NOTE + EMITTER (bus) + COLOUR-AND-FACE — and un-mark them (keep alive:
+    /// own cable + its All copy, both cleared). Returns true iff ≥1 matched, in which case the caller does
+    /// NOT re-emit on this bus: the existing voices flow through the boundary with no off/on (the drone).
+    private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int8, alt: Bool) -> Bool {
+        var found = false
+        for i in voices.indices where holdCandidate[i]
+            && voices[i].note == wire && voices[i].bus == bus
+            && voices[i].colourIndex == ci && voices[i].alt == alt {
+            holdCandidate[i] = false
+            found = true
+        }
+        return found
     }
 
     private func anyVoiceActive() -> Bool {
@@ -641,12 +683,20 @@ final class Router {
                                  beatsPerSample: Double, windowStart: Int64,
                                  windowEnd: Int64, out: MIDIEmitter?,
                                  diag: inout KernelDiag) {
-        guard pool.count > 0 else { return }
         let colStart = (mNow / S).rounded(.down) * S
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                 windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                  windowStart: windowStart, S: S, a: a)
+        // §2 CONTINUITY: every audible IMMORTAL (legato) voice from the previous column is a candidate for
+        // ADOPTION. The reconcile below un-marks each one this column re-holds identically; any still marked
+        // at the end were dropped (a different chord, a changed emitter/face, or an empty column) and close
+        // at the boundary. An empty pool → no cell emits → all candidates close (close-at-first-empty-column,
+        // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
+        // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
+        // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max }
+        if pool.count > 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE
@@ -659,8 +709,10 @@ final class Router {
             // (drops each note by probability), and HARMONIZE (expands each note to voices).
             // Arp/ratchet/strum and a closed passgate do not chord-hold.
             if !onSceneAudible(colour.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
+            let altFlag = cell.alt != tapFlipped(column, r)          // §9 ON TAP flip — this cell's effective FACE
+            currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
             let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
-                                         baseAlt: cell.alt != tapFlipped(column, r), arrivals: pass)   // §9 ON TAP flip
+                                         baseAlt: altFlag, arrivals: pass)
             let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
                                 passMask: effectivePassMask(colour, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
@@ -669,6 +721,10 @@ final class Router {
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
+            // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
+            // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
+            // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
+            let legato = mode == .identity && colour.a.phase == .legato && (bm & altMask) == 0
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
             let srcN = cellPool.srcCount(for: cell)   // §7 source filter
             for k in 0..<srcN {
@@ -680,6 +736,21 @@ final class Router {
                     emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: false,
                                 busMask: bm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, out: out, diag: &diag)
+                } else if legato {
+                    // §2 per-bus reconcile: ADOPT the buses a matching drone already sounds (no off/on);
+                    // STRIKE only the buses that are new — each opened IMMORTAL (offSample .max) so drainDue
+                    // never truncates it and only the next boundary's reconcile can close it.
+                    var emitMask: UInt8 = 0
+                    for b in UInt8(0)..<4 where bm & (1 << b) != 0 {
+                        let w = n + emitterOctaveShift(Int(b)) + masterKey   // the wire pitch emitOneBus will open
+                        guard w >= 0 && w <= 127 else { continue }           // out of range → emitOneBus would drop it
+                        if !adoptLegatoBus(wire: UInt8(w), bus: b, ci: Int8(ci), alt: altFlag) { emitMask |= (1 << b) }
+                    }
+                    if emitMask != 0 {
+                        emitArtic(note: UInt8(n), busMask: emitMask,
+                                  onSample: onSample, offSample: .max, windowEnd: windowEnd,
+                                  out: out, diag: &diag)
+                    }
                 } else {
                     emitArtic(note: UInt8(n), busMask: bm,
                               onSample: onSample, offSample: offSample, windowEnd: windowEnd,
@@ -687,6 +758,10 @@ final class Router {
                 }
             }
         }
+        }
+        // §2 CONTINUITY: close the drones this column did NOT re-hold (dropped notes / empty column), at the
+        // boundary. Adopted voices were un-marked above and flow through untouched.
+        for i in voices.indices where holdCandidate[i] { closeVoice(i, atSample: onSample, out: out) }
     }
 
     /// A chord-hold "relay" parent (identity / OPEN passgate at MIDI-IN, sounding this column) outputs its
@@ -856,6 +931,7 @@ final class Router {
         self.masterVelOverride = masterVelOverride // master panel: the momentary master fader
         currentInputRecv = -1                      // set per-cell in the playing loops; −1 for preview/audition
         currentColourIndex = -1
+        currentAlt = false
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
 
@@ -1011,7 +1087,9 @@ final class Router {
                 let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
                 let realB = realOf(boundaryMusical, stepBeats: S, a: a)
                 let off = max(0, (realB - beatPos) / beatsPerSample)
-                allNotesOff(atSample: windowStart + Int64(off), out: out)
+                // §2 CONTINUITY: keep the legato drones alive across the boundary — emitColumnHolds reconciles
+                // them (adopt the re-held, close the dropped). Everything else truncates here as before.
+                closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out)
             }
             prevEffColumn = effColumn
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
