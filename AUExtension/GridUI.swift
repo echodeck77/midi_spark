@@ -103,6 +103,9 @@ struct GridView: View {
     var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
+    var routeFocus: GridPos? = nil                   // §10 ROUTE mode: the cell being wired (solid amber ring)
+    var routeIn: Set<GridPos> = []                   // §10 candidate SOURCES above (cyan glow — tap = ROUTE IN)
+    var routeOut: Set<GridPos> = []                  // §10 graftable chain HEADS below (green glow — tap = GRAFT)
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
     var tapMuteMask: UInt64 = 0                       // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute (dims the cell)
 
@@ -258,9 +261,15 @@ struct GridView: View {
                             lineWidth: isSel ? 2 : (activeGlow ? 1.5 : 1))
             }
         }
-        .overlay {                                          // §11 PLACE white border > SELECT ring > verb-invite glow
+        .overlay {                                          // §10 ROUTE candidates > §11 PLACE border > SELECT ring > verb glow
             let pos = GridPos(col: col, row: row)
-            if whiteBorder.contains(pos) {
+            if pos == routeFocus {                          // the cell being wired
+                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.98, green: 0.72, blue: 0.12), lineWidth: 2.5)
+            } else if routeIn.contains(pos) {               // a source ABOVE — tap to ROUTE IN
+                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2)
+            } else if routeOut.contains(pos) {              // a graftable HEAD below — tap to GRAFT
+                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.35, green: 0.92, blue: 0.50), lineWidth: 2)
+            } else if whiteBorder.contains(pos) {
                 RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
             } else if selection.contains(pos) {
                 RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2.5)

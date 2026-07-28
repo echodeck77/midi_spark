@@ -170,9 +170,74 @@ struct DiagView: View {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
-    // §11b PERFECT SEPARATION: no verb held → the tap is a TRIGGER (ON TAP); a verb held → the tap does the verb.
+    // §11b/11c dispatch: a verb held → the tap does the verb; else a single-cell SELECTION is the ROUTING
+    // interface (tap a candidate to wire); else (no verb, no selection) the tap is a TRIGGER (ON TAP).
     private func tapCell(_ col: Int, _ row: Int) {
-        if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
+        if let v = activeVerb { doVerb(v, col, row) }
+        else if let f = routeFocus { doRoute(from: f, col, row) }
+        else { triggerTap(col, row) }
+    }
+    // §10/11c ROUTE mode is live when exactly ONE cell is selected and no verb is held (the projection is the
+    // routing interface). That cell's sources light ABOVE, its graftable heads light BELOW; the route bar wires
+    // receivers/emitters. Tapping a candidate wires it; tapping the focus (or a non-candidate) ends route mode.
+    private var routeFocus: GridView.GridPos? { (heldVerb == nil && selection.count == 1) ? selection.first : nil }
+    private var routeInCandidates: Set<GridView.GridPos> {
+        guard let f = routeFocus else { return [] }
+        return Set(scene.routeInSourcesAbove(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
+    }
+    private var routeOutCandidates: Set<GridView.GridPos> {
+        guard let f = routeFocus else { return [] }
+        return Set(scene.graftHeadsBelow(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
+    }
+    private func doRoute(from f: GridView.GridPos, _ col: Int, _ row: Int) {
+        guard let au else { return }
+        let pos = GridView.GridPos(col: col, row: row)
+        if pos == f { selection.removeAll(); return }                       // tap the focus = DONE
+        if routeInCandidates.contains(pos) {                               // an occupied cell ABOVE → ROUTE IN
+            au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument()
+        } else if routeOutCandidates.contains(pos) {                       // a chain HEAD below → GRAFT it under the focus
+            au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument()
+        } else {
+            selection.removeAll()                                          // tap-away = DONE (no candidate)
+        }
+    }
+    // §10 the ROUTE BAR — receivers (single-select ROUTE IN) + emitters (multi ROUTE OUT) for the focused cell.
+    private func routeInReceiver(_ r: Int) {
+        guard let f = routeFocus else { return }
+        au?.editScene { $0.routeInReceiver(col: f.col, row: f.row, receiver: r) }; refreshFromDocument()
+    }
+    private func toggleFocusEmitter(_ b: Bus) {
+        guard let f = routeFocus else { return }
+        au?.editScene { $0.toggleEmitter(col: f.col, row: f.row, bus: b) }; refreshFromDocument()
+    }
+    // §10 the route bar (top overlay while a single cell is focused): IN = receivers (radio), OUT = emitters (multi).
+    private func routeBar(_ f: GridView.GridPos) -> some View {
+        let cell = scene.cells[f.col][f.row]
+        let recvFed = cell?.inputRow == nil, curRecv = cell?.inputReceiver ?? 0
+        let buses = cell?.buses ?? []
+        return HStack(spacing: 8) {
+            Text("ROUTE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+            Text("IN").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.55))
+            ForEach(0..<4, id: \.self) { r in routeChip("R\(r + 1)", on: recvFed && curRecv == r) { routeInReceiver(r) } }
+            Text("· tap a cell above").font(.system(size: 8, design: .monospaced)).foregroundColor(.black.opacity(0.4))
+            Spacer(minLength: 6)
+            Text("OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.55))
+            ForEach(Bus.allCases, id: \.self) { b in routeChip(b.rawValue, on: buses.contains(b)) { toggleFocusEmitter(b) } }
+            Spacer(minLength: 6)
+            Text("DONE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
+                .contentShape(Rectangle()).onTapGesture { selection.removeAll() }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Color(red: 0.15, green: 0.88, blue: 0.94))   // cyan — the SELECT/route hue
+    }
+    private func routeChip(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .white : .black.opacity(0.55))
+            .frame(width: 22, height: 18)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? Color.black.opacity(0.55) : Color.black.opacity(0.12)))
+            .contentShape(Rectangle()).onTapGesture { tap() }
     }
 
     // §11 dispatch a grid tap to the active verb.
@@ -608,6 +673,8 @@ struct DiagView: View {
                 }
                 if verbHasBanner, let v = activeVerb {  // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts + ends)
                     VStack(spacing: 0) { verbBanner(v); Spacer() }
+                } else if let f = routeFocus {          // §10 ROUTE bar (one cell selected, no verb held)
+                    VStack(spacing: 0) { routeBar(f); Spacer() }
                 }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
@@ -742,6 +809,7 @@ struct DiagView: View {
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
+                     routeFocus: routeFocus, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
