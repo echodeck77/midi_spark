@@ -84,7 +84,9 @@ struct DiagView: View {
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
     @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
+    @State private var placeSnapshot: [[Cell?]]? = nil         // the grid before this PLACE hold — CANCEL reverts to it
     private var activeVerb: Verb? { heldVerb }
+    private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
     @State private var selCol = -1
     @State private var selRow = -1
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -288,7 +290,28 @@ struct DiagView: View {
     private func onVerbEngaged(_ v: Verb) {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
         if v != .copy { copySource = nil }
-        if v == .place { placeFresh = []; placeUndo = [:] }   // each PLACE hold is a fresh toggle session
+        if v == .place { placeFresh = []; placeUndo = [:]; placeSnapshot = scene.cells }   // fresh session; snapshot for CANCEL
+    }
+    // §11 CANCEL a PLACE session — revert the grid to the snapshot taken when PLACE was engaged (all placements undone).
+    private func cancelPlace() {
+        guard let au, let snap = placeSnapshot else { return }
+        au.editScene { $0.cells = snap }
+        placeFresh = []; placeUndo = [:]
+        refreshFromDocument()
+    }
+    // The PLACE banner — an overlay at the top of the page while PLACE is held (tap CANCEL with the free hand to revert).
+    private var placeBanner: some View {
+        HStack(spacing: 12) {
+            Text("Place cells on grid and choose routing")
+                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+            Spacer(minLength: 8)
+            Text("CANCEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
+                .contentShape(Rectangle()).onTapGesture { cancelPlace() }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Verb.place.hue)
     }
     private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
         RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
@@ -558,6 +581,9 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onDelete: deletePreset,
                                   onClose: { showPresets = false })
                 }
+                if heldVerb == .place {                 // §11 PLACE session banner (top overlay; CANCEL reverts)
+                    VStack(spacing: 0) { placeBanner; Spacer() }
+                }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
                 #endif
@@ -688,7 +714,9 @@ struct DiagView: View {
                      selCol: selCol, selRow: selRow, onTap: tapCell,
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
-                     selection: selection, verbInvite: activeVerb?.hue,   // §11 SELECT ring + verb-invite glow
+                     selection: selection,
+                     whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
+                     verbInvite: activeVerb == .place ? nil : activeVerb?.hue,   // PLACE lights the chevrons only, not cells
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
@@ -697,7 +725,8 @@ struct DiagView: View {
     // §11 ROW SELECT — a left-pointing chevron per row, RIGHT of the grid, always visible (aligned past the
     // column-key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held).
     private func rowRail(_ cellHeight: CGFloat) -> some View {
-        let hue = activeVerb?.hue ?? Color.white.opacity(0.35)
+        // PLACE lights the chevrons in the BRUSH colour (the cell to be placed); other verbs use the verb hue.
+        let hue = activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35))
         return VStack(spacing: GridGeometry.vGap) {
             Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
