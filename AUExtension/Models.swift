@@ -549,6 +549,49 @@ struct PluginState: Codable, Equatable {
         state.padScenes()   // MULTI-SCENE: slot 0 = the designed scene, slots 1–15 empty (+) — the strip is 16
         return state
     }
+
+    /// §3b/3c THE DEFAULT ARC — the first-launch state: THREE musical scenes (arps → +elements → EPIC), all
+    /// SINGLE-EMITTER (everything → A, ch1) so the first-try one-synth rig is always audible (the minimum-rig
+    /// law). Each cell is an independent treatment of the held chord (MIDI-IN via R1/OMNI) summing to A — the
+    /// one-chord orchestra. Content is a sensible first cut; ear-tuning happens on device.
+    static func defaultArc() -> PluginState {
+        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        func set(_ id: String, _ f: (inout Colour) -> Void) { f(&colours[colourIDs.firstIndex(of: id)!]) }
+        // The arc's palette: arps at different patterns/rates/octaves + a harmonize bloom + a chance shimmer + a bass.
+        set("gold")      { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 1 }
+        set("cyan")      { $0.type = .arp; $0.paramsA.pattern = .upDown; $0.paramsA.rate = .r1_8 }
+        set("azure")     { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 2 }  // sparkle up
+        set("bronze")    { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_8;  $0.transpose = -12 }       // bass octave down
+        set("magenta")   { $0.type = .harmonize; $0.paramsA.harmIntervals = [4, 7, 0]; $0.paramsA.harmVelScale = 0.7 }        // + third + fifth bloom
+        set("teal")      { $0.type = .chance; $0.paramsA.probability = 0.6 }                                                  // shimmer
+
+        // Scene 1 — a series of arps, an interesting pattern
+        var s1 = SceneState.empty()
+        s1.cells[0][0] = Cell(colourID: "gold")
+        s1.cells[2][0] = Cell(colourID: "cyan")
+        s1.cells[4][0] = Cell(colourID: "gold")
+        s1.cells[6][0] = Cell(colourID: "azure")
+
+        // Scene 2 — adds elements (a bass octave + a harmonize bloom under the arps)
+        var s2 = s1
+        s2.cells[0][1] = Cell(colourID: "bronze")
+        s2.cells[4][1] = Cell(colourID: "magenta")
+
+        // Scene 3 — EPIC: dense · OCT register spread · harmonize + chance shimmer · rhythmic interlock (all → A)
+        var s3 = SceneState.empty()
+        for c in [0, 2, 4, 6] { s3.cells[c][0] = Cell(colourID: "gold") }
+        for c in [1, 3, 5, 7] { s3.cells[c][0] = Cell(colourID: "azure") }
+        s3.cells[0][1] = Cell(colourID: "bronze"); s3.cells[4][1] = Cell(colourID: "bronze")
+        s3.cells[2][1] = Cell(colourID: "magenta"); s3.cells[6][1] = Cell(colourID: "magenta")
+        s3.cells[3][2] = Cell(colourID: "teal");   s3.cells[7][2] = Cell(colourID: "teal")
+
+        var state = PluginState(colours: colours, scenes: [s1, s2, s3])
+        state.formatVersion = 4
+        state.synthesizeReceiversIfNeeded()                         // point every MIDI-IN cell at a receiver (R1)
+        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }   // A=OMNI, B/C/D=2/3/4
+        state.padScenes()                                           // slots 3…7 = +
+        return state
+    }
 }
 
 // MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <COLOUR>

@@ -14,7 +14,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
     private var _parameterTree: AUParameterTree!
-    private var document = PluginState.factory()
+    private var document = PluginState.defaultArc()   // §3b first launch IS music (the 3-scene arc, not a blank grid)
     private let store: SnapshotStore
     private var rebuildPending = false
     private var snapshotGeneration: UInt64 = 1
@@ -310,7 +310,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
-        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.factory(), generation: 1))
+        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.defaultArc(), generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
 
         // aumi units still require audio busses; a silent stereo pair is conventional.

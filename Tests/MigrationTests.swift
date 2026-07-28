@@ -68,6 +68,36 @@ final class MigrationTests: XCTestCase {
         }
     }
 
+    // MARK: - §3b/3c THE DEFAULT ARC (first-launch music)
+
+    func testDefaultArcIsThreeSceneSingleEmitter() {
+        let d = PluginState.defaultArc()
+        XCTAssertGreaterThanOrEqual(d.scenes.count, 3)
+        XCTAssertFalse(d.scenes[0].isEmpty); XCTAssertFalse(d.scenes[1].isEmpty); XCTAssertFalse(d.scenes[2].isEmpty)
+        XCTAssertTrue(d.scenes[3].isEmpty, "slots 4+ ship as + (empty)")
+        // MINIMUM-RIG LAW (§3c): every cell routes to A only — the one-synth rig is always audible.
+        for s in d.scenes.prefix(3) {
+            for col in s.cells { for maybe in col where maybe != nil {
+                XCTAssertEqual(maybe!.buses, [.a], "the default arc is single-emitter — everything → A")
+            } }
+        }
+        // every MIDI-IN cell must point at a receiver (else it bypasses receiver mute/config).
+        for s in d.scenes {
+            for col in s.cells { for maybe in col where maybe != nil && maybe!.inputRow == nil {
+                XCTAssertNotNil(maybe!.inputReceiver, "a MIDI-IN cell must point at a receiver")
+            } }
+        }
+        XCTAssertEqual(d.receivers?.map { $0.channel }, [0, 2, 3, 4], "A=OMNI, B/C/D=2/3/4")
+        func count(_ s: SceneState) -> Int { s.cells.reduce(0) { $0 + $1.compactMap { $0 }.count } }
+        XCTAssertGreaterThan(count(d.scenes[2]), count(d.scenes[0]), "scene 3 (epic) builds denser than scene 1")
+    }
+
+    func testDefaultArcRoundTrips() {
+        let d = PluginState.defaultArc()
+        guard let data = PresetStore.encode(d), let back = PresetStore.decode(data) else { return XCTFail("nil") }
+        XCTAssertEqual(back.scenes.prefix(3).map { $0.isEmpty }, [false, false, false])
+    }
+
     // MARK: - RECEIVERS (delta §9 item 11) — synthesis from legacy per-cell filters
 
     func testSynthesizeReceiversFromDistinctInputChannels() {
