@@ -45,15 +45,17 @@ struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpo
 /// verb → release = done (no armed state). Long-press a verb = LATCH (tap again releases). No verb held → taps
 /// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
 enum Verb: String, CaseIterable {
-    case place = "PLACE", delete = "DELETE", select = "SELECT", move = "MOVE", copy = "COPY"
+    // /btw ①: COPY · PASTE replace MOVE · COPY. COPY captures a cell into a session clipboard that PERSISTS
+    // after release; PASTE stamps it (enabled once the clipboard is non-empty). Relocation = COPY→PASTE→DELETE.
+    case place = "PLACE", delete = "DELETE", select = "SELECT", copy = "COPY", paste = "PASTE"
     var label: String { self == .place ? "PLACE CELL(S)" : rawValue }
     var hue: Color {
         switch self {
         case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
         case .delete: return Color(red: 0.98, green: 0.35, blue: 0.30)   // red — destructive
         case .select: return Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — inspect/edit
-        case .move:   return Color(red: 0.98, green: 0.72, blue: 0.12)   // amber
-        case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet
+        case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet — capture
+        case .paste:  return Color(red: 0.98, green: 0.72, blue: 0.12)   // amber — stamp
         }
     }
 }
@@ -78,8 +80,9 @@ struct DiagView: View {
     // (release = done). No latch/toggle. Nil = taps are triggers.
     @State private var heldVerb: Verb? = nil          // the currently-pressed verb
     @State private var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
-    @State private var moveSource: GridView.GridPos? = nil      // MOVE: the lifted cell (land-tap completes)
-    @State private var copySource: GridView.GridPos? = nil      // COPY: the source (each subsequent tap pastes)
+    // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
+    // stamps it (PASTE is disabled while this is nil). Replaces the old per-hold moveSource/copySource.
+    @State private var clipboard: Cell? = nil
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
     @State private var lastPlaced: GridView.GridPos? = nil      // §10 the most-recently-placed cell this PLACE hold — its routing focus
@@ -247,16 +250,14 @@ struct DiagView: View {
             }
             if scene.cells[col][row] == nil { selection.removeAll() }      // an empty tap clears the stack
             else if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
-        case .move:                                         // lift-tap, then land-tap
-            if let src = moveSource {
-                au.editScene { $0.moveCellTo(from: (src.col, src.row), to: (col, row)) }
-                moveSource = nil; refreshFromDocument()
-            } else if scene.cells[col][row] != nil { moveSource = pos }
-        case .copy:                                         // first tap = source; every next tap pastes it
-            if let src = copySource, let cell = scene.cells[src.col][src.row], src != pos {
-                au.editScene { $0.cells[col][row] = cell }
+        case .copy:                                         // capture the tapped cell into the session clipboard (persists after release)
+            if let cell = scene.cells[col][row] { clipboard = cell }
+        case .paste:                                        // stamp the clipboard cell wherever tapped (every tap while held)
+            if var c = clipboard {
+                if c.inputRow == nil && c.inputReceiver == nil { c.inputReceiver = 0 }   // top-of-chain paste keeps a receiver (no unpointed MIDI-IN bypass)
+                au.editScene { $0.cells[col][row] = c }
                 refreshFromDocument()
-            } else if scene.cells[col][row] != nil { copySource = pos }
+            }
         }
     }
 
@@ -325,7 +326,7 @@ struct DiagView: View {
             }
             verbButton(.place)                             // PLACE — top, full width
             HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
-            HStack(spacing: 6) { verbButton(.move); verbButton(.copy) }
+            HStack(spacing: 6) { verbButton(.copy); verbButton(.paste) }   // /btw ①: COPY · PASTE (MOVE left the cluster)
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -335,25 +336,26 @@ struct DiagView: View {
         case .place:  return "PLACE \(brush.uppercased()) — tap empties"
         case .delete: return "DELETE — tap cells (children heal)"
         case .select: return "SELECT \(selection.count) — tap to toggle"
-        case .move:   return moveSource == nil ? "MOVE — tap to lift" : "MOVE — tap to drop"
-        case .copy:   return copySource == nil ? "COPY — tap the source" : "COPY — tap to paste"
+        case .copy:   return "COPY — tap a cell to capture"
+        case .paste:  return clipboard == nil ? "PASTE — copy a cell first" : "PASTE — tap to stamp"
         }
     }
     // §11b SPRING-ONLY (user 2026-07-27): the verb is active ONLY while the button is held; release = done.
     // No latch, no toggle. A plain press/release DragGesture gives exactly that.
     private func verbButton(_ v: Verb) -> some View {
         let active = activeVerb == v
+        let disabled = v == .paste && clipboard == nil     // /btw ①: PASTE is inert until the clipboard holds a cell
         let badge: String? = v == .select && !selection.isEmpty ? "\(selection.count)"
-            : ((v == .move && moveSource != nil) || (v == .copy && copySource != nil)) ? "•" : nil
+            : (v == .copy && clipboard != nil) ? "•" : nil   // COPY wears a dot once something's on the clipboard
         return roundVerb(label: v.label, hue: v.hue, active: active, badge: badge)
+            .opacity(disabled ? 0.4 : 1)
+            .allowsHitTesting(!disabled)
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
                 .onEnded { _ in if v == .select { selection.removeAll() }; heldVerb = nil })   // release = APPLY (clear the stack)
     }
     private func onVerbEngaged(_ v: Verb) {
-        if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
-        if v != .copy { copySource = nil }
-        switch v {                                          // snapshot the state CANCEL reverts to, per verb
+        switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
         case .place:  placeFresh = []; placeUndo = [:]; lastPlaced = nil; gridSnapshot = scene.cells
         case .delete: gridSnapshot = scene.cells
         case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
@@ -847,7 +849,7 @@ struct DiagView: View {
                 let p = GridView.GridPos(col: c, row: row)
                 if selection.contains(p) { selection.remove(p) } else { selection.insert(p) }
             }
-        case .move, .copy: break                            // row-scope move/copy is deferred (ambiguous)
+        case .copy, .paste: break                           // row-scope copy/paste is deferred (ambiguous)
         }
     }
     // §11 SELECT "touching edits": recolour every selected cell to `id` (the Colour edit propagates per-Colour).
