@@ -82,6 +82,7 @@ struct DiagView: View {
     @State private var copySource: GridView.GridPos? = nil      // COPY: the source (each subsequent tap pastes)
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
+    @State private var lastPlaced: GridView.GridPos? = nil      // §10 the most-recently-placed cell this PLACE hold — its routing focus
     @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
@@ -176,9 +177,14 @@ struct DiagView: View {
     private func tapCell(_ col: Int, _ row: Int) {
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
-    // §10/11c ROUTE FOCUS — the single cell being wired DURING a SELECT hold. Its sources light ABOVE, its
-    // graftable heads light BELOW, and the route bar offers receivers/emitters. (Multi-select = batch, no routing.)
-    private var routeFocus: GridView.GridPos? { (heldVerb == .select && selection.count == 1) ? selection.first : nil }
+    // §10/11c ROUTE FOCUS — the single cell being wired DURING a held verb. SELECT: the one selected cell. PLACE:
+    // the most-recently-placed cell. Its sources light ABOVE, its graftable heads light BELOW, the route bar offers
+    // receivers/emitters. (SELECT multi = batch, no routing.) Release applies; CANCEL reverts.
+    private var routeFocus: GridView.GridPos? {
+        if heldVerb == .select && selection.count == 1 { return selection.first }
+        if heldVerb == .place, let p = lastPlaced, scene.cells[p.col][p.row] != nil { return p }
+        return nil
+    }
     private var routeInCandidates: Set<GridView.GridPos> {
         guard let f = routeFocus else { return [] }
         return Set(scene.routeInSourcesAbove(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
@@ -232,8 +238,17 @@ struct DiagView: View {
         guard let au else { return }
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
-        case .place:                                        // PLACE CELL(S) — a toggle with restore (user 2026-07-28)
+        case .place:                                        // PLACE CELL(S) — toggle-with-restore; a candidate tap WIRES the focus
+            if let f = routeFocus, f != pos {               // §10 route-as-you-place: tap a candidate of the last-placed cell
+                if routeInCandidates.contains(pos) {
+                    au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument(); return
+                }
+                if routeOutCandidates.contains(pos) {
+                    au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument(); return
+                }
+            }
             au.editScene { placeToggle(&$0, col, row) }
+            lastPlaced = pos                                // the placed/replaced cell becomes the routing focus
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
@@ -357,7 +372,7 @@ struct DiagView: View {
         if v != .move { moveSource = nil }                 // starting another verb clears a dangling lift/source
         if v != .copy { copySource = nil }
         switch v {                                          // snapshot the state CANCEL reverts to, per verb
-        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells
+        case .place:  placeFresh = []; placeUndo = [:]; lastPlaced = nil; gridSnapshot = scene.cells
         case .delete: gridSnapshot = scene.cells
         case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
         default: break
