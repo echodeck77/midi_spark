@@ -202,21 +202,15 @@ struct DiagView: View {
         guard let f = routeFocus else { return }
         au?.editScene { $0.toggleEmitter(col: f.col, row: f.row, bus: b) }; refreshFromDocument()
     }
-    // §10 the route bar (top overlay while a single cell is focused): IN = receivers (radio), OUT = emitters (multi).
+    // §10 the route banner (top overlay while wiring): a hint + CANCEL. The IN/OUT TARGETS live on the BANDS now —
+    // receivers above the grid = ROUTE IN, emitters below = ROUTE OUT (the layout IS the patch bay).
     private func routeBar(_ f: GridView.GridPos) -> some View {
-        let cell = scene.cells[f.col][f.row]
-        let recvFed = cell?.inputRow == nil, curRecv = cell?.inputReceiver ?? 0
-        let buses = cell?.buses ?? []
-        return HStack(spacing: 8) {
-            Text("ROUTE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-            Text("IN").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.55))
-            ForEach(0..<4, id: \.self) { r in routeChip("R\(r + 1)", on: recvFed && curRecv == r) { routeInReceiver(r) } }
-            Text("· tap a cell above").font(.system(size: 8, design: .monospaced)).foregroundColor(.black.opacity(0.4))
+        HStack(spacing: 10) {
+            Text("WIRING — receivers above = IN · emitters below = OUT · cells above/below = chain")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .lineLimit(1).minimumScaleFactor(0.55)
             Spacer(minLength: 6)
-            Text("OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.55))
-            ForEach(Bus.allCases, id: \.self) { b in routeChip(b.rawValue, on: buses.contains(b)) { toggleFocusEmitter(b) } }
-            Text("· release to apply").font(.system(size: 8, design: .monospaced)).foregroundColor(.black.opacity(0.4))
-            Spacer(minLength: 6)
+            Text("· release to apply").font(.system(size: 8, design: .monospaced)).foregroundColor(.black.opacity(0.45))
             Text("CANCEL").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
@@ -225,11 +219,38 @@ struct DiagView: View {
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color(red: 0.15, green: 0.88, blue: 0.94))   // cyan — the SELECT/route hue
     }
-    private func routeChip(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .white : .black.opacity(0.55))
-            .frame(width: 22, height: 18)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? Color.black.opacity(0.55) : Color.black.opacity(0.12)))
+    // §10 the strips wear a SESSION FACE while wiring: the RECEIVER band → ROUTE IN targets, the EMITTER band →
+    // ROUTE OUT targets, in place (revert on release). Otherwise the perform strips.
+    @ViewBuilder private var receiverBand: some View {
+        if let f = routeFocus { receiverRouteFace(f) } else { receiversBox }
+    }
+    @ViewBuilder private var emitterBand: some View {
+        if let f = routeFocus { emitterRouteFace(f) } else { emittersBox }
+    }
+    private func receiverRouteFace(_ f: GridView.GridPos) -> some View {
+        let cell = scene.cells[f.col][f.row]
+        let cur = (cell?.inputRow == nil) ? (cell?.inputReceiver ?? 0) : -1   // -1 = row-fed (no door lit; a cell above feeds it)
+        let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+        return VStack(spacing: 4) {
+            Text("ROUTE IN").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(cyan).tracking(1)
+            HStack(spacing: 5) { ForEach(0..<4, id: \.self) { r in routeTarget("R\(r + 1)", on: cur == r, hue: cyan) { routeInReceiver(r) } } }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(4)
+         .background(RoundedRectangle(cornerRadius: 6).stroke(cyan.opacity(0.5), lineWidth: 1))
+    }
+    private func emitterRouteFace(_ f: GridView.GridPos) -> some View {
+        let buses = scene.cells[f.col][f.row]?.buses ?? []
+        let green = Color(red: 0.35, green: 0.92, blue: 0.50)
+        return VStack(spacing: 4) {
+            Text("ROUTE OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(green).tracking(1)
+            HStack(spacing: 5) { ForEach(Bus.allCases, id: \.self) { b in routeTarget(b.rawValue, on: buses.contains(b), hue: green) { toggleFocusEmitter(b) } } }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(4)
+         .background(RoundedRectangle(cornerRadius: 6).stroke(green.opacity(0.5), lineWidth: 1))
+    }
+    private func routeTarget(_ label: String, on: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 14, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : hue.opacity(0.9))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? hue : hue.opacity(0.12)))
             .contentShape(Rectangle()).onTapGesture { tap() }
     }
 
@@ -786,13 +807,13 @@ struct DiagView: View {
             VStack(spacing: 3) {
                 HStack(spacing: 6) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION]
                     controlsView.frame(maxWidth: .infinity)
-                    receiversBox.frame(width: half)
+                    receiverBand.frame(width: half)           // §10 becomes ROUTE IN targets while wiring
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
                 HStack(spacing: 6) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
-                    emittersBox.frame(width: half)
+                    emitterBand.frame(width: half)            // §10 becomes ROUTE OUT targets while wiring
                     masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
             }
