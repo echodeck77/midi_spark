@@ -4,6 +4,8 @@ STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
 (colours/cells/presets, processors, morph/ALT, swing, QUANT, performance layers,
 engine snapshot architecture, collision policy, parameters, MORPH desk).
+**§10 (THREAD FOLD, 2026-07-28) is the newest layer** — the ratified rulings + build log from the
+verb-rebuild / strips / boundary-adoption thread; where it and an earlier section differ, §10 wins.
 Reference implementation of the UI: `Docs/midispark-preview-v60.html`
 (v50/v51 contain a JSX bug — do not use; v52 fixed base → v54 three-box
 layout → v56 scene strip → v57 column keys → v58 static frames → v59
@@ -1712,3 +1714,92 @@ every answer at once.
   Docs/standalone-plan.md. Do not design or implement ahead of it; DO honour
   the router contract it states (articulate-in / track-voices-out, never
   assume processor purity).
+
+## 10. THREAD FOLD — ratified rulings + session build log (2026-07-28)
+
+_Folded per the design-side SPEC-FOLD directive (INSTRUCTIONS-spec-fold), consolidated with what THIS
+implementation thread actually built and verified. Organised by the sections it amends; where a preserved
+`Docs/design-*.md` holds the full text, this REFERENCES it rather than restating. Status: **[LANDED]** = built
++ verified this thread (commit noted) · **[APPLY]** = ratified, in force · **[CONFIRM]** = awaiting the user's
+one-liner._
+
+### 10.1 §3 Colours / processors
+- **[APPLY] PHASE IS UNIVERSAL** — every Colour, per-face; type-flavoured meanings: tick = pattern-clock
+  restart/continue/free · hold-types = voice continuity re-strike/drone-through · STRM = re-fan/sustain.
+  (`ArpPhase` = .retrig/.legato/.free already models this; read per-face via `colour.a.phase`.)
+- **[LANDED] THE BOUNDARY ADOPTION LAWS** (`8d5f1b3`) — supersedes the machine-gun close-and-reopen:
+  **THE INCOMING CELL GOVERNS** the boundary · **THE ADOPTION IDENTITY LAW** — continuity requires same NOTE +
+  same EMITTER (bus) + same COLOUR-AND-FACE (colourIndex + A/B); anything different is a fresh strike ·
+  **the pass-length envelope** — a partial-row LEGATO drone closes at the first empty column and re-opens at the
+  wrap. Applies to IDENTITY holds under LEGATO only (RETRIG/.free re-strike; CHANCE/HARMONIZE re-speak; the ALT
+  turn-group re-strikes). The continuity `RouterTests` are the acceptance text (drone recipe: PASS-class ·
+  LEGATO · GATE 100). See §2b PHASE laws.
+- **[APPLY] THE CELL FACE = the TRIGGER-GLYPH grammar** (supersedes the naming-led face): Colour block · emblem ·
+  **TRIGGER GLYPH** (deviation-shown, HOLD = ring modifier) · digest dim · four bus dots · parent-facing
+  **COMPASS edge tint**. **Naming demoted** to an optional per-Colour field, default-off — never the face's core.
+  Full grammar in `Docs/design-ferry-completions-phase-cc-2026-07-28.md` §9.
+
+### 10.2 §5 Performance
+- **[APPLY] THE VERB MODEL (as ruled on device)** — five SPRING-HELD verbs (PLACE · DELETE · SELECT · MOVE ·
+  COPY); no armed states; **release = apply, CANCEL = revert**; **selection is TRANSIENT** (nothing lingers — a
+  cell is "selected" ONLY while PLACE-placed or SELECT-held). Spatial-routing laws re-derived for transience
+  (heads-light/bodies-don't · the GRAFT · display ⊇ offer · theft-unofferable · property-owner = "hold SELECT,
+  touch X"). Reference `Docs/design-spatial-routing-2026-07-28.md` + `Docs/design-verb-rebuild-2026-07-27.md`.
+- **[LANDED] THE VERB SHAPE = ROUND** (`e47c6c9`) — resolves the pills-vs-round divergence: the user ruled
+  "round and inviting" = **circles**. The cluster is circular pads (PLACE centred over DELETE·SELECT and
+  MOVE·COPY), sized to fill the CONTROLS corner.
+- **[CONFIRM→APPLY] THE /btw SIX** — fold ①–③ now, ④–⑥ on the user's tails. Full text +
+  code-side notes in `Docs/design-btw-six-requirements-2026-07-28.md`:
+  ① **COPY·PASTE replaces MOVE·COPY** (MOVE leaves the cluster; a session clipboard persists-after-release) ·
+  ② preset selector **enlarged + UNDO/REDO** beside it · ③ the **selected-visual two-sources law** (a cell reads
+  selected ONLY when PLACE-placed or SELECT-selected — one shared look) · ④ mid-PLACE colour-switch retint ·
+  ⑤ row/column selectors under SELECT · ⑥ one-placement-per-column — **[CONFIRM] tails pending**.
+- **[APPLY] §5c HOLD** — the latch's UI home is VACANT (removed from the cluster by device ruling); state/wiring
+  persist (`holdLatch`); CONTROLS-corner restoration recommended, awaiting the user's nod.
+- **[APPLY] TOUCH COMPLETIONS** — the palette is LIVE during holds (brush-switching mid-hold) · STROKES (drag =
+  batch; one undoable step per swathe) · **THE MIXED-SET LAW** (a mixed selection edits cell-level properties
+  only; the processor panels DIM to "MIXED" unless the set is single-colour).
+
+### 10.3 §4 / §11 Strips + routing surfaces  ·  see `Docs/design-strips-target-state-2026-07-28.md`
+- **[APPLY] THE STRIPS' COMPLETE TARGET STATE** = the guidance doc verbatim: single-face forever (config in the
+  cog) · **LATCH arm on-strip** (LATCH/LATCH+), CHORD|ADD in the cog · **DUCK** (renamed from FLAT; identifiers
+  stay `flattenMask`) · velocity MARKS metering + fader-kill + loud-mute · SESSION FACES (ROUTE IN/OUT on the
+  real strips) · the **SPACE-FILL rule** (reclaimed pixels go to touch/marks, never new controls).
+- **[LANDED] this thread's strip wave:**
+  - ① **Session faces in-place** (`fc3f6c3`) — ROUTE IN/OUT on each strip: dim-beneath · hue glow · whole-strip
+    target · ring on the current source · breathing candidates; the compact route bar retired.
+  - ② **LATCH arm + DUCK** (`3070ea4`) — LATCH reads as a padlock performance arm; FLAT→DUCK (label only).
+  - **SPACE-FILL** (`eecd314`) — taller sliders/faders (marks get room), MASTER fader full-height, CONTROLS'
+    HOLD grows into its dead area, gutters tightened.
+  - ③ **Receiver VELOCITY MARKS** (`edb51d2`) — hold-while-sounding ticks + fade-on-release marks (~250ms),
+    strip hue; fill only while touching. The emitter already carries source-Colour marks + the **withheld
+    tells** (shipped, preserved). **[CONFIRM/GREEN]** a true emitter hold-while-sounding needs a per-emitter
+    sounding-note engine feed — offered, not yet built.
+  - **[APPLY, pending] ④ the polish-laws pass** — chrome quiet (LIVE pads + role lights drop a saturation step;
+    defaults recede) so the band reads calm at rest, alive where music moves.
+
+### 10.4 §5d / §7 Arrangement (as-built)
+- **[LANDED/APPLY]** 8 scene slots · active-chip tap = **RE-CUE the saved scene at the next pass** · the
+  arrangement bar (logo · presets · chips · ⚙; ⚙⇄trash during drag) · presets v1 (whole-doc, no create-new;
+  **DEFAULT = the 3-scene SINGLE-EMITTER arc** per the MINIMUM-RIG LAW; factory sections; AUv3 user-preset API).
+  LIVE preset previews = deferred.
+
+### 10.5 §12 Cog / global
+- **[APPLY]** the cog page (MIDI I/O config; **the engine never stops**; MPE toggle + indicator — the user's
+  override, recorded) · INVISIBLE=FROZEN · FADER-KILL · SCROLL+TEACH **[GREEN when built]**.
+
+### 10.6 Doctrine + principles
+- **[APPLY]** CC IS CONTROL, NEVER POOL · "velocity is the stroke, aftertouch is the life" · DUCK-at-100 = the
+  keyed gate (demo-preset note: "BREATHE") · the **polish laws as design principles** (musical colour loud /
+  chrome quiet · defaults recede · hierarchy) · **discovery-over-declaration** (from the naming ruling).
+
+### 10.7 FUTURES appendix (pointers only)
+- Reference `Docs/design-ferry-completions-phase-cc-2026-07-28.md` for the PARKED birthstones: FEEDBACK EDGES
+  (unit-delay, lossy-by-law) · THE PIN · MASTER+TEXTURE multi-playhead · THE CC RAIL (consume-by-default +
+  announce) · THE TWO-LANE INSTRUMENT (+ cross-lane valves). Each re-explains itself; the spec only points.
+
+### 10.8 Glossary sweep (terms in force)
+**DUCK** (the FLAT rename) · **the five verbs** (PLACE·DELETE·SELECT·MOVE·COPY, spring-held) · **transient
+selection** · **session face** (ROUTE IN/OUT on the strip) · **the graft** · **compass tint** (parent-facing
+edge) · **velocity marks** (hold-while-sounding + fade-on-release) · **adoption identity law** (note+emitter+
+Colour-and-face) · **the withheld tell** (hollow claim-suppressed mark).
