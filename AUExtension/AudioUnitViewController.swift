@@ -1073,7 +1073,9 @@ struct DiagView: View {
                        sceneEmpty: sceneEmpty, activeSceneIdx: activeSceneIdx,
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
-                       currentPreset: currentPreset, onOpenPresets: openPresets)
+                       currentPreset: currentPreset, onOpenPresets: openPresets,
+                       canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
+                       onUndo: undo, onRedo: redo)
     }
     // §3 PRESETS wiring
     private func openPresets() {

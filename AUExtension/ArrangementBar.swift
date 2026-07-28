@@ -23,6 +23,10 @@ struct ArrangementBar: View {
     let onSceneOpDone: () -> Void           // after any op the VC re-polls sceneEmpty/activeSceneIdx + refreshes the grid
     var currentPreset: String = ""          // §3 PRESETS: the loaded preset's name ("" = unsaved)
     var onOpenPresets: () -> Void = {}       // the folder button → the preset browser (rendered at the VC top level)
+    var canUndo: Bool = false               // /btw ②: UNDO/REDO beside the preset selector, dimmed when unavailable
+    var canRedo: Bool = false
+    var onUndo: () -> Void = {}
+    var onRedo: () -> Void = {}
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -44,6 +48,7 @@ struct ArrangementBar: View {
                 .foregroundColor(.white.opacity(0.85)).fixedSize()
                 .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
             presetButton                                                       // §3 PRESETS: the selector, right of the logo
+            undoRedo                                                            // /btw ②: UNDO/REDO to the right of the preset selector
             sceneChipRow                                                        // THE CHIPS — flex to fill; never yield
             if d.playing {
                 Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
@@ -61,17 +66,32 @@ struct ArrangementBar: View {
     }
 
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.
+    // /btw ②: ENLARGED — bigger type + hit target (it's a headline control, not a footnote).
     private var presetButton: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "folder.fill").font(.system(size: 9))
+        HStack(spacing: 5) {
+            Image(systemName: "folder.fill").font(.system(size: 11))
             Text(currentPreset.isEmpty ? "PRESETS" : currentPreset)
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).truncationMode(.tail)
+                .font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).truncationMode(.tail)
         }
-        .foregroundColor(.white.opacity(0.7))
-        .padding(.horizontal, 7).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.07)))
-        .frame(maxWidth: 108).fixedSize(horizontal: true, vertical: false)
+        .foregroundColor(.white.opacity(0.78))
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.09)))
+        .frame(maxWidth: 150).fixedSize(horizontal: true, vertical: false)
         .contentShape(Rectangle()).onTapGesture { onOpenPresets() }
+    }
+    // /btw ②: UNDO / REDO beside the preset selector — dimmed + inert when nothing is available.
+    private var undoRedo: some View {
+        HStack(spacing: 3) {
+            undoRedoBtn("arrow.uturn.backward", on: canUndo, action: onUndo)
+            undoRedoBtn("arrow.uturn.forward", on: canRedo, action: onRedo)
+        }
+    }
+    private func undoRedoBtn(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol).font(.system(size: 11, weight: .heavy))
+            .foregroundColor(.white.opacity(on ? 0.82 : 0.22))
+            .frame(width: 26, height: 26)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(on ? 0.08 : 0.03)))
+            .contentShape(Rectangle()).onTapGesture { if on { action() } }
     }
     private var sceneChipRow: some View {
         GeometryReader { geo in
