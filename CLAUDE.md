@@ -157,6 +157,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ NEXT-SESSION PRIORITY (user, 2026-07-29): finish the /btw AUTHORING UX — firm ordered plan with RATIFIED
+  behavior decisions in `Docs/implementation-plan-btw-authoring.md` (⑥ per-hold one-per-column · ④ retro-repaint ·
+  ⑤ per-cell+row selectors · STROKES · MIXED-SET law). Just execute it.**
 - DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
   passthrough stopped, derived sync, snapshot-driven kernel, render-side param
   events, diagnostic UI.

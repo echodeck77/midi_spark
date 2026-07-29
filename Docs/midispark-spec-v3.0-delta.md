@@ -1752,8 +1752,11 @@ one-liner._
   code-side notes in `Docs/design-btw-six-requirements-2026-07-28.md`:
   ① **COPY·PASTE replaces MOVE·COPY** (MOVE leaves the cluster; a session clipboard persists-after-release) ·
   ② preset selector **enlarged + UNDO/REDO** beside it · ③ the **selected-visual two-sources law** (a cell reads
-  selected ONLY when PLACE-placed or SELECT-selected — one shared look) · ④ mid-PLACE colour-switch retint ·
-  ⑤ row/column selectors under SELECT · ⑥ one-placement-per-column — **[CONFIRM] tails pending**.
+  selected ONLY when PLACE-placed or SELECT-selected — one shared look). **④⑤⑥ tails RATIFIED (user 2026-07-29):**
+  ④ mid-PLACE colour switch = **RETRO-REPAINT** (chevrons + all cells placed this hold recolour) · ⑤ SELECT
+  selectors = **per-cell + ROW chevrons** (columns do NOT select) · ⑥ one-placement-per-column, scope =
+  **PER-HOLD**. Build order + acceptance in `Docs/implementation-plan-btw-authoring.md` (the next-session priority,
+  with STROKES + palette-live + the MIXED-SET law).
 - **[APPLY] §5c HOLD** — the latch's UI home is VACANT (removed from the cluster by device ruling); state/wiring
   persist (`holdLatch`); CONTROLS-corner restoration recommended, awaiting the user's nod.
 - **[APPLY] TOUCH COMPLETIONS** — the palette is LIVE during holds (brush-switching mid-hold) · STROKES (drag =

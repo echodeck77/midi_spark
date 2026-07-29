@@ -5,10 +5,16 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-07-29._
 
+## ★ CURRENT PRIORITY (user, 2026-07-29) — finish the /btw authoring UX
+See **`Docs/implementation-plan-btw-authoring.md`** for the firm ordered plan. All tail decisions RATIFIED:
+- [ ] **/btw ⑥** — one-per-column, scope = **PER-HOLD** (block a 2nd cell in a column already placed this hold).
+- [ ] **/btw ④** — mid-PLACE brush switch = **RETRO-REPAINT** (chevrons + all cells placed this hold recolour).
+- [ ] **/btw ⑤** — SELECT selectors = **per-cell + ROW chevrons** (columns do NOT select; likely mostly built).
+- [ ] **STROKES** — drag = batch (place/delete/select), one undo per swathe.
+- [ ] **MIXED-SET law** — processor panels dim to "MIXED" for multi-colour selections; cell-level edits still apply.
+- [ ] palette-live-during-holds — delivered by ④; confirm on device.
+
 ## A. Blocked on the user (need a decision before building)
-- [ ] **/btw ④** — mid-PLACE colour switch: retro-repaint cells placed *this hold*, or only *subsequent* placements?
-- [ ] **/btw ⑤** — SELECT scope: do **columns** act as selectors too, or rows only?
-- [ ] **/btw ⑥** — "one placement per column": per-**stroke** / per-**hold** / **absolute**? (and is drag-to-place built? — seems to fight vertical chains)
 - [ ] **HOLD latch re-home** — §5c latch UI slot is vacant; CONTROLS-corner restoration recommended, awaiting the nod.
 - [ ] **SCOPE ops home** — chips-during-SELECT-hold vs deferred (design device-nod).
 
