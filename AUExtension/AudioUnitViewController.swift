@@ -186,41 +186,61 @@ struct DiagView: View {
     private func tapCell(_ col: Int, _ row: Int) {
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
-    // §10/11c ROUTE FOCUS — the single cell being wired DURING a held verb. SELECT: the one selected cell. PLACE:
-    // the most-recently-placed cell. Its sources light ABOVE, its graftable heads light BELOW, the route bar offers
-    // receivers/emitters. (SELECT multi = batch, no routing.) Release applies; CANCEL reverts.
-    private var routeFocus: GridView.GridPos? {
-        if heldVerb == .select && selection.count == 1 { return selection.first }
-        if heldVerb == .place, let p = lastPlaced, scene.cells[p.col][p.row] != nil { return p }
-        return nil
+    // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
+    // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
+    // ambiguous → no routing there). Each focus lights ALL cells above it (SRC) and ALL cells below it (DEST) in
+    // its own column. Release applies; CANCEL reverts.
+    private var routeFoci: [Int: Int] {                  // col → focus row (at most one per column)
+        if heldVerb == .place, let p = lastPlaced, scene.cells[p.col][p.row] != nil { return [p.col: p.row] }
+        guard heldVerb == .select, !selection.isEmpty else { return [:] }
+        var byCol: [Int: [Int]] = [:]
+        for s in selection where s.col < scene.cells.count && s.row < scene.cells[s.col].count && scene.cells[s.col][s.row] != nil {
+            byCol[s.col, default: []].append(s.row)
+        }
+        return byCol.compactMapValues { $0.count == 1 ? $0[0] : nil }   // exactly one selected in the column
     }
-    private var routeInCandidates: Set<GridView.GridPos> {
-        guard let f = routeFocus else { return [] }
-        return Set(scene.routeInSourcesAbove(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
+    private var routeFocusCells: Set<GridView.GridPos> {
+        Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
     }
-    private var routeOutCandidates: Set<GridView.GridPos> {
-        guard let f = routeFocus else { return [] }
-        return Set(scene.graftHeadsBelow(col: f.col, row: f.row).map { GridView.GridPos(col: f.col, row: $0) })
+    private var routeInCandidates: Set<GridView.GridPos> {   // SRC — all occupied cells ABOVE each focus, per column
+        var s = Set<GridView.GridPos>()
+        for (col, f) in routeFoci { for r in scene.routeInSourcesAbove(col: col, row: f) { s.insert(GridView.GridPos(col: col, row: r)) } }
+        return s
     }
-    // §10 the ROUTE BAR — receivers (single-select ROUTE IN) + emitters (multi ROUTE OUT) for the focused cell.
+    private var routeOutCandidates: Set<GridView.GridPos> {  // DEST — all occupied cells BELOW each focus, per column
+        var s = Set<GridView.GridPos>()
+        for (col, f) in routeFoci { for r in scene.routeOutTargetsBelow(col: col, row: f) { s.insert(GridView.GridPos(col: col, row: r)) } }
+        return s
+    }
+    // A candidate tap while routing: SRC (above the focus in its column) → the focus reads from it; DEST (below)
+    // → that cell reads from the focus. Per column against routeFoci. Returns true if it wired (consumed the tap).
+    @discardableResult private func wireRouteCandidate(_ pos: GridView.GridPos) -> Bool {
+        guard let au, let f = routeFoci[pos.col], pos.row != f, scene.cells[pos.col][pos.row] != nil else { return false }
+        if pos.row < f { au.editScene { $0.routeInRow(col: pos.col, row: f, sourceRow: pos.row) } }        // SRC above
+        else           { au.editScene { $0.routeInRow(col: pos.col, row: pos.row, sourceRow: f) } }        // DEST below
+        refreshFromDocument(); return true
+    }
+    // §10 the strips wear a SESSION FACE while wiring; a tap applies to ALL foci.
     private func routeInReceiver(_ r: Int) {
-        guard let f = routeFocus else { return }
-        au?.editScene { $0.routeInReceiver(col: f.col, row: f.row, receiver: r) }; refreshFromDocument()
+        guard !routeFoci.isEmpty else { return }
+        au?.editScene { s in for (col, f) in routeFoci { s.routeInReceiver(col: col, row: f, receiver: r) } }; refreshFromDocument()
     }
     private func toggleFocusEmitter(_ b: Bus) {
-        guard let f = routeFocus else { return }
-        au?.editScene { $0.toggleEmitter(col: f.col, row: f.row, bus: b) }; refreshFromDocument()
+        guard !routeFoci.isEmpty else { return }
+        au?.editScene { s in for (col, f) in routeFoci { s.toggleEmitter(col: col, row: f, bus: b) } }; refreshFromDocument()
     }
-    // §10 the strips wear a SESSION FACE in-place while wiring (ReceiversView/OutputsView render ROUTE IN /
-    // ROUTE OUT on each strip — dim-beneath, hue glow, whole-strip target, breathing candidates; the compact
-    // route bar is retired). These feed the current state to the faces:
-    private var routeInCurrentReceiver: Int? {           // the focus cell's current receiver (nil ⇒ row-fed/none → no ring)
-        guard let f = routeFocus, let cell = scene.cells[f.col][f.row] else { return nil }
-        return cell.inputRow == nil ? cell.inputReceiver : nil
+    private var routeInCurrentReceiver: Int? {           // the receiver ALL foci share (nil ⇒ mixed / row-fed → no ring)
+        var recv: Int?; var first = true
+        for (col, f) in routeFoci {
+            guard let cell = scene.cells[col][f] else { continue }
+            let r = cell.inputRow == nil ? cell.inputReceiver : nil
+            if first { recv = r; first = false } else if recv != r { return nil }
+        }
+        return recv
     }
-    private var routeOutBusesOn: [Bool] {                // the focus cell's enabled emitters (A–D)
-        guard let f = routeFocus, let cell = scene.cells[f.col][f.row] else { return [false, false, false, false] }
-        return Bus.allCases.map { cell.buses.contains($0) }
+    private var routeOutBusesOn: [Bool] {                // a bus reads ON only if EVERY focus enables it
+        guard !routeFoci.isEmpty else { return [false, false, false, false] }
+        return Bus.allCases.map { b in routeFoci.allSatisfy { (col, f) in scene.cells[col][f]?.buses.contains(b) ?? false } }
     }
 
     // §11 dispatch a grid tap to the active verb.
@@ -229,14 +249,7 @@ struct DiagView: View {
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
         case .place:                                        // PLACE CELL(S) — toggle-with-restore; a candidate tap WIRES the focus
-            if let f = routeFocus, f != pos {               // §10 route-as-you-place: tap a candidate of the last-placed cell
-                if routeInCandidates.contains(pos) {
-                    au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument(); return
-                }
-                if routeOutCandidates.contains(pos) {
-                    au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument(); return
-                }
-            }
+            if wireRouteCandidate(pos) { return }           // §10 route-as-you-place: a SRC/DEST of the last-placed cell wires it
             au.editScene { placeToggle(&$0, col, row) }
             lastPlaced = pos                                // the placed/replaced cell becomes the routing focus
             refreshFromDocument()
@@ -244,15 +257,8 @@ struct DiagView: View {
             guard scene.cells[col][row] != nil else { return }
             au.editScene { $0.deleteCellSever(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
-        case .select:                                       // one cell selected → tapping a candidate WIRES it (not selectable);
-            if selection.count == 1, let f = selection.first, f != pos {   // else tapping toggles membership (build the stack)
-                if routeInCandidates.contains(pos) {                       // an occupied cell ABOVE → ROUTE IN
-                    au.editScene { $0.routeInRow(col: f.col, row: f.row, sourceRow: row) }; refreshFromDocument(); return
-                }
-                if routeOutCandidates.contains(pos) {                      // a chain HEAD below → GRAFT under the focus
-                    au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument(); return
-                }
-            }
+        case .select:                                       // tapping a SRC/DEST candidate WIRES it (per column);
+            if !selection.contains(pos) && wireRouteCandidate(pos) { return }   // else tapping toggles membership
             guard scene.cells[col][row] != nil else { return }            // an empty tap does NOTHING (spec: nothing changes)
             if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
         case .copy:                                         // capture the tapped cell into the session clipboard (persists after release)
@@ -849,7 +855,7 @@ struct DiagView: View {
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
-                     routeFocus: routeFocus, routeIn: routeInCandidates, routeOut: routeOutCandidates,
+                     routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                      strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
@@ -1053,7 +1059,7 @@ struct DiagView: View {
                     onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount,
                     altMask: altMask, altCount: altCount,
                     onToggleAlt: toggleAlt, onAltCount: setAltCnt,
-                    wiring: routeFocus != nil, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
+                    wiring: !routeFoci.isEmpty, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
                     onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) })
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
@@ -1070,7 +1076,7 @@ struct DiagView: View {
                       onSetLatchAdd: setReceiverLatchAdd,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch,
-                      wiring: routeFocus != nil, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face
+                      wiring: !routeFoci.isEmpty, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face
                       onRouteIn: routeInReceiver)
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

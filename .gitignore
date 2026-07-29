@@ -40,3 +40,5 @@ fastlane/screenshots
 # _dear_claude_code/ = my inbox (messages FROM the design side, addressed to Claude Code)
 /_dear_claude/
 /_dear_claude_code/
+# _dear_paul/ = notes to the user (local scratch channel, never tracked)
+/_dear_paul/

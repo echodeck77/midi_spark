@@ -103,9 +103,9 @@ struct GridView: View {
     var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
-    var routeFocus: GridPos? = nil                   // §10 ROUTE mode: the cell being wired (solid amber ring)
-    var routeIn: Set<GridPos> = []                   // §10 candidate SOURCES above (cyan glow — tap = ROUTE IN)
-    var routeOut: Set<GridPos> = []                  // §10 graftable chain HEADS below (green glow — tap = GRAFT)
+    var routeFoci: Set<GridPos> = []                 // §10 ROUTE mode: the cells being wired (solid amber ring)
+    var routeIn: Set<GridPos> = []                   // §10 SRC candidates above (pulsing "SRC" label — tap = route-in)
+    var routeOut: Set<GridPos> = []                  // §10 DEST candidates below (pulsing "DEST" label — tap = feed)
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
     var tapMuteMask: UInt64 = 0                       // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute (dims the cell)
     // STROKES: while a verb is held, a DRAG applies the verb once per NEWLY-ENTERED cell (PLACE paints a run —
@@ -242,6 +242,15 @@ struct GridView: View {
         .allowsHitTesting(false)
     }
 
+    // §10 a routing candidate wears a pulsing SRC/DEST chip — NO outline (must not read as "selected"). The
+    // pulse rides the shared `breathe` phase (same cadence as the ALT ring + the strip ROUTE faces).
+    private func routeLabel(_ text: String, _ hue: Color) -> some View {
+        Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(Capsule().fill(hue.opacity(breathe ? 0.95 : 0.5)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
         let raw = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
         let cell = (raw?.muted == true) ? nil : raw    // a HIDDEN (muted) cell renders as EMPTY (disappeared); a tap toggles it back
@@ -287,12 +296,12 @@ struct GridView: View {
         }
         .overlay {                                          // §10 ROUTE candidates > §11 PLACE border > SELECT ring > verb glow
             let pos = GridPos(col: col, row: row)
-            if pos == routeFocus {                          // the cell being wired
+            if routeFoci.contains(pos) {                    // a cell being wired — the ONLY routing ring (amber)
                 RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.98, green: 0.72, blue: 0.12), lineWidth: 2.5)
-            } else if routeIn.contains(pos) {               // a source ABOVE — tap to ROUTE IN
-                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.15, green: 0.88, blue: 0.94), lineWidth: 2)
-            } else if routeOut.contains(pos) {              // a graftable HEAD below — tap to GRAFT
-                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.35, green: 0.92, blue: 0.50), lineWidth: 2)
+            } else if routeIn.contains(pos) {               // a SRC above — a pulsing label, NO ring (must not read as selected)
+                routeLabel("SRC", Color(red: 0.15, green: 0.88, blue: 0.94))
+            } else if routeOut.contains(pos) {              // a DEST below — a pulsing label, NO ring
+                routeLabel("DEST", Color(red: 0.35, green: 0.92, blue: 0.50))
             } else if whiteBorder.contains(pos) || selection.contains(pos) {
                 // /btw ③ THE TWO-SOURCES LAW: a cell reads SELECTED only when PLACE-placed (this hold) or
                 // SELECT-selected — the ONLY two sources — and both wear the SAME white ring (one shared look).
@@ -607,7 +616,7 @@ struct ReceiversView: View {
                 VStack(spacing: 1) {
                     Text("ROUTE IN").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(0.85)).tracking(1)
                     Text(["A", "B", "C", "D"][i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(isCurrent ? .white : hue)
-                    Text(isCurrent ? "SOURCE" : "TAP").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(isCurrent ? 0.75 : 0.32))
+                    Text("SRC").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(isCurrent ? 1 : 0.7)).tracking(1)
                 }
             }
         }
@@ -868,7 +877,7 @@ struct OutputsView: View {
                 VStack(spacing: 1) {
                     Text("ROUTE OUT").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(green.opacity(0.85)).tracking(1)
                     Text(letters[i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black : green)
-                    Text(lit ? "ON" : "TAP").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.6) : .white.opacity(0.32))
+                    Text("DEST").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.7) : green.opacity(0.7)).tracking(1)
                 }
             }
         }

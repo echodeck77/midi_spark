@@ -356,6 +356,19 @@ final class MigrationTests: XCTestCase {
         XCTAssertNotNil(s.cells[0][0], "the victim's parent is untouched")
     }
 
+    // Multi-cell routing (AcceptanceCriteria): a focus offers ALL occupied cells above (SRC) and below (DEST).
+    func testRouteCandidatesSpanAllAboveAndBelow() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold")
+        s.cells[0][2] = Cell(colourID: "cyan")                                  // the focus at row 2
+        s.cells[0][4] = Cell(colourID: "wine")
+        s.cells[0][6] = Cell(colourID: "teal", inputRow: 4)                     // already row-fed (NOT a chain head)
+        XCTAssertEqual(s.routeInSourcesAbove(col: 0, row: 2), [0], "SRC = all occupied above")
+        XCTAssertEqual(s.routeOutTargetsBelow(col: 0, row: 2), [4, 6], "DEST = all occupied below, heads or not")
+        s.routeInRow(col: 0, row: 6, sourceRow: 2)                             // DEST tap: row6 reads from the focus
+        XCTAssertEqual(s.cells[0][6]?.inputRow, 2, "a DEST below re-roots to read from the focus")
+    }
+
     func testMoveRelocatesAndOverwrites() {
         var s = SceneState.empty()
         s.cells[1][1] = Cell(colourID: "gold", buses: [.a], inputRow: 3)   // reference travels as-is

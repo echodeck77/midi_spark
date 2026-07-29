@@ -689,6 +689,13 @@ extension SceneState {
         guard cells.indices.contains(col) else { return [] }
         return ((row + 1)..<cells[col].count).filter { isChainHead(col: col, row: $0) }
     }
+    /// All occupied cells BELOW `row` in the column — the DEST candidates for multi-cell routing (each can be
+    /// re-rooted to read from the focus above it). AcceptanceCriteria 2026-07-29: routing spans ALL cells above
+    /// AND below the focus, not only chain heads.
+    func routeOutTargetsBelow(col: Int, row: Int) -> [Int] {
+        guard cells.indices.contains(col) else { return [] }
+        return ((row + 1)..<cells[col].count).filter { cells[col][$0] != nil }
+    }
     /// Would feeding (col,row) FROM `sourceRow` create a cycle (sourceRow's input chain already reaches row)? Bounded.
     private func wouldCycle(col: Int, row: Int, feedingFrom sourceRow: Int) -> Bool {
         var cur: Int? = sourceRow, hops = 0
