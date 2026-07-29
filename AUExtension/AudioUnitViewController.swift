@@ -266,11 +266,19 @@ struct DiagView: View {
     // RESTORES the original (wiring preserved); a fresh tap PLACES (empty, downhill-nudge) or REPLACES (populated).
     private func placeToggle(_ s: inout SceneState, _ col: Int, _ row: Int) {
         let pos = GridView.GridPos(col: col, row: row)
-        if placeFresh.contains(pos) {                        // placed onto empty this hold → REMOVE
+        if placeFresh.contains(pos) {                        // placed onto empty this hold → REMOVE (retoggle)
             s.cells[col][row] = nil; placeFresh.remove(pos)
-        } else if let original = placeUndo[pos] {            // replaced this hold → RESTORE the original
+            return
+        }
+        if let original = placeUndo[pos] {                   // replaced this hold → RESTORE the original (retoggle)
             s.cells[col][row] = original; placeUndo.removeValue(forKey: pos)
-        } else if let existing = s.cells[col][row] {         // fresh tap on populated → REPLACE (remember; keep wiring)
+            return
+        }
+        // /btw ⑥: a FRESH place is blocked if this column already holds a cell placed THIS hold (one per
+        // column per hold — release + re-hold to stack a second). The two re-tap branches above returned.
+        let placedColumns = Set(placedThisHold.map(\.col))
+        guard placeHoldDecision(placedColumns: placedColumns, retoggle: false, col: col) == .allowed else { return }
+        if let existing = s.cells[col][row] {                // fresh tap on populated → REPLACE (remember; keep wiring)
             placeUndo[pos] = existing
             var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver
             s.cells[col][row] = c

@@ -698,3 +698,17 @@ func ratchetVelocity(base: Int, ramp: Double, index: Int, count: Int) -> UInt8 {
     let scale = (1.0 - ramp) + ramp * frac                // ramp 0 → 1; ramp 1 → frac
     return UInt8(max(1, min(127, Int((Double(base) * scale).rounded()))))
 }
+
+// MARK: - Authoring: PLACE per-hold one-per-column (/btw ⑥)
+
+enum PlaceHoldDecision: Equatable { case allowed, blockedColumnUsed }
+
+/// /btw ⑥ — during a single PLACE hold at most ONE cell may be placed per column. A FRESH tap in a
+/// column that already holds a cell placed THIS hold is BLOCKED (release + re-hold to stack a second in
+/// that column). Re-tapping a cell this hold already placed is NOT a fresh place (it toggles the cell
+/// off), so callers pass `retoggle: true` and it is always allowed. Pure so the column rule is
+/// unit-testable independent of the SwiftUI hold state. Applies to taps, row chevrons, AND strokes.
+func placeHoldDecision(placedColumns: Set<Int>, retoggle: Bool, col: Int) -> PlaceHoldDecision {
+    if retoggle { return .allowed }
+    return placedColumns.contains(col) ? .blockedColumnUsed : .allowed
+}

@@ -890,4 +890,27 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNotEqual(frozen.velocity(60), 0, "the matching-channel note toggles in")
         XCTAssertEqual(frozen.velocity(62), 0, "the filtered-out note never enters the frozen pool")
     }
+
+    // MARK: /btw ⑥ — PLACE one-per-column, per hold
+
+    func testPlaceHoldFirstInColumnAllowed() {
+        XCTAssertEqual(placeHoldDecision(placedColumns: [], retoggle: false, col: 2), .allowed)
+    }
+    func testPlaceHoldSecondInSameColumnBlocked() {
+        XCTAssertEqual(placeHoldDecision(placedColumns: [2], retoggle: false, col: 2), .blockedColumnUsed)
+    }
+    func testPlaceHoldOtherColumnStillFree() {
+        XCTAssertEqual(placeHoldDecision(placedColumns: [2], retoggle: false, col: 3), .allowed)
+    }
+    func testPlaceHoldRetoggleAlwaysAllowed() {
+        XCTAssertEqual(placeHoldDecision(placedColumns: [2], retoggle: true, col: 2), .allowed)
+    }
+    func testPlaceHoldRowFillIsOnePerColumn() {
+        var placed = Set<Int>()
+        for c in 0..<8 {
+            XCTAssertEqual(placeHoldDecision(placedColumns: placed, retoggle: false, col: c), .allowed)
+            placed.insert(c)
+        }
+        XCTAssertEqual(placeHoldDecision(placedColumns: placed, retoggle: false, col: 4), .blockedColumnUsed)
+    }
 }
