@@ -394,6 +394,35 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     **full strip EDIT-face sweep** (OutputsView.channelStepper / ReceiversView.editFeatures still host real
     channel/cable/latch editing — must re-home to the cog before removal, per "single-face, config in the
     cog").
+  - **⚠ UNVERIFIED / JUDGMENT CALLS I'm unsure about (2026-07-28/29 — flagged for the user's device pass).**
+    Everything in the THREAD above builds + passes the 329 unit tests, but the unit target does NOT compile the
+    UI files (VC/GridUI/ArrangementBar/CogPage), so **every UI item below is off-device-only** — logic + build
+    checked, never seen or heard. Specific doubts, most-to-least concerning:
+    1. **SPACE-FILL layout at small sizes.** The strips/master/controls now use `maxHeight:.infinity` with
+       `minHeight` floors. On a SHORT band the floors could overflow or the fill could look stretched/empty.
+       Only reasoned about, not seen. (`eecd314`)
+    2. **The ROUTE-IN session face still "looks like a selection"** — the user already said so before my
+       ring/breathing polish; unsure the white ring + glow distinguishes it enough vs the new white
+       SELECT/PLACE ring (`0c79ed9`). May need a clearer routing treatment.
+    3. **COPY·PASTE paste semantics** — I chose: paste stamps the WHOLE clipboard cell, but a top-of-chain
+       paste gets `inputReceiver=0` (avoids the unpointed-MIDI-IN bypass). A pasted cell keeps its `inputRow`
+       reference, which may be invalid at the new position (model falls back to derivation, dimmed). Whether
+       paste should carry routing at all, or only the processor, was NOT specified — my call. (`aa10f89`)
+    4. **UNDO/REDO dim-state reactivity** — `canUndo/canRedo` are read from `au` at render (not polled into
+       @State); refreshes at 4 Hz + after edits. Might lag briefly. (`9d7eac4`)
+    5. **Polish-laws steps are guesses** (LIVE pads → 0.72, roles → 0.82) — explicitly a v1 wanting the eye.
+       (`ffef361`)
+    6. **Emitter vs receiver meters are now ASYMMETRIC** — receiver = hold-while-sounding + fade-on-release;
+       emitter = strike-marks that fade from the strike. True emitter parity needs the deferred engine feed;
+       unsure the asymmetry is acceptable. (`edb51d2`)
+    7. **Adoption is off-device-verified only for the byte stream** (tests green) — the AUDIBLE result (drones
+       actually gliding through boundaries, no clicks, claim/ALT/emitter-octave edge cases) is unheard. Confident
+       in the logic; device ear-check still owed. (`8d5f1b3`)
+    8. **/btw ⑥ "one placement per column"** was DEFERRED partly because I couldn't reconcile it with vertical
+       chains (which need multiple cells per column) — I suspect it means per-STROKE (drag-paint), but I'm unsure
+       drag-to-place is even built. Needs the user's intent before implementing.
+  - **Design-vs-user note:** the ferry explicitly wanted the verbs ROUND ("enforce circles OR the user amends
+    the word"); the user amended → PILLS. If the design side pushes round again, this is the resolution to cite.
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).
