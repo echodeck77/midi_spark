@@ -360,6 +360,40 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `v0.5-outputs`, `v0.6-processors`. The GUI reconcile + perform-layer v1 + audition +
   per-type params + the scene-factory reconcile are all on main **untagged and device-verified**;
   the size-checkpoint gate has PASSED, so **`v0.7-gui` is ready to tag**.
+- **THREAD 2026-07-28/29 — LANDED on main (off-device verified: iOS builds + 329 unit tests green;
+  DEVICE pass still pending for all UI items).** Recorded here because CLAUDE.md drifted stale — keep
+  this current as work lands, not only ferry merges.
+  - **Boundary LEGATO adoption** (`8d5f1b3`) — the drone-continuity engine (§2). Identity holds under
+    LEGATO now flow through column boundaries instead of machine-gunning: an immortal hold voice is
+    ADOPTED when the new column re-holds the same **note + emitter(bus) + Colour-and-face**; else fresh
+    strike. RETRIG/.free re-strike; CHANCE/HARMONIZE re-speak; ALT-group re-strikes. Pass-length envelope
+    (close-at-first-empty, wrap-reopen). `Voice` gained `colourIndex`+`alt`; drainDue skips `.max` voices;
+    every other close path still `allNotesOff` (no stuck notes). Tests: `testLegatoDrone…` flipped green
+    + partial-envelope + transport-stop-clean.
+  - **Strips performance-surface wave** — session faces IN-PLACE (`fc3f6c3`: ROUTE IN/OUT on each strip,
+    dim-beneath·glow·whole-strip target·ring·breathing; compact route bar retired) · **LATCH arm** +
+    **FLAT→DUCK** (`3070ea4`, label only, `flattenMask` stays) · **SPACE-FILL** (`eecd314`: taller
+    sliders/faders, MASTER full-height, HOLD grows, gutters 6→4) · **receiver VELOCITY MARKS** (`edb51d2`:
+    hold-while-sounding + fade-on-release ~250ms) · **polish-laws v1** (`ffef361`: LIVE pads + role lights
+    recede a step — conservative, wants device tuning) · emitter role/foot buttons taller (`2bbe8cd`).
+  - **Verbs: RULED = PILLS, not circles.** I built circles (`e47c6c9`) then REVERTED to the pills
+    (`2bbe8cd`) — "round and inviting" referred to the EMITTER buttons, not the verbs. Verb cluster stays
+    PLACE·(DELETE·SELECT)·(COPY·PASTE) rounded-rectangles.
+  - **/btw features** — ② preset selector enlarged + UNDO/REDO in the header (`9d7eac4`, model API existed,
+    had no UI) · ③ the selected-visual two-sources law (`0c79ed9`: PLACE-placed + SELECT-selected share
+    ONE white ring) · ① **COPY·PASTE replace MOVE·COPY** (`aa10f89`: session clipboard persists after
+    release; PASTE greyed until non-empty; MOVE left the cluster).
+  - **CONTROLS single-face** (`443c1e0`) — retired the dead `editing` param (behaviour-preserving).
+  - **Spec updated**: `Docs/midispark-spec-v3.0-delta.md` **§10 THREAD FOLD** (`28a681e`) consolidates this
+    thread's rulings + build log (newest-wins layer). New design docs preserved:
+    `design-strips-target-state`, `design-btw-six-requirements` (+ the earlier verb-rebuild/spatial/
+    completions docs).
+  - **DEFERRED (with reasons, do not re-derive):** /btw ④⑤⑥ tails (need the user's intent — mid-PLACE
+    retint scope · row/column selectors · one-per-column scope) · **emitter hold-while-sounding marks**
+    (needs a per-emitter sounding-note engine feed = render-path work; the receiver has its feed) · the
+    **full strip EDIT-face sweep** (OutputsView.channelStepper / ReceiversView.editFeatures still host real
+    channel/cable/latch editing — must re-home to the cog before removal, per "single-face, config in the
+    cog").
 
 ## Style
 - Swift, no external deps beyond apple/swift-atomics (SPM, already in project.yml).
