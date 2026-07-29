@@ -342,6 +342,20 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[3][5]?.inputReceiver, 2, "…on the victim's receiver (no orphan-silence)")
     }
 
+    // DELETE = SEVER (AcceptanceCriteria ruling): the child does NOT reconnect to the grandparent; it is cut
+    // back to MIDI-IN (inputRow nil) and pointed at R1 so it doesn't bypass the receiver.
+    func testDeleteSeverCutsChildToMidiInNotGrandparent() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold")                                  // row0: receiver-fed root
+        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)        // row2 ⇐ row0 (the victim)
+        s.cells[0][4] = Cell(colourID: "wine", buses: [.b], inputRow: 2)        // row4 ⇐ row2 (the child)
+        s.deleteCellSever(col: 0, row: 2)
+        XCTAssertNil(s.cells[0][2], "the victim is gone")
+        XCTAssertNil(s.cells[0][4]?.inputRow, "the child is CUT to MIDI-IN (does NOT reconnect to row 0)")
+        XCTAssertEqual(s.cells[0][4]?.inputReceiver, 0, "a severed MIDI-IN child points at R1 (no bypass)")
+        XCTAssertNotNil(s.cells[0][0], "the victim's parent is untouched")
+    }
+
     func testMoveRelocatesAndOverwrites() {
         var s = SceneState.empty()
         s.cells[1][1] = Cell(colourID: "gold", buses: [.a], inputRow: 3)   // reference travels as-is

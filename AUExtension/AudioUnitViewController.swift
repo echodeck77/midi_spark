@@ -238,7 +238,7 @@ struct DiagView: View {
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
-            au.editScene { $0.deleteCellHealing(col: col, row: row) }
+            au.editScene { $0.deleteCellSever(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
         case .select:                                       // one cell selected → tapping a candidate WIRES it (not selectable);
             if selection.count == 1, let f = selection.first, f != pos {   // else tapping toggles membership (build the stack)
@@ -249,8 +249,8 @@ struct DiagView: View {
                     au.editScene { $0.graftHeadBelow(headRow: row, under: f.row, col: f.col) }; refreshFromDocument(); return
                 }
             }
-            if scene.cells[col][row] == nil { selection.removeAll() }      // an empty tap clears the stack
-            else if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
+            guard scene.cells[col][row] != nil else { return }            // an empty tap does NOTHING (spec: nothing changes)
+            if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
         case .copy:                                         // capture the tapped cell into the session clipboard (persists after release)
             if let cell = scene.cells[col][row] { clipboard = cell }
         case .paste:                                        // stamp the clipboard cell wherever tapped (every tap while held)
@@ -343,7 +343,7 @@ struct DiagView: View {
     private func verbHint(_ v: Verb) -> String {
         switch v {
         case .place:  return "PLACE \(brush.uppercased()) — tap empties"
-        case .delete: return "DELETE — tap cells (children heal)"
+        case .delete: return "DELETE — tap cells (links cut)"
         case .select: return "SELECT \(selection.count) — tap to toggle"
         case .copy:   return "COPY — tap a cell to capture"
         case .paste:  return clipboard == nil ? "PASTE — copy a cell first" : "PASTE — tap to stamp"
@@ -389,7 +389,7 @@ struct DiagView: View {
         let text: String
         switch v {
         case .place:  text = "Place cell(s) — tap the grid or a row · choose routing"
-        case .delete: text = "Delete cell(s) — tap the grid or a row · children heal"
+        case .delete: text = "Delete cell(s) — tap the grid or a row · links cut"
         case .select: text = "Select cell(s) — tap to toggle · recolour with the palette"
         default:      text = ""
         }
@@ -859,7 +859,7 @@ struct DiagView: View {
         guard let au else { return }
         switch v {
         case .place: au.editScene { for c in 0..<8 { placeToggle(&$0, c, row) } }; refreshFromDocument()   // row toggle-with-memory
-        case .delete: au.editScene { for c in 0..<8 { $0.deleteCellHealing(col: c, row: row) } }
+        case .delete: au.editScene { for c in 0..<8 { $0.deleteCellSever(col: c, row: row) } }
                       for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
         case .select:
             for c in 0..<8 where scene.cells[c][row] != nil {

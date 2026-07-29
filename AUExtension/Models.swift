@@ -646,6 +646,20 @@ extension SceneState {
         }
     }
 
+    /// DELETE = SEVER (AcceptanceCriteria ruling 2026-07-29): remove the cell and CUT its routing — cells that
+    /// were reading from it (inputRow == row) fall back to MIDI-IN (they do NOT reconnect to the victim's
+    /// parent). A severed child is pointed at R1 so it does not bypass the receiver (the MIDI-IN cell rule).
+    mutating func deleteCellSever(col: Int, row: Int) {
+        guard cells.indices.contains(col), cells[col].indices.contains(row), cells[col][row] != nil else { return }
+        cells[col][row] = nil
+        for r in cells[col].indices {
+            guard var child = cells[col][r], child.inputRow == row else { continue }
+            child.inputRow = nil                                // SEVER: fall back to MIDI-IN, do NOT reconnect to the parent
+            child.inputReceiver = 0                             // point at R1 (a severed MIDI-IN cell must not bypass the receiver)
+            cells[col][r] = child
+        }
+    }
+
     /// MOVE — §11b: relocate a cell to a target, OVERWRITING an occupied one (undo-covered). MOVES NEVER REWRITE
     /// REFERENCES — the cell's fields (incl. inputRow) travel as-is. No-op onto itself, out of range, or empty source.
     mutating func moveCellTo(from f: (col: Int, row: Int), to t: (col: Int, row: Int)) {
