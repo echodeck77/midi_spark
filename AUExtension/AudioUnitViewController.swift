@@ -1080,17 +1080,24 @@ struct DiagView: View {
     // its own COPY (+ PASTE when the clipboard holds a processor).
     // §6d: the two PROCESSOR panels (A/B). PORTRAIT stacks them VERTICALLY (A above B, shorter) so each gets
     // full width (2026-07-27 layout); LANDSCAPE keeps them side by side (the width exists).
+    // MIXED-SET law: a SELECT set spanning >1 distinct Colour has no honest Colour-level edit, so the
+    // PROCESSOR panels dim to "MIXED" (cell-level edits still apply). Single-Colour (or empty→brush) = normal.
+    private var selectionMixed: Bool {
+        Set(selection.compactMap { scene.cells[$0.col][$0.row]?.colourID }).count > 1
+    }
+
     @ViewBuilder private func processorPanels(vertical: Bool) -> some View {
         if let bc = brushColour {
             let h: CGFloat = vertical ? 200 : ProcessorBox.panelHeight
+            let mixed = selectionMixed
             let a = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .a,
                                  onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
                                  onSetTypeA: setBrushType, canPaste: procClipboard != nil,
-                                 onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) }, height: h)
+                                 onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) }, height: h, mixed: mixed)
             let b = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .b,
                                  onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
                                  canPaste: procClipboard != nil,
-                                 onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) }, height: h)
+                                 onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) }, height: h, mixed: mixed)
             if vertical {
                 VStack(spacing: 8) { a; b }
             } else {

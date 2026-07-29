@@ -1255,6 +1255,7 @@ struct ProcessorBox: View {
     var onCopy: () -> Void = {}
     var onPaste: () -> Void = {}
     var height: CGFloat = panelHeight                   // portrait A-above-B stacking passes a shorter height
+    var mixed: Bool = false                             // MIXED-SET law: SELECT spans >1 Colour → dim + disable
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1271,27 +1272,45 @@ struct ProcessorBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             titleRow
-            typeSelector
-            if let ft = faceType {
-                field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
-                    stepper(faceTranspose, -24, 24) { v in
-                        if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
-                    }
-                }
-                typeParams(ft)
-                if isB && glides {                       // morph glides A↔B; only meaningful for a FULL B
-                    field("MORPH \(Int(colour.morph * 100))%  → B") {
-                        Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
-                    }
-                }
+            if mixed {
+                mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
             } else {
-                Text("no B — pick a type or PASTE to add a second processor")
-                    .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).padding(.top, 4)
+                typeSelector
+                if let ft = faceType {
+                    field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
+                        stepper(faceTranspose, -24, 24) { v in
+                            if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
+                        }
+                    }
+                    typeParams(ft)
+                    if isB && glides {                   // morph glides A↔B; only meaningful for a FULL B
+                        field("MORPH \(Int(colour.morph * 100))%  → B") {
+                            Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
+                        }
+                    }
+                } else {
+                    Text("no B — pick a type or PASTE to add a second processor")
+                        .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).padding(.top, 4)
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(8).frame(height: height, alignment: .top).clipped()
+        .opacity(mixed ? 0.55 : 1)                        // MIXED-SET: DIM the whole panel
+        .disabled(mixed)                                  // …and block any stray hit (controls aren't rendered anyway)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    // MIXED-SET law: the selection spans more than one Colour, so there is no single Colour-level edit to
+    // honour — say so plainly rather than editing the brush behind the user's back. Cell-level edits
+    // (routing, emitters, delete) still act on the whole set; only this panel goes inert.
+    private var mixedFace: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("MIXED").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text("selection spans multiple Colours — select ONE Colour to edit its processor.")
+                .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var titleRow: some View {
@@ -1299,8 +1318,8 @@ struct ProcessorBox: View {
             Text(isB ? "PROCESSOR B" : "PROCESSOR A")
                 .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             Spacer()
-            if faceType != nil { pill("COPY", onCopy) }
-            if canPaste { pill("PASTE", onPaste) }
+            if !mixed && faceType != nil { pill("COPY", onCopy) }
+            if !mixed && canPaste { pill("PASTE", onPaste) }
         }
     }
 
