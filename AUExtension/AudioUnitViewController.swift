@@ -90,6 +90,8 @@ struct DiagView: View {
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
     @State private var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
+    @State private var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
+    @State private var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
     @State private var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
     private var activeVerb: Verb? { heldVerb }
     private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
@@ -832,7 +834,8 @@ struct DiagView: View {
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      routeFocus: routeFocus, routeIn: routeInCandidates, routeOut: routeOutCandidates,
-                     tapAltMask: tapAltMask, tapMuteMask: tapMuteMask)
+                     tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
+                     strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
         }
@@ -876,6 +879,30 @@ struct DiagView: View {
         brush = id                                          // desk re-point: the recoloured (single-Colour) set points the desk at it
         refreshFromDocument()
     }
+
+    // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
+    private var strokeActive: Bool { heldVerb == .place || heldVerb == .delete || heldVerb == .select }
+    // Apply the HELD verb to one cell entered mid-drag. PLACE paints via placeToggle (⑥ enforced inside),
+    // DELETE severs, SELECT lassos (additive; the visited-guard blocks re-toggle). The whole swathe coalesces
+    // into ONE undo via strokeKey (opened on the first cell, closed by endStroke).
+    private func strokeCell(_ col: Int, _ row: Int) {
+        guard let au, let v = heldVerb else { return }
+        if strokeKey == nil { strokeSeq += 1; strokeKey = "stroke-\(strokeSeq)" }
+        let pos = GridView.GridPos(col: col, row: row)
+        switch v {
+        case .place:
+            au.editScene(coalesceKey: strokeKey) { placeToggle(&$0, col, row) }
+            lastPlaced = pos; refreshFromDocument()
+        case .delete:
+            guard scene.cells[col][row] != nil else { return }
+            au.editScene(coalesceKey: strokeKey) { $0.deleteCellSever(col: col, row: row) }
+            selection.remove(pos); refreshFromDocument()
+        case .select:
+            if scene.cells[col][row] != nil { selection.insert(pos) }
+        default: break
+        }
+    }
+    private func endStroke() { strokeKey = nil }
 
     // /btw ④: a mid-PLACE-hold palette pick switches the brush AND RETRO-REPAINTS — every cell placed THIS hold
     // recolours to the new brush, the brush-tinted PLACE chevrons follow, and the processor desk switches to

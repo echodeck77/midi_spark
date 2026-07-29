@@ -108,8 +108,14 @@ struct GridView: View {
     var routeOut: Set<GridPos> = []                  // §10 graftable chain HEADS below (green glow — tap = GRAFT)
     var tapAltMask: UInt64 = 0                        // §9 item 1 ON TAP: ephemeral per-cell ALT flips (bit col*8+row)
     var tapMuteMask: UInt64 = 0                       // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute (dims the cell)
+    // STROKES: while a verb is held, a DRAG applies the verb once per NEWLY-ENTERED cell (PLACE paints a run —
+    // one per column via ⑥ — DELETE sweeps, SELECT lassos). The whole swathe is ONE undo step.
+    var strokeActive: Bool = false                   // a verb is held → drags stroke instead of doing nothing
+    var onStroke: ((Int, Int) -> Void)? = nil        // called once per newly-entered cell during a stroke
+    var onStrokeEnd: (() -> Void)? = nil             // drag ended → commit the swathe (close its one undo)
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
+    @State private var strokeVisited: Set<GridPos> = []   // cells already painted THIS stroke (fire once each)
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
     // §5 drag-and-drop (EDIT): the cell being dragged + the hovered drop target; the grid's measured size
@@ -119,6 +125,23 @@ struct GridView: View {
     @State private var dragTo: GridPos? = nil
     @State private var stagePressed = false          // this long-press already fired staging (once per gesture)
     @State private var gridSize: CGSize = .zero
+    // STROKES: a grid-wide drag that, while a verb is held, applies the verb once per newly-entered cell.
+    // minimumDistance 10 keeps a plain tap flowing to onTapGesture (only a real drag strokes); it is a
+    // simultaneousGesture so it never steals the per-cell tap / audition long-press. Inert when no verb held.
+    private var strokeGesture: some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .named("grid"))
+            .onChanged { v in
+                guard strokeActive, let p = cellAt(location: v.location), !strokeVisited.contains(p) else { return }
+                strokeVisited.insert(p)
+                onStroke?(p.col, p.row)
+            }
+            .onEnded { _ in
+                let painted = strokeActive && !strokeVisited.isEmpty
+                strokeVisited.removeAll()
+                if painted { onStrokeEnd?() }
+            }
+    }
+
     private func cellAt(location p: CGPoint) -> GridPos? {
         GridGeometry.cell(atLocal: p, gridWidth: gridSize.width, cellHeight: cellHeight).map { GridPos(col: $0.col, row: $0.row) }
     }
@@ -144,6 +167,7 @@ struct GridView: View {
         }
         .overlay { mutationLines }                       // per-cell falling lines in the active column
         .coordinateSpace(name: "grid")                   // §5 drag-and-drop: maps a drag location → a cell
+        .simultaneousGesture(strokeGesture)              // STROKES: drag-paint while a verb is held
         .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
         .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
