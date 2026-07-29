@@ -1,9 +1,9 @@
-# The verbs — how they behave today, and what's still missing
+# The verbs — behaviour (acceptance criteria)
 
 _Plain-language reference for the five grid verbs (PLACE · DELETE · SELECT · COPY · PASTE), written in
-Given / When / Then. Each statement is CURRENT behaviour unless it is phrased as "should" or carries a
-**"Now instead"** note — those flag requirements that are agreed but NOT yet built. Scope: the verb buttons,
-the main grid, routing, receivers/emitters, and choosing colours._
+Given / When / Then. This is the agreed target behaviour for the verbs, the grid, routing, and the
+receiver/emitter strips. Scope: the verb buttons, the main grid, routing, receivers/emitters, and choosing
+colours._
 
 ---
 
@@ -64,15 +64,12 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
   from this hold is reverted and PLACE ends.
 
 - **Given** PLACE is held and you've placed some cells, **when** you tap a different palette colour, **then**
-  the chevrons AND **every cell already placed this hold** should recolour to the new colour, and later
-  placements use it too (the whole hold recolours as one). The processors should switch to the ones associated with that colour.  
+  the chevrons AND **every cell already placed this hold** recolour to the new colour, and later placements use
+  it too (the whole hold recolours as one). The processor desk switches to that colour.
 
 - **Given** PLACE is held and you've placed a cell in a column, **when** you try to place a second cell in that
-  same column during the same hold, **then** it should be blocked (release and re-hold to add another in that
-  column — vertical stacks are still buildable, just not in one hold).
-- **Now instead:** there is no limit; you can place as many cells per column per hold as you like.
-  
-  
+  same column during the same hold, **then** it is blocked (release and re-hold to add another in that column —
+  vertical stacks are still buildable, just not in one hold).
 
 ## DELETE
 
@@ -91,9 +88,6 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 
 **Cancel**
 - **Given** DELETE is held, **when** you tap CANCEL, **then** the deletions are reverted and DELETE ends.
-
-**Now instead** — the code HEALS on delete: a deleted cell's children reconnect to its parent (the chain closes
-up) rather than the links being cut. Sever is the change to build.
 
 ## SELECT
 
@@ -125,8 +119,6 @@ up) rather than the links being cut. Sever is the change to build.
 - **Given** cells are selected with candidates lit, **when** you tap a lit **SRC** above, **then** the selected
   cell in that column is wired to read from that row; **when** you tap a lit **DEST** below, **then** that chain
   is grafted under the selected cell in that column — in both cases instead of toggling the tapped cell.
-- **Now instead** — the code offers routing only when EXACTLY ONE cell is selected (a single focus), not per
-  column across a multi-cell selection.
 
 **Choosing colours**
 - **Given** one or more cells are selected, **when** you tap a palette colour, **then** every selected cell is
@@ -180,14 +172,14 @@ up) rather than the links being cut. Sever is the change to build.
 ## Routing candidate cells (how the grid looks while wiring)
 
 **Look**
-- **Given** a cell is the routing focus (the cell whose routing is being changed), **then** it is marked as the
-  cell being wired (today, a solid amber ring); the spec below concerns the *candidate* cells around it.
-- **Given** a cell **above** the focus can feed it, **then** that candidate reads a pulsing **"SRC"** — matching
-  the receiver ROUTE IN face (it is a source for the cell's input).
-- **Given** a cell **below** the focus can be grafted under it, **then** that candidate reads a pulsing
-  **"DEST"** — matching the emitter ROUTE OUT face (it is a destination the cell can feed).
-- **Given** any candidate, **then** it gently **pulses** but wears **no new outline or ring** — the SRC / DEST
-  label alone marks it, so a candidate never looks like it has been selected.
+- **Given** a cell is the routing focus (the cell whose routing is being changed), **then** it wears a solid
+  amber ring; the candidate cells around it look as below.
+- **Given** a cell **above** the focus can feed it, **then** it is a **SRC** candidate: the cell **pulses with a
+  transparent tint** and shows a large, prominent **"SRC"** label (matching the receiver ROUTE IN face).
+- **Given** a cell **below** the focus can be grafted under it, **then** it is a **DEST** candidate: the cell
+  **pulses transparently** and shows a large, prominent **"DEST"** label (matching the emitter ROUTE OUT face).
+- **Given** any candidate, **then** it pulses transparently and wears **no outline or ring** — the prominent
+  SRC / DEST label marks it, so a candidate never looks like it has been selected.
 
 **Behaviour**
 - **Given** candidates are showing, **when** you tap a **SRC** cell above, **then** the focus is wired to read
@@ -196,9 +188,6 @@ up) rather than the links being cut. Sever is the change to build.
   the focus — again instead of placing or toggling.
 - **Given** candidates are showing, **when** you tap anywhere that is NOT a candidate, **then** the tap does the
   normal verb action (place / toggle) instead of wiring.
-
-**Now instead** — the code rings candidates with a cyan (above) or green (below) outline and shows no SRC / DEST
-label; that outline reads like a selection, which is exactly what this change removes.
 
 ## Receivers — the MIDI INPUT strips (above the grid)
 
@@ -215,26 +204,24 @@ label; that outline reads like a selection, which is exactly what this change re
 - **When** you tap an output's ROUTE OUT face, **then** you toggle whether the focus cell sends to that emitter.
 
 ## STROKES — drag to apply a verb across many cells
-- **Given** any verb is held, **when** you drag your finger across the grid, **then** the verb should apply to
-  each cell the finger passes over, as ONE undoable step — PLACE paints a run (one per column), DELETE sweeps,
+- **Given** any verb is held, **when** you drag your finger across the grid, **then** the verb applies to each
+  cell the finger passes over, as ONE undoable step — PLACE paints a run (one per column), DELETE sweeps,
   SELECT lassos.
-- **Now instead:** only individual taps work; dragging across the grid does nothing.
 
 ## MIXED-SET law — processor panels dim for mixed selections
 - **Given** a SELECT selection contains cells of more than one colour, **when** you look at the PROCESSOR
-  panels, **then** they should dim to a "MIXED" state and disable the colour-level controls (cell-level edits
-  like routing, emitters, and delete still apply to the whole set).
+  panels, **then** they dim to a "MIXED" state and disable the colour-level controls (cell-level edits like
+  routing, emitters, and delete still apply to the whole set).
 
 ## Desk re-point (hard rule) — selecting a colour points the desk at it
 - **Given** you select a cell, or cells that are all one colour, **when** the selection is a single colour,
-  **then** the COLOUR + PROCESSOR desk should re-point to that colour so you're editing what you selected.
+  **then** the COLOUR + PROCESSOR desk re-points to that colour so you're editing what you selected.
   (This is a hard rule: selecting a colour must always re-point the desk.)
 
-## Verb LATCH — long-press to lock a verb on
-- **Given** a verb button, **when** you long-press it, **then** it should latch on (so you can work two-handed
-  without holding it), and a tap releases it.
-- **Now instead:** verbs are spring-only — they are active only while held. (A code comment mentions a latch,
-  but it is not built.)
+## Verb latching — DECIDED: verbs do NOT latch
+- **Given** a verb button, **when** you long-press it, **then** nothing special happens. Verbs are
+  **spring-only**: a verb is active only while its button is held, and releasing ends it. (Long-press latching
+  was considered and rejected.)
 
 ## Notes
 - **⑤ (SELECT = per-cell + row chevrons, columns never select)** is already how the code behaves today

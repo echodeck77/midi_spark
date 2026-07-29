@@ -245,10 +245,12 @@ struct GridView: View {
     // §10 a routing candidate wears a pulsing SRC/DEST chip — NO outline (must not read as "selected"). The
     // pulse rides the shared `breathe` phase (same cadence as the ALT ring + the strip ROUTE faces).
     private func routeLabel(_ text: String, _ hue: Color) -> some View {
-        Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(Capsule().fill(hue.opacity(breathe ? 0.95 : 0.5)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(hue.opacity(breathe ? 0.34 : 0.06))   // the cell PULSES, transparently — no outline
+            Text(text).font(.system(size: 18, weight: .heavy, design: .monospaced))       // SRC/DEST — prominent
+                .foregroundColor(.white).minimumScaleFactor(0.5).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
@@ -616,7 +618,7 @@ struct ReceiversView: View {
                 VStack(spacing: 1) {
                     Text("ROUTE IN").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(0.85)).tracking(1)
                     Text(["A", "B", "C", "D"][i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(isCurrent ? .white : hue)
-                    Text("SRC").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(isCurrent ? 1 : 0.7)).tracking(1)
+                    Text("SRC").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(isCurrent ? 1 : 0.75)).tracking(2)
                 }
             }
         }
@@ -877,7 +879,7 @@ struct OutputsView: View {
                 VStack(spacing: 1) {
                     Text("ROUTE OUT").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(green.opacity(0.85)).tracking(1)
                     Text(letters[i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black : green)
-                    Text("DEST").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.7) : green.opacity(0.7)).tracking(1)
+                    Text("DEST").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.8) : green.opacity(0.8)).tracking(2)
                 }
             }
         }
