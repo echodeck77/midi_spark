@@ -279,8 +279,16 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .opacity(tapMutedHere ? 0.28 : (isRouteCand ? (breathe ? 1.0 : 0.4) : 1))   // §10 ROUTE candidate: the whole cell BODY pulses (label stays solid on top)
+        .opacity(tapMutedHere ? 0.28 : 1)                   // §9 ON TAP = MUTE: the momentarily-muted cell dims
         .frame(maxWidth: .infinity).frame(height: cellHeight)
+        .overlay {                                          // §10 ROUTE candidate: the BODY pulses (time-driven so it actually animates)
+            if isRouteCand {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+                    let p = stagingPulseFraction(tl.date, period: 1.2)          // 0→1→0 over ~1.2s
+                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.05 + 0.32 * p))
+                }
+            }
+        }
         .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
             if GridPos(col: col, row: row) == hiddenPending, let hc = raw {
@@ -297,15 +305,14 @@ struct GridView: View {
         }
         .overlay {                                          // §10 ROUTE candidates > §11 PLACE border > SELECT ring > verb glow
             let pos = GridPos(col: col, row: row)
-            if routeFoci.contains(pos) {                    // a cell being wired — the ONLY routing ring (amber)
-                RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.98, green: 0.72, blue: 0.12), lineWidth: 2.5)
-            } else if routeIn.contains(pos) {               // a SRC above — a pulsing label, NO ring (must not read as selected)
+            if routeIn.contains(pos) {                      // a SRC above — a pulsing label, NO ring (must not read as selected)
                 routeLabel("SRC", Color(red: 0.15, green: 0.88, blue: 0.94))
             } else if routeOut.contains(pos) {              // a DEST below — a pulsing label, NO ring
                 routeLabel("DEST", Color(red: 0.35, green: 0.92, blue: 0.50))
             } else if whiteBorder.contains(pos) || selection.contains(pos) {
-                // /btw ③ THE TWO-SOURCES LAW: a cell reads SELECTED only when PLACE-placed (this hold) or
-                // SELECT-selected — the ONLY two sources — and both wear the SAME white ring (one shared look).
+                // /btw ③ THE TWO-SOURCES LAW + item 4: a SELECTED or PLACED cell ALWAYS draws WHITE — never a
+                // yellow ring (a yellow outline is invisible on a yellow cell). The route-focus cells are placed/
+                // selected, so they land here and read white too.
                 RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
             } else if let inv = verbInvite {                // a verb is held (not PLACE): cells glow the verb hue
                 RoundedRectangle(cornerRadius: 8).stroke(inv.opacity(0.55), lineWidth: 1.5)

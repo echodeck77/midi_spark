@@ -46,12 +46,14 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
   rules above) in each of the 8 columns of that row.
 
 **Routing**
-- **Given** PLACE is held and you've just placed a cell, **then** that last-placed cell becomes the routing
-  **focus**: its possible input sources above it light up, and graftable chain-heads below it light up.
-- **Given** a focus cell with candidates lit, **when** you tap a lit source above, **then** the focus cell is
-  wired to read from that row (route-in) instead of a new cell being placed.
-- **Given** a focus cell with candidates lit, **when** you tap a lit head below, **then** that chain is grafted
-  underneath the focus cell instead of a new cell being placed.
+- **Given** PLACE is held, **then** EVERY cell you have placed this hold is a routing **focus** — including a
+  whole row placed with a row chevron. Around each focus, its **SRC** candidates (cells above) and **DEST**
+  candidates (cells below) light up, and the receiver + emitter strips offer their ROUTE faces.
+- **Given** a focus with candidates lit, **when** you tap a lit **SRC** above, **then** the focus is wired to
+  read from that row; **when** you tap a lit **DEST** below, **then** that cell reads from the focus — in both
+  cases instead of placing a new cell.
+- **Given** the receiver / emitter ROUTE strips are showing, **when** you tap a receiver or an emitter, **then**
+  it applies to ALL of this hold's placed cells at once (so you can route a whole row in one tap).
 
 **Choosing colours**
 - **Given** PLACE is held, **then** new cells use the current brush colour.
@@ -180,8 +182,9 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 ## Routing candidate cells (how the grid looks while wiring)
 
 **Look**
-- **Given** a cell is the routing focus (the cell whose routing is being changed), **then** it wears a solid
-  amber ring; the candidate cells around it look as below.
+- **Given** a cell is the routing focus (a placed or selected cell whose routing is being changed), **then** it
+  draws with the **WHITE** selected ring — never a yellow/amber outline (a yellow ring is invisible on a yellow
+  cell). The candidate cells around it look as below.
 - **Given** a cell **above** the focus can feed it, **then** it is a **SRC** candidate: the whole cell **body
   pulses** (fades in and out) with a large, prominent **"SRC"** label sitting solid on top (matching the receiver
   ROUTE IN face).

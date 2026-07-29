@@ -189,7 +189,13 @@ struct DiagView: View {
     // ambiguous → no routing there). Each focus lights ALL cells above it (SRC) and ALL cells below it (DEST) in
     // its own column. Release applies; CANCEL reverts.
     private var routeFoci: [Int: Int] {                  // col → focus row (at most one per column)
-        if heldVerb == .place, let p = lastPlaced, scene.cells[p.col][p.row] != nil { return [p.col: p.row] }
+        if heldVerb == .place {                          // EVERY cell placed this hold is a focus (incl. a whole row)
+            var foci: [Int: Int] = [:]
+            for p in placedThisHold where p.col < scene.cells.count && p.row < scene.cells[p.col].count && scene.cells[p.col][p.row] != nil {
+                foci[p.col] = p.row                      // ⑥ guarantees ≤ one placed cell per column
+            }
+            return foci
+        }
         guard heldVerb == .select, !selection.isEmpty else { return [:] }
         var byCol: [Int: [Int]] = [:]
         for s in selection where s.col < scene.cells.count && s.row < scene.cells[s.col].count && scene.cells[s.col][s.row] != nil {
