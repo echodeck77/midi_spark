@@ -89,6 +89,7 @@ struct DiagView: View {
     @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
+    @State private var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
     @State private var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
     private var activeVerb: Verb? { heldVerb }
     private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
@@ -364,7 +365,7 @@ struct DiagView: View {
     }
     private func onVerbEngaged(_ v: Verb) {
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
-        case .place:  placeFresh = []; placeUndo = [:]; lastPlaced = nil; gridSnapshot = scene.cells
+        case .place:  placeFresh = []; placeUndo = [:]; lastPlaced = nil; gridSnapshot = scene.cells; holdSeq += 1
         case .delete: gridSnapshot = scene.cells
         case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
         default: break
@@ -680,6 +681,14 @@ struct DiagView: View {
                 #endif
             }
         }
+        .onChange(of: selection) { sel in
+            // HARD RULE: selecting a Colour ALWAYS re-points the processor desk to it. A SELECT set of ONE
+            // distinct Colour sets brush = that Colour, so the COLOUR + PROCESSOR panels edit the SELECTED
+            // cells' Colour (brush is the desk pointer). Multi-Colour → MIXED (handled elsewhere); empty → the
+            // brush stays as-is.
+            let ids = Set(sel.compactMap { scene.cells[$0.col][$0.row]?.colourID })
+            if ids.count == 1, let id = ids.first, id != brush { brush = id }
+        }
         .onReceive(timer) { _ in
             guard let au else { return }
             // Write @State ONLY when a DISPLAYED value changed — an unconditional write re-renders the
@@ -864,6 +873,22 @@ struct DiagView: View {
     private func recolorSelection(_ id: String) {
         guard let au, !selection.isEmpty else { return }
         au.editScene { s in for p in selection { if var c = s.cells[p.col][p.row] { c.colourID = id; s.cells[p.col][p.row] = c } } }
+        brush = id                                          // desk re-point: the recoloured (single-Colour) set points the desk at it
+        refreshFromDocument()
+    }
+
+    // /btw ④: a mid-PLACE-hold palette pick switches the brush AND RETRO-REPAINTS — every cell placed THIS hold
+    // recolours to the new brush, the brush-tinted PLACE chevrons follow, and the processor desk switches to
+    // that colour (brush is the desk pointer). Coalesced per hold so repeated chip switches are one undo entry;
+    // CANCEL still reverts the whole hold via gridSnapshot.
+    private func repaintHoldToBrush(_ id: String) {
+        brush = id
+        guard let au, !placedThisHold.isEmpty else { return }
+        au.editScene(coalesceKey: "place-recolor-\(holdSeq)") { s in
+            for p in placedThisHold where s.cells[p.col][p.row] != nil {
+                s.cells[p.col][p.row]!.colourID = id
+            }
+        }
         refreshFromDocument()
     }
 
@@ -1017,8 +1042,10 @@ struct DiagView: View {
             }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in                          // §11 SELECT: a chip recolours the selected set; else sets the brush
-                            if !selection.isEmpty { recolorSelection(id) } else { pickPalette(id) }
+                        onPick: { id in                          // /btw ④ PLACE-hold: retro-repaint; SELECT: recolour the set; else set brush
+                            if activeVerb == .place { repaintHoldToBrush(id) }
+                            else if !selection.isEmpty { recolorSelection(id) }
+                            else { pickPalette(id) }
                         })
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
