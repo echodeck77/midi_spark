@@ -71,6 +71,14 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
   same column during the same hold, **then** it is blocked (release and re-hold to add another in that column —
   vertical stacks are still buildable, just not in one hold).
 
+**Routing carries to the next cell**
+- **Given** PLACE is held and you have placed a cell and chosen its emitters and its receiver (via the strips),
+  **when** you place further cells in the same hold, **then** each new cell defaults to the SAME emitters and the
+  SAME receiver as the last cell you set up — so you can lay down a run of identically-routed cells without
+  wiring each one.
+- **Given** you change the emitters or receiver again later in the hold, **then** the cells you place after that
+  inherit the new choice (the template is always the most recently set-up cell).
+
 ## DELETE
 
 **Button**
@@ -174,12 +182,13 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 **Look**
 - **Given** a cell is the routing focus (the cell whose routing is being changed), **then** it wears a solid
   amber ring; the candidate cells around it look as below.
-- **Given** a cell **above** the focus can feed it, **then** it is a **SRC** candidate: the cell **pulses with a
-  transparent tint** and shows a large, prominent **"SRC"** label (matching the receiver ROUTE IN face).
-- **Given** a cell **below** the focus can be grafted under it, **then** it is a **DEST** candidate: the cell
-  **pulses transparently** and shows a large, prominent **"DEST"** label (matching the emitter ROUTE OUT face).
-- **Given** any candidate, **then** it pulses transparently and wears **no outline or ring** — the prominent
-  SRC / DEST label marks it, so a candidate never looks like it has been selected.
+- **Given** a cell **above** the focus can feed it, **then** it is a **SRC** candidate: the whole cell **body
+  pulses** (fades in and out) with a large, prominent **"SRC"** label sitting solid on top (matching the receiver
+  ROUTE IN face).
+- **Given** a cell **below** the focus can be grafted under it, **then** it is a **DEST** candidate: the whole
+  cell **body pulses** with a large, prominent **"DEST"** label on top (matching the emitter ROUTE OUT face).
+- **Given** any candidate, **then** its BODY pulses (not just an overlay) and it wears **no outline or ring** —
+  the prominent SRC / DEST label (which stays solid) marks it, so a candidate never looks like it is selected.
 
 **Behaviour**
 - **Given** candidates are showing, **when** you tap a **SRC** cell above, **then** the focus is wired to read

@@ -245,12 +245,10 @@ struct GridView: View {
     // §10 a routing candidate wears a pulsing SRC/DEST chip — NO outline (must not read as "selected"). The
     // pulse rides the shared `breathe` phase (same cadence as the ALT ring + the strip ROUTE faces).
     private func routeLabel(_ text: String, _ hue: Color) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(hue.opacity(breathe ? 0.34 : 0.06))   // the cell PULSES, transparently — no outline
-            Text(text).font(.system(size: 18, weight: .heavy, design: .monospaced))       // SRC/DEST — prominent
-                .foregroundColor(.white).minimumScaleFactor(0.5).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Text(text).font(.system(size: 18, weight: .heavy, design: .monospaced))          // SRC/DEST — prominent; NO outline
+            .foregroundColor(hue).minimumScaleFactor(0.5).lineLimit(1)
+            .shadow(color: .black.opacity(0.9), radius: 2)                                // legible while the body pulses beneath
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
@@ -262,6 +260,7 @@ struct GridView: View {
         let colour = cell.flatMap { c in colourColor(c.colourID) }
         let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false
         let tapMutedHere = cell != nil && (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1   // §9 ON TAP = MUTE (momentary)
+        let isRouteCand = routeIn.contains(GridPos(col: col, row: row)) || routeOut.contains(GridPos(col: col, row: row))
 
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(colour ?? cellBg)
@@ -280,7 +279,7 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .opacity(tapMutedHere ? 0.28 : 1)                   // §9 ON TAP = MUTE: the momentarily-muted cell dims
+        .opacity(tapMutedHere ? 0.28 : (isRouteCand ? (breathe ? 1.0 : 0.4) : 1))   // §10 ROUTE candidate: the whole cell BODY pulses (label stays solid on top)
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column

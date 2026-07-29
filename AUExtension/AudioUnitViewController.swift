@@ -291,11 +291,21 @@ struct DiagView: View {
             placeUndo[pos] = existing
             var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver
             s.cells[col][row] = c
-        } else {                                             // fresh tap on empty → PLACE (§9.③ downhill nudge)
+        } else {                                             // fresh tap on empty → PLACE
             placeFresh.insert(pos)
-            let parentAbove = (0..<row).last { s.cells[col][$0] != nil }   // wire to the NEAREST occupied cell above (bridges gaps)
-            var c = Cell(colourID: brush, buses: [.a]); c.inputRow = parentAbove
-            if parentAbove == nil { c.inputReceiver = 0 }    // MIDI-IN cells must point at R1 (else they bypass the receiver)
+            // STICKY ROUTING (AcceptanceCriteria 2026-07-29): a new cell inherits the emitters + receiver of the
+            // last cell set up THIS hold, so a run of cells shares one routing without re-wiring each. If that
+            // template cell is MIDI-IN (has a chosen receiver) the new cell reads from the SAME receiver; else
+            // fall back to the §9.③ downhill nudge (nearest occupied cell above, bridging gaps).
+            let template = lastPlaced.flatMap { s.cells[$0.col][$0.row] }
+            var c = Cell(colourID: brush, buses: template?.buses ?? [.a])
+            if let t = template, t.inputRow == nil, let rcv = t.inputReceiver {
+                c.inputReceiver = rcv                        // inherit the selected receiver (MIDI-IN)
+            } else {
+                let parentAbove = (0..<row).last { s.cells[col][$0] != nil }
+                c.inputRow = parentAbove
+                if parentAbove == nil { c.inputReceiver = 0 }   // MIDI-IN cells must point at R1 (else they bypass the receiver)
+            }
             s.cells[col][row] = c
         }
     }
