@@ -1776,8 +1776,9 @@ one-liner._
     HOLD grows into its dead area, gutters tightened.
   - ③ **Receiver VELOCITY MARKS** (`edb51d2`) — hold-while-sounding ticks + fade-on-release marks (~250ms),
     strip hue; fill only while touching. The emitter already carries source-Colour marks + the **withheld
-    tells** (shipped, preserved). **[CONFIRM/GREEN]** a true emitter hold-while-sounding needs a per-emitter
-    sounding-note engine feed — offered, not yet built.
+    tells** (shipped, preserved). **[ACCEPTED 2026-07-29 — build with the polish pass as the "strips DONE" wave]**
+    a true emitter hold-while-sounding needs a per-emitter sounding-note engine feed (refcount/voice table
+    sliced by bus, carrying the source cell/`colourIndex` for the tint law); see `Docs/pending-tasks.md` §C.
   - **[APPLY, pending] ④ the polish-laws pass** — chrome quiet (LIVE pads + role lights drop a saturation step;
     defaults recede) so the band reads calm at rest, alive where music moves.
 

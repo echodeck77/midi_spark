@@ -24,8 +24,14 @@ See **`Docs/implementation-plan-btw-authoring.md`** for the firm ordered plan. A
 - [ ] **COPY·PASTE flow** · **preset enlarge + UNDO/REDO** · **selected-visual white ring** (does ROUTE-IN still read as a selection?).
 
 ## C. Buildable now (next increments)
-- [ ] **④ strip polish-laws** — device-tuning pass (v1 `ffef361` was conservative guesses).
-- [ ] **Emitter hold-while-sounding marks** — needs a per-emitter sounding-note **engine feed** (render-path; receiver has its feed).
+- [ ] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter
+  sounding-feed → emitter hold-while-sounding marks → ④ polish-laws device tuning.**
+  - Emitter feed: per-emitter currently-sounding notes = the **refcount/voice table sliced by bus** (should
+    fall out nearly free), and **carry the source CELL/`colourIndex` with each note** so the cargo-tint law
+    (marks in the source Colour) rides the same feed. `Voice` already has `colourIndex` (adoption). Mirror the
+    receiver's `recvHeld` pattern: accumulate render-side, drain to the VC, render hold-while-sounding +
+    fade-on-release in `OutputsView` (like the receiver's `releaseMarks`).
+  - ④ polish-laws: v1 `ffef361` was conservative guesses — tune on device.
 - [ ] **Full strip EDIT-face sweep** — retire OutputsView.channelStepper / ReceiversView.editFeatures *after* re-homing channel/cable/latch config to the **cog** ("single-face forever").
 - [ ] **Trigger-glyph cell face** (§3, ratified) — Colour block · emblem · trigger glyph · digest dim · dots · compass tint; naming demoted.
 - [ ] **Touch completions** — palette LIVE during holds (brush-switch) · **STROKES** (drag-paint, one undo/swathe) · **MIXED-SET law** (processor panels dim to "MIXED" for mixed selections).

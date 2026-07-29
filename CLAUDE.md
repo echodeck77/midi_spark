@@ -418,9 +418,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
        @State); refreshes at 4 Hz + after edits. Might lag briefly. (`9d7eac4`)
     5. **Polish-laws steps are guesses** (LIVE pads → 0.72, roles → 0.82) — explicitly a v1 wanting the eye.
        (`ffef361`)
-    6. **Emitter vs receiver meters are now ASYMMETRIC** — receiver = hold-while-sounding + fade-on-release;
-       emitter = strike-marks that fade from the strike. True emitter parity needs the deferred engine feed;
-       unsure the asymmetry is acceptable. (`edb51d2`)
+    6. **Emitter vs receiver meters are ASYMMETRIC** — receiver = hold-while-sounding + fade-on-release; emitter
+       = strike-marks. RESOLVED (design 2026-07-29): the asymmetry is NOT acceptable — build the emitter
+       sounding-feed with the polish pass (the "strips DONE" wave, `pending-tasks.md` §C). (`edb51d2`)
     7. **Adoption is off-device-verified only for the byte stream** (tests green) — the AUDIBLE result (drones
        actually gliding through boundaries, no clicks, claim/ALT/emitter-octave edge cases) is unheard. Confident
        in the logic; device ear-check still owed. (`8d5f1b3`)
