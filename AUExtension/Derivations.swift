@@ -734,3 +734,50 @@ func placedCellRouting(template: (buses: Set<Bus>, inputRow: Int?, inputReceiver
     }
     return PlacedRouting(buses: template?.buses ?? [.a], inputRow: nearestAbove, inputReceiver: nearestAbove == nil ? 0 : nil)
 }
+
+// MARK: - Routing visualisation graph (the while-wiring overlay)
+
+struct RouteCell: Hashable { let col: Int; let row: Int }
+enum RouteAnchor: Equatable { case receiver(Int), cell(RouteCell), emitter(Int) }
+struct RouteEdge: Equatable { let from: RouteAnchor; let to: RouteAnchor; let lit: Bool }
+
+/// The routing graph to draw while a verb is held: for every occupied cell, an INPUT edge (from its receiver if
+/// MIDI-IN, else from its parent cell) and one OUTPUT edge per emitter it feeds. An edge is `lit` when its cell
+/// sits on a path that runs through a SELECTED cell — i.e. the selected cell's connected input/output chain
+/// (chains are per-column via `inputRow`). Pure so the graph is unit-testable; the view maps anchors → points.
+func routingEdges(cells: [[Cell?]], selected: Set<RouteCell>) -> [RouteEdge] {
+    func occupied(_ col: Int, _ row: Int) -> Bool { col < cells.count && row >= 0 && row < cells[col].count && cells[col][row] != nil }
+
+    // lit = the connected component (over inputRow parent/child links, within a column) of each selected cell.
+    var lit = Set<RouteCell>()
+    for sel in selected where occupied(sel.col, sel.row) {
+        var cur: Int? = sel.row                              // walk UP the ancestor chain to the receiver root
+        while let r = cur, occupied(sel.col, r) { lit.insert(RouteCell(col: sel.col, row: r)); cur = cells[sel.col][r]?.inputRow }
+        var changed = true                                   // flood DOWN to every descendant reading into the chain
+        while changed {
+            changed = false
+            for r in cells[sel.col].indices {
+                guard let c = cells[sel.col][r], let p = c.inputRow else { continue }
+                let child = RouteCell(col: sel.col, row: r)
+                if lit.contains(RouteCell(col: sel.col, row: p)) && lit.insert(child).inserted { changed = true }
+            }
+        }
+    }
+
+    var edges: [RouteEdge] = []
+    for col in cells.indices {
+        for row in cells[col].indices {
+            guard let c = cells[col][row] else { continue }
+            let here = RouteCell(col: col, row: row), on = lit.contains(here)
+            if let p = c.inputRow, occupied(col, p) {         // chained: parent cell → this cell
+                edges.append(RouteEdge(from: .cell(RouteCell(col: col, row: p)), to: .cell(here), lit: on))
+            } else if c.inputRow == nil {                     // MIDI-IN: receiver → this cell
+                edges.append(RouteEdge(from: .receiver(c.inputReceiver ?? 0), to: .cell(here), lit: on))
+            }
+            for b in Bus.allCases where c.buses.contains(b) { // this cell → each emitter it feeds
+                edges.append(RouteEdge(from: .cell(here), to: .emitter(Int(b.cable)), lit: on))
+            }
+        }
+    }
+    return edges
+}

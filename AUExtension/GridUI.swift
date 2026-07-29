@@ -1570,6 +1570,66 @@ struct PaletteView: View {
     }
 }
 
+// MARK: - Routing visualisation overlay (while any verb is held)
+
+/// The three band frames (receivers · grid · emitters), measured in the "signal" coordinate space, so the
+/// viz overlay can map routing anchors → screen points.
+struct RouteFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
+}
+
+/// Curved white béziers for the routing graph, spanning receivers → grid → emitters. A path that runs through
+/// a SELECTED cell is bright + pulsing; the rest are dim-but-visible. Anchors come from the measured band
+/// frames + the grid geometry. Watch-only (no hit-testing). Live — it redraws from `edges` each render, so a
+/// placed / moved / deleted / re-wired cell updates it.
+struct RoutingVizOverlay: View {
+    @Environment(\.animationsPaused) private var animPaused
+    let edges: [RouteEdge]
+    let frames: [String: CGRect]
+    let cellHeight: CGFloat
+
+    private func point(_ a: RouteAnchor) -> CGPoint? {
+        switch a {
+        case .receiver(let i):
+            guard let f = frames["receivers"] else { return nil }
+            return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.maxY)   // bottom edge of receiver strip i
+        case .emitter(let i):
+            guard let f = frames["emitters"] else { return nil }
+            return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.minY)   // top edge of emitter strip i
+        case .cell(let c):
+            guard let f = frames["grid"] else { return nil }
+            let gap = GridGeometry.vGap
+            let cellW = (f.width - 7 * gap) / 8
+            let x = f.minX + CGFloat(c.col) * (cellW + gap) + cellW / 2
+            let y = f.minY + (cellHeight + gap) + CGFloat(c.row) * (cellHeight + gap) + cellHeight / 2   // past the column-key row
+            return CGPoint(x: x, y: y)
+        }
+    }
+    private func curve(_ p0: CGPoint, _ p1: CGPoint) -> Path {   // a vertical S so crossing lines stay legible
+        var path = Path(); let midY = (p0.y + p1.y) / 2
+        path.move(to: p0)
+        path.addCurve(to: p1, control1: CGPoint(x: p0.x, y: midY), control2: CGPoint(x: p1.x, y: midY))
+        return path
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+            let pulse = stagingPulseFraction(tl.date, period: 1.4)   // 0→1→0
+            Canvas { ctx, _ in
+                func draw(_ e: RouteEdge) {
+                    guard let a = point(e.from), let b = point(e.to) else { return }
+                    let op = e.lit ? (0.55 + 0.45 * pulse) : 0.16
+                    ctx.stroke(curve(a, b), with: .color(.white.opacity(op)), lineWidth: e.lit ? 2.2 : 1.0)
+                }
+                for e in edges where !e.lit { draw(e) }     // dim underneath
+                for e in edges where e.lit { draw(e) }      // bright on top
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 // MARK: - Cell-edit STAGING (user 2026-07-25) — long-press a colour → configure a pending cell in the
 // side panels (EDIT only). The RECEIVERS panel becomes the cell's INPUT picker (R1–R4 radio + a FROM ROW
 // option), the EMITTERS panel its OUTPUT buses. Ephemeral (a StampConfig), recalled across enter/exit.

@@ -199,6 +199,16 @@ struct DiagView: View {
     private var routeFocusCells: Set<GridView.GridPos> {
         Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
     }
+    // §viz — the routing graph drawn while ANY verb is held, and the "selected" set that lights the paths
+    // through it (PLACE = this hold's placed cells, SELECT = the selection).
+    private var vizSelectedCells: Set<RouteCell> {
+        let src: Set<GridView.GridPos> = heldVerb == .place ? placedThisHold : (heldVerb == .select ? selection : [])
+        return Set(src.map { RouteCell(col: $0.col, row: $0.row) })
+    }
+    private var vizEdges: [RouteEdge] { routingEdges(cells: scene.cells, selected: vizSelectedCells) }
+    private func routeProbe(_ id: String) -> some View {
+        GeometryReader { p in Color.clear.preference(key: RouteFramesKey.self, value: [id: p.frame(in: .named("signal"))]) }
+    }
     private var routeInCandidates: Set<GridView.GridPos> {   // SRC — occupied cells ABOVE each focus, EXCEPT the one it already reads
         var s = Set<GridView.GridPos>()
         for (col, f) in routeFoci {
@@ -818,15 +828,19 @@ struct DiagView: View {
             VStack(spacing: 3) {
                 HStack(spacing: 4) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION] — gutters tightened (SPACE-FILL)
                     controlsView.frame(maxWidth: .infinity)
-                    receiversBox.frame(width: half)           // §10 strips wear ROUTE IN faces in-place while wiring
+                    receiversBox.frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
                 gridBlock(cell)
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
-                    emittersBox.frame(width: half)            // §10 strips wear ROUTE OUT faces in-place while wiring
+                    emittersBox.frame(width: half).background(routeProbe("emitters"))     // §10 strips wear ROUTE OUT faces
                     masterView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
+            }
+            .coordinateSpace(name: "signal")
+            .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
+                if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
             }
         }
     }
@@ -853,6 +867,7 @@ struct DiagView: View {
                      routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                      strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
+                .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
             rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
         }
         }
