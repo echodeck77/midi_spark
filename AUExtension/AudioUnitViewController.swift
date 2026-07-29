@@ -92,6 +92,8 @@ struct DiagView: View {
     @State private var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
     @State private var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
     @State private var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
+    @State private var latchedVerb: Verb? = nil               // LATCH: a long-pressed verb stays active after release (tap releases)
+    @State private var latchArmed = false                     // the latching long-press's own release must not un-latch
     @State private var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
     private var activeVerb: Verb? { heldVerb }
     private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
@@ -361,9 +363,23 @@ struct DiagView: View {
         return roundVerb(label: v.label, hue: v.hue, active: active, badge: badge)
             .opacity(disabled ? 0.4 : 1)
             .allowsHitTesting(!disabled)
+            .simultaneousGesture(                              // LATCH: long-press (0.5s) locks the verb on
+                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                    if latchedVerb != v {                      // latch this verb (replaces any prior latch)
+                        if heldVerb != v { onVerbEngaged(v) }
+                        heldVerb = v; latchedVerb = v; latchArmed = true
+                    }
+                })
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
-                .onEnded { _ in if v == .select { selection.removeAll() }; heldVerb = nil })   // release = APPLY (clear the stack)
+                .onChanged { _ in if latchedVerb == nil && heldVerb != v { heldVerb = v; onVerbEngaged(v) } }   // spring engage
+                .onEnded { _ in
+                    if latchedVerb == v {                      // this verb is latched
+                        if latchArmed { latchArmed = false }   // the latching press's own release → keep it latched
+                        else { if v == .select { selection.removeAll() }; heldVerb = nil; latchedVerb = nil }   // a tap → release (APPLY)
+                    } else if latchedVerb == nil {             // spring release = APPLY (clear the stack)
+                        if v == .select { selection.removeAll() }; heldVerb = nil
+                    }
+                })
     }
     private func onVerbEngaged(_ v: Verb) {
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
@@ -384,7 +400,7 @@ struct DiagView: View {
         default: break
         }
         selection.removeAll()                               // CANCEL clears the stack (user 2026-07-28)
-        heldVerb = nil                                      // end the held status
+        heldVerb = nil; latchedVerb = nil                   // end the held status (and any latch)
     }
     // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
     private func verbBanner(_ v: Verb) -> some View {
