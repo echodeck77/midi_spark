@@ -295,7 +295,7 @@ struct DiagView: View {
             s.cells[col][row] = c
         } else {                                             // fresh tap on empty → PLACE (§9.③ downhill nudge)
             placeFresh.insert(pos)
-            let parentAbove = (row > 0 && s.cells[col][row - 1] != nil) ? row - 1 : nil
+            let parentAbove = (0..<row).last { s.cells[col][$0] != nil }   // wire to the NEAREST occupied cell above (bridges gaps)
             var c = Cell(colourID: brush, buses: [.a]); c.inputRow = parentAbove
             if parentAbove == nil { c.inputReceiver = 0 }    // MIDI-IN cells must point at R1 (else they bypass the receiver)
             s.cells[col][row] = c
