@@ -154,6 +154,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in AUM (the diagnostic panel in the plugin UI shows live kernel state at 4 Hz).
 
 ## Current status (update this section as work lands)
+- **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
+  checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
+  keep them from overlapping.**
 - DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
   passthrough stopped, derived sync, snapshot-driven kernel, render-side param
   events, diagnostic UI.
