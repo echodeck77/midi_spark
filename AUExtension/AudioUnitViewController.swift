@@ -199,14 +199,23 @@ struct DiagView: View {
     private var routeFocusCells: Set<GridView.GridPos> {
         Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
     }
-    private var routeInCandidates: Set<GridView.GridPos> {   // SRC — all occupied cells ABOVE each focus, per column
+    private var routeInCandidates: Set<GridView.GridPos> {   // SRC — occupied cells ABOVE each focus, EXCEPT the one it already reads
         var s = Set<GridView.GridPos>()
-        for (col, f) in routeFoci { for r in scene.routeInSourcesAbove(col: col, row: f) { s.insert(GridView.GridPos(col: col, row: r)) } }
+        for (col, f) in routeFoci {
+            let current = scene.cells[col][f]?.inputRow      // the source the focus already reads from (nil = MIDI-IN)
+            for r in scene.routeInSourcesAbove(col: col, row: f) where r != current {
+                s.insert(GridView.GridPos(col: col, row: r))
+            }
+        }
         return s
     }
-    private var routeOutCandidates: Set<GridView.GridPos> {  // DEST — all occupied cells BELOW each focus, per column
+    private var routeOutCandidates: Set<GridView.GridPos> {  // DEST — occupied cells BELOW each focus, EXCEPT those already reading it
         var s = Set<GridView.GridPos>()
-        for (col, f) in routeFoci { for r in scene.routeOutTargetsBelow(col: col, row: f) { s.insert(GridView.GridPos(col: col, row: r)) } }
+        for (col, f) in routeFoci {
+            for r in scene.routeOutTargetsBelow(col: col, row: f) where scene.cells[col][r]?.inputRow != f {
+                s.insert(GridView.GridPos(col: col, row: r))   // a cell already wired to the focus returns to its standard view
+            }
+        }
         return s
     }
     // A candidate tap while routing: SRC (above the focus in its column) → the focus reads from it; DEST (below)
