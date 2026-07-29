@@ -712,3 +712,25 @@ func placeHoldDecision(placedColumns: Set<Int>, retoggle: Bool, col: Int) -> Pla
     if retoggle { return .allowed }
     return placedColumns.contains(col) ? .blockedColumnUsed : .allowed
 }
+
+/// Multi-cell routing (AcceptanceCriteria 2026-07-29): the per-column route-FOCUS map. A column contributes a
+/// focus ONLY if EXACTLY ONE of the given cells is in it (2+ in a column is ambiguous → no focus there; ⑥ keeps
+/// PLACE from ever hitting that, but SELECT can). Pure so the focus rule is unit-tested independent of SwiftUI.
+/// Input = (col,row) pairs, already occupancy-filtered. Returns col → focus row.
+func routeFociByColumn(_ cells: [(col: Int, row: Int)]) -> [Int: Int] {
+    var byCol: [Int: [Int]] = [:]
+    for c in cells { byCol[c.col, default: []].append(c.row) }
+    return byCol.compactMapValues { $0.count == 1 ? $0[0] : nil }
+}
+
+/// Sticky routing (AcceptanceCriteria 2026-07-29): the routing a freshly PLACED cell takes. It inherits the
+/// template cell's emitters, and its receiver IF the template is MIDI-IN (inputRow == nil); otherwise it falls
+/// back to the downhill nudge — reading from `nearestAbove` (nearest occupied cell above), or MIDI-IN on R1
+/// (receiver 0) when nothing is above. Pure so the inheritance rule is testable.
+struct PlacedRouting: Equatable { var buses: Set<Bus>; var inputRow: Int?; var inputReceiver: Int? }
+func placedCellRouting(template: (buses: Set<Bus>, inputRow: Int?, inputReceiver: Int?)?, nearestAbove: Int?) -> PlacedRouting {
+    if let t = template, t.inputRow == nil, let rcv = t.inputReceiver {
+        return PlacedRouting(buses: t.buses, inputRow: nil, inputReceiver: rcv)        // inherit the SELECTED receiver
+    }
+    return PlacedRouting(buses: template?.buses ?? [.a], inputRow: nearestAbove, inputReceiver: nearestAbove == nil ? 0 : nil)
+}

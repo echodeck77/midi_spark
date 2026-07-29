@@ -635,28 +635,33 @@ extension SceneState {
     /// REMOVE — §10b THE INHERIT-ON-DELETE LAW: delete the cell, and its CHILDREN (same-column cells whose
     /// `inputRow` points at this row) INHERIT its input — chain-fed ⇒ re-point to the grandparent; receiver-fed
     /// ⇒ hear the receiver directly. Orphan-silence never happens by accident. One step; the caller records undo.
-    mutating func deleteCellHealing(col: Int, row: Int) {
+    /// Remove the cell at (col,row) and re-point every child that read from it (`inputRow == row`) via the given
+    /// rule. The two public deletes below differ ONLY in that rule — HEAL reconnects to the victim's parent,
+    /// SEVER cuts to MIDI-IN. Shared here so the removal + child-scan lives in one place.
+    private mutating func deleteCell(col: Int, row: Int, reparentChild: (_ child: inout Cell, _ victim: Cell) -> Void) {
         guard cells.indices.contains(col), cells[col].indices.contains(row), let victim = cells[col][row] else { return }
         cells[col][row] = nil
         for r in cells[col].indices {
             guard var child = cells[col][r], child.inputRow == row else { continue }
-            child.inputRow = victim.inputRow                    // inherit the victim's parent (nil = MIDI-IN)
-            if victim.inputRow == nil { child.inputReceiver = victim.inputReceiver }
+            reparentChild(&child, victim)
             cells[col][r] = child
         }
     }
 
-    /// DELETE = SEVER (AcceptanceCriteria ruling 2026-07-29): remove the cell and CUT its routing — cells that
-    /// were reading from it (inputRow == row) fall back to MIDI-IN (they do NOT reconnect to the victim's
-    /// parent). A severed child is pointed at R1 so it does not bypass the receiver (the MIDI-IN cell rule).
+    /// DELETE = HEAL: children reconnect to the victim's parent (the chain closes up).
+    mutating func deleteCellHealing(col: Int, row: Int) {
+        deleteCell(col: col, row: row) { child, victim in
+            child.inputRow = victim.inputRow                    // inherit the victim's parent (nil = MIDI-IN)
+            if victim.inputRow == nil { child.inputReceiver = victim.inputReceiver }
+        }
+    }
+
+    /// DELETE = SEVER (AcceptanceCriteria ruling 2026-07-29): the victim's routing is CUT — children fall back to
+    /// MIDI-IN (they do NOT reconnect to its parent), pointed at R1 so they don't bypass the receiver.
     mutating func deleteCellSever(col: Int, row: Int) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row), cells[col][row] != nil else { return }
-        cells[col][row] = nil
-        for r in cells[col].indices {
-            guard var child = cells[col][r], child.inputRow == row else { continue }
-            child.inputRow = nil                                // SEVER: fall back to MIDI-IN, do NOT reconnect to the parent
-            child.inputReceiver = 0                             // point at R1 (a severed MIDI-IN cell must not bypass the receiver)
-            cells[col][r] = child
+        deleteCell(col: col, row: row) { child, _ in
+            child.inputRow = nil                                // fall back to MIDI-IN
+            child.inputReceiver = 0                             // point at R1 (no receiver bypass)
         }
     }
 

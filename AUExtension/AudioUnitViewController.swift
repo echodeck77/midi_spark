@@ -188,20 +188,13 @@ struct DiagView: View {
     // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
     // ambiguous → no routing there). Each focus lights ALL cells above it (SRC) and ALL cells below it (DEST) in
     // its own column. Release applies; CANCEL reverts.
-    private var routeFoci: [Int: Int] {                  // col → focus row (at most one per column)
-        if heldVerb == .place {                          // EVERY cell placed this hold is a focus (incl. a whole row)
-            var foci: [Int: Int] = [:]
-            for p in placedThisHold where p.col < scene.cells.count && p.row < scene.cells[p.col].count && scene.cells[p.col][p.row] != nil {
-                foci[p.col] = p.row                      // ⑥ guarantees ≤ one placed cell per column
-            }
-            return foci
-        }
-        guard heldVerb == .select, !selection.isEmpty else { return [:] }
-        var byCol: [Int: [Int]] = [:]
-        for s in selection where s.col < scene.cells.count && s.row < scene.cells[s.col].count && scene.cells[s.col][s.row] != nil {
-            byCol[s.col, default: []].append(s.row)
-        }
-        return byCol.compactMapValues { $0.count == 1 ? $0[0] : nil }   // exactly one selected in the column
+    private var routeFoci: [Int: Int] {                  // col → focus row (≤ one per column) — PLACE: cells placed
+        let cells: [GridView.GridPos]                    // this hold (incl. a whole row); SELECT: the selection.
+        if heldVerb == .place { cells = Array(placedThisHold) }
+        else if heldVerb == .select { cells = Array(selection) }
+        else { return [:] }
+        let occupied = cells.filter { $0.col < scene.cells.count && $0.row < scene.cells[$0.col].count && scene.cells[$0.col][$0.row] != nil }
+        return routeFociByColumn(occupied.map { (col: $0.col, row: $0.row) })
     }
     private var routeFocusCells: Set<GridView.GridPos> {
         Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
@@ -299,19 +292,12 @@ struct DiagView: View {
             s.cells[col][row] = c
         } else {                                             // fresh tap on empty → PLACE
             placeFresh.insert(pos)
-            // STICKY ROUTING (AcceptanceCriteria 2026-07-29): a new cell inherits the emitters + receiver of the
-            // last cell set up THIS hold, so a run of cells shares one routing without re-wiring each. If that
-            // template cell is MIDI-IN (has a chosen receiver) the new cell reads from the SAME receiver; else
-            // fall back to the §9.③ downhill nudge (nearest occupied cell above, bridging gaps).
+            // STICKY ROUTING + §9.③ downhill nudge — resolved by the pure `placedCellRouting` (see Derivations):
+            // inherit the last-set-up cell's emitters + receiver, else read from the nearest occupied cell above.
             let template = lastPlaced.flatMap { s.cells[$0.col][$0.row] }
-            var c = Cell(colourID: brush, buses: template?.buses ?? [.a])
-            if let t = template, t.inputRow == nil, let rcv = t.inputReceiver {
-                c.inputReceiver = rcv                        // inherit the selected receiver (MIDI-IN)
-            } else {
-                let parentAbove = (0..<row).last { s.cells[col][$0] != nil }
-                c.inputRow = parentAbove
-                if parentAbove == nil { c.inputReceiver = 0 }   // MIDI-IN cells must point at R1 (else they bypass the receiver)
-            }
+            let nearestAbove = (0..<row).last { s.cells[col][$0] != nil }
+            let r = placedCellRouting(template: template.map { ($0.buses, $0.inputRow, $0.inputReceiver) }, nearestAbove: nearestAbove)
+            var c = Cell(colourID: brush, buses: r.buses); c.inputRow = r.inputRow; c.inputReceiver = r.inputReceiver
             s.cells[col][row] = c
         }
     }

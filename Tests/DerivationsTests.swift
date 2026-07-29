@@ -913,4 +913,43 @@ final class DerivationsTests: XCTestCase {
         }
         XCTAssertEqual(placeHoldDecision(placedColumns: placed, retoggle: false, col: 4), .blockedColumnUsed)
     }
+
+    // MARK: multi-cell route foci (per-column, exactly-one)
+
+    func testRouteFociEmpty() {
+        XCTAssertTrue(routeFociByColumn([]).isEmpty)
+    }
+    func testRouteFociOnePerColumn() {
+        let foci = routeFociByColumn([(col: 1, row: 3), (col: 4, row: 0), (col: 4 - 4, row: 7)])   // cols 1,4,0
+        XCTAssertEqual(foci, [1: 3, 4: 0, 0: 7])
+    }
+    func testRouteFociTwoInAColumnExcludesThatColumn() {
+        // col 2 has two selected → no focus there; cols 1 and 5 each have one → foci.
+        let foci = routeFociByColumn([(2, 1), (2, 5), (1, 0), (5, 6)])
+        XCTAssertNil(foci[2], "a column with 2+ selected cells is ambiguous — no focus")
+        XCTAssertEqual(foci[1], 0)
+        XCTAssertEqual(foci[5], 6)
+        XCTAssertEqual(foci.count, 2)
+    }
+
+    // MARK: sticky routing (a placed cell's inherited routing)
+
+    func testPlacedRoutingNoTemplateDownhill() {
+        let r = placedCellRouting(template: nil, nearestAbove: 2)
+        XCTAssertEqual(r, PlacedRouting(buses: [.a], inputRow: 2, inputReceiver: nil))
+    }
+    func testPlacedRoutingNoTemplateRootIsMidiInR1() {
+        let r = placedCellRouting(template: nil, nearestAbove: nil)
+        XCTAssertEqual(r, PlacedRouting(buses: [.a], inputRow: nil, inputReceiver: 0))
+    }
+    func testPlacedRoutingMidiInTemplateInheritsReceiverOverridingDownhill() {
+        // A MIDI-IN template (receiver 2, buses B+C) is inherited even though a cell sits above (nearestAbove 1).
+        let r = placedCellRouting(template: (buses: [.b, .c], inputRow: nil, inputReceiver: 2), nearestAbove: 1)
+        XCTAssertEqual(r, PlacedRouting(buses: [.b, .c], inputRow: nil, inputReceiver: 2))
+    }
+    func testPlacedRoutingRowFedTemplateKeepsBusesButNudgesDownhill() {
+        // A row-fed template (no receiver) → inherit its emitters, but the input falls to the downhill nudge.
+        let r = placedCellRouting(template: (buses: [.d], inputRow: 4, inputReceiver: nil), nearestAbove: 3)
+        XCTAssertEqual(r, PlacedRouting(buses: [.d], inputRow: 3, inputReceiver: nil))
+    }
 }
