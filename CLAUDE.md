@@ -157,9 +157,32 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ NEXT-SESSION PRIORITY (user, 2026-07-29): finish the /btw AUTHORING UX — firm ordered plan with RATIFIED
-  behavior decisions in `Docs/implementation-plan-btw-authoring.md` (⑥ per-hold one-per-column · ④ retro-repaint ·
-  ⑤ per-cell+row selectors · STROKES · MIXED-SET law). Just execute it.**
+- **▶ /btw AUTHORING UX + ACCEPTANCE-CRITERIA WAVE — LANDED on main (2026-07-29 session; off-device verified:
+  iOS builds + 343 unit tests green; DEVICE pass owed for every UI item). The spec of record for the verbs / grid /
+  routing / strips is now `Docs/AcceptanceCriteria/verbs-behaviour.md`. What landed:**
+  - **/btw ⑥ one-per-column, per hold** (`aaff54c`) — pure `placeHoldDecision` (Derivations), gated in `placeToggle`.
+  - **/btw ④ retro-repaint + DESK RE-POINT hard rule** (`ef82935`) — a mid-PLACE brush switch recolours the whole
+    hold + switches the desk; selecting a single Colour ALWAYS re-points the COLOUR+PROCESSOR desk (brush = pointer).
+  - **SELECT empty-tap = no-op; DELETE = SEVER** (`86be8c0`) — a deleted cell's children are CUT to MIDI-IN (R1),
+    NOT healed to its parent (`SceneState.deleteCellSever`).
+  - **MIXED-SET law** (`7be6517`) — processor panels dim to "MIXED" for multi-Colour selections.
+  - **STROKES** (`2a02cb4`) — drag = batch place/delete/select, one undo per swathe.
+  - **Multi-cell routing (per-column) + SRC/DEST look** (`1d75170`, refined `b1d9fb3`) — every column with exactly
+    one focus offers ALL cells above (SRC) / below (DEST); PLACE foci = all cells placed this hold, so a whole ROW
+    invokes routing + the strips (which apply to all foci). Candidates PULSE (the cell BODY, time-driven) with
+    prominent SRC/DEST labels and NO ring. Placed/selected cells ALWAYS draw WHITE (the amber focus ring was
+    invisible on gold cells — removed).
+  - **PLACE nearest-above nudge** (`10fc259`) — a fresh cell wires to the NEAREST occupied cell above (bridges gaps).
+  - **STICKY ROUTING** (`4183a41`) — a fresh PLACE cell inherits the last-set-up cell's emitters + receiver.
+  - **Verbs do NOT latch** (`1f3ef92`) — long-press latch was built (`88af24f`) then RULED OUT; verbs are spring-only.
+  - **Refactor + tests** (`181bf7c`) — routing logic extracted to pure `Derivations` helpers (`routeFociByColumn`,
+    `placedCellRouting`) + a `deleteCell(reparentChild:)` dedup; the multi-cell/sticky-routing logic is now unit-tested.
+  - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info.
+  - **DEFERRED (user 2026-07-29): BYPASS** (receiver→emitter relay — the receivers-ferry next-priority) is dropped
+    for now; its plan + ferry capture were reverted and NOT re-created (receivers ferry LATCH-single-mode /
+    held-note-strip likewise un-captured). The Claude↔Claude ferry channel was cleared at the user's request.
+  - **DEVICE-VERIFY owed** — everything above is off-device only. Watch especially: candidate body-pulse + white
+    selected ring, multi-cell routing feel, sticky routing, and DELETE-sever (no orphaned children / stuck notes).
 - DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
   passthrough stopped, derived sync, snapshot-driven kernel, render-side param
   events, diagnostic UI.
