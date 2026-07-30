@@ -37,7 +37,11 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   `testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease`). ④ polish-laws accepted at current values on
   the device pass. _(Latent: the release-fade keys on (vel, colour) not the wire note — same-vel chords could
   mis-pair a fade; not seen on device, revisit only if it surfaces.)_
-- [ ] **Full strip EDIT-face sweep** — retire OutputsView.channelStepper / ReceiversView.editFeatures *after* re-homing channel/cable/latch config to the **cog** ("single-face forever").
+- [x] **Full strip EDIT-face sweep** — DONE (off-device): the strips' EDIT faces were dead in the live path
+  (nothing passed `editing:true`) and their config already lives on the cog (`CogPage.swift`). Retired
+  `OutputsView.channelStepper` + `ReceiversView.editFeatures` and the `editing` param on both, plus the orphaned
+  callbacks/helpers. Strips are single-face forever. _(Separate future: `GridView.editing` — the grid's own
+  cell-editor mode — is untouched.)_ Device-verify: the strips look/behave unchanged (perform face only).
 - [x] **Trigger-glyph cell face** (§3) — built in the cells-and-colour-desk overhaul (emblem · trigger glyph · digest · dots · compass tint) and device-verified 2026-07-30.
 - [x] **Touch completions** — palette LIVE during holds · **STROKES** · **MIXED-SET law** — ALL DONE (2026-07-29; see the DONE block above).
 - [ ] **Live preset previews** · **SCROLL+TEACH** (both deferred-flagged).
