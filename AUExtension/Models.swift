@@ -95,6 +95,14 @@ struct Colour: Codable, Equatable {
     var on: OnConfig? = nil
     /// The ON config, nil-safe (missing ⇒ all-"—"/unchecked). Non-persisting read helper.
     var onResolved: OnConfig { on ?? OnConfig() }
+    // Cells/desk overhaul C1: an OPTIONAL Colour NAME (the user's word). Optional → old docs decode nil.
+    var name: String? = nil
+    /// The custom name if set, else the TYPE name (today's label). Never empty.
+    var nameResolved: String { (name.flatMap { $0.isEmpty ? nil : $0 }) ?? type.rawValue }
+    // Cells/desk overhaul D1: whether this Colour is DEFINED (a palette chip) vs an undefined "+" slot. Optional
+    // → old docs decode nil ⇒ DEFINED (all 16 as today). Non-persisting read helper below.
+    var defined: Bool? = nil
+    var isDefined: Bool { defined ?? true }
 
     /// delta item 8: does this Colour have a second processor (procB)? Drives morph/ALT availability + greying.
     var hasProcB: Bool { typeB != nil }

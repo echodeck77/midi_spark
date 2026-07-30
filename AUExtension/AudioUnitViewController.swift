@@ -76,6 +76,7 @@ struct DiagView: View {
     @State private var currentPreset = ""              // §3 the loaded preset's name
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
+    @State private var nameDraft = ""        // C1: the desk's Colour-name editor buffer (synced to the brush Colour)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
     @State private var heldVerb: Verb? = nil          // the currently-pressed verb
@@ -515,6 +516,13 @@ struct DiagView: View {
         au.editColour(brushIndex, f)
         docColours = au.uiColours()
     }
+    // C1: commit the desk's name field to the brush Colour (empty or == the type name ⇒ nil = default label).
+    private func commitBrushName() {
+        let t = nameDraft.trimmingCharacters(in: .whitespaces)
+        let typeName = brushColour?.type.rawValue ?? ""
+        editBrushColour { $0.name = (t.isEmpty || t == typeName) ? nil : t }
+    }
+    private func syncNameDraft() { nameDraft = brushColour?.nameResolved ?? "" }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
@@ -1097,8 +1105,13 @@ struct DiagView: View {
             HStack(spacing: 6) {
                 Text("COLOUR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                 if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
-                Text(brush.uppercased()).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.8))
+                TextField("", text: $nameDraft, prompt: Text(brushColour?.type.rawValue ?? "NAME").foregroundColor(.white.opacity(0.3)))   // C1 name editor
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                    .onSubmit { commitBrushName() }.frame(maxWidth: 100)
             }
+            .onAppear { syncNameDraft() }
+            .onChange(of: brush) { _ in syncNameDraft() }
             PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
                         beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                         onPick: { id in                          // /btw ④ PLACE-hold: retro-repaint; SELECT: recolour the set; else set brush

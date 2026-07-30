@@ -176,6 +176,21 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(back.cableResolved, 0b0101)
     }
 
+    // Cells/desk overhaul: a pre-overhaul Colour (no name/defined keys) → type name + defined (migration no-op).
+    func testColourNameAndDefinedDecodeToDefaults() throws {
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Colour(colourID: "gold", type: .arp))) as! [String: Any]
+        for k in ["name", "defined"] { dict.removeValue(forKey: k) }
+        let c = try JSONDecoder().decode(Colour.self, from: JSONSerialization.data(withJSONObject: dict))
+        XCTAssertEqual(c.nameResolved, "ARP", "missing name ⇒ the type name")
+        XCTAssertTrue(c.isDefined, "missing defined ⇒ defined (today's behaviour)")
+    }
+    func testColourNameAndDefinedRoundTrip() throws {
+        var c = Colour(colourID: "gold", type: .arp); c.name = "Bells"; c.defined = false
+        let back = try JSONDecoder().decode(Colour.self, from: try JSONEncoder().encode(c))
+        XCTAssertEqual(back.nameResolved, "Bells")
+        XCTAssertFalse(back.isDefined)
+    }
+
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
         // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.
         var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
