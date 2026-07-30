@@ -932,26 +932,8 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(foci.count, 2)
     }
 
-    // MARK: sticky routing (a placed cell's inherited routing)
-
-    func testPlacedRoutingNoTemplateDownhill() {
-        let r = placedCellRouting(template: nil, nearestAbove: 2)
-        XCTAssertEqual(r, PlacedRouting(buses: [.a], inputRow: 2, inputReceiver: nil))
-    }
-    func testPlacedRoutingNoTemplateRootIsMidiInR1() {
-        let r = placedCellRouting(template: nil, nearestAbove: nil)
-        XCTAssertEqual(r, PlacedRouting(buses: [.a], inputRow: nil, inputReceiver: 0))
-    }
-    func testPlacedRoutingMidiInTemplateInheritsReceiverOverridingDownhill() {
-        // A MIDI-IN template (receiver 2, buses B+C) is inherited even though a cell sits above (nearestAbove 1).
-        let r = placedCellRouting(template: (buses: [.b, .c], inputRow: nil, inputReceiver: 2), nearestAbove: 1)
-        XCTAssertEqual(r, PlacedRouting(buses: [.b, .c], inputRow: nil, inputReceiver: 2))
-    }
-    func testPlacedRoutingRowFedTemplateKeepsBusesButNudgesDownhill() {
-        // A row-fed template (no receiver) → inherit its emitters, but the input falls to the downhill nudge.
-        let r = placedCellRouting(template: (buses: [.d], inputRow: 4, inputReceiver: nil), nearestAbove: 3)
-        XCTAssertEqual(r, PlacedRouting(buses: [.d], inputRow: 3, inputReceiver: nil))
-    }
+    // (Removed 2026-07-30: sticky-routing tests — freshly placed cells no longer inherit or nudge routing;
+    //  a new cell is created with the plain model defaults, so there is no derivation left to test here.)
 
     // MARK: routing visualisation graph
 

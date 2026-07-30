@@ -723,17 +723,8 @@ func routeFociByColumn(_ cells: [(col: Int, row: Int)]) -> [Int: Int] {
     return byCol.compactMapValues { $0.count == 1 ? $0[0] : nil }
 }
 
-/// Sticky routing (AcceptanceCriteria 2026-07-29): the routing a freshly PLACED cell takes. It inherits the
-/// template cell's emitters, and its receiver IF the template is MIDI-IN (inputRow == nil); otherwise it falls
-/// back to the downhill nudge — reading from `nearestAbove` (nearest occupied cell above), or MIDI-IN on R1
-/// (receiver 0) when nothing is above. Pure so the inheritance rule is testable.
-struct PlacedRouting: Equatable { var buses: Set<Bus>; var inputRow: Int?; var inputReceiver: Int? }
-func placedCellRouting(template: (buses: Set<Bus>, inputRow: Int?, inputReceiver: Int?)?, nearestAbove: Int?) -> PlacedRouting {
-    if let t = template, t.inputRow == nil, let rcv = t.inputReceiver {
-        return PlacedRouting(buses: t.buses, inputRow: nil, inputReceiver: rcv)        // inherit the SELECTED receiver
-    }
-    return PlacedRouting(buses: template?.buses ?? [.a], inputRow: nearestAbove, inputReceiver: nearestAbove == nil ? 0 : nil)
-}
+// (Removed 2026-07-30: `placedCellRouting`/`PlacedRouting` — freshly placed cells no longer inherit or nudge
+// any routing. A new cell is created with the model defaults: MIDI-IN + emitter A, wired by hand afterwards.)
 
 // MARK: - Visual overhaul: EMBLEMS (cells & colour desk, AcceptanceCriteria 2026-07-29)
 

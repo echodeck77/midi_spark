@@ -87,7 +87,6 @@ struct DiagView: View {
     @State private var clipboard: Cell? = nil
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
-    @State private var lastPlaced: GridView.GridPos? = nil      // §10 the most-recently-placed cell this PLACE hold — its routing focus
     @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
@@ -269,7 +268,6 @@ struct DiagView: View {
         case .place:                                        // PLACE CELL(S) — toggle-with-restore; a candidate tap WIRES the focus
             if wireRouteCandidate(pos) { return }           // §10 route-as-you-place: a SRC/DEST of the last-placed cell wires it
             au.editScene { placeToggle(&$0, col, row) }
-            lastPlaced = pos                                // the placed/replaced cell becomes the routing focus
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
@@ -311,15 +309,13 @@ struct DiagView: View {
             placeUndo[pos] = existing
             var c = Cell(colourID: brush, buses: [.a]); c.inputRow = existing.inputRow; c.inputReceiver = existing.inputReceiver
             s.cells[col][row] = c
-        } else {                                             // fresh tap on empty → PLACE
+        } else {                                             // fresh tap on empty → PLACE, UNROUTED
             placeFresh.insert(pos)
-            // STICKY ROUTING + §9.③ downhill nudge — resolved by the pure `placedCellRouting` (see Derivations):
-            // inherit the last-set-up cell's emitters + receiver, else read from the nearest occupied cell above.
-            let template = lastPlaced.flatMap { s.cells[$0.col][$0.row] }
-            let nearestAbove = (0..<row).last { s.cells[col][$0] != nil }
-            let r = placedCellRouting(template: template.map { ($0.buses, $0.inputRow, $0.inputReceiver) }, nearestAbove: nearestAbove)
-            var c = Cell(colourID: brush, buses: r.buses); c.inputRow = r.inputRow; c.inputReceiver = r.inputReceiver
-            s.cells[col][row] = c
+            // A fresh cell takes NO pre-selected routing (user, 2026-07-30): it starts at MIDI-IN (the model's
+            // default receiver) with emitter A, and is NEVER auto-wired to a neighbour. The routing-select view
+            // is where its source/destinations get chosen. Supersedes the old sticky-routing + §9.③ downhill
+            // nudge, which silently pre-pointed a new cell at the cell above it.
+            s.cells[col][row] = Cell(colourID: brush)
         }
     }
 
@@ -396,7 +392,7 @@ struct DiagView: View {
     }
     private func onVerbEngaged(_ v: Verb) {
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
-        case .place:  placeFresh = []; placeUndo = [:]; lastPlaced = nil; gridSnapshot = scene.cells; holdSeq += 1
+        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells; holdSeq += 1
         case .delete: gridSnapshot = scene.cells
         case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
         default: break
@@ -973,7 +969,7 @@ struct DiagView: View {
         switch v {
         case .place:
             au.editScene(coalesceKey: strokeKey) { placeToggle(&$0, col, row) }
-            lastPlaced = pos; refreshFromDocument()
+            refreshFromDocument()
         case .delete:
             guard scene.cells[col][row] != nil else { return }
             au.editScene(coalesceKey: strokeKey) { $0.deleteCellSever(col: col, row: row) }
