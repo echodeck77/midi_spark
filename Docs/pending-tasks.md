@@ -19,6 +19,11 @@ commit refs in CLAUDE.md "Current status":
 ## A. Blocked on the user (need a decision before building)
 - [ ] **HOLD latch re-home** — §5c latch UI slot is vacant; CONTROLS-corner restoration recommended, awaiting the nod.
 - [ ] **SCOPE ops home** — chips-during-SELECT-hold vs deferred (design device-nod).
+- [ ] **DELETE-sever fallback in the null era** (design-Claude, 2026-07-30) — the 29th ruled severed children
+  "fall back to MIDI-IN (R1)"; now that new cells are born NULL, consistency argues severed children should fall
+  to **NULL** (silent + red-dashed, honestly cut) rather than a silent R1 re-point that looks like a wiring
+  choice nobody made. ONE line in `SceneState.deleteCell(reparentChild:)`/`deleteCellSever`. Awaiting the ruling
+  (NULL vs keep R1); reply to design-side owed either way.
 
 ## B. Device-verify owed (this thread's work — none seen or heard on device)
 - [ ] **Adoption ear-check** — drones glide across boundaries, no clicks; claim/ALT/emitter-octave edges (`8d5f1b3`).
@@ -46,6 +51,13 @@ commit refs in CLAUDE.md "Current status":
 
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)
 - [ ] FEEDBACK EDGES (unit-delay) · THE PIN · MASTER+TEXTURE multi-playhead · **THE CC RAIL** · **THE TWO-LANE INSTRUMENT** (+ cross-lane valves) · MORPH desk (16 faders) · EXTERNAL processor type + standalone-app milestone.
+- [ ] **MULTI-INPUT / fan-in — THE G1 RULING** (design-Claude, 2026-07-30; captured here because the ferry note is
+  transient). Shipping subset = **multi-RECEIVER-in** only (merge the four doors); keep the single row-parent so
+  chains stay trees (no DAG, cycles impossible). At a union point: the pool is a **refcounted SET** (a note lives
+  while ANY source holds it; entry dies at count 0; dedup by wire note-number after per-source transforms).
+  **Velocity** = the latest strike UPDATES the pool entry but NEVER re-strikes a sounding hold-voice (applies to
+  the next articulation). **Voice identity stays source-blind**: note + emitter + Colour-and-face, refcounted at
+  the union. Full multi-row-parent remains the parked birthstone (schema-as-set already insures it).
 
 ## E. Architecture debt (opportunistic, all accepted)
 - [ ] §6a CLAIM L3 residual (short-note All `on,off,on,off`) · `TODO(spec §7)` param route (writes doc then rebuilds) · `Cell.stack`/`srcMix` kept load-bearing for the v2→v3 migration.
