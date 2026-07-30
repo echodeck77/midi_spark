@@ -958,6 +958,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(e.isEmpty)
         XCTAssertTrue(e.allSatisfy { !$0.lit })
     }
+    func testRoutingEdgesNullCellHasNoReceiverOrEmitterEdge() {
+        // A freshly placed, fully-unrouted cell (nil receiver, nil row, EMPTY buses) draws NO edges at all —
+        // no receiver→cell entry (it must not default to R1) and no cell→emitter exit.
+        var cells = grid8()
+        cells[0][0] = Cell(colourID: "gold", buses: [])   // inputRow nil, inputReceiver nil, no emitters
+        let e = routingEdges(cells: cells, selected: [])
+        XCTAssertTrue(e.isEmpty, "a null cell should contribute no routing edges, got \(e)")
+    }
 
     // MARK: emblems (cells & colour desk)
 

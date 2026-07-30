@@ -815,9 +815,9 @@ func routingEdges(cells: [[Cell?]], selected: Set<RouteCell>) -> [RouteEdge] {
             let here = RouteCell(col: col, row: row), on = lit.contains(here)
             if let p = c.inputRow, occupied(col, p) {         // chained: parent cell → this cell
                 edges.append(RouteEdge(from: .cell(RouteCell(col: col, row: p)), to: .cell(here), lit: on))
-            } else if c.inputRow == nil {                     // MIDI-IN: receiver → this cell
-                edges.append(RouteEdge(from: .receiver(c.inputReceiver ?? 0), to: .cell(here), lit: on))
-            }
+            } else if c.inputRow == nil, let rcv = c.inputReceiver {   // MIDI-IN: receiver → this cell (only if a receiver is chosen)
+                edges.append(RouteEdge(from: .receiver(rcv), to: .cell(here), lit: on))
+            }                                                 // else: fully unrouted input (nil receiver) → no edge
             for b in Bus.allCases where c.buses.contains(b) { // this cell → each emitter it feeds
                 edges.append(RouteEdge(from: .cell(here), to: .emitter(Int(b.cable)), lit: on))
             }

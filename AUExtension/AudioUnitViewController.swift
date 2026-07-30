@@ -311,11 +311,11 @@ struct DiagView: View {
             s.cells[col][row] = c
         } else {                                             // fresh tap on empty → PLACE, UNROUTED
             placeFresh.insert(pos)
-            // A fresh cell takes NO pre-selected routing (user, 2026-07-30): it starts at MIDI-IN (the model's
-            // default receiver) with emitter A, and is NEVER auto-wired to a neighbour. The routing-select view
-            // is where its source/destinations get chosen. Supersedes the old sticky-routing + §9.③ downhill
-            // nudge, which silently pre-pointed a new cell at the cell above it.
-            s.cells[col][row] = Cell(colourID: brush)
+            // A fresh cell takes NO routing at all (user, 2026-07-30): no input row, no receiver (inputReceiver
+            // nil ⇒ no receiver ring / no viz edge), and NO emitter (buses empty). It is null until the user
+            // actively wires a source and destination in the routing-select view. Supersedes the old sticky-
+            // routing + §9.③ downhill nudge, and the emitter-A default.
+            s.cells[col][row] = Cell(colourID: brush, buses: [])
         }
     }
 
@@ -900,6 +900,7 @@ struct DiagView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         HStack(spacing: 3) {
+            rowRail(cellHeight, chevron: "chevron.right")   // LEFT rail — mirrors the right, points into the grid (user 2026-07-30)
             GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                      beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                      cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
@@ -913,19 +914,20 @@ struct DiagView: View {
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                      strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
                 .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
-            rowRail(cellHeight)                             // §11 ROW SELECT — RIGHT of the grid, always visible
+            rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
         }
         }
     }
-    // §11 ROW SELECT — a left-pointing chevron per row, RIGHT of the grid, always visible (aligned past the
-    // column-key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held).
-    private func rowRail(_ cellHeight: CGFloat) -> some View {
+    // §11 ROW SELECT — a chevron per row, on BOTH sides of the grid, always visible (aligned past the column-
+    // key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held). The
+    // right rail points left, the left rail points right — both point INTO the grid. `chevron` picks which.
+    private func rowRail(_ cellHeight: CGFloat, chevron: String) -> some View {
         // PLACE lights the chevrons in the BRUSH colour (the cell to be placed); other verbs use the verb hue.
         let hue = activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35))
         return VStack(spacing: GridGeometry.vGap) {
             Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
-                Image(systemName: "chevron.left").font(.system(size: 20, weight: .heavy))
+                Image(systemName: chevron).font(.system(size: 20, weight: .heavy))
                     .foregroundColor(hue)
                     .frame(width: 40, height: cellHeight)
                     .background(RoundedRectangle(cornerRadius: 5).fill(hue.opacity(0.1)))

@@ -55,7 +55,7 @@ func flowCells(scene: SceneState, colours: [Colour], stepBeats: Double) -> [Flow
                 colourIndex: colourIDs.firstIndex(of: cell.colourID) ?? -1,
                 label: flowLabel(colour.type),
                 ticks: flowTicks(colour, stepBeats: stepBeats),
-                srcReceiver: cell.inputRow == nil ? (cell.inputReceiver ?? 0) : nil,
+                srcReceiver: cell.inputRow == nil ? cell.inputReceiver : nil,   // nil receiver ⇒ unrouted input (no MIDI-IN hop drawn)
                 srcRow: cell.inputRow,
                 buses: buses))
         }
@@ -610,7 +610,7 @@ struct RoutePanelView: View {
             out.append(Node(row: r, depth: depth(r, 0),
                             hue: colourColor(cell.colourID) ?? .gray, glyph: flowLabel(colour.type),
                             colourIndex: colourIDs.firstIndex(of: cell.colourID) ?? -1,
-                            srcReceiver: cell.inputRow == nil ? (cell.inputReceiver ?? 0) : nil,
+                            srcReceiver: cell.inputRow == nil ? cell.inputReceiver : nil,   // nil receiver ⇒ unrouted input
                             srcRow: cell.inputRow, buses: Bus.allCases.enumerated().filter { cell.buses.contains($0.element) }.map { $0.offset }))
         }
         return out

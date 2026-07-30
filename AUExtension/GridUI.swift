@@ -180,8 +180,8 @@ struct GridView: View {
             ForEach(0..<8, id: \.self) { col in
                 let active = playing && col == playColumn
                 let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held set
-                Text("\(col + 1)")
-                    .font(.system(size: 15, weight: .heavy, design: .monospaced))
+                Image(systemName: "chevron.down")           // column key — down chevron (points into the column), user 2026-07-30
+                    .font(.system(size: 15, weight: .heavy))
                     .foregroundColor(active ? .black : (held ? accentCyan : .white.opacity(0.45)))
                     .frame(maxWidth: .infinity).frame(height: cellHeight)   // key row = a cell's height (user 2026-07-26)
                     .background(RoundedRectangle(cornerRadius: 6)
@@ -274,8 +274,8 @@ struct GridView: View {
                     busDots(cell, firing: inActiveCol)
                 }
             } else {
-                Text("\(row + 1)")                          // empty-cell watermark (§4)
-                    .font(.system(size: 20, weight: .heavy, design: .monospaced))
+                Image(systemName: "chevron.down")           // empty-cell watermark (§4) — faded down chevron (user 2026-07-30)
+                    .font(.system(size: 20, weight: .heavy))
                     .foregroundColor(.white.opacity(0.08))
             }
         }
