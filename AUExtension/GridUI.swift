@@ -1589,63 +1589,95 @@ struct RoutingVizOverlay: View {
     let frames: [String: CGRect]
     let cellHeight: CGFloat
 
-    private func point(_ a: RouteAnchor) -> CGPoint? {
+    // --- grid geometry within the measured grid frame ---
+    private func cellW(_ g: CGRect) -> CGFloat { (g.width - 7 * GridGeometry.vGap) / 8 }
+    private func cellCenter(_ c: RouteCell, _ g: CGRect) -> CGPoint {
+        let gap = GridGeometry.vGap, w = cellW(g)
+        return CGPoint(x: g.minX + CGFloat(c.col) * (w + gap) + w / 2,
+                       y: g.minY + (cellHeight + gap) + CGFloat(c.row) * (cellHeight + gap) + cellHeight / 2)   // past the column-key row
+    }
+    private func cellRect(_ col: Int, _ row: Int, _ g: CGRect) -> CGRect {
+        let ctr = cellCenter(RouteCell(col: col, row: row), g), w = cellW(g)
+        return CGRect(x: ctr.x - w / 2, y: ctr.y - cellHeight / 2, width: w, height: cellHeight)
+    }
+    // An edge connects to a cell at its TOP (a route arriving) or BOTTOM (a route leaving) — never the centre —
+    // so lines meet cells at their edges (marked by dots) instead of crossing their bodies. Receivers anchor at
+    // the strip bottom, emitters at the strip top.
+    private func endpoint(_ a: RouteAnchor, source: Bool, _ g: CGRect) -> CGPoint? {
         switch a {
-        case .receiver(let i):
-            guard let f = frames["receivers"] else { return nil }
-            return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.maxY)   // bottom edge of receiver strip i
-        case .emitter(let i):
-            guard let f = frames["emitters"] else { return nil }
-            return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.minY)   // top edge of emitter strip i
-        case .cell(let c):
-            guard let f = frames["grid"] else { return nil }
-            let gap = GridGeometry.vGap
-            let cellW = (f.width - 7 * gap) / 8
-            let x = f.minX + CGFloat(c.col) * (cellW + gap) + cellW / 2
-            let y = f.minY + (cellHeight + gap) + CGFloat(c.row) * (cellHeight + gap) + cellHeight / 2   // past the column-key row
-            return CGPoint(x: x, y: y)
+        case .receiver(let i): guard let f = frames["receivers"] else { return nil }; return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.maxY)
+        case .emitter(let i):  guard let f = frames["emitters"] else { return nil };  return CGPoint(x: f.minX + (CGFloat(i) + 0.5) / 4 * f.width, y: f.minY)
+        case .cell(let c):     let ctr = cellCenter(c, g); return CGPoint(x: ctr.x, y: source ? ctr.y + cellHeight / 2 : ctr.y - cellHeight / 2)
         }
     }
-    // Control points of the vertical S-curve (kept legible when lines cross), shared by the line + the comet.
-    private func controls(_ p0: CGPoint, _ p1: CGPoint) -> (c1: CGPoint, c2: CGPoint) {
-        let midY = (p0.y + p1.y) / 2
-        return (CGPoint(x: p0.x, y: midY), CGPoint(x: p1.x, y: midY))
+    private func column(of e: RouteEdge) -> Int {
+        if case .cell(let c) = e.from { return c.col }; if case .cell(let c) = e.to { return c.col }; return 0
     }
-    private func bezier(_ p0: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ p1: CGPoint, _ t: CGFloat) -> CGPoint {
-        let u = 1 - t
+    // Occupied cells the route only PASSES (same column, strictly between its endpoints) — clipped out so the
+    // line never renders over a cell it doesn't connect to.
+    private func crossedRows(_ e: RouteEdge, occ: [Int: Set<Int>]) -> [Int] {
+        let rows = occ[column(of: e)] ?? []
+        func r(_ a: RouteAnchor) -> Int? { if case .cell(let c) = a { return c.row }; return nil }
+        if let a = r(e.from), let b = r(e.to) { let lo = min(a, b), hi = max(a, b); return rows.filter { $0 > lo && $0 < hi } }
+        if let b = r(e.to)   { return rows.filter { $0 < b } }   // receiver → cell: cells above it
+        if let a = r(e.from) { return rows.filter { $0 > a } }   // cell → emitter: cells below it
+        return []
+    }
+    private func ctrls(_ p0: CGPoint, _ p1: CGPoint, _ laneX: CGFloat) -> (CGPoint, CGPoint) {
+        (CGPoint(x: laneX, y: p0.y + (p1.y - p0.y) * 0.34), CGPoint(x: laneX, y: p0.y + (p1.y - p0.y) * 0.66))
+    }
+    private func routePath(_ p0: CGPoint, _ p1: CGPoint, _ laneX: CGFloat) -> Path {
+        let (c1, c2) = ctrls(p0, p1, laneX); var p = Path(); p.move(to: p0); p.addCurve(to: p1, control1: c1, control2: c2); return p
+    }
+    private func routePoint(_ p0: CGPoint, _ p1: CGPoint, _ laneX: CGFloat, _ t: CGFloat) -> CGPoint {
+        let (c1, c2) = ctrls(p0, p1, laneX), u = 1 - t
         return CGPoint(x: u*u*u*p0.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p1.x,
                        y: u*u*u*p0.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p1.y)
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animPaused)) { tl in
-            let pulse = stagingPulseFraction(tl.date, period: 1.4)   // 0→1→0
+        // occupancy + per-column LANES (so parallel vertical routes don't coincide) + connection points —
+        // computed off the animation clock, from the edge list.
+        var occ: [Int: Set<Int>] = [:]
+        for e in edges { for a in [e.from, e.to] { if case .cell(let c) = a { occ[c.col, default: []].insert(c.row) } } }
+        var lane = [Int](repeating: 0, count: edges.count), laneN = [Int](repeating: 1, count: edges.count)
+        var colEdges: [Int: [Int]] = [:]
+        for (i, e) in edges.enumerated() { colEdges[column(of: e), default: []].append(i) }
+        for (_, idxs) in colEdges { for (k, idx) in idxs.enumerated() { lane[idx] = k; laneN[idx] = idxs.count } }
+        var recvAt = Set<RouteCell>(), sendAt = Set<RouteCell>()
+        for e in edges { if case .cell(let c) = e.to { recvAt.insert(c) }; if case .cell(let c) = e.from { sendAt.insert(c) } }
+
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animPaused)) { tl in
+            let pulse = stagingPulseFraction(tl.date, period: 1.4)
             let now = tl.date.timeIntervalSinceReferenceDate
             Canvas { ctx, _ in
-                func render(_ e: RouteEdge, _ index: Int) {
-                    guard let p0 = point(e.from), let p1 = point(e.to) else { return }
-                    let (c1, c2) = controls(p0, p1)
-                    // the line
-                    var path = Path(); path.move(to: p0); path.addCurve(to: p1, control1: c1, control2: c2)
-                    let lineOp = e.lit ? (0.5 + 0.4 * pulse) : 0.14
-                    ctx.stroke(path, with: .color(.white.opacity(lineOp)), lineWidth: e.lit ? 2.0 : 1.0)
-                    // the MIDI comet — a head + fading tail travelling source → dest (the signal direction)
-                    let speed = e.lit ? 0.55 : 0.32                 // cycles/sec; lit paths run faster
-                    let phase = Double(index % 9) / 9.0             // de-sync comets across edges (deterministic)
+                guard let g = frames["grid"] else { return }
+                let step = min(CGFloat(7), cellW(g) * 0.24)
+                func render(_ i: Int) {
+                    let e = edges[i]
+                    guard let p0 = endpoint(e.from, source: true, g), let p1 = endpoint(e.to, source: false, g) else { return }
+                    let laneX = (p0.x + p1.x) / 2 + (CGFloat(lane[i]) - CGFloat(laneN[i] - 1) / 2) * step
+                    var c = ctx                                     // clip the route OUT of cells it merely crosses
+                    let crossed = crossedRows(e, occ: occ)
+                    if !crossed.isEmpty {
+                        var holes = Path(); for r in crossed { holes.addRect(cellRect(column(of: e), r, g)) }
+                        c.clip(to: holes, options: .inverse)
+                    }
+                    c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(e.lit ? (0.5 + 0.4 * pulse) : 0.14)), lineWidth: e.lit ? 2.0 : 1.0)
+                    let speed = e.lit ? 0.55 : 0.32, phase = Double(i % 9) / 9.0   // MIDI comet: head + fading tail, source → dest
                     let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
                     for k in 0..<6 {
-                        let t = head - CGFloat(k) * 0.03
-                        guard t >= 0 else { continue }
-                        let pt = bezier(p0, c1, c2, p1, t)
-                        let fade = 1 - CGFloat(k) / 6
-                        let r = (e.lit ? 3.2 : 1.7) * fade
-                        let op = (e.lit ? 1.0 : 0.45) * fade
-                        ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)),
-                                 with: .color(.white.opacity(op)))
+                        let t = head - CGFloat(k) * 0.03; guard t >= 0 else { continue }
+                        let pt = routePoint(p0, p1, laneX, t), fade = 1 - CGFloat(k) / 6, r = (e.lit ? 3.2 : 1.7) * fade
+                        c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity((e.lit ? 1.0 : 0.45) * fade)))
                     }
                 }
-                for (i, e) in edges.enumerated() where !e.lit { render(e, i) }   // dim underneath
-                for (i, e) in edges.enumerated() where e.lit { render(e, i) }    // bright on top
+                for i in edges.indices where !edges[i].lit { render(i) }   // dim underneath
+                for i in edges.indices where edges[i].lit { render(i) }    // bright on top
+                // connection DOTS at cell edges — top where a route arrives, bottom where one leaves (drawn on top, unclipped)
+                func dot(_ p: CGPoint) { ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.9))) }
+                for c in recvAt { let ctr = cellCenter(c, g); dot(CGPoint(x: ctr.x, y: ctr.y - cellHeight / 2)) }
+                for c in sendAt { let ctr = cellCenter(c, g); dot(CGPoint(x: ctr.x, y: ctr.y + cellHeight / 2)) }
             }
         }
         .allowsHitTesting(false)
