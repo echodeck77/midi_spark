@@ -451,13 +451,6 @@ struct GridView: View {
         for r in 0..<8 where r != row && cellAt(col, r)?.inputRow == row { return true }
         return false
     }
-    private func typeLabel(_ c: Colour?) -> String {
-        switch c?.type {
-        case .arp: return "ARP"; case .ratchet: return "RTC"; case .passgate: return "PASS"
-        case .strum: return "STRM"; case .chance: return "CHNC"; case .harmonize: return "HARM"
-        case .none: return "—"
-        }
-    }
     private func paramText(_ c: Colour?) -> String {
         guard let c else { return "" }
         var s: String
@@ -1460,10 +1453,7 @@ struct ProcessorBox: View {
     }
 
     // ---- small controls ----
-    private func typeShort(_ t: ProcessorType) -> String {
-        switch t { case .arp: "ARP"; case .ratchet: "RTC"; case .passgate: "PASS"
-        case .strum: "STRM"; case .chance: "CHNC"; case .harmonize: "HARM" }
-    }
+    private func typeShort(_ t: ProcessorType) -> String { t.rawValue }   // FULL name (user 2026-07-30 — no abbreviations)
     private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
         Binding(get: { v }, set: set)
     }

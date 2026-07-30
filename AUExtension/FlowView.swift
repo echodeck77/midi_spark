@@ -37,12 +37,7 @@ func flowTicks(_ c: Colour, stepBeats: Double) -> Int {
     }
 }
 
-func flowLabel(_ t: ProcessorType) -> String {
-    switch t {
-    case .arp: "ARP"; case .ratchet: "RTC"; case .passgate: "PASS"
-    case .strum: "STRM"; case .chance: "CHNC"; case .harmonize: "HARM"
-    }
-}
+func flowLabel(_ t: ProcessorType) -> String { t.rawValue }   // FULL name (user 2026-07-30 — no abbreviations)
 
 /// Resolve the scene's active column set into `FlowCell`s (MIDI-IN source = the cell's receiver; a row
 /// reference = `inputRow`). Colours indexed by id.
