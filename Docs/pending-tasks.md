@@ -19,11 +19,9 @@ commit refs in CLAUDE.md "Current status":
 ## A. Blocked on the user (need a decision before building)
 - [ ] **HOLD latch re-home** — §5c latch UI slot is vacant; CONTROLS-corner restoration recommended, awaiting the nod.
 - [ ] **SCOPE ops home** — chips-during-SELECT-hold vs deferred (design device-nod).
-- [ ] **DELETE-sever fallback in the null era** (design-Claude, 2026-07-30) — the 29th ruled severed children
-  "fall back to MIDI-IN (R1)"; now that new cells are born NULL, consistency argues severed children should fall
-  to **NULL** (silent + red-dashed, honestly cut) rather than a silent R1 re-point that looks like a wiring
-  choice nobody made. ONE line in `SceneState.deleteCell(reparentChild:)`/`deleteCellSever`. Awaiting the ruling
-  (NULL vs keep R1); reply to design-side owed either way.
+- [x] **DELETE-sever fallback in the null era** (user ruled NULL, 2026-07-30) — severed children now fall to NULL
+  input (inputRow nil AND inputReceiver nil, own emitters kept) instead of a phantom R1 re-point. Done in
+  `deleteCellSever`; test updated. Reply to design-side owed (bundle with the file-read ack).
 
 ## B. Device-verify owed (this thread's work — none seen or heard on device)
 - [ ] **Adoption ear-check** — drones glide across boundaries, no clicks; claim/ALT/emitter-octave edges (`8d5f1b3`).

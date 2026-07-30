@@ -673,12 +673,14 @@ extension SceneState {
         }
     }
 
-    /// DELETE = SEVER (AcceptanceCriteria ruling 2026-07-29): the victim's routing is CUT — children fall back to
-    /// MIDI-IN (they do NOT reconnect to its parent), pointed at R1 so they don't bypass the receiver.
+    /// DELETE = SEVER (AcceptanceCriteria 2026-07-29, refined for the null era 2026-07-30): the victim's routing is
+    /// CUT — children do NOT reconnect to its parent and do NOT get silently re-pointed at R1 (which would read as
+    /// a wiring choice nobody made). They fall to NULL input — no input row, no receiver — so the cut is honest
+    /// (no receiver ring / no viz edge). Their own emitters are untouched.
     mutating func deleteCellSever(col: Int, row: Int) {
         deleteCell(col: col, row: row) { child, _ in
-            child.inputRow = nil                                // fall back to MIDI-IN
-            child.inputReceiver = 0                             // point at R1 (no receiver bypass)
+            child.inputRow = nil                                // cut the link to the victim
+            child.inputReceiver = nil                           // …to NULL input, not R1 — the honest cut
         }
     }
 

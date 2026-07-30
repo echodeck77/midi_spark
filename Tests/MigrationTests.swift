@@ -365,17 +365,18 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[3][5]?.inputReceiver, 2, "…on the victim's receiver (no orphan-silence)")
     }
 
-    // DELETE = SEVER (AcceptanceCriteria ruling): the child does NOT reconnect to the grandparent; it is cut
-    // back to MIDI-IN (inputRow nil) and pointed at R1 so it doesn't bypass the receiver.
-    func testDeleteSeverCutsChildToMidiInNotGrandparent() {
+    // DELETE = SEVER (AcceptanceCriteria ruling, null-era refinement 2026-07-30): the child does NOT reconnect to
+    // the grandparent; it is cut to NULL input (inputRow nil AND inputReceiver nil — no phantom R1), honest cut.
+    func testDeleteSeverCutsChildToNullInputNotGrandparent() {
         var s = SceneState.empty()
         s.cells[0][0] = Cell(colourID: "gold")                                  // row0: receiver-fed root
         s.cells[0][2] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)        // row2 ⇐ row0 (the victim)
         s.cells[0][4] = Cell(colourID: "wine", buses: [.b], inputRow: 2)        // row4 ⇐ row2 (the child)
         s.deleteCellSever(col: 0, row: 2)
         XCTAssertNil(s.cells[0][2], "the victim is gone")
-        XCTAssertNil(s.cells[0][4]?.inputRow, "the child is CUT to MIDI-IN (does NOT reconnect to row 0)")
-        XCTAssertEqual(s.cells[0][4]?.inputReceiver, 0, "a severed MIDI-IN child points at R1 (no bypass)")
+        XCTAssertNil(s.cells[0][4]?.inputRow, "the child is CUT (does NOT reconnect to row 0)")
+        XCTAssertNil(s.cells[0][4]?.inputReceiver, "a severed child falls to NULL input — no phantom R1")
+        XCTAssertEqual(s.cells[0][4]?.buses, [.b], "the child keeps its own emitters")
         XCTAssertNotNil(s.cells[0][0], "the victim's parent is untouched")
     }
 
