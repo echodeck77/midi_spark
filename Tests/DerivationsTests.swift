@@ -983,4 +983,24 @@ final class DerivationsTests: XCTestCase {
         for t in ProcessorType.allCases { XCTAssertFalse(emblemSymbol(t).isEmpty, "\(t) needs an emblem") }
         XCTAssertEqual(Set(ProcessorType.allCases.map(emblemSymbol)).count, ProcessorType.allCases.count, "one distinct glyph per type")
     }
+
+    // MARK: trigger glyph (deviation-shown)
+
+    func testTriggerMarkDefaultIsNil() {
+        XCTAssertNil(triggerMark(OnConfig()))                                   // both default → no mark
+    }
+    func testTriggerMarkTapSetsGlyphNoRing() {
+        var on = OnConfig(); on.tap = .replay
+        let m = triggerMark(on)
+        XCTAssertEqual(m?.glyph, "arrow.clockwise"); XCTAssertEqual(m?.ring, false)
+    }
+    func testTriggerMarkHoldOnlyIsRinged() {
+        var on = OnConfig(); on.hold = .freeze
+        let m = triggerMark(on)
+        XCTAssertEqual(m?.glyph, "snowflake"); XCTAssertEqual(m?.ring, true)
+    }
+    func testTriggerMarkTapPlusHoldRings() {
+        var on = OnConfig(); on.tap = .alt; on.hold = .oct
+        XCTAssertEqual(triggerMark(on)?.ring, true, "a hold rings the tap glyph")
+    }
 }

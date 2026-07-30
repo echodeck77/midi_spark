@@ -750,6 +750,36 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     }
 }
 
+/// The cell-face TRIGGER glyph — deviation-shown. The bottom-right glyph comes from the ON-TAP action; a
+/// non-default ON-HOLD action rings it. Both default ⇒ nil (no mark). Placeholder SF Symbols. Pure/testable.
+func triggerTapGlyph(_ t: OnTap) -> String? {
+    switch t {
+    case .none:   return nil
+    case .alt:    return "arrow.left.arrow.right"   // ⇄ flip
+    case .mute:   return "speaker.slash.fill"
+    case .solo:   return "headphones"
+    case .fill:   return "square.grid.3x3.fill"
+    case .replay: return "arrow.clockwise"          // ↻ replay
+    }
+}
+func triggerHoldGlyph(_ h: OnHold) -> String? {
+    switch h {
+    case .none:       return nil
+    case .alt:        return "arrow.left.arrow.right"
+    case .freeze:     return "snowflake"            // ❄ freeze
+    case .sliceCycle: return "rectangle.split.3x1"
+    case .morphScrub: return "slider.horizontal.3"
+    case .oct:        return "arrow.up.arrow.down"  // ↑/↓ octave
+    }
+}
+/// The single bottom-right mark: (glyph, ring). Tap sets the glyph; a hold rings it. Hold-only shows the hold
+/// glyph, ringed. Both default ⇒ nil. Never more than two marks (a glyph + its ring).
+func triggerMark(_ on: OnConfig) -> (glyph: String, ring: Bool)? {
+    if let t = triggerTapGlyph(on.tap) { return (t, triggerHoldGlyph(on.hold) != nil) }
+    if let h = triggerHoldGlyph(on.hold) { return (h, true) }
+    return nil
+}
+
 // MARK: - Routing visualisation graph (the while-wiring overlay)
 
 struct RouteCell: Hashable { let col: Int; let row: Int }

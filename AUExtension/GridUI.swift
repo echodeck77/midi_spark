@@ -292,6 +292,14 @@ struct GridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .bottomTrailing) {              // A3 TRIGGER GLYPH — deviation-shown (default = nothing)
+            if !isRouteCand, let cc = cell, let cl = colours.first(where: { $0.colourID == cc.colourID }), let mark = triggerMark(cl.onResolved) {
+                Image(systemName: mark.glyph).font(.system(size: 7, weight: .heavy)).foregroundColor(.black.opacity(0.72))
+                    .padding(1.5)
+                    .overlay { if mark.ring { Circle().stroke(.black.opacity(0.72), lineWidth: 1) } }
+                    .padding(2).allowsHitTesting(false)
+            }
+        }
         .overlay {                                          // §10 ROUTE candidate: the BODY pulses (time-driven so it actually animates)
             if isRouteCand {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
