@@ -1285,6 +1285,7 @@ struct ProcessorBox: View {
     var onPaste: () -> Void = {}
     var height: CGFloat = panelHeight                   // portrait A-above-B stacking passes a shorter height
     var mixed: Bool = false                             // MIXED-SET law: SELECT spans >1 Colour → dim + disable
+    @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1304,7 +1305,6 @@ struct ProcessorBox: View {
             if mixed {
                 mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
             } else {
-                typeSelector
                 if let ft = faceType {
                     field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
                         stepper(faceTranspose, -24, 24) { v in
@@ -1342,26 +1342,58 @@ struct ProcessorBox: View {
         .padding(.top, 4).frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // B1 TITLE-AS-PICKER: [EMBLEM] TYPE ▾ · COPY · PASTE — tap the type to open the picker popover.
     private var titleRow: some View {
         HStack(spacing: 5) {
-            Text(isB ? "PROCESSOR B" : "PROCESSOR A")
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            Button { if !mixed { showTypePicker = true } } label: {
+                HStack(spacing: 4) {
+                    if let ft = faceType { Image(systemName: emblemSymbol(ft)).font(.system(size: 11, weight: .black)) }
+                    Text(faceType.map { typeShort($0) } ?? "OFF").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).opacity(0.7)
+                }
+                .foregroundColor(accent)
+            }
+            .buttonStyle(.plain).disabled(mixed)
             Spacer()
             if !mixed && faceType != nil { pill("COPY", onCopy) }
             if !mixed && canPaste { pill("PASTE", onPaste) }
         }
+        .popover(isPresented: $showTypePicker) { typePicker }
     }
 
-    // A face = the 6 types; B face = OFF (B-less) + the 6 types (pick a type to create B, OFF to remove it).
-    @ViewBuilder private var typeSelector: some View {
-        if isB {
-            seg(["OFF"] + ProcessorType.allCases.map { typeShort($0) }, sel: colour.typeB.map { typeShort($0) } ?? "OFF") { i in
-                if i == 0 { onEdit { $0.typeB = nil } } else { onEdit { $0.typeB = ProcessorType.allCases[i - 1] } }
+    // The TYPE PICKER — one row per type (emblem · NAME · one-line description). Panel B leads with OFF.
+    private var typePicker: some View {
+        let rows: [ProcessorType?] = (isB ? [ProcessorType?.none] : []) + ProcessorType.allCases.map { Optional($0) }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, t in
+                Button {
+                    if let t { if isB { onEdit { $0.typeB = t } } else { onSetTypeA?(t) } }
+                    else { onEdit { $0.typeB = nil } }          // OFF (B only)
+                    showTypePicker = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: t.map { emblemSymbol($0) } ?? "nosign").font(.system(size: 14, weight: .black)).frame(width: 20)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(t.map { typeShort($0) } ?? "OFF").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                            Text(t.map { typeDescription($0) } ?? "no B-side").font(.system(size: 9, design: .monospaced)).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-        } else {
-            seg(ProcessorType.allCases.map { typeShort($0) }, sel: typeShort(colour.type)) { i in
-                onSetTypeA?(ProcessorType.allCases[i])
-            }
+        }
+        .frame(width: 240).padding(.vertical, 4)
+    }
+    private func typeDescription(_ t: ProcessorType) -> String {
+        switch t {
+        case .arp:       return "arpeggiate the held chord"
+        case .ratchet:   return "re-trigger in bursts per step"
+        case .passgate:  return "a gate the sound passes through"
+        case .strum:     return "roll the chord in over a spread"
+        case .chance:    return "let notes through by probability"
+        case .harmonize: return "add tuned voices to each note"
         }
     }
 
