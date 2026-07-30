@@ -273,7 +273,7 @@ struct GridView: View {
                     Spacer(minLength: 0)
                     bodyText(cell)
                     Spacer(minLength: 0)
-                    emitterStrip(cell, firing: inActiveCol)
+                    busDots(cell, firing: inActiveCol)
                 }
             } else {
                 Text("\(row + 1)")                          // empty-cell watermark (§4)
@@ -413,35 +413,31 @@ struct GridView: View {
         }
     }
 
-    // ② BODY — type + effective-ish params (compact). Rendered over the colour fill.
+    // ② BODY — the type EMBLEM leads, then the deviations-only params digest (v59 grammar). Over the colour fill.
     private func bodyText(_ cell: Cell) -> some View {
         let c = colours.first { $0.colourID == cell.colourID }
         let dim = cell.bypassed || cell.muted
-        return HStack(spacing: 3) {                    // type + params on ONE line (user 2026-07-26)
-            Text(typeLabel(c))
-                .font(.system(size: 8, weight: .black, design: .monospaced))
-            Text(paramText(c))
+        return HStack(spacing: 3) {
+            if let c { Image(systemName: emblemSymbol(c.type)).font(.system(size: 9, weight: .black)) }   // EMBLEM (the type glyph) leading
+            Text(paramText(c))                                                                            // digest — deviations only
                 .font(.system(size: 6.5, weight: .bold, design: .monospaced))
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
-        .foregroundColor(dim ? .white.opacity(0.3) : .black.opacity(0.6))
+        .foregroundColor(dim ? .white.opacity(0.3) : .black.opacity(0.65))
         .padding(.horizontal, 2)
     }
 
-    // ④ EMITTER STRIP — A B C D; lit = on, brighter (white) = firing this column.
-    private func emitterStrip(_ cell: Cell, firing: Bool) -> some View {
-        HStack(spacing: 2) {
+    // ④ BUS DOTS — four small dots at the foot (A–D); lit = that emitter enabled, white = firing this column.
+    private func busDots(_ cell: Cell, firing: Bool) -> some View {
+        HStack(spacing: 4) {
             ForEach(Bus.allCases, id: \.self) { b in
                 let on = cell.buses.contains(b)
-                Text(b.rawValue)
-                    .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? (firing ? .black : .white) : .black.opacity(0.4))
-                    .frame(maxWidth: .infinity).frame(height: 11)
-                    .background(RoundedRectangle(cornerRadius: 3)
-                        .fill(on ? (firing ? Color.white : Color.black.opacity(0.62)) : Color.black.opacity(0.18)))
+                Circle()
+                    .fill(on ? (firing ? Color.white : Color.black.opacity(0.62)) : Color.black.opacity(0.12))
+                    .frame(width: 5, height: 5)
             }
         }
-        .padding(.horizontal, 2).padding(.bottom, 2)
+        .frame(maxWidth: .infinity).padding(.bottom, 3)
     }
 
     // ---- routing derivation (mirrors engine resolvedParent/parentRow — truthful, delta §1) ----
