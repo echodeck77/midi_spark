@@ -478,6 +478,11 @@ struct GridView: View {
 /// colourIndex — emitters tint by the source Colour, −1 = the strip's own hue (receivers / master).
 struct VelMark: Equatable { let vel: Double; let col: Int8; let born: Date; var withheld: Bool = false }
 
+/// §strips-done: one currently-SOUNDING note on an emitter — a STEADY tick (no `born`; present while it
+/// sounds, so the value only changes when the sounding set does — no per-poll state churn). `col` = the
+/// source cell's colourIndex, for the cargo tint (the mark wears the Colour that struck it).
+struct SoundMark: Equatable { let vel: Double; let col: Int8 }
+
 /// Draw a strip's velocity marks — horizontal ticks at each mark's velocity height, opacity fading over
 /// ~250ms. Behind a TimelineView (the caller animates by passing `now`). `hueFor` maps a mark to its colour.
 /// §6a THE WITHHELD TELL: a `withheld` mark (a note CLAIM fully suppressed) draws HOLLOW (a stroked outline
@@ -781,6 +786,8 @@ struct OutputsView: View {
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
     var marks: [[VelMark]] = [[], [], [], []]                             // item 4: floating output velocity marks (Colour-tinted)
+    var sounding: [[SoundMark]] = [[], [], [], []]                        // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
+    var releaseMarks: [[VelMark]] = [[], [], [], []]                      // §strips-done: notes just released — fading marks (~250ms), cargo-tinted
     var claimMask: UInt8 = 0                                               // §6a CLAIM v2: the multi-claim mask (bits A–D)
     var claimLeak: [Int] = [0, 0, 0, 0]                                    // §6a CLAIM v2: per-claimant LEAK % (0…100)
     var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
@@ -1037,7 +1044,9 @@ struct OutputsView: View {
                     }
                 }
             } else if enabled {
-                velMarkLayer(i < marks.count ? marks[i] : [], now: now) { col in emitterHue(col) }
+                soundingLayer(i < sounding.count ? sounding[i] : []) { col in emitterHue(col) }   // §strips-done: hold-while-sounding
+                velMarkLayer(i < releaseMarks.count ? releaseMarks[i] : [], now: now) { col in emitterHue(col) }   // fade-on-release
+                velMarkLayer(i < marks.count ? marks[i] : [], now: now) { col in emitterHue(col) }   // item 4: the note-on flash
             }
         }
         .padding(4)
@@ -1053,6 +1062,16 @@ struct OutputsView: View {
     // item 4: a mark's tint = its source cell's Colour (−1 / out of range → the emitter cyan).
     private func emitterHue(_ col: Int8) -> Color {
         (col >= 0 && Int(col) < colourIDs.count) ? (colourColor(colourIDs[Int(col)]) ?? cyan) : cyan
+    }
+    // §strips-done: STEADY hold-while-sounding ticks — one per currently-sounding note at its velocity height,
+    // in the source Colour (cargo tint). Solid (no fade); each vanishes the poll after its note stops sounding.
+    private func soundingLayer(_ marks: [SoundMark], hueFor: @escaping (Int8) -> Color) -> some View {
+        GeometryReader { g in
+            ForEach(Array(marks.enumerated()), id: \.offset) { _, m in
+                Rectangle().fill(hueFor(m.col).opacity(0.85)).frame(height: 2)
+                    .position(x: g.size.width / 2, y: g.size.height * (1 - CGFloat(max(0, min(1, m.vel)))))
+            }
+        }
     }
 
     private func decayed(_ i: Int, now: Date) -> Double {

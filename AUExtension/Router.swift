@@ -50,6 +50,7 @@ final class Router {
         // (harmless on non-hold voices — only audible immortal voices are ever adoption-matched).
         var colourIndex: Int8 = -1
         var alt = false
+        var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -122,6 +123,13 @@ final class Router {
     private var withheldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
     private var withheldCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
     private var withheldCount = [Int](repeating: 0, count: 4)
+    // §strips-done (the emitter twin of the receiver's recvHeld): the notes CURRENTLY SOUNDING per emitter — a
+    // live snapshot of the voice table sliced by bus, each carrying (velocity, source colourIndex) so the UI
+    // draws a hold-while-sounding tick in the SOURCE Colour (cargo tint) and fades it on release. Snapshotted on
+    // the render thread each window; read-and-copied by the UI poll (benign staleness race, like the meters).
+    private var soundVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
+    private var soundCol = [[Int8]](repeating: [Int8](repeating: -1, count: 12), count: 4)
+    private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
@@ -234,7 +242,7 @@ final class Router {
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
-        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0 }
+        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0; soundCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
@@ -332,6 +340,7 @@ final class Router {
         voices[slot].silent = silent
         voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
         voices[slot].alt = currentAlt
+        voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         return slot
     }
 
@@ -352,6 +361,32 @@ final class Router {
             var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(markCount[bus])
             for i in 0..<markCount[bus] { m.append((markVel[bus][i], markCol[bus][i])) }
             markCount[bus] = 0
+            out.append(m)
+        }
+        return out
+    }
+
+    /// §strips-done: snapshot the notes CURRENTLY SOUNDING per emitter — the active (non-silent) voices bucketed
+    /// by originating bus, each a (velocity, source colourIndex). Called on the render thread once per window,
+    /// AFTER process reconciles the voice table. Overwrites the buffers (a live set, not an accumulate-clear).
+    func snapshotEmitterSounding() {
+        for b in 0..<4 { soundCount[b] = 0 }
+        for v in voices where v.active && !v.silent {
+            let b = Int(v.bus)
+            guard b >= 0, b < 4, soundCount[b] < 12 else { continue }
+            soundVel[b][soundCount[b]] = v.vel
+            soundCol[b][soundCount[b]] = v.colourIndex
+            soundCount[b] += 1
+        }
+    }
+
+    /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
+    /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source colour) set.
+    func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {
+        var out = [[(vel: UInt8, col: Int8)]]()
+        for b in 0..<4 {
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(soundCount[b])
+            for i in 0..<soundCount[b] { m.append((soundVel[b][i], soundCol[b][i])) }
             out.append(m)
         }
         return out

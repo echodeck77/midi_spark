@@ -396,6 +396,42 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.drainMeters().events[0], 0, "a disabled emitter never meters")
     }
 
+    // MARK: - §strips-done HOLD-WHILE-SOUNDING — drainEmitterSounding() reports the live per-emitter voice set
+
+    func testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease() {
+        // A ratchet on the GOLD cell → bus A. While a chord is held, at least one window snapshot must catch a
+        // sounding voice on emitter A (carrying its velocity + source colourIndex) and NONE on B/C/D; after the
+        // chord releases and the notes close, every emitter's sounding set empties.
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .ratchet
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let held = chord([60]); let sr = 48_000.0; let frames: UInt32 = 2048
+        var beat = 0.0, ts = 0.0; let wb = Double(frames) * 120 / 60 / sr
+        var sawSounding = false
+        for _ in 0..<24 {
+            router.process(box: b, pool: held, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            router.snapshotEmitterSounding()
+            let s = router.drainEmitterSounding()
+            if !s[0].isEmpty {
+                sawSounding = true
+                XCTAssertEqual([s[1].count, s[2].count, s[3].count], [0, 0, 0], "only emitter A sounds")
+                XCTAssertGreaterThan(s[0].first!.vel, 0, "the sounding note carries its velocity")
+                XCTAssertGreaterThanOrEqual(s[0].first!.col, 0, "…and its source colour (cargo tint)")
+            }
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertTrue(sawSounding, "emitter A reported a sounding note while the chord was held")
+        let empty = NotePool()   // release: no held notes → the ratchet stops → voices close
+        for _ in 0..<8 {
+            router.process(box: b, pool: empty, playing: true, beatPos: beat, tempo: 120, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.snapshotEmitterSounding()
+        XCTAssertTrue(router.drainEmitterSounding().allSatisfy { $0.isEmpty }, "released → nothing left sounding")
+    }
+
     // MARK: - item 4 VELOCITY MARKS — the per-note (velocity, source-colour) ring drained by drainMarks()
 
     func testDrainMarksStampsSourceColourAndReadClears() {

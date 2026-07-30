@@ -123,6 +123,8 @@ struct DiagView: View {
     @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State private var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
     @State private var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
+    @State private var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
+    @State private var emitRelease: [[VelMark]] = [[], [], [], []]    // §strips-done: marks FADING (~250ms) as sounding notes release
     @State private var docColours: [Colour] = []
     @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State private var stepIndex = 2
@@ -833,6 +835,26 @@ struct DiagView: View {
             }
             if rel != recvRelease { recvRelease = rel }
             if held != recvHeld { recvHeld = held }
+            // §strips-done: the EMITTER twin — notes currently sounding per emitter (steady, cargo-tinted) + a
+            // fade on release. Same multiset-diff as the receiver above, keyed on (velocity, source colour).
+            let esnd = au.pollEmitterSounding()
+            var eheld = [[SoundMark]](repeating: [], count: 4)
+            var erel = emitRelease
+            for i in 0..<4 {
+                erel[i] = erel[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
+                let cur = (i < esnd.count ? esnd[i] : [])
+                for m in cur { eheld[i].append(SoundMark(vel: Double(m.vel) / 127.0, col: m.col)) }
+                var newCounts: [Int: Int] = [:]
+                for m in cur { newCounts[Int(m.vel) * 64 + Int(m.col) + 1, default: 0] += 1 }   // note-proxy key
+                for old in (i < emitHeld.count ? emitHeld[i] : []) {
+                    let k = Int((old.vel * 127).rounded()) * 64 + Int(old.col) + 1
+                    if let c = newCounts[k], c > 0 { newCounts[k] = c - 1 }                      // still sounding
+                    else { erel[i].append(VelMark(vel: old.vel, col: old.col, born: mnow)) }     // gone → fade it
+                }
+                if erel[i].count > 6 { erel[i] = Array(erel[i].suffix(6)) }
+            }
+            if erel != emitRelease { emitRelease = erel }
+            if eheld != emitHeld { emitHeld = eheld }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
@@ -1107,6 +1129,7 @@ struct DiagView: View {
     private var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: false,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
+                    sounding: emitHeld, releaseMarks: emitRelease,
                     claimMask: claimMask, claimLeak: claimLeak, holdLatch: holdLatch,
                     onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
                     onVelOverride: setVelOverride, onClaim: setClaim, onClaimLeak: setClaimLeak,

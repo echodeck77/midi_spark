@@ -108,6 +108,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes
+    func pollEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterSounding() }   // §strips-done: currently-sounding per emitter (cargo-tinted)
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
     func uiBusChannels() -> [Int] { document.busChannels }
