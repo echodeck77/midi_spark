@@ -735,6 +735,21 @@ func placedCellRouting(template: (buses: Set<Bus>, inputRow: Int?, inputReceiver
     return PlacedRouting(buses: template?.buses ?? [.a], inputRow: nearestAbove, inputReceiver: nearestAbove == nil ? 0 : nil)
 }
 
+// MARK: - Visual overhaul: EMBLEMS (cells & colour desk, AcceptanceCriteria 2026-07-29)
+
+/// ONE static glyph per processor type — the "emblem" drawn on the cell face + the desk title. Placeholder
+/// SF Symbol names this wave (the drawn artwork is a separate asset job). Pure so the mapping is testable.
+func emblemSymbol(_ t: ProcessorType) -> String {
+    switch t {
+    case .arp:       return "chart.line.uptrend.xyaxis"   // the climb
+    case .ratchet:   return "bolt.fill"                   // the burst
+    case .passgate:  return "rectangle.split.3x1"         // the gate
+    case .strum:     return "fanblades.fill"              // the fan
+    case .chance:    return "die.face.5.fill"             // the die
+    case .harmonize: return "circle.hexagongrid.fill"     // the bloom
+    }
+}
+
 // MARK: - Routing visualisation graph (the while-wiring overlay)
 
 struct RouteCell: Hashable { let col: Int; let row: Int }

@@ -976,4 +976,11 @@ final class DerivationsTests: XCTestCase {
         XCTAssertFalse(e.isEmpty)
         XCTAssertTrue(e.allSatisfy { !$0.lit })
     }
+
+    // MARK: emblems (cells & colour desk)
+
+    func testEmblemForEveryTypeIsDistinctAndNonEmpty() {
+        for t in ProcessorType.allCases { XCTAssertFalse(emblemSymbol(t).isEmpty, "\(t) needs an emblem") }
+        XCTAssertEqual(Set(ProcessorType.allCases.map(emblemSymbol)).count, ProcessorType.allCases.count, "one distinct glyph per type")
+    }
 }
