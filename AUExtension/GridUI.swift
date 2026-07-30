@@ -269,7 +269,6 @@ struct GridView: View {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
                 VStack(spacing: 0) {
-                    inputHeader(cell, parent: parent, live: inActiveCol)
                     Spacer(minLength: 0)
                     bodyText(cell)
                     Spacer(minLength: 0)
@@ -283,6 +282,16 @@ struct GridView: View {
         }
         .opacity(tapMutedHere ? 0.28 : 1)                   // §9 ON TAP = MUTE: the momentarily-muted cell dims
         .frame(maxWidth: .infinity).frame(height: cellHeight)
+        .overlay {                                          // A2 COMPASS TINT — a slim parent-hue sliver on the parent-facing edge (row-fed cells only)
+            if parent >= 0, let pc = cellAt(col, parent).flatMap({ colourColor($0.colourID) }) {
+                VStack(spacing: 0) {
+                    if parent < row { Rectangle().fill(pc.opacity(0.85)).frame(height: 3) }   // parent above → top edge
+                    Spacer(minLength: 0)
+                    if parent > row { Rectangle().fill(pc.opacity(0.85)).frame(height: 3) }   // parent below → bottom edge
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8)).allowsHitTesting(false)
+            }
+        }
         .overlay {                                          // §10 ROUTE candidate: the BODY pulses (time-driven so it actually animates)
             if isRouteCand {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
@@ -393,26 +402,6 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    @ViewBuilder private func inputHeader(_ cell: Cell, parent: Int, live: Bool) -> some View {
-        let midi = parent < 0
-        let recv = cell.inputReceiver ?? 0
-        let band: Color? = (midi && recv > 0 && recv < receiverHues.count) ? receiverHues[recv] : nil
-        if midi && band == nil {
-            EmptyView()          // a FROM-MIDI (Receiver 1) cell shows NO input header (user 2026-07-26)
-        } else {
-            // R2–R4 = the identity BAND only (band-as-deviation); a reference = "FROM ROW n".
-            let compact = cellHeight < 36
-            let label = compact ? "" : (midi ? "" : "FROM ROW \(parent + 1)")
-            Text(label)
-                .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-                .lineLimit(1).minimumScaleFactor(0.7)
-                .foregroundColor(live ? .black : .white.opacity(0.85))
-                .frame(maxWidth: .infinity).frame(height: compact ? 8 : 13)
-                .background(live ? Color.white : (band ?? Color.black.opacity(0.52)))
-                .clipShape(.rect(topLeadingRadius: 7, topTrailingRadius: 7))
-        }
-    }
-
     // ② BODY — the type EMBLEM leads, then the deviations-only params digest (v59 grammar). Over the colour fill.
     private func bodyText(_ cell: Cell) -> some View {
         let c = colours.first { $0.colourID == cell.colourID }
