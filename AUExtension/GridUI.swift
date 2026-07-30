@@ -294,6 +294,7 @@ struct GridView: View {
         .overlay(alignment: .bottomTrailing) {              // A3 TRIGGER GLYPH — deviation-shown (default = nothing)
             if !isRouteCand, let cc = cell, let cl = colours.first(where: { $0.colourID == cc.colourID }), let mark = triggerMark(cl.onResolved) {
                 Image(systemName: mark.glyph).font(.system(size: 7, weight: .heavy)).foregroundColor(.black.opacity(0.72))
+                    .shadow(color: .white.opacity(0.5), radius: 0.6)   // keyline for dark hues
                     .padding(1.5)
                     .overlay { if mark.ring { Circle().stroke(.black.opacity(0.72), lineWidth: 1) } }
                     .padding(2).allowsHitTesting(false)
@@ -414,7 +415,8 @@ struct GridView: View {
         let c = colours.first { $0.colourID == cell.colourID }
         let dim = cell.bypassed || cell.muted
         return HStack(spacing: 3) {
-            if let c { Image(systemName: emblemSymbol(c.type)).font(.system(size: 9, weight: .black)) }   // EMBLEM (the type glyph) leading
+            if let c { Image(systemName: emblemSymbol(c.type)).font(.system(size: 9, weight: .black))
+                .shadow(color: .white.opacity(0.5), radius: 0.6) }   // EMBLEM leading — keyline so it reads on dark hues too
             Text(paramText(c))                                                                            // digest — deviations only
                 .font(.system(size: 6.5, weight: .bold, design: .monospaced))
                 .lineLimit(1).minimumScaleFactor(0.7)
