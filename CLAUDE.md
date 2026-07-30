@@ -200,6 +200,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     chevrons (empty-cell watermark + top column keys) and a NEW left row-select rail mirroring the right, both
     points-into-grid, shared whole-row verb via a parameterised `rowRail` (`9d2352d`). 351 tests green (net −3:
     dropped 4 sticky-routing tests, added 1 null-cell viz test). Off-device only.
+  - **NULL-ERA SEVER + STRIPS-DONE feed (2026-07-30, user)** — (1) DELETE-sever now drops severed children to
+    NULL input (inputRow nil AND inputReceiver nil, own emitters kept) instead of a phantom R1, matching new
+    cells being born null (user ruling). (2) **Emitter hold-while-sounding feed** (strips-done wave pt 1): the
+    render thread snapshots the voice table sliced by bus (`Router.snapshotEmitterSounding`, Voice gains `vel`),
+    the UI polls it (`drainEmitterSounding`) and renders a steady cargo-tinted `SoundMark` tick per sounding note
+    + a fade-on-release, mirroring `recvHeld`/`recvRelease`. 352 tests green (+ sever + sounding-feed tests).
+    Remaining strips-done: hold-mark visual polish + ④ tuning are device-only. Off-device only.
   - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info;
     the null-cell placement, chevrons/dual-rails, and full-names are folded into that doc (PLACE + a new "Grid
     furniture" section; the old "sticky routing" rule is superseded).

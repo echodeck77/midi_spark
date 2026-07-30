@@ -33,14 +33,15 @@ commit refs in CLAUDE.md "Current status":
 - [ ] **Fresh-cell + naming fixes (2026-07-30)** — new cells are FULLY NULL (no input row, no receiver, no emitter — never auto-wired) · processor names shown in FULL · grid numbers → down chevrons (watermark + column keys) · row-select rail on BOTH sides (left points right, right points left). Verify: a placed cell shows no source-from-above/no receiver ring/no emitter until wired (red dashed "no-dest" ring is expected on a null cell); the full name (`HARMONIZE`, 9ch) fits the desk title/picker without clipping; the new left rail aligns with the grid rows and applies the held verb identically to the right rail; chevrons read clearly in empty cells + column keys.
 
 ## C. Buildable now (next increments)
-- [ ] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter
+- [~] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter
   sounding-feed → emitter hold-while-sounding marks → ④ polish-laws device tuning.**
-  - Emitter feed: per-emitter currently-sounding notes = the **refcount/voice table sliced by bus** (should
-    fall out nearly free), and **carry the source CELL/`colourIndex` with each note** so the cargo-tint law
-    (marks in the source Colour) rides the same feed. `Voice` already has `colourIndex` (adoption). Mirror the
-    receiver's `recvHeld` pattern: accumulate render-side, drain to the VC, render hold-while-sounding +
-    fade-on-release in `OutputsView` (like the receiver's `releaseMarks`).
-  - ④ polish-laws: v1 `ffef361` was conservative guesses — tune on device.
+  - [x] Emitter feed BUILT (off-device): per-emitter currently-sounding notes = the voice table sliced by bus,
+    carrying `(vel, colourIndex)` for cargo-tint. `Router.snapshotEmitterSounding`/`drainEmitterSounding` mirror
+    `recvHeld`; `OutputsView` renders steady `SoundMark` ticks + `releaseMarks` fade + the note-on flash. Test:
+    `testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease`.
+  - [ ] **Device-verify** the hold-mark VISUAL (cargo tint reads right, steady-vs-flash-vs-fade legible, no churn,
+    the vel-only note-proxy diff doesn't mis-fade same-vel chords) + tune mark weight/opacity on glass.
+  - [ ] ④ polish-laws: v1 `ffef361` was conservative guesses — tune on device.
 - [ ] **Full strip EDIT-face sweep** — retire OutputsView.channelStepper / ReceiversView.editFeatures *after* re-homing channel/cable/latch config to the **cog** ("single-face forever").
 - [ ] **Trigger-glyph cell face** (§3, ratified) — Colour block · emblem · trigger glyph · digest dim · dots · compass tint; naming demoted.
 - [x] **Touch completions** — palette LIVE during holds · **STROKES** · **MIXED-SET law** — ALL DONE (2026-07-29; see the DONE block above).
