@@ -26,6 +26,7 @@ commit refs in CLAUDE.md "Current status":
 - [ ] **COPY·PASTE flow** · **preset enlarge + UNDO/REDO** · **selected-visual white ring** (does ROUTE-IN still read as a selection?).
 - [ ] **AcceptanceCriteria wave (2026-07-29)** — /btw ④⑥ · STROKES · MIXED-SET · **DELETE-sever** (no orphaned children / stuck notes) · multi-cell routing feel · candidate BODY pulse + WHITE selected ring · sticky routing · desk re-point. All off-device only.
 - [ ] **Routing view + visualisation (2026-07-30)** — IN/OUT labels (candidates + strips) · candidate hides content · chosen-candidate-returns-to-standard · the **routing overlay** (curved flows + comets · cell→cell solid line + downward arrow · large band dots · clip-over-uncrossed · lane separation · lit-through-selected). Anchor positions computed — verify endpoints land right on device; tune lane/dot/arrow sizes.
+- [ ] **Cells & colour desk overhaul (2026-07-30)** — cell face (emblem · digest · bus dots · compass tint · trigger glyph · white selection) · desk title-as-picker + type popover · Colour NAMES (desk editor) · SPARSE palette (defined chips + "+" slots, birth via picker) · census delete-protection. Placeholder SF-Symbol emblems/glyphs (real artwork pending); check emblem contrast on pale/dark hues; confirm the desk points at a defined chip after delete.
 
 ## C. Buildable now (next increments)
 - [ ] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter

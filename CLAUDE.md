@@ -184,6 +184,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     pulse + label), PLACE banner "Choose one route in and multiple out", LARGE band dots, cell→cell drawn as a
     solid line + downward arrow (curved+comet reserved for receiver/emitter flow). Pure `Derivations.routingEdges`
     (+tests). Off-device only. Doc updated (`Docs/AcceptanceCriteria/verbs-behaviour.md`).
+  - **CELLS & COLOUR DESK overhaul (2026-07-30)** — `Docs/AcceptanceCriteria/AcceptanceCriteria-cells-and-colour-
+    desk.md` + plan `implementation-plan-cells-and-colour-desk.md`, built A→D: **emblems** prereq (`caec3fa`); **A1**
+    cell face = emblem + digest + bus DOTS (`34f93a9`); **A2** compass tint (`a7b0358`); **A3** trigger glyph
+    (`8eb6168`); **A4** no-amber/white selection (`67d7ffd`); **B1** desk title-as-picker + type popover
+    (`0045ba7`); **B2** emblem keyline (`7112168`); **C1** optional `Colour.name` + desk editor (`ed7ae4e`, folds
+    the `Colour.defined` model); **D1+D2** sparse palette (defined chips + "+" slots) + birth-via-type-picker,
+    `markDefinedFromUsage` (`01e2914`); **D3** census protection (`colourCensus`, undoable un-define) (`32458ed`).
+    New pure/testable: emblemSymbol · triggerMark · colourCensus. Off-device only.
   - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info.
   - **DEFERRED (user 2026-07-29): BYPASS** (receiver→emitter relay — the receivers-ferry next-priority) is dropped
     for now; its plan + ferry capture were reverted and NOT re-created (receivers ferry LATCH-single-mode /
