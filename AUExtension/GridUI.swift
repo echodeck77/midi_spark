@@ -61,7 +61,6 @@ func colourColor(_ id: String) -> Color? {
 }
 
 private let accentCyan = Color(red: 0.15, green: 0.88, blue: 0.94)   // playhead / PERFORM accent
-private let accentAmber = Color(red: 0.98, green: 0.72, blue: 0.12)  // selection / EDIT accent (§6.5)
 
 // v56 theme tokens (mockup `T`): cell recess, edges, dim ink.
 private let cellBg = Color(hex: 0x0B0D11)
@@ -312,13 +311,13 @@ struct GridView: View {
             let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
             if GridPos(col: col, row: row) == hiddenPending, let hc = raw {
                 // recently-HIDDEN (undo window): a ring in the hidden cell's own colour — tap to restore, touch elsewhere to delete
-                RoundedRectangle(cornerRadius: 8).stroke(colourColor(hc.colourID) ?? accentAmber, lineWidth: 2.5)
+                RoundedRectangle(cornerRadius: 8).stroke(colourColor(hc.colourID) ?? .white, lineWidth: 2.5)
             } else if noDest && !isSel {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSel ? accentAmber : (activeGlow ? Color.white.opacity(0.7) : cellEdge),
+                    .stroke(isSel ? .white : (activeGlow ? Color.white.opacity(0.7) : cellEdge),   // A4: no amber on the face — selection is white
                             lineWidth: isSel ? 2 : (activeGlow ? 1.5 : 1))
             }
         }
