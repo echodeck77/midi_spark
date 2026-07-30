@@ -245,6 +245,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    /// D3: painted-cell census per Colour (across all scenes) — drives the desk's delete protection.
+    func uiColourCensus() -> [String: Int] { colourCensus(document.scenes) }
+
     /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
     /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with
     /// the observer's rebuild suppressed, like the load paths) so host/UI reflect the new type's values.

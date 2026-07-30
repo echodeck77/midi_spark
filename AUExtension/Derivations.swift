@@ -750,6 +750,14 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     }
 }
 
+/// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
+/// from deletion (scenes-are-precious). Pure/testable.
+func colourCensus(_ scenes: [SceneState]) -> [String: Int] {
+    var n: [String: Int] = [:]
+    for s in scenes { for col in s.cells { for cell in col { if let id = cell?.colourID { n[id, default: 0] += 1 } } } }
+    return n
+}
+
 /// The cell-face TRIGGER glyph — deviation-shown. The bottom-right glyph comes from the ON-TAP action; a
 /// non-default ON-HOLD action rings it. Both default ⇒ nil (no mark). Placeholder SF Symbols. Pure/testable.
 func triggerTapGlyph(_ t: OnTap) -> String? {

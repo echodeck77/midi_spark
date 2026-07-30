@@ -1003,4 +1003,13 @@ final class DerivationsTests: XCTestCase {
         var on = OnConfig(); on.tap = .alt; on.hold = .oct
         XCTAssertEqual(triggerMark(on)?.ring, true, "a hold rings the tap glyph")
     }
+
+    // MARK: colour census (D3 delete protection)
+
+    func testColourCensusCountsAcrossScenes() {
+        var s1 = SceneState.empty(); s1.cells[0][0] = Cell(colourID: "gold"); s1.cells[1][0] = Cell(colourID: "gold")
+        var s2 = SceneState.empty(); s2.cells[0][0] = Cell(colourID: "cyan")
+        let c = colourCensus([s1, s2])
+        XCTAssertEqual(c["gold"], 2); XCTAssertEqual(c["cyan"], 1); XCTAssertNil(c["teal"], "unpainted ⇒ absent (census 0)")
+    }
 }

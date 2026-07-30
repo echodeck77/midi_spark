@@ -527,6 +527,15 @@ struct DiagView: View {
     // D2: a "+" slot tapped → open the type picker; picking a type BIRTHS the Colour (its slot hue is the wheel
     // default; name = the type) and makes it the brush — creation never exits a PLACE hold.
     private func birthColour(_ id: String) { birthingSlot = id }
+    // D3: a Colour with NO painted cells (census 0) can be un-defined (deleted → a "+" slot); painted Colours
+    // are protected. Undoable (editColour records). After deleting the brush's Colour, hop the brush to a
+    // remaining defined chip so the desk never points at a "+" slot.
+    private func deleteBrushColour() {
+        guard let au, (au.uiColourCensus()[brush] ?? 0) == 0 else { return }
+        au.editColour(brushIndex) { $0.defined = false }
+        docColours = au.uiColours()
+        if let next = docColours.first(where: { $0.isDefined })?.colourID { brush = next }
+    }
     private func doBirth(_ id: String, _ type: ProcessorType) {
         defer { birthingSlot = nil }
         guard let idx = colourIDs.firstIndex(of: id) else { return }
@@ -1140,7 +1149,16 @@ struct DiagView: View {
                 TextField("", text: $nameDraft, prompt: Text(brushColour?.type.rawValue ?? "NAME").foregroundColor(.white.opacity(0.3)))   // C1 name editor
                     .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
                     .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    .onSubmit { commitBrushName() }.frame(maxWidth: 100)
+                    .onSubmit { commitBrushName() }.frame(maxWidth: 90)
+                Spacer(minLength: 4)
+                let census = au?.uiColourCensus()[brush] ?? 0    // D3: census protection
+                if census > 0 {
+                    Text("\(census)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                } else if brushColour?.isDefined == true {
+                    Button { deleteBrushColour() } label: {
+                        Image(systemName: "trash").font(.system(size: 9)).foregroundColor(.white.opacity(0.5))
+                    }.buttonStyle(.plain)
+                }
             }
             .onAppear { syncNameDraft() }
             .onChange(of: brush) { _ in syncNameDraft() }
