@@ -526,6 +526,13 @@ struct PluginState: Codable, Equatable {
         }
     }
 
+    /// D1: mark a Colour DEFINED iff it is painted in some scene — so a fresh factory/arc ships a SPARSE palette
+    /// (only the used Colours as chips; the rest are "+" slots). Old saved docs (`defined == nil`) are untouched.
+    mutating func markDefinedFromUsage() {
+        let used = Set(scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.colourID } } })
+        for i in colours.indices { colours[i].defined = used.contains(colours[i].colourID) }
+    }
+
     static func factory() -> PluginState {
         var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }
         // A few designed defaults so the factory session sounds immediately (§6.6). (Old paramsB ALT
@@ -555,6 +562,7 @@ struct PluginState: Codable, Equatable {
         // synthesizing OMNI pads (never invents absent filters).
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
         state.padScenes()   // MULTI-SCENE: slot 0 = the designed scene, slots 1–15 empty (+) — the strip is 16
+        state.markDefinedFromUsage()   // D1: sparse palette — only the painted Colours are defined chips
         return state
     }
 
@@ -598,6 +606,7 @@ struct PluginState: Codable, Equatable {
         state.synthesizeReceiversIfNeeded()                         // point every MIDI-IN cell at a receiver (R1)
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }   // A=OMNI, B/C/D=2/3/4
         state.padScenes()                                           // slots 3…7 = +
+        state.markDefinedFromUsage()                                // D1: sparse palette — only the arc's Colours are defined
         return state
     }
 }

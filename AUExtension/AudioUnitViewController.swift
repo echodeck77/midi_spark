@@ -77,6 +77,7 @@ struct DiagView: View {
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var nameDraft = ""        // C1: the desk's Colour-name editor buffer (synced to the brush Colour)
+    @State private var birthingSlot: String? = nil   // D2: the "+" palette slot awaiting a type pick (nil = closed)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
     @State private var heldVerb: Verb? = nil          // the currently-pressed verb
@@ -523,6 +524,36 @@ struct DiagView: View {
         editBrushColour { $0.name = (t.isEmpty || t == typeName) ? nil : t }
     }
     private func syncNameDraft() { nameDraft = brushColour?.nameResolved ?? "" }
+    // D2: a "+" slot tapped → open the type picker; picking a type BIRTHS the Colour (its slot hue is the wheel
+    // default; name = the type) and makes it the brush — creation never exits a PLACE hold.
+    private func birthColour(_ id: String) { birthingSlot = id }
+    private func doBirth(_ id: String, _ type: ProcessorType) {
+        defer { birthingSlot = nil }
+        guard let idx = colourIDs.firstIndex(of: id) else { return }
+        au?.editColour(idx) { $0.type = type; $0.defined = true; $0.name = nil }
+        docColours = au?.uiColours() ?? docColours
+        brush = id
+    }
+    private func birthPicker(_ slot: String) -> some View {
+        ZStack {
+            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { birthingSlot = nil }   // tap-out cancels
+            VStack(spacing: 0) {
+                Text("NEW COLOUR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6)).padding(.vertical, 9)
+                ForEach(ProcessorType.allCases, id: \.self) { t in
+                    Button { doBirth(slot, t) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: emblemSymbol(t)).font(.system(size: 14, weight: .black)).frame(width: 22)
+                            Text(t.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                            Spacer()
+                        }
+                        .foregroundColor(.white).padding(.horizontal, 14).padding(.vertical, 9).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+            .frame(width: 220).padding(.bottom, 6)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.1, green: 0.11, blue: 0.14)))
+        }
+    }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
     private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
@@ -710,6 +741,7 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
+                if let slot = birthingSlot { birthPicker(slot) }   // D2: the "+" slot's type picker (births a Colour)
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)
                 }
@@ -1118,7 +1150,9 @@ struct DiagView: View {
                             if activeVerb == .place { repaintHoldToBrush(id) }
                             else if !selection.isEmpty { recolorSelection(id) }
                             else { pickPalette(id) }
-                        })
+                        },
+                        colours: docColours,                     // D1: defined chips + "+" slots
+                        onSlotTap: birthColour)                  // D2: "+" slot → type picker births a Colour
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))

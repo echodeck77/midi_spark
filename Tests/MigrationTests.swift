@@ -190,6 +190,14 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(back.nameResolved, "Bells")
         XCTAssertFalse(back.isDefined)
     }
+    func testFactoryAndArcShipSparsePalette() {
+        for f in [PluginState.factory(), PluginState.defaultArc()] {
+            let defined = Set(f.colours.filter { $0.isDefined }.map { $0.colourID })
+            XCTAssertTrue(defined.count >= 3 && defined.count < 16, "sparse palette: some defined, some + slots")
+            let used = Set(f.scenes.flatMap { $0.cells.flatMap { $0.compactMap { $0?.colourID } } })
+            XCTAssertEqual(used, defined, "defined == painted")
+        }
+    }
 
     func testNewOptionalFieldsRoundTripThroughJSON() throws {
         // busEnabled (§6a) + per-type transpose/morph stashes survive save/reload.

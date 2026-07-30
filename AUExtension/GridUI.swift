@@ -1519,6 +1519,8 @@ struct PaletteView: View {
     var onChipDrop: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drop (id, global point)
     var onLongPress: ((String) -> Void)? = nil            // cell-edit staging: long-press → stage a cell of this Colour
     var stagingID: String? = nil                          // cell-edit staging: the staged chip pulses + wears the moving outline
+    var colours: [Colour] = []                            // D1: to read isDefined + the name per slot (empty ⇒ all defined = today)
+    var onSlotTap: (String) -> Void = { _ in }            // D2: a "+" slot tapped → birth a Colour here
 
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
@@ -1538,31 +1540,43 @@ struct PaletteView: View {
         return working ? (faint: !hasBright, alt: !hasMain) : nil
     }
 
+    private func isDefinedID(_ id: String) -> Bool { colours.first { $0.colourID == id }?.isDefined ?? true }
+    private func nameFor(_ id: String) -> String { colours.first { $0.colourID == id }?.nameResolved ?? id.uppercased() }
+
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
             ForEach(Array(colourIDs.enumerated()), id: \.offset) { i, id in
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color(hex: colourHexes[i]))
-                    .frame(height: 22)
-                    .overlay { if let a = activity(id) { chipSweep(a) } }   // §6b activity playhead
-                    .overlay { if stagingID == id { stagedPulse } }         // staging: pulse original↔black to draw the eye back
-                    .overlay(RoundedRectangle(cornerRadius: 3)
-                        .stroke(id == brush ? Color.white : Color.white.opacity(0.12),
-                                lineWidth: id == brush ? 2 : 0.5))
-                    .marchingAnts(stagingID == id, color: Color(hex: colourHexes[i]), cornerRadius: 3)   // staging: moving outline in the Colour's own hue
-                    .contentShape(Rectangle())
-                    .onTapGesture { onPick(id) }
-                    .simultaneousGesture(                        // §5: drag a chip onto the grid (min-dist so tap is safe)
-                        DragGesture(minimumDistance: 16, coordinateSpace: .global)
-                            .onChanged { v in onChipDrag?(id, v.location) }
-                            .onEnded { v in onChipDrop?(id, v.location) }
-                    )
-                    .simultaneousGesture(                        // cell-edit staging: press-hold (no move) → stage this Colour
-                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress?(id) }
-                    )
+                if isDefinedID(id) { chipView(i, id) } else { slotView(id) }   // D1: a DEFINED chip vs a "+" slot
             }
         }
         .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
+    }
+
+    private func chipView(_ i: Int, _ id: String) -> some View {   // a defined Colour: hue + name
+        RoundedRectangle(cornerRadius: 3)
+            .fill(Color(hex: colourHexes[i]))
+            .frame(height: 22)
+            .overlay { Text(nameFor(id)).font(.system(size: 6, weight: .heavy, design: .monospaced))
+                .foregroundColor(.black.opacity(0.72)).lineLimit(1).minimumScaleFactor(0.55).padding(.horizontal, 2) }
+            .overlay { if let a = activity(id) { chipSweep(a) } }   // §6b activity playhead
+            .overlay { if stagingID == id { stagedPulse } }         // staging: pulse original↔black to draw the eye back
+            .overlay(RoundedRectangle(cornerRadius: 3)
+                .stroke(id == brush ? Color.white : Color.white.opacity(0.12), lineWidth: id == brush ? 2 : 0.5))
+            .marchingAnts(stagingID == id, color: Color(hex: colourHexes[i]), cornerRadius: 3)   // staging outline in the Colour's own hue
+            .contentShape(Rectangle())
+            .onTapGesture { onPick(id) }
+            .simultaneousGesture(DragGesture(minimumDistance: 16, coordinateSpace: .global)   // §5 palette-to-grid
+                .onChanged { v in onChipDrag?(id, v.location) }
+                .onEnded { v in onChipDrop?(id, v.location) })
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress?(id) })   // staging
+    }
+
+    private func slotView(_ id: String) -> some View {   // an undefined "+" slot — tap births a Colour here (D2)
+        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.05)).frame(height: 22)
+            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+            .overlay { Image(systemName: "plus").font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.4)) }
+            .contentShape(Rectangle())
+            .onTapGesture { onSlotTap(id) }
     }
 
     // Staging pulse — the staged chip breathes from its original colour to black (~0.85s) to pull the eye
