@@ -24,7 +24,8 @@ commit refs in CLAUDE.md "Current status":
 - [ ] **Adoption ear-check** — drones glide across boundaries, no clicks; claim/ALT/emitter-octave edges (`8d5f1b3`).
 - [ ] **Strips** — session faces (ROUTE IN/OUT) · LATCH arm · DUCK · **SPACE-FILL at small sizes** · receiver velocity marks · taller emitter buttons · verbs-as-pills.
 - [ ] **COPY·PASTE flow** · **preset enlarge + UNDO/REDO** · **selected-visual white ring** (does ROUTE-IN still read as a selection?).
-- [ ] **AcceptanceCriteria wave (2026-07-29)** — /btw ④⑥ · STROKES · MIXED-SET · **DELETE-sever** (no orphaned children / stuck notes) · multi-cell routing feel · **SRC/DEST candidate BODY pulse + WHITE selected ring** · sticky routing · desk re-point. All off-device only.
+- [ ] **AcceptanceCriteria wave (2026-07-29)** — /btw ④⑥ · STROKES · MIXED-SET · **DELETE-sever** (no orphaned children / stuck notes) · multi-cell routing feel · candidate BODY pulse + WHITE selected ring · sticky routing · desk re-point. All off-device only.
+- [ ] **Routing view + visualisation (2026-07-30)** — IN/OUT labels (candidates + strips) · candidate hides content · chosen-candidate-returns-to-standard · the **routing overlay** (curved flows + comets · cell→cell solid line + downward arrow · large band dots · clip-over-uncrossed · lane separation · lit-through-selected). Anchor positions computed — verify endpoints land right on device; tune lane/dot/arrow sizes.
 
 ## C. Buildable now (next increments)
 - [ ] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter

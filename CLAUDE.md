@@ -177,6 +177,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   - **Verbs do NOT latch** (`1f3ef92`) — long-press latch was built (`88af24f`) then RULED OUT; verbs are spring-only.
   - **Refactor + tests** (`181bf7c`) — routing logic extracted to pure `Derivations` helpers (`routeFociByColumn`,
     `placedCellRouting`) + a `deleteCell(reparentChild:)` dedup; the multi-cell/sticky-routing logic is now unit-tested.
+  - **ROUTING VIEW + VISUALISATION (2026-07-30)** — a chosen SRC/DEST candidate returns to standard (`6dd1d96`);
+    a **routing overlay** spanning receivers→grid→emitters (`26e34cf`) with **MIDI comets** (`ae445ae`), then
+    refined to connection dots + clip-over-uncrossed + lane-separated routes (`723b5f2`), then the redesign
+    (`d6684e6`): candidates + strips read **IN / OUT** only, a candidate cell hides all content (just colour +
+    pulse + label), PLACE banner "Choose one route in and multiple out", LARGE band dots, cell→cell drawn as a
+    solid line + downward arrow (curved+comet reserved for receiver/emitter flow). Pure `Derivations.routingEdges`
+    (+tests). Off-device only. Doc updated (`Docs/AcceptanceCriteria/verbs-behaviour.md`).
   - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info.
   - **DEFERRED (user 2026-07-29): BYPASS** (receiver→emitter relay — the receivers-ferry next-priority) is dropped
     for now; its plan + ferry capture were reverted and NOT re-created (receivers ferry LATCH-single-mode /

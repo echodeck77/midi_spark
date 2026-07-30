@@ -23,7 +23,7 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 
 **Button**
 - **Given** nothing is held, **when** you press and hold PLACE, **then** PLACE becomes active, a green banner
-  reads "Place cell(s) — tap the grid or a row · choose routing", and this hold's memory starts fresh (it also
+  reads "Place cell(s) — tap the grid or a row · Choose one route in and multiple out", and this hold's memory starts fresh (it also
   snapshots the grid so CANCEL can undo everything you do this hold).
 - **Given** PLACE is held, **when** you release the button, **then** PLACE ends and your placements stay.
 
@@ -178,35 +178,51 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 - **Given** a cell is the routing focus (a placed or selected cell whose routing is being changed), **then** it
   draws with the **WHITE** selected ring — never a yellow/amber outline (a yellow ring is invisible on a yellow
   cell). The candidate cells around it look as below.
-- **Given** a cell **above** the focus can feed it, **then** it is a **SRC** candidate: the whole cell **body
-  pulses** (fades in and out) with a large, prominent **"SRC"** label sitting solid on top (matching the receiver
-  ROUTE IN face).
-- **Given** a cell **below** the focus can read from it, **then** it is a **DEST** candidate: the whole
-  cell **body pulses** with a large, prominent **"DEST"** label on top (matching the emitter ROUTE OUT face).
-- **Given** any candidate, **then** its BODY pulses (not just an overlay) and it wears **no outline or ring** —
-  the prominent SRC / DEST label (which stays solid) marks it, so a candidate never looks like it is selected.
+- **Given** a cell **above** the focus can feed it, **then** it is an **IN** candidate: the cell HIDES all its
+  normal content and shows only its colour, a pulsing body, and a large prominent **"IN"** label.
+- **Given** a cell **below** the focus can read from it, **then** it is an **OUT** candidate: the cell HIDES its
+  content and shows only its colour, a pulsing body, and a large prominent **"OUT"** label.
+- **Given** any candidate, **then** its BODY pulses and it wears **no outline or ring** — nothing but the pulse
+  and the IN / OUT label shows, so a candidate never looks like it is selected.
 
 **Behaviour**
-- **Given** candidates are showing, **when** you tap a **SRC** cell above, **then** the focus is wired to read
-  from that row (route-in) — no new cell is placed or toggled.
-- **Given** candidates are showing, **when** you tap a **DEST** cell below, **then** that cell is wired to read
+- **Given** candidates are showing, **when** you tap an **IN** cell above, **then** the focus is wired to read
+  from that row — no new cell is placed or toggled.
+- **Given** candidates are showing, **when** you tap an **OUT** cell below, **then** that cell is wired to read
   from the focus — again instead of placing or toggling.
+- **Given** you tap a candidate to wire it, **then** that cell drops its IN/OUT overlay and returns to its
+  STANDARD view (confirming the wiring took); you can still pick a different source/target.
 - **Given** candidates are showing, **when** you tap anywhere that is NOT a candidate, **then** the tap does the
   normal verb action (place / toggle) instead of wiring.
 
 ## Receivers — the MIDI INPUT strips (above the grid)
 
 **Receivers — Look + behaviour while wiring (ROUTE IN face)**
-- **Given** a verb is held and there is a routing focus, **then** each input strip dims and shows a big
-  **ROUTE IN** face in the strip's colour; the receiver the focused cells read from (when they agree) wears a
-  solid ring while the others gently pulse. All receivers display "SRC" prominently.
-- **When** you tap an input's ROUTE IN face, **then** the focus cell's input is routed to that receiver.
+- **Given** a verb is held and there is a routing focus, **then** each input strip dims and shows a big **"IN"**
+  and nothing else; the receiver the focused cells read from (when they agree) wears a solid ring while the
+  others gently pulse.
+- **When** you tap an input's face, **then** the focus cell's input is routed to that receiver.
 
 **Emitters — Look + behaviour while wiring (ROUTE OUT face)**
-- **Given** a verb is held and there is a routing focus, **then** each output strip dims and shows a big
-  **ROUTE OUT** face with a **green** glow; an emitter the focused cells already send to is lit while the others
-  gently pulse. All emitters display "DEST" prominently.
-- **When** you tap an output's ROUTE OUT face, **then** you toggle whether the focused cells send to that emitter.
+- **Given** a verb is held and there is a routing focus, **then** each output strip dims and shows a big **"OUT"**
+  and nothing else (a green glow); an emitter the focused cells already send to is lit while the others gently
+  pulse.
+- **When** you tap an output's face, **then** you toggle whether the focused cells send to that emitter.
+
+## Routing visualisation overlay (while any verb is held)
+While ANY verb is held, an overlay spanning the receivers → grid → emitters draws the whole routing as lines. It
+reads live from the grid, so placing, moving, deleting, or re-wiring a cell updates it immediately.
+
+- **Given** a verb is held, **then** a **large white dot** marks every receiver and emitter that carries a route.
+- **Given** a receiver feeds a cell, or a cell feeds an emitter, **then** that flow is a **curved white line** with
+  a **comet** (a bright head + fading tail) travelling along it in the signal direction (top → bottom).
+- **Given** one cell feeds another (a chain), **then** that link is a **solid white line with a downward arrow**
+  at the receiving cell.
+- **Given** a route only PASSES a cell it does not connect to, **then** the line is NOT drawn over that cell.
+- **Given** several routes run vertically in one column, **then** they are offset into separate lanes so they do
+  not blend, and multiple downward arrows in a column stay easy to tell apart.
+- **Given** a full path (receiver → … → emitter) runs THROUGH a selected cell, **then** it is bright and pulsing;
+  every other path is visible but dimmer.
 
 ## STROKES — drag to apply a verb across many cells
 - **Given** any verb is held, **when** you drag your finger across the grid, **then** the verb applies to each
