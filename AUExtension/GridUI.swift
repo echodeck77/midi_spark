@@ -1606,24 +1606,46 @@ struct RoutingVizOverlay: View {
             return CGPoint(x: x, y: y)
         }
     }
-    private func curve(_ p0: CGPoint, _ p1: CGPoint) -> Path {   // a vertical S so crossing lines stay legible
-        var path = Path(); let midY = (p0.y + p1.y) / 2
-        path.move(to: p0)
-        path.addCurve(to: p1, control1: CGPoint(x: p0.x, y: midY), control2: CGPoint(x: p1.x, y: midY))
-        return path
+    // Control points of the vertical S-curve (kept legible when lines cross), shared by the line + the comet.
+    private func controls(_ p0: CGPoint, _ p1: CGPoint) -> (c1: CGPoint, c2: CGPoint) {
+        let midY = (p0.y + p1.y) / 2
+        return (CGPoint(x: p0.x, y: midY), CGPoint(x: p1.x, y: midY))
+    }
+    private func bezier(_ p0: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ p1: CGPoint, _ t: CGFloat) -> CGPoint {
+        let u = 1 - t
+        return CGPoint(x: u*u*u*p0.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p1.x,
+                       y: u*u*u*p0.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p1.y)
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animPaused)) { tl in
             let pulse = stagingPulseFraction(tl.date, period: 1.4)   // 0→1→0
+            let now = tl.date.timeIntervalSinceReferenceDate
             Canvas { ctx, _ in
-                func draw(_ e: RouteEdge) {
-                    guard let a = point(e.from), let b = point(e.to) else { return }
-                    let op = e.lit ? (0.55 + 0.45 * pulse) : 0.16
-                    ctx.stroke(curve(a, b), with: .color(.white.opacity(op)), lineWidth: e.lit ? 2.2 : 1.0)
+                func render(_ e: RouteEdge, _ index: Int) {
+                    guard let p0 = point(e.from), let p1 = point(e.to) else { return }
+                    let (c1, c2) = controls(p0, p1)
+                    // the line
+                    var path = Path(); path.move(to: p0); path.addCurve(to: p1, control1: c1, control2: c2)
+                    let lineOp = e.lit ? (0.5 + 0.4 * pulse) : 0.14
+                    ctx.stroke(path, with: .color(.white.opacity(lineOp)), lineWidth: e.lit ? 2.0 : 1.0)
+                    // the MIDI comet — a head + fading tail travelling source → dest (the signal direction)
+                    let speed = e.lit ? 0.55 : 0.32                 // cycles/sec; lit paths run faster
+                    let phase = Double(index % 9) / 9.0             // de-sync comets across edges (deterministic)
+                    let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
+                    for k in 0..<6 {
+                        let t = head - CGFloat(k) * 0.03
+                        guard t >= 0 else { continue }
+                        let pt = bezier(p0, c1, c2, p1, t)
+                        let fade = 1 - CGFloat(k) / 6
+                        let r = (e.lit ? 3.2 : 1.7) * fade
+                        let op = (e.lit ? 1.0 : 0.45) * fade
+                        ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)),
+                                 with: .color(.white.opacity(op)))
+                    }
                 }
-                for e in edges where !e.lit { draw(e) }     // dim underneath
-                for e in edges where e.lit { draw(e) }      // bright on top
+                for (i, e) in edges.enumerated() where !e.lit { render(e, i) }   // dim underneath
+                for (i, e) in edges.enumerated() where e.lit { render(e, i) }    // bright on top
             }
         }
         .allowsHitTesting(false)
