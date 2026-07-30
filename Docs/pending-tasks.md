@@ -23,27 +23,22 @@ commit refs in CLAUDE.md "Current status":
   input (inputRow nil AND inputReceiver nil, own emitters kept) instead of a phantom R1 re-point. Done in
   `deleteCellSever`; test updated. Reply to design-side owed (bundle with the file-read ack).
 
-## B. Device-verify owed (this thread's work — none seen or heard on device)
-- [ ] **Adoption ear-check** — drones glide across boundaries, no clicks; claim/ALT/emitter-octave edges (`8d5f1b3`).
-- [ ] **Strips** — session faces (ROUTE IN/OUT) · LATCH arm · DUCK · **SPACE-FILL at small sizes** · receiver velocity marks · taller emitter buttons · verbs-as-pills.
-- [ ] **COPY·PASTE flow** · **preset enlarge + UNDO/REDO** · **selected-visual white ring** (does ROUTE-IN still read as a selection?).
-- [ ] **AcceptanceCriteria wave (2026-07-29)** — /btw ④⑥ · STROKES · MIXED-SET · **DELETE-sever** (no orphaned children / stuck notes) · multi-cell routing feel · candidate BODY pulse + WHITE selected ring · sticky routing · desk re-point. All off-device only.
-- [ ] **Routing view + visualisation (2026-07-30)** — IN/OUT labels (candidates + strips) · candidate hides content · chosen-candidate-returns-to-standard · the **routing overlay** (curved flows + comets · cell→cell solid line + downward arrow · large band dots · clip-over-uncrossed · lane separation · lit-through-selected). Anchor positions computed — verify endpoints land right on device; tune lane/dot/arrow sizes.
-- [ ] **Cells & colour desk overhaul (2026-07-30)** — cell face (emblem · digest · bus dots · compass tint · trigger glyph · white selection) · desk title-as-picker + type popover · Colour NAMES (desk editor) · SPARSE palette (defined chips + "+" slots, birth via picker) · census delete-protection. Placeholder SF-Symbol emblems/glyphs (real artwork pending); check emblem contrast on pale/dark hues; confirm the desk points at a defined chip after delete.
-- [ ] **Fresh-cell + naming fixes (2026-07-30)** — new cells are FULLY NULL (no input row, no receiver, no emitter — never auto-wired) · processor names shown in FULL · grid numbers → down chevrons (watermark + column keys) · row-select rail on BOTH sides (left points right, right points left). Verify: a placed cell shows no source-from-above/no receiver ring/no emitter until wired (red dashed "no-dest" ring is expected on a null cell); the full name (`HARMONIZE`, 9ch) fits the desk title/picker without clipping; the new left rail aligns with the grid rows and applies the held verb identically to the right rail; chevrons read clearly in empty cells + column keys.
+## B. ✅ DEVICE-VERIFIED (user device pass, 2026-07-30 — "happy with things as they stand")
+The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared from the owed list:
+- [x] **Adoption ear-check** · **Strips** (session faces · LATCH · DUCK · SPACE-FILL · receiver marks · emitter buttons · verbs-as-pills) · **COPY·PASTE** · **preset enlarge + UNDO/REDO** · **white selected ring**.
+- [x] **AcceptanceCriteria wave (2026-07-29)** — /btw ④⑥ · STROKES · MIXED-SET · DELETE-sever · multi-cell routing · candidate body-pulse · desk re-point.
+- [x] **Routing view + visualisation (2026-07-30)** — IN/OUT labels · candidate-hides-content · the routing overlay (curved flows + comets · cell→cell arrow · band dots · clip-over-uncrossed · lane separation · lit-through-selected).
+- [x] **Cells & colour desk overhaul (2026-07-30)** — cell face (emblem · digest · dots · compass tint · trigger glyph · white selection) · desk title-as-picker + popover · Colour NAMES · SPARSE palette · census protection. _(Placeholder SF-Symbol emblems still stand in for real artwork — the drawing job is a separate asset task, not a bug.)_
+- [x] **Fresh-cell + naming + furniture (2026-07-30)** — fully-null new cells · full processor names · grid down-chevrons (watermark + column keys) · dual-side row rails · DELETE-sever→NULL.
 
 ## C. Buildable now (next increments)
-- [~] **THE "STRIPS DONE" WAVE** (design-ACCEPTED 2026-07-29, one wave = strips finished): **emitter
-  sounding-feed → emitter hold-while-sounding marks → ④ polish-laws device tuning.**
-  - [x] Emitter feed BUILT (off-device): per-emitter currently-sounding notes = the voice table sliced by bus,
-    carrying `(vel, colourIndex)` for cargo-tint. `Router.snapshotEmitterSounding`/`drainEmitterSounding` mirror
-    `recvHeld`; `OutputsView` renders steady `SoundMark` ticks + `releaseMarks` fade + the note-on flash. Test:
-    `testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease`.
-  - [ ] **Device-verify** the hold-mark VISUAL (cargo tint reads right, steady-vs-flash-vs-fade legible, no churn,
-    the vel-only note-proxy diff doesn't mis-fade same-vel chords) + tune mark weight/opacity on glass.
-  - [ ] ④ polish-laws: v1 `ffef361` was conservative guesses — tune on device.
+- [x] **THE "STRIPS DONE" WAVE** — emitter hold-while-sounding feed built + **device-verified 2026-07-30**
+  (steady cargo-tinted `SoundMark` ticks + fade-on-release; `Router.snapshotEmitterSounding`; test
+  `testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease`). ④ polish-laws accepted at current values on
+  the device pass. _(Latent: the release-fade keys on (vel, colour) not the wire note — same-vel chords could
+  mis-pair a fade; not seen on device, revisit only if it surfaces.)_
 - [ ] **Full strip EDIT-face sweep** — retire OutputsView.channelStepper / ReceiversView.editFeatures *after* re-homing channel/cable/latch config to the **cog** ("single-face forever").
-- [ ] **Trigger-glyph cell face** (§3, ratified) — Colour block · emblem · trigger glyph · digest dim · dots · compass tint; naming demoted.
+- [x] **Trigger-glyph cell face** (§3) — built in the cells-and-colour-desk overhaul (emblem · trigger glyph · digest · dots · compass tint) and device-verified 2026-07-30.
 - [x] **Touch completions** — palette LIVE during holds · **STROKES** · **MIXED-SET law** — ALL DONE (2026-07-29; see the DONE block above).
 - [ ] **Live preset previews** · **SCROLL+TEACH** (both deferred-flagged).
 - [ ] **Tag `v0.7-gui`** (user tags manually).

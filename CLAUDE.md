@@ -213,10 +213,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   - **DEFERRED (user 2026-07-29): BYPASS** (receiver→emitter relay — the receivers-ferry next-priority) is dropped
     for now; its plan + ferry capture were reverted and NOT re-created (receivers ferry LATCH-single-mode /
     held-note-strip likewise un-captured). The Claude↔Claude ferry channel was cleared at the user's request.
-  - **DEVICE-VERIFY owed** — everything above is off-device only. Watch especially: candidate body-pulse + white
-    selected ring, multi-cell routing feel, null-cell placement (no source/receiver/emitter until wired; red
-    dashed no-dest ring expected), the new left row rail alignment, chevron legibility, and DELETE-sever (no
-    orphaned children / stuck notes).
+  - **✅ DEVICE-VERIFIED (user device pass, 2026-07-30)** — the whole accumulated GUI + engine stack above was run
+    on device and ACCEPTED ("happy with things as they stand"): the AcceptanceCriteria wave, routing view +
+    visualisation, cells & colour desk overhaul, null cells, chevrons + dual rails, DELETE-sever→NULL, and the
+    strips-done emitter hold-while-sounding feed. The device-verify backlog is cleared. (Real emblem/glyph
+    ARTWORK is still a separate asset task — placeholders stand in, by design, not a defect.)
 - DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
   passthrough stopped, derived sync, snapshot-driven kernel, render-side param
   events, diagnostic UI.
