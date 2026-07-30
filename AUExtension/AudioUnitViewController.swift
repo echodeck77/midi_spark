@@ -417,7 +417,7 @@ struct DiagView: View {
     private func verbBanner(_ v: Verb) -> some View {
         let text: String
         switch v {
-        case .place:  text = "Place cell(s) — tap the grid or a row · choose routing"
+        case .place:  text = "Place cell(s) — tap the grid or a row · Choose one route in and multiple out"
         case .delete: text = "Delete cell(s) — tap the grid or a row · links cut"
         case .select: text = "Select cell(s) — tap to toggle · recolour with the palette"
         default:      text = ""

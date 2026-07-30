@@ -265,7 +265,9 @@ struct GridView: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(colour ?? cellBg)
 
-            if let cell {
+            if isRouteCand {
+                EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
+            } else if let cell {
                 VStack(spacing: 0) {
                     inputHeader(cell, parent: parent, live: inActiveCol)
                     Spacer(minLength: 0)
@@ -305,10 +307,10 @@ struct GridView: View {
         }
         .overlay {                                          // §10 ROUTE candidates > §11 PLACE border > SELECT ring > verb glow
             let pos = GridPos(col: col, row: row)
-            if routeIn.contains(pos) {                      // a SRC above — a pulsing label, NO ring (must not read as selected)
-                routeLabel("SRC", Color(red: 0.15, green: 0.88, blue: 0.94))
-            } else if routeOut.contains(pos) {              // a DEST below — a pulsing label, NO ring
-                routeLabel("DEST", Color(red: 0.35, green: 0.92, blue: 0.50))
+            if routeIn.contains(pos) {                      // a source above → tap makes it this cell's INPUT
+                routeLabel("IN", Color(red: 0.15, green: 0.88, blue: 0.94))
+            } else if routeOut.contains(pos) {              // a cell below → tap makes it an OUTPUT of the focus
+                routeLabel("OUT", Color(red: 0.35, green: 0.92, blue: 0.50))
             } else if whiteBorder.contains(pos) || selection.contains(pos) {
                 // /btw ③ THE TWO-SOURCES LAW + item 4: a SELECTED or PLACED cell ALWAYS draws WHITE — never a
                 // yellow ring (a yellow outline is invisible on a yellow cell). The route-focus cells are placed/
@@ -621,11 +623,8 @@ struct ReceiversView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(hue.opacity(isCurrent ? 0.22 : 0.08 + 0.06 * breathe))
                 RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(ring), lineWidth: isCurrent ? 2.5 : 1.5)
-                VStack(spacing: 1) {
-                    Text("ROUTE IN").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(0.85)).tracking(1)
-                    Text(["A", "B", "C", "D"][i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(isCurrent ? .white : hue)
-                    Text("SRC").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(isCurrent ? 1 : 0.75)).tracking(2)
-                }
+                Text("IN").font(.system(size: 26, weight: .heavy, design: .monospaced))   // nothing but IN
+                    .foregroundColor(isCurrent ? .white : hue).tracking(2)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 6))
@@ -882,11 +881,8 @@ struct OutputsView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(green.opacity(lit ? 0.28 : 0.07 + 0.05 * breathe))
                 RoundedRectangle(cornerRadius: 6).stroke(green.opacity(ring), lineWidth: lit ? 2.5 : 1.5)
-                VStack(spacing: 1) {
-                    Text("ROUTE OUT").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(green.opacity(0.85)).tracking(1)
-                    Text(letters[i]).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black : green)
-                    Text("DEST").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(lit ? .black.opacity(0.8) : green.opacity(0.8)).tracking(2)
-                }
+                Text("OUT").font(.system(size: 26, weight: .heavy, design: .monospaced))   // nothing but OUT
+                    .foregroundColor(lit ? .black : green).tracking(2)
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 6))
@@ -1636,16 +1632,19 @@ struct RoutingVizOverlay: View {
     }
 
     var body: some View {
-        // occupancy + per-column LANES (so parallel vertical routes don't coincide) + connection points —
-        // computed off the animation clock, from the edge list.
+        // occupancy + per-column LANES (so parallel vertical routes don't coincide), plus which receivers /
+        // emitters and cell edges carry a route — all computed off the animation clock, from the edge list.
         var occ: [Int: Set<Int>] = [:]
         for e in edges { for a in [e.from, e.to] { if case .cell(let c) = a { occ[c.col, default: []].insert(c.row) } } }
         var lane = [Int](repeating: 0, count: edges.count), laneN = [Int](repeating: 1, count: edges.count)
         var colEdges: [Int: [Int]] = [:]
         for (i, e) in edges.enumerated() { colEdges[column(of: e), default: []].append(i) }
         for (_, idxs) in colEdges { for (k, idx) in idxs.enumerated() { lane[idx] = k; laneN[idx] = idxs.count } }
-        var recvAt = Set<RouteCell>(), sendAt = Set<RouteCell>()
-        for e in edges { if case .cell(let c) = e.to { recvAt.insert(c) }; if case .cell(let c) = e.from { sendAt.insert(c) } }
+        var usedRecv = Set<Int>(), usedEmit = Set<Int>(), recvDot = Set<RouteCell>(), emitDot = Set<RouteCell>()
+        for e in edges {
+            if case .receiver(let r) = e.from { usedRecv.insert(r); if case .cell(let c) = e.to { recvDot.insert(c) } }
+            if case .emitter(let m) = e.to { usedEmit.insert(m); if case .cell(let c) = e.from { emitDot.insert(c) } }
+        }
 
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: animPaused)) { tl in
             let pulse = stagingPulseFraction(tl.date, period: 1.4)
@@ -1653,31 +1652,49 @@ struct RoutingVizOverlay: View {
             Canvas { ctx, _ in
                 guard let g = frames["grid"] else { return }
                 let step = min(CGFloat(7), cellW(g) * 0.24)
+                func isChain(_ e: RouteEdge) -> Bool { if case .cell = e.from, case .cell = e.to { return true }; return false }
                 func render(_ i: Int) {
                     let e = edges[i]
                     guard let p0 = endpoint(e.from, source: true, g), let p1 = endpoint(e.to, source: false, g) else { return }
                     let laneX = (p0.x + p1.x) / 2 + (CGFloat(lane[i]) - CGFloat(laneN[i] - 1) / 2) * step
-                    var c = ctx                                     // clip the route OUT of cells it merely crosses
+                    var c = ctx                                     // clip the route OUT of any cell it merely crosses
                     let crossed = crossedRows(e, occ: occ)
                     if !crossed.isEmpty {
                         var holes = Path(); for r in crossed { holes.addRect(cellRect(column(of: e), r, g)) }
                         c.clip(to: holes, options: .inverse)
                     }
-                    c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(e.lit ? (0.5 + 0.4 * pulse) : 0.14)), lineWidth: e.lit ? 2.0 : 1.0)
-                    let speed = e.lit ? 0.55 : 0.32, phase = Double(i % 9) / 9.0   // MIDI comet: head + fading tail, source → dest
-                    let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
-                    for k in 0..<6 {
-                        let t = head - CGFloat(k) * 0.03; guard t >= 0 else { continue }
-                        let pt = routePoint(p0, p1, laneX, t), fade = 1 - CGFloat(k) / 6, r = (e.lit ? 3.2 : 1.7) * fade
-                        c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity((e.lit ? 1.0 : 0.45) * fade)))
+                    if isChain(e) {
+                        // cell → cell: a SOLID white line + a downward ARROW at the receiving node (laned so
+                        // multiple downward routes in a column stay easy to tell apart).
+                        let op = e.lit ? 0.95 : 0.6
+                        c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(op)), lineWidth: 2)
+                        var tri = Path()
+                        tri.move(to: CGPoint(x: p1.x, y: p1.y + 5))        // tip points DOWN, into the receiving cell
+                        tri.addLine(to: CGPoint(x: p1.x - 4, y: p1.y - 3))
+                        tri.addLine(to: CGPoint(x: p1.x + 4, y: p1.y - 3))
+                        tri.closeSubpath()
+                        ctx.fill(tri, with: .color(.white.opacity(op)))
+                    } else {
+                        // receiver → cell / cell → emitter: a curved flow line + a MIDI comet (head + fading tail).
+                        c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(e.lit ? (0.5 + 0.4 * pulse) : 0.14)), lineWidth: e.lit ? 2.0 : 1.0)
+                        let speed = e.lit ? 0.55 : 0.32, phase = Double(i % 9) / 9.0
+                        let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
+                        for k in 0..<6 {
+                            let t = head - CGFloat(k) * 0.03; guard t >= 0 else { continue }
+                            let pt = routePoint(p0, p1, laneX, t), fade = 1 - CGFloat(k) / 6, r = (e.lit ? 3.2 : 1.7) * fade
+                            c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity((e.lit ? 1.0 : 0.45) * fade)))
+                        }
                     }
                 }
                 for i in edges.indices where !edges[i].lit { render(i) }   // dim underneath
                 for i in edges.indices where edges[i].lit { render(i) }    // bright on top
-                // connection DOTS at cell edges — top where a route arrives, bottom where one leaves (drawn on top, unclipped)
-                func dot(_ p: CGPoint) { ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.9))) }
-                for c in recvAt { let ctr = cellCenter(c, g); dot(CGPoint(x: ctr.x, y: ctr.y - cellHeight / 2)) }
-                for c in sendAt { let ctr = cellCenter(c, g); dot(CGPoint(x: ctr.x, y: ctr.y + cellHeight / 2)) }
+                // LARGE dots at every receiver / emitter carrying a route; small dots where a curved flow meets a cell.
+                func bigDot(_ p: CGPoint) { ctx.fill(Path(ellipseIn: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)), with: .color(.white.opacity(0.95))) }
+                func smallDot(_ p: CGPoint) { ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(.white.opacity(0.9))) }
+                if let f = frames["receivers"] { for r in usedRecv { bigDot(CGPoint(x: f.minX + (CGFloat(r) + 0.5) / 4 * f.width, y: f.maxY)) } }
+                if let f = frames["emitters"]  { for m in usedEmit { bigDot(CGPoint(x: f.minX + (CGFloat(m) + 0.5) / 4 * f.width, y: f.minY)) } }
+                for cc in recvDot { let ctr = cellCenter(cc, g); smallDot(CGPoint(x: ctr.x, y: ctr.y - cellHeight / 2)) }
+                for cc in emitDot { let ctr = cellCenter(cc, g); smallDot(CGPoint(x: ctr.x, y: ctr.y + cellHeight / 2)) }
             }
         }
         .allowsHitTesting(false)
