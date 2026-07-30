@@ -192,12 +192,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     the `Colour.defined` model); **D1+D2** sparse palette (defined chips + "+" slots) + birth-via-type-picker,
     `markDefinedFromUsage` (`01e2914`); **D3** census protection (`colourCensus`, undoable un-define) (`32458ed`).
     New pure/testable: emblemSymbol · triggerMark · colourCensus. Off-device only.
-  - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info.
+  - **PLACEMENT + FURNITURE follow-ups (2026-07-30, user)** — (1) fresh cells take NO pre-selected routing:
+    first the neighbour auto-wire / sticky routing was removed (`7e8d559`), then tightened to FULLY NULL —
+    no input row, no receiver, no emitter (`9d2352d`); the routing viz + flow overlay no longer coalesce a nil
+    receiver to R1 (an unrouted MIDI-IN cell draws no entry hop). Removed dead `placedCellRouting`/`PlacedRouting`
+    + `lastPlaced`. (2) processor names shown in FULL — no abbreviations (`cb65424`). (3) grid numbers → down
+    chevrons (empty-cell watermark + top column keys) and a NEW left row-select rail mirroring the right, both
+    points-into-grid, shared whole-row verb via a parameterised `rowRail` (`9d2352d`). 351 tests green (net −3:
+    dropped 4 sticky-routing tests, added 1 null-cell viz test). Off-device only.
+  - **Docs** — `4d6a486` adds `Docs/AcceptanceCriteria/verbs-behaviour.md`; `b427cb4` fixes its mistakes/stale info;
+    the null-cell placement, chevrons/dual-rails, and full-names are folded into that doc (PLACE + a new "Grid
+    furniture" section; the old "sticky routing" rule is superseded).
   - **DEFERRED (user 2026-07-29): BYPASS** (receiver→emitter relay — the receivers-ferry next-priority) is dropped
     for now; its plan + ferry capture were reverted and NOT re-created (receivers ferry LATCH-single-mode /
     held-note-strip likewise un-captured). The Claude↔Claude ferry channel was cleared at the user's request.
   - **DEVICE-VERIFY owed** — everything above is off-device only. Watch especially: candidate body-pulse + white
-    selected ring, multi-cell routing feel, sticky routing, and DELETE-sever (no orphaned children / stuck notes).
+    selected ring, multi-cell routing feel, null-cell placement (no source/receiver/emitter until wired; red
+    dashed no-dest ring expected), the new left row rail alignment, chevron legibility, and DELETE-sever (no
+    orphaned children / stuck notes).
 - DONE steps 1–2 (scaffold + snapshot bridge): loads in AUM, MIDI outputs,
   passthrough stopped, derived sync, snapshot-driven kernel, render-side param
   events, diagnostic UI.

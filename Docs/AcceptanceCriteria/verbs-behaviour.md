@@ -29,8 +29,9 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
 
 **Main grid**
 - **Given** PLACE is held, **when** you tap an **empty** cell, **then** a new cell is placed in the current
-  brush colour. If any cell above it in the same column is occupied, the cell's input is wired to the NEAREST
-  such cell above (a "downhill" link, bridging gaps); if nothing is above, the new cell is pointed at receiver R1.
+  brush colour with **NO routing at all** — no input row, no receiver, and no emitter. The cell is *null* until
+  you actively wire its source and destination; nothing is pre-selected and it is never auto-linked to the cell
+  above. A null cell (no emitter) shows a red dashed "no destination" outline until you give it one.
 - **Given** PLACE is held, **when** you tap a cell that is **already occupied**, **then** it is replaced with a
   brush-colour cell that keeps the old cell's input wiring, and the original is remembered.
 - **Given** you placed or replaced a cell earlier **in this same hold**, **when** you tap it again, **then** it
@@ -62,13 +63,11 @@ PLACE / DELETE / SELECT also show a coloured **banner** across the top with a **
   same column during the same hold, **then** it is blocked (release and re-hold to add another in that column —
   vertical stacks are still buildable, just not in one hold).
 
-**Routing carries to the next cell**
-- **Given** PLACE is held and you have placed a cell and chosen its emitters and its receiver (via the strips),
-  **when** you place further cells in the same hold, **then** each new cell defaults to the SAME emitters and the
-  SAME receiver as the last cell you set up — so you can lay down a run of identically-routed cells without
-  wiring each one.
-- **Given** you change the emitters or receiver again later in the hold, **then** the cells you place after that
-  inherit the new choice (the template is always the most recently set-up cell).
+**Routing does NOT carry over**
+- **Given** PLACE is held and you have wired one cell, **when** you place further cells in the same hold, **then**
+  each new cell is still fully null — routing is never inherited from an earlier cell. You wire each cell
+  deliberately. (Supersedes the earlier "sticky routing" rule, in which a new cell copied the last one's
+  emitters/receiver.)
 
 **Cancel**
 - **Given** PLACE is held, **when** you tap CANCEL in the banner (with your other hand), **then** every change
@@ -243,6 +242,17 @@ reads live from the grid, so placing, moving, deleting, or re-wiring a cell upda
 - **Given** a verb button, **when** you long-press it, **then** nothing special happens. Verbs are
   **spring-only**: a verb is active only while its button is held, and releasing ends it. (Long-press latching
   was considered and rejected.)
+
+## Grid furniture (chevrons + row rails)
+- **Row-select rails on BOTH sides.** A column of row chevrons sits on the **left** of the grid (pointing right,
+  into the grid) and on the **right** (pointing left) — both always visible. Tapping a chevron on either side
+  applies the active verb to that whole row; the two rails behave identically (there is no difference beyond
+  which side you reach for).
+- **Numbers are chevrons.** The top **column keys** are down chevrons (pointing into their column; play/hold
+  state colouring unchanged), and an empty grid cell shows a **faded down chevron** watermark instead of its
+  row number.
+- **Processor names in full.** Type names are shown in full everywhere (ARP, RATCHET, PASSGATE, STRUM, CHANCE,
+  HARMONIZE) — no abbreviations.
 
 ## Notes
 - **⑤ (SELECT = per-cell + row chevrons, columns never select)** is already how the code behaves today
