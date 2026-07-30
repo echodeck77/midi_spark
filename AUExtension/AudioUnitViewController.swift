@@ -602,12 +602,10 @@ struct DiagView: View {
         if v == 0 { au?.setEmitterVelKill(i, true); au?.setVelOverride(i, nil) }
         else { au?.setEmitterVelKill(i, false); au?.setVelOverride(i, v) }
     }
-    // delta §9 item 11: RECEIVERS panel edits — channel filter / input cable / input mute (undoable doc edits).
-    // MPE is silent auto-detect (user ruling 2026-07-25) — no control.
-    private func setReceiverChannel(_ i: Int, _ ch: Int) { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers }
-    private func setReceiverCable(_ i: Int, _ mask: Int?) { au?.setReceiverCable(i, mask); receivers = au?.uiReceivers() ?? receivers }
+    // delta §9 item 11: RECEIVERS panel edits — input mute (undoable). Channel filter / input cable / latch mode
+    // now live on the cog page (CogPage.swift → au.setReceiverChannel/Cable/LatchAdd directly). MPE is silent
+    // auto-detect (user ruling 2026-07-25) — no control.
     private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
-    private func setReceiverLatchAdd(_ i: Int, _ add: Bool) { au?.setReceiverLatchAdd(i, add); receivers = au?.uiReceivers() ?? receivers }   // TWO LATCH MODES
     private func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
@@ -1127,11 +1125,11 @@ struct DiagView: View {
     }
 
     private var emittersBox: some View {
-        OutputsView(busEnabled: busEnabled, busChannels: busChannels, editing: false,
+        OutputsView(busEnabled: busEnabled, busChannels: busChannels,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
                     sounding: emitHeld, releaseMarks: emitRelease,
                     claimMask: claimMask, claimLeak: claimLeak, holdLatch: holdLatch,
-                    onToggle: toggleEmitter, onSetChannel: setEmitterChannel,
+                    onToggle: toggleEmitter,
                     onVelOverride: setVelOverride, onClaim: setClaim, onClaimLeak: setClaimLeak,
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
                     octave: emitterOctave, onOct: nudgeEmitterOctave,
@@ -1146,14 +1144,12 @@ struct DiagView: View {
     }
 
     @ViewBuilder private var receiversBox: some View {
-        ReceiversView(receivers: receivers, editing: false, peak: receiverPeak, peakAt: receiverPeakAt,
+        ReceiversView(receivers: receivers, peak: receiverPeak, peakAt: receiverPeakAt,
                       heldVels: recvHeld, releaseMarks: recvRelease, thruReceiver: thruReceiver,
-                      onSetChannel: setReceiverChannel, onToggleMute: toggleReceiverMute,
-                      onSetCable: setReceiverCable, onSetThru: setThru,
+                      onToggleMute: toggleReceiverMute, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
                       latchAddMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.latchAddResolved ? $0 | UInt8(1 << $1.offset) : $0 },
-                      onSetLatchAdd: setReceiverLatchAdd,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch,
                       wiring: !routeFoci.isEmpty, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face

@@ -514,23 +514,20 @@ func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Col
 struct ReceiversView: View {
     @Environment(\.animationsPaused) private var animPaused
     let receivers: [Receiver]
-    let editing: Bool
     var peak: [Double] = [0, 0, 0, 0]                                    // §9 item 11 input meter: latched peak (0–1)
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
     var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
-    let onSetChannel: (Int, Int) -> Void
     let onToggleMute: (Int) -> Void
-    var onSetCable: (Int, Int?) -> Void = { _, _ in }   // §item 11: set a receiver's input cable (nil = ANY)
     var onSetThru: (Int) -> Void = { _ in }             // THRU pip radio
+    // (channel/cable/latch-mode config lives on the cog page — CogPage.swift — not the strip. "Single-face forever".)
     // Feature overlays — present in the shell, wired by later increments (inert defaults here).
     var soloMask: UInt8 = 0                             // inc 2: additive SOLO set
     var onToggleSolo: (Int) -> Void = { _ in }
     var latchMask: UInt8 = 0                            // inc 5: per-receiver chord LATCH
     var onToggleLatch: (Int) -> Void = { _ in }
-    var latchAddMask: UInt8 = 0                          // TWO LATCH MODES: bit i = receiver i latches in ADD mode
-    var onSetLatchAdd: (Int, Bool) -> Void = { _, _ in } // EDIT-face CHORD|ADD segment
+    var latchAddMask: UInt8 = 0                          // TWO LATCH MODES: bit i = receiver i latches in ADD mode (set on the cog; the perform face shows LATCH+)
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
@@ -549,18 +546,6 @@ struct ReceiversView: View {
     private var hues: [Color] { receiverHues }
     private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
     private func bit(_ mask: UInt8, _ i: Int) -> Bool { mask & (1 << UInt8(i)) != 0 }
-    private func wrap(_ ch: Int) -> Int { ch < 0 ? 16 : (ch > 16 ? 0 : ch) }   // OMNI(0)…16, wraps
-    // §item 11 INPUT CABLES: the v1 stepper cycles ANY · 1 · 2 · 3 · 4 (single cable or ANY).
-    private func cableLabel(_ mask: Int?) -> String {
-        guard let m = mask, m != 0b1111, m != 0 else { return "ANY" }
-        for c in 1...4 where m == (1 << (c - 1)) { return "\(c)" }
-        return "…"                                       // a subset (future UI) — the v1 stepper never makes one
-    }
-    private func cableStep(_ mask: Int?, _ delta: Int) -> Int? {
-        let cur = (mask.flatMap { m in (1...4).first { m == (1 << ($0 - 1)) } }) ?? 0   // 0 = ANY, else cable N
-        let next = ((cur + delta) % 5 + 5) % 5
-        return next == 0 ? nil : (1 << (next - 1))       // nil ⇒ ANY; else the single-cable bit
-    }
 
     var body: some View {
         // SPACE-FILL: the box grows to fill its band; the strips stretch VERTICALLY so the slider (and its
@@ -588,7 +573,7 @@ struct ReceiversView: View {
             }
             HStack(alignment: .top, spacing: 3) {
                 slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + momentary velocity override — grows tall
-                if editing { editFeatures(i, rec) } else { performFeatures(i) }
+                performFeatures(i)                          // single-face forever: config moved to the cog page
             }
             .frame(minHeight: Self.controlHeight, maxHeight: .infinity)  // SPACE-FILL: control region spends the band's height
             HStack(spacing: 3) {                                // foot: MUTE · SOLO
@@ -637,37 +622,6 @@ struct ReceiversView: View {
     }
 
     // EDIT face — the CABLE (ANY · 1–4) + CHANNEL (OMNI · 1–16) steppers (metering stays in the slider).
-    private func editFeatures(_ i: Int, _ rec: Receiver) -> some View {
-        VStack(spacing: 3) {
-            HStack(spacing: 1) {
-                stepBtn("chevron.down") { onSetCable(i, cableStep(rec.cable, -1)) }
-                Text("IN \(cableLabel(rec.cable))").font(.system(size: 7, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85)).frame(maxWidth: .infinity)
-                stepBtn("chevron.up") { onSetCable(i, cableStep(rec.cable, +1)) }
-            }
-            HStack(spacing: 1) {
-                stepBtn("chevron.down") { onSetChannel(i, wrap(rec.channel - 1)) }
-                Text(rec.channel == 0 ? "OMNI" : "\(rec.channel)").font(.system(size: 7, weight: .heavy, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85)).frame(maxWidth: .infinity)
-                stepBtn("chevron.up") { onSetChannel(i, wrap(rec.channel + 1)) }
-            }
-            // TWO LATCH MODES: the latch update rule for this receiver — CHORD (replace) | ADD (toggle-accumulate).
-            HStack(spacing: 1) {
-                latchModeSeg("CHORD", on: !rec.latchAddResolved) { onSetLatchAdd(i, false) }
-                latchModeSeg("ADD", on: rec.latchAddResolved) { onSetLatchAdd(i, true) }
-            }
-            Spacer(minLength: 0)
-        }.frame(maxWidth: .infinity)
-    }
-
-    private func latchModeSeg(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 6, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.5))
-            .frame(maxWidth: .infinity).frame(height: 13)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? soloHue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-
     // PERFORM face — the LATCH ARM (the performance control, prominent + inviting) over the OCT−/OCT+ nudges
     // (utility, quiet) + the deviation readout. LATCH+ = the receiver's ADD mode (set in the cog's CHORD|ADD).
     private func performFeatures(_ i: Int) -> some View {
@@ -717,11 +671,6 @@ struct ReceiversView: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    private func stepBtn(_ symbol: String, _ action: @escaping () -> Void) -> some View {
-        Image(systemName: symbol).font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.6))
-            .frame(width: 18, height: 16).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
 
     // The SLIDER — the emitter fader's INPUT twin. Idle: the live input meter. Touched: a momentary-absolute
     // velocity override (drag = whisper/slam the receiver's subscribers), released → springs home (unless HOLD
@@ -781,8 +730,7 @@ struct ReceiversView: View {
 struct OutputsView: View {
     @Environment(\.animationsPaused) private var animPaused
     let busEnabled: [Bool]        // 4 flags (short/empty ⇒ enabled)
-    let busChannels: [Int]        // 4 values, 1–16
-    let editing: Bool
+    let busChannels: [Int]        // 4 values, 1–16 (shown in the header; SET on the cog page, not the strip)
     var emitPeak: [Double] = [0, 0, 0, 0]                                  // §6a meter: latched peak (0–1)
     var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)      // when latched (peak-hold decay)
     var marks: [[VelMark]] = [[], [], [], []]                             // item 4: floating output velocity marks (Colour-tinted)
@@ -791,8 +739,7 @@ struct OutputsView: View {
     var claimMask: UInt8 = 0                                               // §6a CLAIM v2: the multi-claim mask (bits A–D)
     var claimLeak: [Int] = [0, 0, 0, 0]                                    // §6a CLAIM v2: per-claimant LEAK % (0…100)
     var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
-    let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i (both modes)
-    let onSetChannel: (Int, Int) -> Void  // EDIT stepper → set emitter i's stamp channel (1–16)
+    let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
     var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM → toggle emitter i in/out of the claim set
     var onClaimLeak: (Int, Int) -> Void = { _, _ in }      // PERFORM CLAIM drag → set emitter i's LEAK % (0…100)
@@ -850,7 +797,7 @@ struct OutputsView: View {
             header(i, muted: muted)
             HStack(alignment: .top, spacing: 3) {
                 fader(i).frame(width: 16).frame(maxHeight: .infinity)
-                if editing { channelStepper(i) } else { roleColumn(i) }
+                roleColumn(i)                               // single-face forever: channel config moved to the cog page
             }
             .frame(minHeight: controlHeight, maxHeight: .infinity)   // SPACE-FILL: fader region spends the band's height
             HStack(spacing: 3) {                             // foot: MUTE (the enable gate) · SOLO
@@ -966,32 +913,6 @@ struct OutputsView: View {
 
     // EDIT — a dedicated per-emitter channel stepper (▲/▼, wrapping 1–16). Replaces the a2 popover;
     // no selection state, no floating layer. Amber number = shares a channel with another enabled emitter.
-    private func channelStepper(_ i: Int) -> some View {
-        let enabled = on(i)
-        return VStack(spacing: 0) {
-            stepButton("chevron.up") { stepChannel(i, +1) }
-            Text("\(ch(i))").font(.system(size: 15, weight: .heavy, design: .monospaced))
-                .foregroundColor(enabled ? (sharedWithEnabled(i) ? amber : cyan) : .white.opacity(0.35))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            stepButton("chevron.down") { stepChannel(i, -1) }
-        }
-        .frame(maxWidth: .infinity).frame(height: controlHeight)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)))
-        .overlay(alignment: .bottom) {
-            Text("ch").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25)).padding(.bottom, 1)
-        }
-    }
-    private func stepButton(_ symbol: String, _ action: @escaping () -> Void) -> some View {
-        Image(systemName: symbol).font(.system(size: 11, weight: .heavy))
-            .foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity).frame(height: 20)
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    private func stepChannel(_ i: Int, _ delta: Int) {
-        var n = ch(i) + delta
-        if n > 16 { n = 1 }; if n < 1 { n = 16 }
-        onSetChannel(i, n)
-    }
-
     // PERFORM — a vertical velocity fader with an 8-segment LED ladder. Idle: the ladder tracks the live
     // meter (decaying). Touched: it shows the forced value and a bright set-point line; drag maps y →
     // 1–127, release springs back (fader → nil, engine → natural velocity). Disabled emitter = greyed.
