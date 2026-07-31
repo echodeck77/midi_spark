@@ -177,6 +177,9 @@ final class Kernel {
     #if DEBUG
     private static let hardTrapOnStuckNote = true
     #endif
+    // §a8b PLAYING hung-note net: samples the LIVE input has been continuously empty while playing (no armed
+    // latch, no audition). The debounce clock for `playingSilenceLeak`; reset to 0 the moment input returns.
+    private var emptyInputSamples: Int64 = 0
     func setVelOverride(_ bus: Int, _ value: Int?) {
         guard bus >= 0 && bus < 4 else { return }
         let byte = UInt8(value.map { max(1, min(127, $0)) } ?? 0)
@@ -366,31 +369,58 @@ final class Kernel {
         //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —
         //      safe by construction here (nothing real is playing) — and count the self-heal for the poll.
         diag.passthroughHeld = passthroughGate.activeCount
+        let now = Int64(timestamp.pointee.mSampleTime)
         if silenceInvariantViolated(playing: playing, heldInput: pool.count, auditioning: audition >= 0,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
-            // a8 DUMP-BEFORE-TRAP: read the corpse FIRST (before healing), so it is always legible.
-            let dump = "MidiSpark STUCK-NOTE: silence violated — voices=[\(router.stuckVoiceFingerprint())] "
-                     + "echoes=[\(passthroughGate.heldFingerprint())] (playing=\(playing) held=\(pool.count) audition=\(audition))"
-            os_log(.fault, log: Self.hangLog, "%{public}s", dump)        // RELEASE: soft — surfaces without crashing a gig
-            diag.silenceViolated = true
-            diag.panics &+= 1
-            // HEAL (the release safety net) — force silence; nothing legitimate can sound in this state.
-            let now = Int64(timestamp.pointee.mSampleTime)
-            router.allNotesOff(atSample: now, out: liveEmitter)          // close any leaked sequenced voices
-            if let out = midiOut {                                       // flush stranded echoes as offs on All + Emit A
-                for (chan, note) in passthroughGate.drainActive() {
-                    passthroughScratch[0] = 0x80 | chan; passthroughScratch[1] = note; passthroughScratch[2] = 0
-                    _ = out(now, 0, 3, &passthroughScratch)
-                    _ = out(now, 1, 3, &passthroughScratch)
-                }
-            }
-            diag.activeVoiceCount = 0; diag.passthroughHeld = 0
-            #if DEBUG
-            if Self.hardTrapOnStuckNote { assertionFailure(dump) }       // DEBUG: crash into the (already-logged) corpse
-            #endif
+            healStuckNotes(now: now, hardTrap: true,   // a hard invariant: DEBUG traps into the corpse
+                           reason: "silence violated (playing=\(playing) held=\(pool.count) audition=\(audition))",
+                           diag: &diag)
+            emptyInputSamples = 0
         } else {
             diag.silenceViolated = false
+            // §a8b PLAYING hung-note net — the sibling the stopped-net can't see. While the transport RUNS with
+            // no LIVE input, no armed latch (which legitimately sustains a frozen chord), and no audition, the
+            // grid has no source: after a debounce (kept ≥ a few columns so a note released mid-column still
+            // rings to its boundary) any voice left sounding is stuck (e.g. a harmonizer off that went missing).
+            // Soft-heal only (log + all-notes-off) — heuristic, so it never hard-traps.
+            let liveEmpty = playing && pool.count == 0 && latchArmMask == 0 && audition < 0
+            emptyInputSamples = liveEmpty ? emptyInputSamples &+ Int64(frameCount) : 0
+            let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
+            let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail
+            if playingSilenceLeak(playing: playing, liveInput: pool.count, latchArmed: latchArmMask != 0,
+                                  auditioning: audition >= 0, emptyInputSamples: emptyInputSamples,
+                                  debounceSamples: debounce, activeVoices: diag.activeVoiceCount,
+                                  passthroughHeld: diag.passthroughHeld) {
+                healStuckNotes(now: now, hardTrap: false,
+                               reason: "playing silence leak (no source for \(emptyInputSamples) samples)",
+                               diag: &diag)
+                emptyInputSamples = 0
+            }
         }
+    }
+
+    /// Force-silence the whole engine (the STUCK-NOTE heal shared by both a8 nets): dump the corpse for the
+    /// log FIRST (always legible), all-notes-off every router voice, flush any stranded passthrough echo as a
+    /// note-off on All + Emit A, and count the self-heal. `hardTrap` = a HARD invariant (DEBUG crashes into the
+    /// logged corpse); false = a heuristic net (soft-heal only, no trap).
+    private func healStuckNotes(now: Int64, hardTrap: Bool, reason: String, diag: inout KernelDiag) {
+        let dump = "MidiSpark STUCK-NOTE: \(reason) — voices=[\(router.stuckVoiceFingerprint())] "
+                 + "echoes=[\(passthroughGate.heldFingerprint())]"
+        os_log(.fault, log: Self.hangLog, "%{public}s", dump)            // RELEASE: soft — surfaces without crashing a gig
+        diag.silenceViolated = true
+        diag.panics &+= 1
+        router.allNotesOff(atSample: now, out: liveEmitter)              // close any leaked sequenced voices
+        if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit A
+            for (chan, note) in passthroughGate.drainActive() {
+                passthroughScratch[0] = 0x80 | chan; passthroughScratch[1] = note; passthroughScratch[2] = 0
+                _ = out(now, 0, 3, &passthroughScratch)
+                _ = out(now, 1, 3, &passthroughScratch)
+            }
+        }
+        diag.activeVoiceCount = 0; diag.passthroughHeld = 0
+        #if DEBUG
+        if hardTrap && Self.hardTrapOnStuckNote { assertionFailure(dump) }   // DEBUG: crash into the (already-logged) corpse
+        #endif
     }
 
     /// True when the audition target is a cell that WILL sound (occupied, non-muted, non-bypassed, with

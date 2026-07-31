@@ -826,6 +826,45 @@ final class DerivationsTests: XCTestCase {
                                                 activeVoices: 2, passthroughHeld: 0))
     }
 
+    // §a8b — the PLAYING hung-note net (catches e.g. a harmonizer voice whose off went missing).
+    private let dbnc: Int64 = 48_000   // ~1 s @ 48k, for the tests below
+
+    func testPlayingLeakCatchesStuckVoiceAfterDebounce() {
+        XCTAssertTrue(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: false, auditioning: false,
+                                         emptyInputSamples: dbnc, debounceSamples: dbnc,
+                                         activeVoices: 2, passthroughHeld: 0), "no source for the debounce, yet voices ring = stuck")
+    }
+    func testPlayingLeakCatchesStrandedEchoAfterDebounce() {
+        XCTAssertTrue(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: false, auditioning: false,
+                                         emptyInputSamples: dbnc, debounceSamples: dbnc,
+                                         activeVoices: 0, passthroughHeld: 1))
+    }
+    func testPlayingLeakWaitsForTheDebounce() {
+        // a note released mid-column still rings to its boundary — below the debounce, do NOT heal.
+        XCTAssertFalse(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: false, auditioning: false,
+                                          emptyInputSamples: dbnc - 1, debounceSamples: dbnc,
+                                          activeVoices: 2, passthroughHeld: 0), "within the debounce = a legit release tail")
+    }
+    func testPlayingLeakRespectsLatchAuditionAndLiveInput() {
+        // an armed LATCH legitimately sustains a frozen chord with an empty live pool
+        XCTAssertFalse(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: true, auditioning: false,
+                                          emptyInputSamples: dbnc, debounceSamples: dbnc, activeVoices: 4, passthroughHeld: 0))
+        // auditioning legitimately sounds
+        XCTAssertFalse(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: false, auditioning: true,
+                                          emptyInputSamples: dbnc, debounceSamples: dbnc, activeVoices: 4, passthroughHeld: 0))
+        // live input present → a real source
+        XCTAssertFalse(playingSilenceLeak(playing: true, liveInput: 3, latchArmed: false, auditioning: false,
+                                          emptyInputSamples: dbnc, debounceSamples: dbnc, activeVoices: 4, passthroughHeld: 0))
+        // stopped → the stopped-net (silenceInvariantViolated) owns that case, not this one
+        XCTAssertFalse(playingSilenceLeak(playing: false, liveInput: 0, latchArmed: false, auditioning: false,
+                                          emptyInputSamples: dbnc, debounceSamples: dbnc, activeVoices: 4, passthroughHeld: 0))
+    }
+    func testPlayingLeakSilentWhenNothingSounds() {
+        XCTAssertFalse(playingSilenceLeak(playing: true, liveInput: 0, latchArmed: false, auditioning: false,
+                                          emptyInputSamples: dbnc, debounceSamples: dbnc,
+                                          activeVoices: 0, passthroughHeld: 0), "nothing sounding → nothing to heal")
+    }
+
     // The gate's activeCount tracks held echoes and returns to zero after their offs.
     func testGateActiveCountBalances() {
         var g = PassthroughGate()

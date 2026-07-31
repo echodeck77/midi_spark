@@ -251,6 +251,22 @@ func silenceInvariantViolated(playing: Bool, heldInput: Int, auditioning: Bool,
     return activeVoices > 0 || passthroughHeld > 0
 }
 
+/// §a8b — the PLAYING sibling of the silence invariant, a hung-note net for the case the stopped-net can't see.
+/// MidiSpark is a processor: every voice descends from the live input chord. So while the transport RUNS with
+/// no live held input, no armed latch (a latch legitimately sustains a frozen chord), and no audition, the grid
+/// has no source — once the current column's scheduled note-offs pass, NOTHING should still sound. If voices (or
+/// stranded echoes) persist past a debounce, they are STUCK (e.g. a harmonizer voice whose off was missed).
+/// `emptyInputSamples` is how long the live input has been continuously empty (while playing); the debounce is
+/// kept generous (≥ a few columns) so a note released mid-column still rings to its boundary before this fires.
+/// Pure/testable; the Kernel owns the debounce clock and the heal. Unlike the hard stopped-invariant this is a
+/// heuristic — the caller soft-heals (log + all-notes-off), it never hard-traps.
+func playingSilenceLeak(playing: Bool, liveInput: Int, latchArmed: Bool, auditioning: Bool,
+                        emptyInputSamples: Int64, debounceSamples: Int64,
+                        activeVoices: Int, passthroughHeld: Int) -> Bool {
+    guard playing, liveInput == 0, !latchArmed, !auditioning, emptyInputSamples >= debounceSamples else { return false }
+    return activeVoices > 0 || passthroughHeld > 0
+}
+
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
 /// mutation-line playhead (grid cells AND §6b Colour chips). SWING-AWARE: swing stretches/compresses
 /// the real column window (§4), so the sweep rides the SAME `musicalOf` warp the engine uses to map
