@@ -1156,9 +1156,11 @@ struct DiagView: View {
         }
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(open ? 0.07 : 0.035)))
     }
-    // C — IDENTITY section: swatch · name · position, then DELETE (SEVER).
+    // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
+    // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
+    // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
     @ViewBuilder private func identitySection(_ cell: Cell) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
@@ -1167,12 +1169,38 @@ struct DiagView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Button(action: deleteEditedCell) {
-                Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                    .frame(maxWidth: .infinity).frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Verb.delete.hue))
-            }.buttonStyle(.plain)
+            Text("APPLY INPUT SHAPING TO").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            HStack(spacing: 6) {
+                utilBtn("TWINS · \(scopeCount(.allIdentical))", Self.editHue.opacity(0.55)) { applyInputToScope(.allIdentical) }
+                utilBtn("ALL \(editName(cell.colourID)) · \(scopeCount(.allColour))", Self.editHue.opacity(0.55)) { applyInputToScope(.allColour) }
+            }
+            HStack(spacing: 6) {
+                utilBtn("RESET INPUT", Color.white.opacity(0.12)) { resetInput() }
+                utilBtn("DELETE CELL", Verb.delete.hue) { deleteEditedCell() }
+            }
         }
+    }
+    private func utilBtn(_ label: String, _ fill: Color, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(fill == Verb.delete.hue ? .black : .white.opacity(0.9))
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 5).fill(fill))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func scopeCount(_ scope: SceneState.EditScope) -> Int {
+        (selCol >= 0 && selRow >= 0) ? scene.editScopeTargets(col: selCol, row: selRow, scope: scope).count : 0
+    }
+    /// §I Apply-to-scope: carry THIS cell's input shaping (chord split + velocity window) to the scope — twins
+    /// (same colour + same routing) or all same-colour cells. One undoable step, reusing SceneState.applyToScope.
+    private func applyInputToScope(_ scope: SceneState.EditScope) {
+        guard let au, let src = editingCell else { return }
+        au.editScene { $0.applyToScope(col: selCol, row: selRow, scope: scope) { dst in
+            dst.chordSplit = src.chordSplit; dst.velWindow = src.velWindow
+        } }
+        refreshFromDocument()
+    }
+    private func resetInput() {   // §I reset the cell's input shaping to defaults (ALL · full velocity)
+        setEditSource { s in if var c = s.cells[selCol][selRow] { c.chordSplit = nil; c.velWindow = nil; s.cells[selCol][selRow] = c } }
     }
     // D — INPUT section: source · shift · chord-split · velocity window (the existing controls, re-hosted).
     @ViewBuilder private func inputSection(_ cell: Cell) -> some View {
