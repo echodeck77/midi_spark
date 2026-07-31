@@ -44,8 +44,13 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   cell-editor mode — is untouched.)_ Device-verify: the strips look/behave unchanged (perform face only).
 - [~] **CELL EDIT** (spec `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-edit.md`; user-chosen phased build).
   Decisions locked: start with the station skeleton; **triggers stay Colour-side** (no per-cell schema change).
-  **LAYOUT REDIRECT (design-side, 2026-07-31): spec B revised — a FULL-PAGE TAKEOVER, not an in-place panel swap.**
-  Contained diff (only B + F changed; A/C/D/E identical) → surgical rework, all content/model/engine/tests kept.
+  **LAYOUT (evolving): design-side revised B to a full-page takeover (2026-07-31); the USER then overrode that —
+  the page REPLACES THE GRID in its slot (via `gridBlock`, like FLOW) while receivers/emitters/strips/desk/arr-bar
+  stay visible + reachable. Spec B on file still says full-takeover — ferry the user's grid-slot override to
+  design-side.** Content/model/engine/tests unaffected by all this layout churn.
+  **OPEN BUG: crash on tapping the TRIGGERS section (device, first Cell-Edit device run). No logic error on that
+  path (collapsed rows are plain text) → suspect a SwiftUI transition/nesting crash; the grid-slot move may have
+  cleared it. Awaiting device retest + a crash log to confirm/pinpoint.**
   - [x] **Phase 1 — station skeleton + full-page rework** (off-device): EDIT = a 6th TOGGLE (out of the `Verb`
     enum); tap re-points + suppresses the trigger fire. **Re-architected to the full-page takeover**: `cellEditPage`
     replaces the whole grid layout when a cell is pointed; pinned breadcrumb (scene · column · 8-dot minimap ·
