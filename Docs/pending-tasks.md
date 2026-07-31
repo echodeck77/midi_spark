@@ -49,9 +49,14 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     primary slot with a CELL EDIT|COLOUR DESK swap; identity (swatch/name/pos) + DELETE (sever). Device-verify:
     armed latched look, re-point + white ring, desk swap, scene-switch auto-close, no trigger while armed, both
     orientations place the panel.
-  - [ ] **Phase 2 — triggers accordion** (Colour-side): TAP/HOLD/ARRIVE/LEAVE/SCENE rows reusing `OnConfig` +
-    `*Summary`/`triggerMark`; new `Colour.on` write path. REDIRECT + ALT-DEST A–D = net-new model+engine. Plus
-    Apply-to-scope (Colour-level), Copy/Paste CONFIG (OnConfig clipboard), Reset-to-defaults.
+  - [x] **Phase 2a — triggers accordion** (Colour-side, off-device): the 5 ON rows (TAP/HOLD/ARRIVE/LEAVE/SCENE)
+    as a one-open accordion, collapsed summaries + expanded action/facet pickers, editing `Colour.on` via
+    `editOn`→`editBrushColour` (undoable). Reused `OnConfig` wholesale — no schema change. Device-verify the
+    accordion + that edits ride through to the cell-face glyph.
+  - [ ] **Phase 2b — REDIRECT + retrigger style** (NET-NEW model+engine): the REDIRECT TAP/HOLD action + ALT-DEST
+    A–D toggles (new `OnConfig` field + admission-time engine effect); the TAP CUT|LAYER retrigger field.
+  - [ ] **Utilities** (pair with Phase 3, once cell-level settings exist): Apply-to-scope (`applyToScope` for
+    input/buses), Copy/Paste CONFIG (an `OnConfig`+input clipboard, `ProcClip` pattern), Reset-to-defaults.
   - [ ] **Phase 3 — input editing**: chord-split / velocity-window / input octave / input transpose are all
     NET-NEW model fields (migration + engine + UI); source picker reuses receiver/row routing.
   - [ ] **Phase 4 — output/chop**: destination toggles + 8-slice MAIN·ALT·REST sequence. Resolve open call F.
