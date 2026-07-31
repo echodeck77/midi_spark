@@ -1097,7 +1097,8 @@ struct DiagView: View {
                 VStack(alignment: .leading, spacing: 4) {     // §D INPUT — the SOURCE picker (cell-level, live)
                     Text("INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     facetRow("SOURCE") { inputSourceChip(cell) }
-                    Text("chord-split · velocity window · octave · transpose — soon")
+                    inputShiftRow                             // §D octave + transpose (existing steppers, unchanged)
+                    Text("chord-split · velocity window — soon")
                         .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
                 }
                 VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
@@ -1305,6 +1306,29 @@ struct DiagView: View {
     }
     private func setEditSourceNone() {
         setEditSource { s in if var c = s.cells[selCol][selRow] { c.inputRow = nil; c.inputReceiver = nil; s.cells[selCol][selRow] = c } }
+    }
+    /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
+    /// (−24…+24 st, already applied engine-wide via `setBrushTranspose`). OCTAVE = a ±12 convenience, SEMITONE =
+    /// ±1; both mutate the one `Colour.transpose`. Colour-side like the triggers, so same-colour cells follow.
+    @ViewBuilder private var inputShiftRow: some View {
+        let t = brushColour?.transpose ?? 0
+        facetRow("SHIFT") {
+            HStack(spacing: 5) {
+                stepPad("−12") { setBrushTranspose(max(-24, t - 12)) }
+                stepPad("−")   { setBrushTranspose(max(-24, t - 1)) }
+                Text(t == 0 ? "0 st" : "\(t > 0 ? "+" : "")\(t) st")
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(t == 0 ? .white.opacity(0.5) : Self.editHue)
+                    .frame(minWidth: 42)
+                stepPad("+")   { setBrushTranspose(min(24, t + 1)) }
+                stepPad("+12") { setBrushTranspose(min(24, t + 12)) }
+            }
+        }
+    }
+    private func stepPad(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+            .frame(minWidth: 22, minHeight: 20).padding(.horizontal, 3)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
