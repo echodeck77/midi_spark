@@ -102,7 +102,7 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    @State private var openSection: Int? = 1      // §cell-edit B5: which top-level page accordion section is open (default INPUT)
+    @State private var openSection: Int? = 2      // §cell-edit B5: which page accordion section is open (0 IDENTITY · 1 TRIGGERS · 2 OUTPUT)
     @State private var openTrig: Int? = nil       // §cell-edit E: which triggers-accordion row is expanded (one-open-at-a-time)
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
@@ -923,7 +923,7 @@ struct DiagView: View {
                     receiversBox.frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: bandH)
-                gridBlock(cell)
+                gridBlock(cell, half)                         // `half` = the emitter section width (for the edit page's output block)
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half).background(routeProbe("emitters"))     // §10 strips wear ROUTE OUT faces
@@ -937,7 +937,7 @@ struct DiagView: View {
         }
     }
 
-    @ViewBuilder private func gridBlock(_ cellHeight: CGFloat) -> some View {
+    @ViewBuilder private func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
         if let cell = editingCell {
             // §cell-edit B (user 2026-07-31): the CELL EDIT page replaces the GRID in place — the same
             // "grid region becomes the tool" move FLOW uses. Receivers/emitters/strips/desk stay visible + live.
@@ -947,7 +947,7 @@ struct DiagView: View {
                 rowRail(cellHeight, chevron: "chevron.right")   // LEFT rail (kept for grid context)
                 VStack(spacing: GridGeometry.vGap) {
                     editColumnKeys(cellHeight)                   // top column chevrons — the edited column lit
-                    cellEditPage(cell)
+                    cellEditPage(cell, emitterWidth: emitterWidth)
                 }
                 rowRail(cellHeight, chevron: "chevron.left")    // RIGHT rail (kept for grid context)
             }
@@ -1076,18 +1076,14 @@ struct DiagView: View {
     /// B1/B3: the page REPLACES the whole working view while EDIT points at a cell (the `body` swaps it in for
     /// the grid). B2 breadcrumb pinned top · B5 persistent LOOP+TEST strip · then IDENTITY·INPUT·TRIGGERS·OUTPUT
     /// and the sound desk as ONE vertical accordion (one section open at a time).
-    @ViewBuilder private func cellEditPage(_ cell: Cell) -> some View {
+    @ViewBuilder private func cellEditPage(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         VStack(spacing: 6) {
-            breadcrumb(cell)                                 // B2 — pinned anchor (scene · column · minimap · DONE)
-            loopTestStrip(cell)                              // B5 — persistent "listen while you work" strip
-            ScrollView(.vertical, showsIndicators: false) {
+            breadcrumb(cell)                                 // pinned anchor (scene · column · minimap · DONE)
+            ScrollView(.vertical, showsIndicators: false) {  // (INPUT section + LOOP/TEST dropped for now, user 2026-07-31)
                 VStack(spacing: 6) {
-                    pageSection(0, "IDENTITY", editName(cell.colourID)) { identitySection(cell) }
-                    pageSection(1, "INPUT", inputSourceLabel(cell)) { inputSection(cell) }
-                    pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { AnyView(triggersAccordion) }
-                    pageSection(3, "OUTPUT", "") { AnyView(outputSection(cell)) }
-                    // (COLOUR · PROCESSOR is NOT duplicated here — the sound desk stays visible + reachable in its
-                    //  own column, per the user's "other parts still visible" direction, 2026-07-31.)
+                    pageSection(0, "IDENTITY", editName(cell.colourID)) { AnyView(identitySection(cell)) }
+                    pageSection(1, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { AnyView(triggersAccordion) }
+                    pageSection(2, "OUTPUT", "") { AnyView(outputSection(cell, emitterWidth: emitterWidth)) }
                 }
             }
         }
@@ -1169,15 +1165,7 @@ struct DiagView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text("APPLY INPUT SHAPING TO").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-            HStack(spacing: 6) {
-                utilBtn("TWINS · \(scopeCount(.allIdentical))", Self.editHue.opacity(0.55)) { applyInputToScope(.allIdentical) }
-                utilBtn("ALL \(editName(cell.colourID)) · \(scopeCount(.allColour))", Self.editHue.opacity(0.55)) { applyInputToScope(.allColour) }
-            }
-            HStack(spacing: 6) {
-                utilBtn("RESET INPUT", Color.white.opacity(0.12)) { resetInput() }
-                utilBtn("DELETE CELL", Verb.delete.hue) { deleteEditedCell() }
-            }
+            utilBtn("DELETE CELL", Verb.delete.hue) { deleteEditedCell() }   // (input-shaping utilities parked with the INPUT section, user 2026-07-31)
         }
     }
     private func utilBtn(_ label: String, _ fill: Color, _ action: @escaping () -> Void) -> some View {
@@ -1214,19 +1202,28 @@ struct DiagView: View {
     // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×2 grid + ALT destination (model
     // persisted; the routing ENGINE is a separate increment — labelled so it's honest, not a silent no-op).
     private let mainDestHue = Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — the emitters
-    @ViewBuilder private func outputSection(_ cell: Cell) -> some View {
+    private enum ChopRow { case main, alt, mute }
+    /// The OUTPUT block — MAIN dest · the 8×3 CHOP grid · ALT dest — CENTRED at the emitter section's width so it
+    /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). MAIN dest is live (edits cell.buses); the
+    /// chop grid + alt dest persist but their routing ENGINE is a separate increment.
+    @ViewBuilder private func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         let chop = cell.chopResolved
-        VStack(alignment: .leading, spacing: 8) {
-            Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) } } }
-            Text("CHOP · destination sequence  (edits persist — routing engine pending)")
-                .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            VStack(spacing: 3) {                             // the 8×2 grid: row 1 MAIN (redirect dot), row 2 MUTE
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, main: true, chop) } }
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, main: false, chop) } }
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) } } }
+                Text("CHOP · MAIN · ALT · MUTE  (routing engine pending)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                VStack(spacing: 3) {                         // the 8×3 grid — one column per slice
+                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }
+                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }
+                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }
+                }
+                Text("ALT DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
             }
-            Text("ALT DESTINATION  (the REDIRECT slices route here too)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.alt.contains(b), hue: Self.editHue) { editChop { if $0.alt.contains(b) { $0.alt.remove(b) } else { $0.alt.insert(b) } } } } }
+            .frame(width: emitterWidth)                      // match the MIDI OUTPUT emitter section width
+            Spacer(minLength: 0)
         }
     }
     private func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
@@ -1235,21 +1232,25 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(on ? hue : Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    private func chopCell(_ i: Int, main: Bool, _ chop: Chop) -> some View {
-        let slot = chop.slots[i]
-        let lit = main ? (slot != .mute) : (slot == .mute)
-        let redir = main && slot == .redirect
-        let hue = main ? Self.editHue : Verb.delete.hue
-        return RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.7) : Color.white.opacity(0.08))
-            .frame(maxWidth: .infinity).frame(height: 20)
-            .overlay { if redir { Circle().fill(.black).frame(width: 5, height: 5) } }   // the REDIRECT mark
-            .contentShape(Rectangle()).onTapGesture { tapChop(i, main: main) }
+    private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
+        let s = chop.slots[i]
+        let lit: Bool, hue: Color
+        switch row {
+        case .main: lit = s.main && !s.mute; hue = mainDestHue
+        case .alt:  lit = s.alt  && !s.mute; hue = Self.editHue
+        case .mute: lit = s.mute;            hue = Verb.delete.hue
+        }
+        return RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.78) : Color.white.opacity(0.08))
+            .frame(maxWidth: .infinity).frame(height: 18)
+            .contentShape(Rectangle()).onTapGesture { tapChop(i, row) }
     }
-    private func tapChop(_ i: Int, main: Bool) {
+    private func tapChop(_ i: Int, _ row: ChopRow) {
         editChop { ch in
-            let cur = ch.slots[i]
-            if main { ch.slots[i] = (cur == .mute) ? .main : (cur == .main ? .redirect : .main) }   // MAIN: un-mute → main ↔ redirect
-            else    { ch.slots[i] = (cur == .mute) ? .main : .mute }                                 // MUTE: exclusive with main
+            switch row {
+            case .main: ch.slots[i].main.toggle(); if ch.slots[i].main { ch.slots[i].mute = false }
+            case .alt:  ch.slots[i].alt.toggle();  if ch.slots[i].alt  { ch.slots[i].mute = false }
+            case .mute: ch.slots[i].mute.toggle(); if ch.slots[i].mute { ch.slots[i].main = false; ch.slots[i].alt = false }   // MUTE exclusive
+            }
         }
     }
     private func toggleMainBus(_ b: Bus) {

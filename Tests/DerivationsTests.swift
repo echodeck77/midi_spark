@@ -942,14 +942,17 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(d.velWindowResolved.floor, 1); XCTAssertEqual(d.velWindowResolved.ceil, 127)
     }
     func testChopCodableAndMigration() throws {   // §cell-edit F — chop model round-trips; absent key ⇒ all-MAIN
-        var ch = Chop(); ch.slots[2] = .redirect; ch.slots[5] = .mute; ch.alt = [.c]
+        var ch = Chop()
+        ch.slots[2] = ChopSlot(main: true, alt: true, mute: false)
+        ch.slots[5] = ChopSlot(main: false, alt: false, mute: true)
+        ch.altDest = [.c]
         var c = Cell(colourID: "gold"); c.chop = ch
         let back = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(c))
-        XCTAssertEqual(back.chop, ch, "a set chop round-trips (slots + alt)")
+        XCTAssertEqual(back.chop, ch, "a set chop round-trips (slots + altDest)")
         let d = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(Cell(colourID: "gold")))
         XCTAssertNil(d.chop, "no chop key ⇒ nil")
-        XCTAssertEqual(d.chopResolved.slots, Array(repeating: ChopSlot.main, count: 8), "…resolves to all-MAIN")
-        XCTAssertTrue(d.chopResolved.alt.isEmpty)
+        XCTAssertEqual(d.chopResolved.slots, Array(repeating: ChopSlot(), count: 8), "…resolves to all-MAIN")
+        XCTAssertTrue(d.chopResolved.altDest.isEmpty)
     }
 
     // The gate's activeCount tracks held echoes and returns to zero after their offs.
