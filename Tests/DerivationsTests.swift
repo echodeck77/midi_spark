@@ -865,6 +865,56 @@ final class DerivationsTests: XCTestCase {
                                           activeVoices: 0, passthroughHeld: 0), "nothing sounding → nothing to heal")
     }
 
+    // §cell-edit D — CHORD SPLIT window over an ascending source list [60, 64, 67, 72] (4 notes).
+    private let chord4 = [60, 64, 67, 72]
+    private func win(_ s: ChordSplit) -> (start: Int, len: Int) { chordSplitWindow(count: chord4.count, split: s) { chord4[$0] } }
+    func testChordSplitAllTakesEverything() {
+        XCTAssertTrue(win(ChordSplit(mode: .all)) == (0, 4))
+    }
+    func testChordSplitTopIsTheHighestNSuffix() {
+        XCTAssertTrue(win(ChordSplit(mode: .top, n: 2)) == (2, 2), "TOP 2 = indices 2,3 (67,72)")
+        XCTAssertTrue(win(ChordSplit(mode: .top, n: 10)) == (0, 4), "TOP n>count clamps to all")
+    }
+    func testChordSplitBottomIsTheLowestNPrefix() {
+        XCTAssertTrue(win(ChordSplit(mode: .bottom, n: 2)) == (0, 2), "BOTTOM 2 = indices 0,1 (60,64)")
+    }
+    func testChordSplitRangeHighTakesTheSplitAndAbove() {
+        XCTAssertTrue(win(ChordSplit(mode: .range, note: 67, high: true)) == (2, 2), "≥67 = 67,72")
+        XCTAssertTrue(win(ChordSplit(mode: .range, note: 60, high: true)) == (0, 4), "≥60 = all")
+        XCTAssertTrue(win(ChordSplit(mode: .range, note: 100, high: true)) == (4, 0), "≥100 = none")
+    }
+    func testChordSplitRangeLowTakesBelowTheSplit() {
+        XCTAssertTrue(win(ChordSplit(mode: .range, note: 67, high: false)) == (0, 2), "<67 = 60,64")
+        XCTAssertTrue(win(ChordSplit(mode: .range, note: 60, high: false)) == (0, 0), "<60 = none")
+    }
+    func testChordSplitEmptyChordIsEmptyWindow() {
+        XCTAssertTrue(chordSplitWindow(count: 0, split: ChordSplit(mode: .top, n: 2)) { _ in 0 } == (0, 0))
+    }
+    func testSrcReadersApplyChordSplit() {   // the split actually rides the NotePool source readers
+        let pool = NotePool()
+        for n: UInt8 in [60, 64, 67, 72] { pool.noteOn(n, velocity: 100, channel: 0) }
+        pool.rebuildSorted()
+        var cell = SnapCell()                                    // OMNI channel, ANY cable
+        cell.chordSplit = ChordSplit(mode: .top, n: 2)
+        XCTAssertEqual(pool.srcCount(for: cell), 2)
+        XCTAssertEqual(pool.srcAscending(0, for: cell), 67)
+        XCTAssertEqual(pool.srcAscending(1, for: cell), 72)
+        cell.chordSplit = ChordSplit(mode: .range, note: 65, high: false)   // < 65 → 60, 64
+        XCTAssertEqual(pool.srcCount(for: cell), 2)
+        XCTAssertEqual(pool.srcAscending(0, for: cell), 60)
+        cell.chordSplit = ChordSplit()                           // ALL → the whole chord, untouched
+        XCTAssertEqual(pool.srcCount(for: cell), 4)
+    }
+    func testChordSplitCodableAndMigration() throws {
+        var c = Cell(colourID: "gold"); c.chordSplit = ChordSplit(mode: .top, n: 3)
+        let back = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(c))
+        XCTAssertEqual(back.chordSplit, ChordSplit(mode: .top, n: 3), "a set split round-trips")
+        // a default cell omits the Optional key (encodeIfPresent) — decoding that is the OLD-doc migration path
+        let d = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(Cell(colourID: "gold")))
+        XCTAssertNil(d.chordSplit, "no split key ⇒ nil")
+        XCTAssertEqual(d.chordSplitResolved.mode, .all, "…resolves to ALL")
+    }
+
     // The gate's activeCount tracks held echoes and returns to zero after their offs.
     func testGateActiveCountBalances() {
         var g = PassthroughGate()

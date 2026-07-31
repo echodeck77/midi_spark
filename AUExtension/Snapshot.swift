@@ -39,6 +39,7 @@ struct SnapCell {
                                     // receiver at build time — MIDI-IN cells only; render just reads it.
     var resolvedReceiver: Int8 = -1 // delta §9 item 11: the receiver a MIDI-IN cell reads (0–3), else −1
     var inputCableMask: UInt8 = 0b1111  // §item 11 INPUT CABLES: the receiver's cable bitmask (ANY = all); render just reads it
+    var chordSplit = ChordSplit()   // §cell-edit D: which held source notes this cell takes (ALL default); render reads via srcCount/srcAscending(for:)
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)

@@ -1098,7 +1098,8 @@ struct DiagView: View {
                     Text("INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     facetRow("SOURCE") { inputSourceChip(cell) }
                     inputShiftRow                             // §D octave + transpose (existing steppers, unchanged)
-                    Text("chord-split · velocity window — soon")
+                    chordSplitRow(cell)                       // §D chord split (per-cell)
+                    Text("velocity window — soon")
                         .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
                 }
                 VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
@@ -1329,6 +1330,29 @@ struct DiagView: View {
             .frame(minWidth: 22, minHeight: 20).padding(.horizontal, 3)
             .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    /// CHORD SPLIT (D) — a per-cell field (not Colour-side): ALL · TOP n · BOTTOM n · KEY RANGE (split + side).
+    @ViewBuilder private func chordSplitRow(_ cell: Cell) -> some View {
+        let sp = cell.chordSplitResolved
+        VStack(alignment: .leading, spacing: 4) {
+            facetRow("SPLIT") { trigSeg(SplitMode.allCases, sp.mode, label: { $0.rawValue }) { m in editSplit { $0.mode = m } } }
+            if sp.mode == .top || sp.mode == .bottom {
+                facetRow("N") { trigStepper(sp.n, 1, 8) { v in editSplit { $0.n = v } } }
+            }
+            if sp.mode == .range {
+                facetRow("KEY") { trigStepper(sp.note, 0, 127) { v in editSplit { $0.note = v } } }
+                facetRow("SIDE") { trigSeg([true, false], sp.high, label: { $0 ? "HIGH ≥" : "LOW <" }) { v in editSplit { $0.high = v } } }
+            }
+        }
+    }
+    private func editSplit(_ mutate: @escaping (inout ChordSplit) -> Void) {
+        setEditSource { s in
+            if var c = s.cells[selCol][selRow] {
+                var sp = c.chordSplitResolved; mutate(&sp)
+                c.chordSplit = (sp == ChordSplit() ? nil : sp)   // back to nil = ALL keeps clean docs
+                s.cells[selCol][selRow] = c
+            }
+        }
     }
 
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.

@@ -204,6 +204,17 @@ struct OnConfig: Codable, Equatable {
 
 // MARK: - Cell (the patch point) — §1.1: cells share nothing.
 
+/// §cell-edit D — CHORD SPLIT: which of a MIDI-IN cell's held source notes it takes. ALL (default) · TOP n ·
+/// BOTTOM n · KEY RANGE (a split note + a side). On the ascending source list every mode is a contiguous
+/// window (RANGE HIGH = the ≥split suffix, LOW = the <split prefix), resolved by `chordSplitWindow`.
+enum SplitMode: String, Codable, CaseIterable { case all = "ALL", top = "TOP", bottom = "BOTTOM", range = "RANGE" }
+struct ChordSplit: Codable, Equatable {
+    var mode: SplitMode = .all
+    var n: Int = 2            // TOP/BOTTOM: how many notes
+    var note: Int = 60       // RANGE: the split point (MIDI note)
+    var high: Bool = true    // RANGE: side — true = notes ≥ split (HIGH), false = notes < split (LOW)
+}
+
 struct Cell: Codable, Equatable {
     var colourID: String
     var stack: Bool = false        // v2 LEGACY (▾) — decode-only after commit 3; removed at commit 4
@@ -227,6 +238,10 @@ struct Cell: Codable, Equatable {
     // nil; nil = the default receiver (0 = Receiver 1). Row-referencing cells ignore it. The cell's
     // effective source filter is resolved from this receiver at build time (SnapCell.inputChannel).
     var inputReceiver: Int? = nil
+    // §cell-edit D CHORD SPLIT (per-cell): which held source notes this cell takes. Optional → old docs decode
+    // as nil = ALL (no split). Applies at the source boundary (SnapCell mirror drives the render path).
+    var chordSplit: ChordSplit? = nil
+    var chordSplitResolved: ChordSplit { chordSplit ?? ChordSplit() }
 }
 
 // MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object

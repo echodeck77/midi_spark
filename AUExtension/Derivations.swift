@@ -114,10 +114,18 @@ final class NotePool {
     // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
     // pairing. The base filter-taking methods stay for the preview/audition paths (which force a filter).
     func srcCount(for cell: SnapCell) -> Int {
-        srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+        let m = srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+        if cell.chordSplit.mode == .all { return m }        // §cell-edit D fast-path
+        return chordSplitWindow(count: m, split: cell.chordSplit) {
+            Int(srcAscending($0, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask)))
+        }.len
     }
     func srcAscending(_ k: Int, for cell: SnapCell) -> UInt8 {
-        srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+        let ch = cell.inputChannel, cable = Int(cell.inputCableMask)
+        if cell.chordSplit.mode == .all { return srcAscending(k, filter: ch, cableMask: cable) }
+        let m = srcCount(filter: ch, cableMask: cable)      // §cell-edit D: shift k into the split's window
+        let start = chordSplitWindow(count: m, split: cell.chordSplit) { Int(srcAscending($0, filter: ch, cableMask: cable)) }.start
+        return srcAscending(start + k, filter: ch, cableMask: cable)
     }
 
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental
@@ -265,6 +273,23 @@ func playingSilenceLeak(playing: Bool, liveInput: Int, latchArmed: Bool, auditio
                         activeVoices: Int, passthroughHeld: Int) -> Bool {
     guard playing, liveInput == 0, !latchArmed, !auditioning, emptyInputSamples >= debounceSamples else { return false }
     return activeVoices > 0 || passthroughHeld > 0
+}
+
+/// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
+/// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
+/// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads
+/// the i-th ascending source note (consulted only for RANGE). Pure so the selection law is unit-tested.
+func chordSplitWindow(count: Int, split: ChordSplit, noteAt: (Int) -> Int) -> (start: Int, len: Int) {
+    guard count > 0 else { return (0, 0) }
+    switch split.mode {
+    case .all:    return (0, count)
+    case .top:    let len = min(max(0, split.n), count); return (count - len, len)
+    case .bottom: let len = min(max(0, split.n), count); return (0, len)
+    case .range:
+        var b = 0
+        while b < count && noteAt(b) < split.note { b += 1 }   // first index whose note ≥ the split point
+        return split.high ? (b, count - b) : (0, b)
+    }
 }
 
 /// The within-column sweep fraction (0 at column entry → 1 at exit) in REAL time — drives every
