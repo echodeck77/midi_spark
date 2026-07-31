@@ -80,8 +80,15 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
       unchanged" — surfaces the per-Colour `transpose` (−24…+24 st, already engine-wide) as a SHIFT row (octave
       ±12 + semitone ±1) via `setBrushTranspose`. Colour-side like triggers; no schema/engine change. _(If a true
       per-CELL input transpose is wanted later, that's the net-new ~5-site version — deferred.)_
-  - [ ] **Phase 4 — output/chop** (spec F REVISED 2026-07-31): main dest toggles + a GRAPHICAL 8×2 chop grid
-    (Row 1 MAIN w/ redirect-mark toggle · Row 2 MUTE · shared ALT A–D toggles). Resolve open call F.
+  - [~] **Phase 4 — output/chop** (spec F REVISED 2026-07-31):
+    - [x] **UI + model** (off-device): MAIN dest A–D (LIVE, edits cell.buses) · the 8×2 chop grid (MAIN+redirect
+      dot / MUTE) · shared ALT A–D. New `Cell.chop` (Chop = 8 slots + alt set, migration-safe; Codable test).
+      Grid/alt edits persist but are labelled "routing engine pending".
+    - [ ] **chop routing ENGINE** (NET-NEW, the real work): per pass-column, a SUSTAINED cell's output re-routes
+      MAIN/REDIRECT(+alt)/MUTE across column boundaries — touches the boundary reconcile. Confirm the temporal
+      semantic (8 slots = pass columns; applies to notes crossing boundaries) on device before wiring.
+    - Open call F (emitter-picker vs spatial ROUTE-OUT) — both surfaced now (two doors); leave as-is unless the
+      user rules to collapse them.
   - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
     risk); UI toggle + wiring. Resolve open call G3 (LOOP-starts-playback-when-stopped).
   - [ ] **Phase 6 — test pad**: real-path stopped-time trigger fire (self-driven clock + silence-invariant
