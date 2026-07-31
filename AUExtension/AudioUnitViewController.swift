@@ -1284,12 +1284,10 @@ struct DiagView: View {
     /// the model's `*Summary` strings). Reads the brush Colour's resolved `OnConfig`.
     @ViewBuilder private var triggersAccordion: some View {
         let on = brushColour?.onResolved ?? OnConfig()
-        VStack(spacing: 4) {
+        VStack(spacing: 4) {   // §cell-edit: LEAVE + SCENE dropped this version; only the WIRED actions are offered
             trigRow(0, "TAP", on.tapSummary) { AnyView(tapEditor(on)) }
             trigRow(1, "HOLD", on.holdSummary) { AnyView(holdEditor(on)) }
             trigRow(2, "ARRIVE", on.arriveSummary) { AnyView(arriveEditor(on)) }
-            trigRow(3, "LEAVE", on.leaveSummary) { AnyView(leaveEditor(on)) }
-            trigRow(4, "SCENE", on.sceneSummary) { AnyView(sceneEditor(on)) }
         }
     }
     // NOTE: `editor` is type-ERASED to AnyView on purpose. This row is an accordion nested inside the page's
@@ -1316,10 +1314,12 @@ struct DiagView: View {
             if open { editor().padding(.horizontal, 8).padding(.vertical, 6) }
         }
     }
-    // ---- per-section editors ----
+    // ---- per-section editors. Each picker offers ONLY the engine-WIRED actions (the inert placeholders — TAP
+    //      fill/replay · HOLD freeze/slice-cycle/morph-scrub · ARRIVE dice — are hidden this version; the enum
+    //      cases stay in the model, append-only, for the future TOUCH-box design pass). ----
     @ViewBuilder private func tapEditor(_ on: OnConfig) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            trigMenu(OnTap.allCases, on.tap) { v in editOn { $0.tap = v } }
+            trigMenu([.none, .alt, .mute, .solo], on.tap) { v in editOn { $0.tap = v } }
             if on.tap != .none {
                 facetRow("WHEN") { trigSeg(OnTapWhen.allCases, on.tapWhen, label: { $0.rawValue }) { v in editOn { $0.tapWhen = v } } }
                 facetRow("FOR")  { trigSeg(OnTapFor.allCases, on.tapFor, label: { $0.rawValue }) { v in editOn { $0.tapFor = v } } }
@@ -1328,17 +1328,15 @@ struct DiagView: View {
     }
     @ViewBuilder private func holdEditor(_ on: OnConfig) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            trigMenu(OnHold.allCases, on.hold) { v in editOn { $0.hold = v } }
-            if on.hold != .none {
-                facetRow("REL") { trigSeg(OnHoldRelease.allCases, on.holdRelease, label: { $0.rawValue }) { v in editOn { $0.holdRelease = v } } }
-                if on.hold == .sliceCycle { facetRow("SIZE") { trigSeg(SliceSize.allCases, on.sliceSize, label: { $0.rawValue }) { v in editOn { $0.sliceSize = v } } } }
-                if on.hold == .oct { facetRow("DIR") { trigSeg([true, false], on.octUp, label: { $0 ? "+" : "−" }) { v in editOn { $0.octUp = v } } } }
-            }
+            trigMenu([.none, .alt, .oct], on.hold) { v in editOn { $0.hold = v } }
+            // (REL SPRING|LATCH dropped — hold triggers are spring-only today; LATCH-persist is a future. SIZE
+            //  facet dropped with slice-cycle.)
+            if on.hold == .oct { facetRow("DIR") { trigSeg([true, false], on.octUp, label: { $0 ? "+" : "−" }) { v in editOn { $0.octUp = v } } } }
         }
     }
     @ViewBuilder private func arriveEditor(_ on: OnConfig) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            trigMenu(OnArrive.allCases, on.arrive) { v in editOn { $0.arrive = v } }
+            trigMenu([.none, .altAlternate, .morphDrift, .emitterRotate], on.arrive) { v in editOn { $0.arrive = v } }
             if on.arrive != .none {
                 facetRow("EVERY") { trigStepper(on.arriveEvery, 1, 4) { v in editOn { $0.arriveEvery = v } } }
                 if on.arrive == .morphDrift {
@@ -1346,19 +1344,6 @@ struct DiagView: View {
                     facetRow("MODE") { trigSeg(DriftMode.allCases, on.driftMode, label: { $0.rawValue }) { v in editOn { $0.driftMode = v } } }
                 }
             }
-        }
-    }
-    @ViewBuilder private func leaveEditor(_ on: OnConfig) -> some View {
-        trigMenu(OnLeave.allCases, on.leave) { v in editOn { $0.leave = v } }
-    }
-    @ViewBuilder private func sceneEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigCheck("ENTRANCE", on.sceneEntrance) { v in editOn { $0.sceneEntrance = v } }
-            if on.sceneEntrance { facetRow("PASS") { trigStepper(on.entrancePass, 1, 16) { v in editOn { $0.entrancePass = v } } } }
-            trigCheck("EXIT", on.sceneExit) { v in editOn { $0.sceneExit = v } }
-            if on.sceneExit { facetRow("PASS") { trigStepper(on.exitPass, 1, 16) { v in editOn { $0.exitPass = v } } } }
-            trigCheck("RESET MORPH", on.sceneResetMorph) { v in editOn { $0.sceneResetMorph = v } }
-            trigCheck("AUTO-ARM (no RECORD yet)", false) { _ in }.opacity(0.35).allowsHitTesting(false)   // always greyed this iteration
         }
     }
     // ---- small trigger controls ----
@@ -1403,14 +1388,6 @@ struct DiagView: View {
             Text("+").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
                 .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
         }
-    }
-    private func trigCheck(_ label: String, _ isOn: Bool, _ set: @escaping (Bool) -> Void) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: isOn ? "checkmark.square.fill" : "square").font(.system(size: 12, weight: .heavy)).foregroundColor(isOn ? Self.editHue : .white.opacity(0.4))
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle()).onTapGesture { set(!isOn) }
     }
 
     // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
