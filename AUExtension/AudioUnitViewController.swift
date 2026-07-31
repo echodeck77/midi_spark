@@ -941,7 +941,16 @@ struct DiagView: View {
         if let cell = editingCell {
             // §cell-edit B (user 2026-07-31): the CELL EDIT page replaces the GRID in place — the same
             // "grid region becomes the tool" move FLOW uses. Receivers/emitters/strips/desk stay visible + live.
-            cellEditPage(cell)
+            // The row rails + a column-chevron strip stay in place (edited row/column lit) so the page reads as
+            // grid-anchored — this info still pertains to the grid (user 2026-07-31).
+            HStack(spacing: 3) {
+                rowRail(cellHeight, chevron: "chevron.right")   // LEFT rail (kept for grid context)
+                VStack(spacing: GridGeometry.vGap) {
+                    editColumnKeys(cellHeight)                   // top column chevrons — the edited column lit
+                    cellEditPage(cell)
+                }
+                rowRail(cellHeight, chevron: "chevron.left")    // RIGHT rail (kept for grid context)
+            }
         } else if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
@@ -1075,7 +1084,7 @@ struct DiagView: View {
                 VStack(spacing: 6) {
                     pageSection(0, "IDENTITY", editName(cell.colourID)) { identitySection(cell) }
                     pageSection(1, "INPUT", inputSourceLabel(cell)) { inputSection(cell) }
-                    pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { triggersAccordion }
+                    pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { AnyView(triggersAccordion) }
                     pageSection(3, "OUTPUT", "") { editSectionStub("chop · destinations — soon") }
                     // (COLOUR · PROCESSOR is NOT duplicated here — the sound desk stays visible + reachable in its
                     //  own column, per the user's "other parts still visible" direction, 2026-07-31.)
@@ -1083,6 +1092,18 @@ struct DiagView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // fill the grid's slot (not the window)
+    }
+    // The grid's column-key row, kept above the edit page (down chevrons; the EDITED column lit) so the page
+    // stays visibly anchored to the grid. Mirrors GridView.columnKeys' geometry (cellHeight tall, vGap gaps).
+    private func editColumnKeys(_ cellHeight: CGFloat) -> some View {
+        HStack(spacing: GridGeometry.vGap) {
+            ForEach(0..<8, id: \.self) { c in
+                Image(systemName: "chevron.down").font(.system(size: 15, weight: .heavy))
+                    .foregroundColor(c == selCol ? .black : .white.opacity(0.45))
+                    .frame(maxWidth: .infinity).frame(height: cellHeight)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(c == selCol ? Self.editHue : Color.white.opacity(0.06)))
+            }
+        }
     }
     // B2 — scene · edited column · an 8-dot minimap (edited column lit) · DONE (returns to the grid instantly).
     private func breadcrumb(_ cell: Cell) -> some View {
@@ -1194,15 +1215,19 @@ struct DiagView: View {
     @ViewBuilder private var triggersAccordion: some View {
         let on = brushColour?.onResolved ?? OnConfig()
         VStack(spacing: 4) {
-            trigRow(0, "TAP", on.tapSummary) { tapEditor(on) }
-            trigRow(1, "HOLD", on.holdSummary) { holdEditor(on) }
-            trigRow(2, "ARRIVE", on.arriveSummary) { arriveEditor(on) }
-            trigRow(3, "LEAVE", on.leaveSummary) { leaveEditor(on) }
-            trigRow(4, "SCENE", on.sceneSummary) { sceneEditor(on) }
+            trigRow(0, "TAP", on.tapSummary) { AnyView(tapEditor(on)) }
+            trigRow(1, "HOLD", on.holdSummary) { AnyView(holdEditor(on)) }
+            trigRow(2, "ARRIVE", on.arriveSummary) { AnyView(arriveEditor(on)) }
+            trigRow(3, "LEAVE", on.leaveSummary) { AnyView(leaveEditor(on)) }
+            trigRow(4, "SCENE", on.sceneSummary) { AnyView(sceneEditor(on)) }
         }
     }
-    @ViewBuilder private func trigRow<Body: View>(_ id: Int, _ label: String, _ summary: String,
-                                                  @ViewBuilder editor: () -> Body) -> some View {
+    // NOTE: `editor` is type-ERASED to AnyView on purpose. This row is an accordion nested inside the page's
+    // accordion (pageSection → trigRow → editor); leaving the editor generic makes the TRIGGERS section a
+    // doubly-nested opaque type deep enough to crash SwiftUI's metadata at runtime (device: tapping TRIGGERS
+    // crashed while the shallower sections did not). Erasing here caps the depth. (user-reported, 2026-07-31)
+    @ViewBuilder private func trigRow(_ id: Int, _ label: String, _ summary: String,
+                                      editor: () -> AnyView) -> some View {
         let open = openTrig == id
         VStack(spacing: 0) {
             HStack {
