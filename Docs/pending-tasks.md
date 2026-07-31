@@ -42,6 +42,23 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   `OutputsView.channelStepper` + `ReceiversView.editFeatures` and the `editing` param on both, plus the orphaned
   callbacks/helpers. Strips are single-face forever. _(Separate future: `GridView.editing` — the grid's own
   cell-editor mode — is untouched.)_ Device-verify: the strips look/behave unchanged (perform face only).
+- [~] **CELL EDIT** (spec `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-edit.md`; user-chosen phased build).
+  Decisions locked: start with the station skeleton; **triggers stay Colour-side** (no per-cell schema change).
+  - [x] **Phase 1 — station skeleton** (off-device): EDIT = a 6th control, a TOGGLE (kept out of the `Verb`
+    enum); tap re-points the station at a cell + suppresses the trigger fire; the Cell Edit panel claims the
+    primary slot with a CELL EDIT|COLOUR DESK swap; identity (swatch/name/pos) + DELETE (sever). Device-verify:
+    armed latched look, re-point + white ring, desk swap, scene-switch auto-close, no trigger while armed, both
+    orientations place the panel.
+  - [ ] **Phase 2 — triggers accordion** (Colour-side): TAP/HOLD/ARRIVE/LEAVE/SCENE rows reusing `OnConfig` +
+    `*Summary`/`triggerMark`; new `Colour.on` write path. REDIRECT + ALT-DEST A–D = net-new model+engine. Plus
+    Apply-to-scope (Colour-level), Copy/Paste CONFIG (OnConfig clipboard), Reset-to-defaults.
+  - [ ] **Phase 3 — input editing**: chord-split / velocity-window / input octave / input transpose are all
+    NET-NEW model fields (migration + engine + UI); source picker reuses receiver/row routing.
+  - [ ] **Phase 4 — output/chop**: destination toggles + 8-slice MAIN·ALT·REST sequence. Resolve open call F.
+  - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
+    risk); UI toggle + wiring. Resolve open call G3 (LOOP-starts-playback-when-stopped).
+  - [ ] **Phase 6 — test pad**: real-path stopped-time trigger fire (self-driven clock + silence-invariant
+    exemption + scope). Hardest engine piece.
 - [x] **Trigger-glyph cell face** (§3) — built in the cells-and-colour-desk overhaul (emblem · trigger glyph · digest · dots · compass tint) and device-verified 2026-07-30.
 - [x] **Touch completions** — palette LIVE during holds · **STROKES** · **MIXED-SET law** — ALL DONE (2026-07-29; see the DONE block above).
 - [ ] **Live preset previews** · **SCROLL+TEACH** (both deferred-flagged).
