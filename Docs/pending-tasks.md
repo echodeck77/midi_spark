@@ -63,9 +63,10 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     - [ ] **3b chord-split** (NET-NEW): ALL · TOP n · BOTTOM n · KEY RANGE — filters the source note SET at the
       `srcCount`/`srcAscending` boundary. Pure-testable split logic; new Optional Cell/SnapCell field + migration.
     - [ ] **3c velocity window** (NET-NEW): floor/ceiling gate on input notes at the source-read boundary.
-    - [ ] **3d input octave + transpose** (NET-NEW): a per-cell semitone/octave shift — a new term added at the
-      ~5 engine transpose sites (`colourTranspose(...) + octaveShift(...)` in Router: holds/ticks/mirror/strum/
-      preview). Schema field + SnapCell + SnapshotBuilder + migration + test. Do carefully, one site audit.
+    - [x] **3d input octave + transpose** (off-device, REUSE not net-new): per spec "existing steppers,
+      unchanged" — surfaces the per-Colour `transpose` (−24…+24 st, already engine-wide) as a SHIFT row (octave
+      ±12 + semitone ±1) via `setBrushTranspose`. Colour-side like triggers; no schema/engine change. _(If a true
+      per-CELL input transpose is wanted later, that's the net-new ~5-site version — deferred.)_
   - [ ] **Phase 4 — output/chop**: destination toggles + 8-slice MAIN·ALT·REST sequence. Resolve open call F.
   - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
     risk); UI toggle + wiring. Resolve open call G3 (LOOP-starts-playback-when-stopped).
