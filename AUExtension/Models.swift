@@ -215,6 +215,13 @@ struct ChordSplit: Codable, Equatable {
     var high: Bool = true    // RANGE: side — true = notes ≥ split (HIGH), false = notes < split (LOW)
 }
 
+/// §cell-edit D — VELOCITY WINDOW: a MIDI-IN cell admits only source notes whose velocity is in [floor, ceil].
+/// The default (1…127) admits everything; it gates at the source boundary, BEFORE the chord split selects.
+struct VelWindow: Codable, Equatable {
+    var floor: Int = 1       // 1…127
+    var ceil: Int = 127      // 1…127 (≥ floor)
+}
+
 struct Cell: Codable, Equatable {
     var colourID: String
     var stack: Bool = false        // v2 LEGACY (▾) — decode-only after commit 3; removed at commit 4
@@ -242,6 +249,10 @@ struct Cell: Codable, Equatable {
     // as nil = ALL (no split). Applies at the source boundary (SnapCell mirror drives the render path).
     var chordSplit: ChordSplit? = nil
     var chordSplitResolved: ChordSplit { chordSplit ?? ChordSplit() }
+    // §cell-edit D VELOCITY WINDOW (per-cell): admit only source notes with velocity in [floor, ceil]. Optional
+    // → old docs decode nil = full range (1…127). Gates at the source boundary, before the chord split.
+    var velWindow: VelWindow? = nil
+    var velWindowResolved: VelWindow { velWindow ?? VelWindow() }
 }
 
 // MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object

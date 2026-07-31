@@ -113,19 +113,45 @@ final class NotePool {
     // §item 11: convenience readers — pull BOTH filter fields (channel + cable) off a SnapCell in one
     // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
     // pairing. The base filter-taking methods stay for the preview/audition paths (which force a filter).
+    // §cell-edit D velocity-aware base — channel/cable filter AND velocity ∈ [velLo, velHi]. Only reached when a
+    // cell's window is narrower than full range (the full-range path keeps the original fast readers above).
+    func srcCount(filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8) -> Int {
+        var n = 0
+        for i in 0..<count where matches(sorted[i], filter, cableMask) {
+            let v = vel[Int(sorted[i])]; if v >= velLo && v <= velHi { n += 1 }
+        }
+        return n
+    }
+    func srcAscending(_ k: Int, filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8) -> UInt8 {
+        var seen = 0
+        for i in 0..<count where matches(sorted[i], filter, cableMask) {
+            let v = vel[Int(sorted[i])]; guard v >= velLo && v <= velHi else { continue }
+            if seen == k { return sorted[i] }; seen += 1
+        }
+        return 255
+    }
+    // §cell-edit D: the cell's admitted source = channel/cable + VELOCITY WINDOW (full range → the fast readers).
+    private func srcCountFiltered(_ cell: SnapCell) -> Int {
+        (cell.velFloor <= 1 && cell.velCeil >= 127)
+            ? srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+            : srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask), velLo: cell.velFloor, velHi: cell.velCeil)
+    }
+    private func srcAscendingFiltered(_ k: Int, _ cell: SnapCell) -> UInt8 {
+        (cell.velFloor <= 1 && cell.velCeil >= 127)
+            ? srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+            : srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask), velLo: cell.velFloor, velHi: cell.velCeil)
+    }
+    // Full per-cell source read: velocity window (admission), THEN the chord split (a window on that list).
     func srcCount(for cell: SnapCell) -> Int {
-        let m = srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
-        if cell.chordSplit.mode == .all { return m }        // §cell-edit D fast-path
-        return chordSplitWindow(count: m, split: cell.chordSplit) {
-            Int(srcAscending($0, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask)))
-        }.len
+        let base = srcCountFiltered(cell)
+        if cell.chordSplit.mode == .all { return base }
+        return chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscendingFiltered($0, cell)) }.len
     }
     func srcAscending(_ k: Int, for cell: SnapCell) -> UInt8 {
-        let ch = cell.inputChannel, cable = Int(cell.inputCableMask)
-        if cell.chordSplit.mode == .all { return srcAscending(k, filter: ch, cableMask: cable) }
-        let m = srcCount(filter: ch, cableMask: cable)      // §cell-edit D: shift k into the split's window
-        let start = chordSplitWindow(count: m, split: cell.chordSplit) { Int(srcAscending($0, filter: ch, cableMask: cable)) }.start
-        return srcAscending(start + k, filter: ch, cableMask: cable)
+        if cell.chordSplit.mode == .all { return srcAscendingFiltered(k, cell) }
+        let base = srcCountFiltered(cell)
+        let start = chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscendingFiltered($0, cell)) }.start
+        return srcAscendingFiltered(start + k, cell)
     }
 
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental

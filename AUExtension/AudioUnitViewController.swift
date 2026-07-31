@@ -1099,8 +1099,7 @@ struct DiagView: View {
                     facetRow("SOURCE") { inputSourceChip(cell) }
                     inputShiftRow                             // §D octave + transpose (existing steppers, unchanged)
                     chordSplitRow(cell)                       // §D chord split (per-cell)
-                    Text("velocity window — soon")
-                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
+                    velWindowRow(cell)                        // §D velocity window (per-cell)
                 }
                 VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
                     Text("TRIGGERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
@@ -1350,6 +1349,25 @@ struct DiagView: View {
             if var c = s.cells[selCol][selRow] {
                 var sp = c.chordSplitResolved; mutate(&sp)
                 c.chordSplit = (sp == ChordSplit() ? nil : sp)   // back to nil = ALL keeps clean docs
+                s.cells[selCol][selRow] = c
+            }
+        }
+    }
+    /// VELOCITY WINDOW (D) — a per-cell floor/ceiling admission gate.
+    @ViewBuilder private func velWindowRow(_ cell: Cell) -> some View {
+        let vw = cell.velWindowResolved
+        VStack(alignment: .leading, spacing: 4) {
+            facetRow("VEL ≥") { trigStepper(vw.floor, 1, 127) { v in editVel { $0.floor = v } } }
+            facetRow("VEL ≤") { trigStepper(vw.ceil, 1, 127) { v in editVel { $0.ceil = v } } }
+        }
+    }
+    private func editVel(_ mutate: @escaping (inout VelWindow) -> Void) {
+        setEditSource { s in
+            if var c = s.cells[selCol][selRow] {
+                var vw = c.velWindowResolved; mutate(&vw)
+                vw.floor = max(1, min(127, vw.floor)); vw.ceil = max(1, min(127, vw.ceil))
+                vw.floor = min(vw.floor, vw.ceil)                // floor never exceeds ceil
+                c.velWindow = (vw == VelWindow() ? nil : vw)     // back to nil = full range keeps clean docs
                 s.cells[selCol][selRow] = c
             }
         }

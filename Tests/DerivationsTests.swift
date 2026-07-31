@@ -915,6 +915,33 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(d.chordSplitResolved.mode, .all, "…resolves to ALL")
     }
 
+    // §cell-edit D — VELOCITY WINDOW admission (gates BEFORE the chord split).
+    func testVelocityWindowGatesThenSplits() {
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 30, channel: 0)
+        pool.noteOn(64, velocity: 80, channel: 0)
+        pool.noteOn(67, velocity: 120, channel: 0)
+        pool.rebuildSorted()
+        var cell = SnapCell()
+        cell.velFloor = 50; cell.velCeil = 100                   // only 64 (vel 80) is admitted
+        XCTAssertEqual(pool.srcCount(for: cell), 1)
+        XCTAssertEqual(pool.srcAscending(0, for: cell), 64)
+        cell.velFloor = 40; cell.velCeil = 127                   // admits 64,67; then TOP 1 → 67
+        cell.chordSplit = ChordSplit(mode: .top, n: 1)
+        XCTAssertEqual(pool.srcCount(for: cell), 1)
+        XCTAssertEqual(pool.srcAscending(0, for: cell), 67)
+        cell.velFloor = 1; cell.velCeil = 127; cell.chordSplit = ChordSplit()   // full range + ALL → everything
+        XCTAssertEqual(pool.srcCount(for: cell), 3)
+    }
+    func testVelWindowCodableAndMigration() throws {
+        var c = Cell(colourID: "gold"); c.velWindow = VelWindow(floor: 40, ceil: 110)
+        let back = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(c))
+        XCTAssertEqual(back.velWindow, VelWindow(floor: 40, ceil: 110))
+        let d = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(Cell(colourID: "gold")))
+        XCTAssertNil(d.velWindow, "no key ⇒ nil")
+        XCTAssertEqual(d.velWindowResolved.floor, 1); XCTAssertEqual(d.velWindowResolved.ceil, 127)
+    }
+
     // The gate's activeCount tracks held echoes and returns to zero after their offs.
     func testGateActiveCountBalances() {
         var g = PassthroughGate()

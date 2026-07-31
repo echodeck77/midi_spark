@@ -45,6 +45,8 @@ enum SnapshotBuilder {
                 sc.muted = cell.muted
                 sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
+                let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
+                sc.velFloor = UInt8(max(1, min(127, vw.floor))); sc.velCeil = UInt8(max(1, min(127, vw.ceil)))
                 // v3.0 (delta §1): resolve the input reference — inputRow if that row is occupied and
                 // not self, else MIDI IN. Occupancy checked here; the muted-parent reroute is runtime.
                 if let ir = cell.inputRow, ir != r, ir >= 0, ir < Snap.rows,
