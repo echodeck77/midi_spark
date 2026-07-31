@@ -57,7 +57,7 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     A–D toggles (new `OnConfig` field + admission-time engine effect); the TAP CUT|LAYER retrigger field.
   - [ ] **Utilities** (pair with Phase 3, once cell-level settings exist): Apply-to-scope (`applyToScope` for
     input/buses), Copy/Paste CONFIG (an `OnConfig`+input clipboard, `ProcClip` pattern), Reset-to-defaults.
-  - [~] **Phase 3 — input editing**:
+  - [x] **Phase 3 — input editing** (COMPLETE, off-device): source · octave/transpose · chord-split · velocity window.
     - [x] **3a source picker** (off-device): NONE · MIDI-IN R1–R4 · FROM ROW n value-chip, editing the existing
       `inputRow`/`inputReceiver` (reuse `routeInReceiver`/`routeInRow`/`routeInSourcesAbove`). No schema change.
     - [x] **3b chord-split** (NET-NEW, off-device): ALL · TOP n · BOTTOM n · KEY RANGE. `Cell.chordSplit?`
@@ -65,7 +65,9 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
       readers (contiguous window, ALL fast-path); station INPUT SPLIT control (per-cell). Tests: window (all
       modes+edges) · readers apply it · Codable/migration. _(Follow-up: preview/audition STRUM use a raw filter,
       so the split doesn't reach those two paths yet.)_
-    - [ ] **3c velocity window** (NET-NEW): floor/ceiling gate on input notes at the source-read boundary.
+    - [x] **3c velocity window** (NET-NEW, off-device): `Cell.velWindow?` (migration-safe) → `SnapCell`;
+      velocity-aware base readers composed as velocity-admit THEN chord-split (full-range fast-path); station
+      VEL ≥ / VEL ≤ steppers. Tests: gating + composition + Codable/migration.
     - [x] **3d input octave + transpose** (off-device, REUSE not net-new): per spec "existing steppers,
       unchanged" — surfaces the per-Colour `transpose` (−24…+24 st, already engine-wide) as a SHIFT row (octave
       ±12 + semitone ±1) via `setBrushTranspose`. Colour-side like triggers; no schema/engine change. _(If a true
