@@ -102,8 +102,6 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    @State private var openSection: Int? = nil    // §cell-edit B5: page accordion — start ALL collapsed so every section header (IDENTITY · TRIGGERS · OUTPUT) is visible
-    @State private var openTrig: Int? = nil       // §cell-edit E: which triggers-accordion row is expanded (one-open-at-a-time)
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -1076,18 +1074,27 @@ struct DiagView: View {
     /// B1/B3: the page REPLACES the whole working view while EDIT points at a cell (the `body` swaps it in for
     /// the grid). B2 breadcrumb pinned top · B5 persistent LOOP+TEST strip · then IDENTITY·INPUT·TRIGGERS·OUTPUT
     /// and the sound desk as ONE vertical accordion (one section open at a time).
+    // FLAT layout (user 2026-08-01): no accordions — every section shows inline and the user scrolls. (Also
+    // removes the doubly-nested accordion that crashed SwiftUI's metadata earlier.) INPUT + LOOP/TEST parked.
     @ViewBuilder private func cellEditPage(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         VStack(spacing: 6) {
             breadcrumb(cell)                                 // pinned anchor (scene · column · minimap · DONE)
-            ScrollView(.vertical, showsIndicators: false) {  // (INPUT section + LOOP/TEST dropped for now, user 2026-07-31)
-                VStack(spacing: 6) {
-                    pageSection(0, "IDENTITY", editName(cell.colourID)) { AnyView(identitySection(cell)) }
-                    pageSection(1, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { AnyView(triggersAccordion) }
-                    pageSection(2, "OUTPUT", "") { AnyView(outputSection(cell, emitterWidth: emitterWidth)) }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("IDENTITY"); identitySection(cell)
+                    sectionHeader("TRIGGERS"); triggersInline(cell)
+                    sectionHeader("OUTPUT");   outputSection(cell, emitterWidth: emitterWidth)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // fill the grid's slot (not the window)
+    }
+    private func sectionHeader(_ label: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
+        }.padding(.top, 2)
     }
     // The grid's column-key row, kept above the edit page (down chevrons; the EDITED column lit) so the page
     // stays visibly anchored to the grid. Mirrors GridView.columnKeys' geometry (cellHeight tall, vGap gaps).
@@ -1137,21 +1144,6 @@ struct DiagView: View {
         }
     }
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
-    @ViewBuilder private func pageSection<C: View>(_ id: Int, _ label: String, _ summary: String,
-                                                   @ViewBuilder content: () -> C) -> some View {
-        let open = openSection == id
-        VStack(spacing: 0) {
-            HStack {
-                Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(open ? Self.editHue : .white.opacity(0.7))
-                Spacer()
-                if !summary.isEmpty && !open { Text(summary).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1) }
-                Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.4))
-            }
-            .padding(10).contentShape(Rectangle()).onTapGesture { openSection = open ? nil : id }
-            if open { content().padding(.horizontal, 10).padding(.bottom, 10) }
-        }
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(open ? 0.07 : 0.035)))
-    }
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
     // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
@@ -1256,15 +1248,6 @@ struct DiagView: View {
     private func editName(_ id: String) -> String {
         docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
     }
-    private func editSectionStub(_ label: String) -> some View {   // a section slot the later phases fill in
-        HStack {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Spacer()
-            Text("soon").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
-        }
-        .padding(.horizontal, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05)))
-    }
     private func deleteEditedCell() {
         guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
         au.editScene { $0.deleteCellSever(col: selCol, row: selRow) }
@@ -1282,37 +1265,18 @@ struct DiagView: View {
     }
     /// The five ON rows, one-open-at-a-time; assigned rows show their summary, unassigned show a dim ＋ (reusing
     /// the model's `*Summary` strings). Reads the brush Colour's resolved `OnConfig`.
-    @ViewBuilder private var triggersAccordion: some View {
+    // TRIGGERS, flat (user 2026-08-01): TAP · HOLD · ARRIVE editors shown inline, no accordion. LEAVE + SCENE
+    // dropped this version; each picker offers only the engine-WIRED actions.
+    @ViewBuilder private func triggersInline(_ cell: Cell) -> some View {
         let on = brushColour?.onResolved ?? OnConfig()
-        VStack(spacing: 4) {   // §cell-edit: LEAVE + SCENE dropped this version; only the WIRED actions are offered
-            trigRow(0, "TAP", on.tapSummary) { AnyView(tapEditor(on)) }
-            trigRow(1, "HOLD", on.holdSummary) { AnyView(holdEditor(on)) }
-            trigRow(2, "ARRIVE", on.arriveSummary) { AnyView(arriveEditor(on)) }
+        VStack(alignment: .leading, spacing: 10) {
+            trigLabel("TAP");    tapEditor(on)
+            trigLabel("HOLD");   holdEditor(on)
+            trigLabel("ARRIVE"); arriveEditor(on)
         }
     }
-    // NOTE: `editor` is type-ERASED to AnyView on purpose. This row is an accordion nested inside the page's
-    // accordion (pageSection → trigRow → editor); leaving the editor generic makes the TRIGGERS section a
-    // doubly-nested opaque type deep enough to crash SwiftUI's metadata at runtime (device: tapping TRIGGERS
-    // crashed while the shallower sections did not). Erasing here caps the depth. (user-reported, 2026-07-31)
-    @ViewBuilder private func trigRow(_ id: Int, _ label: String, _ summary: String,
-                                      editor: () -> AnyView) -> some View {
-        let open = openTrig == id
-        VStack(spacing: 0) {
-            HStack {
-                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-                Spacer()
-                if summary.isEmpty {
-                    Text("＋").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.3))
-                } else {
-                    Text(summary).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(Self.editHue).lineLimit(1).minimumScaleFactor(0.6)
-                }
-            }
-            .padding(.horizontal, 8).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(open ? 0.11 : 0.05)))
-            .contentShape(Rectangle()).onTapGesture { openTrig = open ? nil : id }
-            if open { editor().padding(.horizontal, 8).padding(.vertical, 6) }
-        }
+    private func trigLabel(_ s: String) -> some View {
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
     }
     // ---- per-section editors. Each picker offers ONLY the engine-WIRED actions (the inert placeholders — TAP
     //      fill/replay · HOLD freeze/slice-cycle/morph-scrub · ARRIVE dice — are hidden this version; the enum
