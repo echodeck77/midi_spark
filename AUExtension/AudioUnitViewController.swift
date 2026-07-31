@@ -1085,7 +1085,7 @@ struct DiagView: View {
                     pageSection(0, "IDENTITY", editName(cell.colourID)) { identitySection(cell) }
                     pageSection(1, "INPUT", inputSourceLabel(cell)) { inputSection(cell) }
                     pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { AnyView(triggersAccordion) }
-                    pageSection(3, "OUTPUT", "") { editSectionStub("chop · destinations — soon") }
+                    pageSection(3, "OUTPUT", "") { AnyView(outputSection(cell)) }
                     // (COLOUR · PROCESSOR is NOT duplicated here — the sound desk stays visible + reachable in its
                     //  own column, per the user's "other parts still visible" direction, 2026-07-31.)
                 }
@@ -1210,6 +1210,55 @@ struct DiagView: View {
             chordSplitRow(cell)
             velWindowRow(cell)
         }
+    }
+    // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×2 grid + ALT destination (model
+    // persisted; the routing ENGINE is a separate increment — labelled so it's honest, not a silent no-op).
+    private let mainDestHue = Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — the emitters
+    @ViewBuilder private func outputSection(_ cell: Cell) -> some View {
+        let chop = cell.chopResolved
+        VStack(alignment: .leading, spacing: 8) {
+            Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) } } }
+            Text("CHOP · destination sequence  (edits persist — routing engine pending)")
+                .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+            VStack(spacing: 3) {                             // the 8×2 grid: row 1 MAIN (redirect dot), row 2 MUTE
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, main: true, chop) } }
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, main: false, chop) } }
+            }
+            Text("ALT DESTINATION  (the REDIRECT slices route here too)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.alt.contains(b), hue: Self.editHue) { editChop { if $0.alt.contains(b) { $0.alt.remove(b) } else { $0.alt.insert(b) } } } } }
+        }
+    }
+    private func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? hue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func chopCell(_ i: Int, main: Bool, _ chop: Chop) -> some View {
+        let slot = chop.slots[i]
+        let lit = main ? (slot != .mute) : (slot == .mute)
+        let redir = main && slot == .redirect
+        let hue = main ? Self.editHue : Verb.delete.hue
+        return RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.7) : Color.white.opacity(0.08))
+            .frame(maxWidth: .infinity).frame(height: 20)
+            .overlay { if redir { Circle().fill(.black).frame(width: 5, height: 5) } }   // the REDIRECT mark
+            .contentShape(Rectangle()).onTapGesture { tapChop(i, main: main) }
+    }
+    private func tapChop(_ i: Int, main: Bool) {
+        editChop { ch in
+            let cur = ch.slots[i]
+            if main { ch.slots[i] = (cur == .mute) ? .main : (cur == .main ? .redirect : .main) }   // MAIN: un-mute → main ↔ redirect
+            else    { ch.slots[i] = (cur == .mute) ? .main : .mute }                                 // MUTE: exclusive with main
+        }
+    }
+    private func toggleMainBus(_ b: Bus) {
+        guard let au, selCol >= 0, selRow >= 0 else { return }
+        au.editScene { $0.toggleEmitter(col: selCol, row: selRow, bus: b) }
+        refreshFromDocument()
+    }
+    private func editChop(_ mutate: @escaping (inout Chop) -> Void) {
+        setEditSource { s in if var c = s.cells[selCol][selRow] { var ch = c.chopResolved; mutate(&ch); c.chop = (ch == Chop() ? nil : ch); s.cells[selCol][selRow] = c } }
     }
     private func editName(_ id: String) -> String {
         docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()

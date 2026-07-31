@@ -222,6 +222,16 @@ struct VelWindow: Codable, Equatable {
     var ceil: Int = 127      // 1…127 (≥ floor)
 }
 
+/// §cell-edit F — CHOP ("destination sequence"): per pass-column, where this cell's output goes — MAIN (its own
+/// emitters) · REDIRECT (its emitters PLUS the shared `alt` set) · MUTE (silent, note-off at the slice edge).
+/// 8 slots = the 8 grid columns. Default (all MAIN, empty alt) = no effect. [Model+UI here; the routing ENGINE
+/// is a separate increment.]
+enum ChopSlot: String, Codable { case main = "MAIN", redirect = "REDIR", mute = "MUTE" }
+struct Chop: Codable, Equatable {
+    var slots: [ChopSlot] = Array(repeating: .main, count: 8)
+    var alt: Set<Bus> = []
+}
+
 struct Cell: Codable, Equatable {
     var colourID: String
     var stack: Bool = false        // v2 LEGACY (▾) — decode-only after commit 3; removed at commit 4
@@ -253,6 +263,9 @@ struct Cell: Codable, Equatable {
     // → old docs decode nil = full range (1…127). Gates at the source boundary, before the chord split.
     var velWindow: VelWindow? = nil
     var velWindowResolved: VelWindow { velWindow ?? VelWindow() }
+    // §cell-edit F CHOP (per-cell output sequence). Optional → old docs decode nil = no chop (all MAIN).
+    var chop: Chop? = nil
+    var chopResolved: Chop { chop ?? Chop() }
 }
 
 // MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object
