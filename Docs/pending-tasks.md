@@ -63,8 +63,8 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     accordion + that edits ride through to the cell-face glyph.
   - [ ] **Phase 2b — REDIRECT + retrigger style** (NET-NEW model+engine): the REDIRECT TAP/HOLD action + ALT-DEST
     A–D toggles (new `OnConfig` field + admission-time engine effect); the TAP CUT|LAYER retrigger field.
-  - [ ] **Utilities** (pair with Phase 3, once cell-level settings exist): Apply-to-scope (`applyToScope` for
-    input/buses), Copy/Paste CONFIG (an `OnConfig`+input clipboard, `ProcClip` pattern), Reset-to-defaults.
+  - [~] **Utilities §I**: [x] Apply-input-to-scope (twins / all-colour, reuse `applyToScope` + live counts) +
+    Reset-input (off-device). [ ] Copy/Paste CONFIG (a cell input+triggers clipboard, `ProcClip` pattern) — deferred.
   - [x] **Phase 3 — input editing** (COMPLETE, off-device): source · octave/transpose · chord-split · velocity window.
     - [x] **3a source picker** (off-device): NONE · MIDI-IN R1–R4 · FROM ROW n value-chip, editing the existing
       `inputRow`/`inputReceiver` (reuse `routeInReceiver`/`routeInRow`/`routeInSourcesAbove`). No schema change.
