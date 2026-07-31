@@ -84,13 +84,15 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     - [x] **UI + model** (off-device): MAIN dest A–D (LIVE, edits cell.buses) · the 8×2 chop grid (MAIN+redirect
       dot / MUTE) · shared ALT A–D. New `Cell.chop` (Chop = 8 slots + alt set, migration-safe; Codable test).
       Grid/alt edits persist but are labelled "routing engine pending".
-    - [~] **chop routing ENGINE**: [x] **v1** — `chopBusMask` (MAIN→own emitters · ALT→altDest mask · MUTE→0)
-      applied at the chord-HOLD/ARP/RATCHET emit, indexed by the pass column (SnapCell.chopSlots/chopAltMask;
-      tests). So a cell's output at its column follows that column's slot. [ ] STRUM + row-fed MIRROR chop
-      (need effColumn threaded). [ ] **the SEMANTIC** — because a cell fires at its own column, only that slot
-      bites per cell today; the full 8-slot sweep (a SUSTAINED note chopping across ALL columns as the pass
-      advances) is a cross-column re-route (boundary reconcile). **Confirm with the user how a sustained note
-      should chop before building it.**
+    - [~] **chop routing ENGINE** (SEMANTIC confirmed by user: 8 slices divide the CELL'S OWN column, a per-cell
+      output gate — not pass columns):
+      - [x] **TICK cells** (off-device): `chopSlice(mBeat, columnBeats:)` → each ARP tick / RATCHET repeat routes
+        MAIN/ALT/MUTE by its slice within the column (`chopBusMask`); MUTE-slice = silent. Tests cover both pure
+        fns. (Reverted the earlier wrong pass-column indexing.)
+      - [ ] **HOLD cells** (identity/passgate/chance/harmonize) — the trance-GATE: sub-articulate the sustained
+        chord into 8 slices (note-off at MUTE edges, ALT redirect), interacting with legato/harmonize/adoption.
+        The bigger piece.
+      - [ ] **STRUM + row-fed MIRROR** chop (thread the onset slice in).
     - Open call F (emitter-picker vs spatial ROUTE-OUT) — both surfaced now (two doors); leave as-is unless the
       user rules to collapse them.
   - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
