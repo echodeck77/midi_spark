@@ -102,7 +102,7 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    @State private var openSection: Int? = 2      // §cell-edit B5: which page accordion section is open (0 IDENTITY · 1 TRIGGERS · 2 OUTPUT)
+    @State private var openSection: Int? = nil    // §cell-edit B5: page accordion — start ALL collapsed so every section header (IDENTITY · TRIGGERS · OUTPUT) is visible
     @State private var openTrig: Int? = nil       // §cell-edit E: which triggers-accordion row is expanded (one-open-at-a-time)
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
