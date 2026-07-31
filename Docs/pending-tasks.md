@@ -44,11 +44,14 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   cell-editor mode — is untouched.)_ Device-verify: the strips look/behave unchanged (perform face only).
 - [~] **CELL EDIT** (spec `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-edit.md`; user-chosen phased build).
   Decisions locked: start with the station skeleton; **triggers stay Colour-side** (no per-cell schema change).
-  - [x] **Phase 1 — station skeleton** (off-device): EDIT = a 6th control, a TOGGLE (kept out of the `Verb`
-    enum); tap re-points the station at a cell + suppresses the trigger fire; the Cell Edit panel claims the
-    primary slot with a CELL EDIT|COLOUR DESK swap; identity (swatch/name/pos) + DELETE (sever). Device-verify:
-    armed latched look, re-point + white ring, desk swap, scene-switch auto-close, no trigger while armed, both
-    orientations place the panel.
+  **LAYOUT REDIRECT (design-side, 2026-07-31): spec B revised — a FULL-PAGE TAKEOVER, not an in-place panel swap.**
+  Contained diff (only B + F changed; A/C/D/E identical) → surgical rework, all content/model/engine/tests kept.
+  - [x] **Phase 1 — station skeleton + full-page rework** (off-device): EDIT = a 6th TOGGLE (out of the `Verb`
+    enum); tap re-points + suppresses the trigger fire. **Re-architected to the full-page takeover**: `cellEditPage`
+    replaces the whole grid layout when a cell is pointed; pinned breadcrumb (scene · column · 8-dot minimap ·
+    DONE); persistent LOOP+TEST strip (placeholders; test pad shows the glyph, H6); ONE vertical accordion
+    (IDENTITY · INPUT · TRIGGERS · OUTPUT · sound-desk, B4). Retired the `primarySlot`/`deskSwapBar`/`deskShowsColour`
+    in-place swap. Device-verify: takeover push/return (DONE + re-tap EDIT), breadcrumb minimap, one-open accordion.
   - [x] **Phase 2a — triggers accordion** (Colour-side, off-device): the 5 ON rows (TAP/HOLD/ARRIVE/LEAVE/SCENE)
     as a one-open accordion, collapsed summaries + expanded action/facet pickers, editing `Colour.on` via
     `editOn`→`editBrushColour` (undoable). Reused `OnConfig` wholesale — no schema change. Device-verify the
@@ -72,7 +75,8 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
       unchanged" — surfaces the per-Colour `transpose` (−24…+24 st, already engine-wide) as a SHIFT row (octave
       ±12 + semitone ±1) via `setBrushTranspose`. Colour-side like triggers; no schema/engine change. _(If a true
       per-CELL input transpose is wanted later, that's the net-new ~5-site version — deferred.)_
-  - [ ] **Phase 4 — output/chop**: destination toggles + 8-slice MAIN·ALT·REST sequence. Resolve open call F.
+  - [ ] **Phase 4 — output/chop** (spec F REVISED 2026-07-31): main dest toggles + a GRAPHICAL 8×2 chop grid
+    (Row 1 MAIN w/ redirect-mark toggle · Row 2 MUTE · shared ALT A–D toggles). Resolve open call F.
   - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
     risk); UI toggle + wiring. Resolve open call G3 (LOOP-starts-playback-when-stopped).
   - [ ] **Phase 6 — test pad**: real-path stopped-time trigger fire (self-driven clock + silence-invariant
