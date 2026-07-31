@@ -57,8 +57,15 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     A–D toggles (new `OnConfig` field + admission-time engine effect); the TAP CUT|LAYER retrigger field.
   - [ ] **Utilities** (pair with Phase 3, once cell-level settings exist): Apply-to-scope (`applyToScope` for
     input/buses), Copy/Paste CONFIG (an `OnConfig`+input clipboard, `ProcClip` pattern), Reset-to-defaults.
-  - [ ] **Phase 3 — input editing**: chord-split / velocity-window / input octave / input transpose are all
-    NET-NEW model fields (migration + engine + UI); source picker reuses receiver/row routing.
+  - [~] **Phase 3 — input editing**:
+    - [x] **3a source picker** (off-device): NONE · MIDI-IN R1–R4 · FROM ROW n value-chip, editing the existing
+      `inputRow`/`inputReceiver` (reuse `routeInReceiver`/`routeInRow`/`routeInSourcesAbove`). No schema change.
+    - [ ] **3b chord-split** (NET-NEW): ALL · TOP n · BOTTOM n · KEY RANGE — filters the source note SET at the
+      `srcCount`/`srcAscending` boundary. Pure-testable split logic; new Optional Cell/SnapCell field + migration.
+    - [ ] **3c velocity window** (NET-NEW): floor/ceiling gate on input notes at the source-read boundary.
+    - [ ] **3d input octave + transpose** (NET-NEW): a per-cell semitone/octave shift — a new term added at the
+      ~5 engine transpose sites (`colourTranspose(...) + octaveShift(...)` in Router: holds/ticks/mirror/strum/
+      preview). Schema field + SnapCell + SnapshotBuilder + migration + test. Do carefully, one site audit.
   - [ ] **Phase 4 — output/chop**: destination toggles + 8-slice MAIN·ALT·REST sequence. Resolve open call F.
   - [ ] **Phase 5 — LOOP**: single-column loop ≈ one-bit `laneMask` via existing `lapColumn` (very low engine
     risk); UI toggle + wiring. Resolve open call G3 (LOOP-starts-playback-when-stopped).
