@@ -736,9 +736,7 @@ struct DiagView: View {
             let landscape = geo.size.width > geo.size.height       // aspect-driven breakpoint (delta §6)
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                if let cell = editingCell {
-                    cellEditPage(cell)                     // §cell-edit B: the Cell Edit PAGE — a full takeover (a push, not a panel swap)
-                } else if landscape {
+                if landscape {
                     // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
                     // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
@@ -940,7 +938,11 @@ struct DiagView: View {
     }
 
     @ViewBuilder private func gridBlock(_ cellHeight: CGFloat) -> some View {
-        if flowVariation > 0 {
+        if let cell = editingCell {
+            // §cell-edit B (user 2026-07-31): the CELL EDIT page replaces the GRID in place — the same
+            // "grid region becomes the tool" move FLOW uses. Receivers/emitters/strips/desk stay visible + live.
+            cellEditPage(cell)
+        } else if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
@@ -1066,8 +1068,8 @@ struct DiagView: View {
     /// the grid). B2 breadcrumb pinned top · B5 persistent LOOP+TEST strip · then IDENTITY·INPUT·TRIGGERS·OUTPUT
     /// and the sound desk as ONE vertical accordion (one section open at a time).
     @ViewBuilder private func cellEditPage(_ cell: Cell) -> some View {
-        VStack(spacing: 8) {
-            breadcrumb(cell)                                 // B2 — pinned anchor back to the grid
+        VStack(spacing: 6) {
+            breadcrumb(cell)                                 // B2 — pinned anchor (scene · column · minimap · DONE)
             loopTestStrip(cell)                              // B5 — persistent "listen while you work" strip
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
@@ -1075,11 +1077,12 @@ struct DiagView: View {
                     pageSection(1, "INPUT", inputSourceLabel(cell)) { inputSection(cell) }
                     pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { triggersAccordion }
                     pageSection(3, "OUTPUT", "") { editSectionStub("chop · destinations — soon") }
-                    pageSection(4, "COLOUR · PROCESSOR", "") { identityColumn }   // B4: the sound desk lives WITHIN the page
+                    // (COLOUR · PROCESSOR is NOT duplicated here — the sound desk stays visible + reachable in its
+                    //  own column, per the user's "other parts still visible" direction, 2026-07-31.)
                 }
             }
         }
-        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // fill the grid's slot (not the window)
     }
     // B2 — scene · edited column · an 8-dot minimap (edited column lit) · DONE (returns to the grid instantly).
     private func breadcrumb(_ cell: Cell) -> some View {
