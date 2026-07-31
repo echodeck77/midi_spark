@@ -57,10 +57,12 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     DONE); persistent LOOP+TEST strip (placeholders; test pad shows the glyph, H6); ONE vertical accordion
     (IDENTITY · INPUT · TRIGGERS · OUTPUT · sound-desk, B4). Retired the `primarySlot`/`deskSwapBar`/`deskShowsColour`
     in-place swap. Device-verify: takeover push/return (DONE + re-tap EDIT), breadcrumb minimap, one-open accordion.
-  - [x] **Phase 2a — triggers accordion** (Colour-side, off-device): the 5 ON rows (TAP/HOLD/ARRIVE/LEAVE/SCENE)
-    as a one-open accordion, collapsed summaries + expanded action/facet pickers, editing `Colour.on` via
-    `editOn`→`editBrushColour` (undoable). Reused `OnConfig` wholesale — no schema change. Device-verify the
-    accordion + that edits ride through to the cell-face glyph.
+  - [x] **Phase 2a — triggers accordion** (Colour-side, off-device): a one-open accordion editing `Colour.on`
+    via `editOn`→`editBrushColour` (undoable); reused `OnConfig` wholesale — no schema change. **Curated to the
+    WIRED actions only** (user, this version): TAP none/alt/mute/solo · HOLD none/alt/oct · ARRIVE none/alt-
+    alternate/morph-drift/emitter-rotate; the inert placeholders (fill/replay/freeze/slice-cycle/morph-scrub/dice)
+    + the LEAVE & SCENE rows are hidden (enum cases kept for a future TOUCH-box design pass). Device-verify:
+    pickers offer only the wired actions, each fires in perform, edits ride to the cell-face glyph.
   - [ ] **Phase 2b — REDIRECT + retrigger style** (NET-NEW model+engine): the REDIRECT TAP/HOLD action + ALT-DEST
     A–D toggles (new `OnConfig` field + admission-time engine effect); the TAP CUT|LAYER retrigger field.
   - [~] **Utilities §I**: [x] Apply-input-to-scope (twins / all-colour, reuse `applyToScope` + live counts) +
