@@ -1094,7 +1094,12 @@ struct DiagView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                editSectionStub("INPUT")
+                VStack(alignment: .leading, spacing: 4) {     // §D INPUT — the SOURCE picker (cell-level, live)
+                    Text("INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    facetRow("SOURCE") { inputSourceChip(cell) }
+                    Text("chord-split · velocity window · octave · transpose — soon")
+                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
+                }
                 VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
                     Text("TRIGGERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     triggersAccordion
@@ -1265,6 +1270,41 @@ struct DiagView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle()).onTapGesture { set(!isOn) }
+    }
+
+    // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
+
+    /// The pointed cell's input source in words. `inputRow` set ⇒ FROM ROW n; else a receiver (nil ⇒ unrouted).
+    private func inputSourceLabel(_ cell: Cell) -> String {
+        if let r = cell.inputRow { return "FROM ROW \(r + 1)" }
+        if let rcv = cell.inputReceiver { return "MIDI-IN · R\(rcv + 1)" }
+        return "NONE"                                        // null input (inputRow nil AND inputReceiver nil)
+    }
+    /// SOURCE = a value chip (tap = picker): NONE · MIDI-IN R1–R4 · FROM ROW n (occupied rows above only —
+    /// the graph flows downward, cycles illegal). Edits the SAME `inputRow`/`inputReceiver` the grid's spatial
+    /// routing does — two doors, one lock (D).
+    @ViewBuilder private func inputSourceChip(_ cell: Cell) -> some View {
+        let rowsAbove = scene.routeInSourcesAbove(col: selCol, row: selRow)
+        Menu {
+            Button("NONE (unrouted)") { setEditSourceNone() }
+            ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { setEditSource { $0.routeInReceiver(col: selCol, row: selRow, receiver: r) } } }
+            ForEach(rowsAbove, id: \.self) { r in Button("FROM ROW \(r + 1)") { setEditSource { $0.routeInRow(col: selCol, row: selRow, sourceRow: r) } } }
+        } label: {
+            HStack {
+                Text(inputSourceLabel(cell)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
+            }
+            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+        }
+    }
+    private func setEditSource(_ mutate: @escaping (inout SceneState) -> Void) {
+        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
+        au.editScene(mutate); refreshFromDocument()
+    }
+    private func setEditSourceNone() {
+        setEditSource { s in if var c = s.cells[selCol][selRow] { c.inputRow = nil; c.inputReceiver = nil; s.cells[selCol][selRow] = c } }
     }
 
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
