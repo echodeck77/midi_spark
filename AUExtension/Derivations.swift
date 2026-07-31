@@ -311,6 +311,15 @@ func chopBusMask(_ base: UInt8, slot: ChopSlot, altMask: UInt8) -> UInt8 {
     }
 }
 
+/// §cell-edit F — which of the 8 chop slices a musical onset `mBeat` falls in, WITHIN its column of length `S`
+/// beats (0…7). The chop divides the CELL'S OWN column-time into 8, so each articulation routes by its slice.
+/// Pure/testable.
+func chopSlice(_ mBeat: Double, columnBeats S: Double) -> Int {
+    guard S > 0 else { return 0 }
+    let frac = ((mBeat / S).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)   // 0..<1 within the column
+    return min(7, max(0, Int(frac * 8)))
+}
+
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
 /// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads

@@ -755,8 +755,7 @@ final class Router {
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
-            var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
-            if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[column], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
+            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
@@ -1209,8 +1208,7 @@ final class Router {
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                             out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[effColumn], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
         let octaves = effectiveOctaves(colour, t: t)
@@ -1247,8 +1245,12 @@ final class Router {
             guard noteValue >= 0 && noteValue <= 127 else { return }
             storeArtic(row: r, on: onTime, off: offTime, note: UInt8(noteValue), beat: mTickBeat)
             if emits {
-                emitArtic(note: UInt8(noteValue), busMask: bm,
-                          onSample: onTime, offSample: offTime, windowEnd: windowEnd, out: out, diag: &diag)
+                // §cell-edit F CHOP: this tick routes by which of the 8 slices of the column it falls in.
+                let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(mTickBeat, columnBeats: S)], altMask: cell.chopAltMask) : bm
+                if tbm != 0 {
+                    emitArtic(note: UInt8(noteValue), busMask: tbm,
+                              onSample: onTime, offSample: offTime, windowEnd: windowEnd, out: out, diag: &diag)
+                }
             }
         }
     }
@@ -1261,8 +1263,7 @@ final class Router {
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[effColumn], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let repeats = effectiveRepeats(colour, t: t)
         let ramp = effectiveRamp(colour, t: t)
         let sub = S / Double(repeats)                          // one repeat every `sub` beats
@@ -1274,6 +1275,9 @@ final class Router {
             let colStart = (mTickBeat / S).rounded(.down) * S
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
             let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
+            // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
+            let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(mTickBeat, columnBeats: S)], altMask: cell.chopAltMask) : bm
+            if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
             if fed {
                 guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
                                                   box: box, pool: pool, S: S, cycleBeats: cycleBeats)
@@ -1282,7 +1286,7 @@ final class Router {
                 guard n >= 0 && n <= 127 else { return }
                 storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                 if emits {
-                    emitArtic(note: UInt8(n), busMask: bm, onSample: onTime, offSample: offTime,
+                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime,
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
             } else {
@@ -1292,7 +1296,7 @@ final class Router {
                     guard n >= 0 && n <= 127 else { continue }
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                     if emits {
-                        emitArtic(note: UInt8(n), busMask: bm, onSample: onTime, offSample: offTime,
+                        emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime,
                                   windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                     }
                 }

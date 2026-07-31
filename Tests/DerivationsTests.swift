@@ -946,6 +946,15 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(chopBusMask(0b0011, slot: .alt,  altMask: 0b1100), 0b1100, "ALT swaps to the alt destination")
         XCTAssertEqual(chopBusMask(0b0011, slot: .mute, altMask: 0b1100), 0,      "MUTE silences")
     }
+    func testChopSliceDividesTheColumn() {   // §cell-edit F — 8 slices within one column of length S beats
+        XCTAssertEqual(chopSlice(0.0,   columnBeats: 1.0), 0)
+        XCTAssertEqual(chopSlice(0.1,   columnBeats: 1.0), 0, "0.1·8 = 0.8 → slice 0")
+        XCTAssertEqual(chopSlice(0.125, columnBeats: 1.0), 1, "exactly 1/8 → slice 1")
+        XCTAssertEqual(chopSlice(0.5,   columnBeats: 1.0), 4)
+        XCTAssertEqual(chopSlice(0.99,  columnBeats: 1.0), 7)
+        XCTAssertEqual(chopSlice(2.5,   columnBeats: 1.0), 4, "beat 2.5 → within-column frac 0.5 → slice 4")
+        XCTAssertEqual(chopSlice(0.0,   columnBeats: 0.0), 0, "guard: zero-length column")
+    }
     func testChopCodableAndMigration() throws {   // §cell-edit F — chop model round-trips; absent key ⇒ all-MAIN
         var ch = Chop(); ch.slots[2] = .alt; ch.slots[5] = .mute; ch.altDest = [.c]
         var c = Cell(colourID: "gold"); c.chop = ch

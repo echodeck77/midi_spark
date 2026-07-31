@@ -47,10 +47,10 @@ enum SnapshotBuilder {
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
                 sc.velFloor = UInt8(max(1, min(127, vw.floor))); sc.velCeil = UInt8(max(1, min(127, vw.ceil)))
-                let chp = cell.chopResolved                      // §cell-edit F: per-column output chop
-                sc.chopSlots = chp.slots
+                let chp = cell.chopResolved                      // §cell-edit F: per-slice output chop (8 slots)
+                sc.chopSlots = chp.slots.count == 8 ? chp.slots : Array(repeating: .main, count: 8)   // defensive: render indexes [0…7]
                 sc.chopAltMask = chp.altDest.reduce(0) { $0 | (1 << $1.cable) }
-                sc.chopActive = chp.slots.contains { $0 != .main }
+                sc.chopActive = sc.chopSlots.contains { $0 != .main }
                 // v3.0 (delta §1): resolve the input reference — inputRow if that row is occupied and
                 // not self, else MIDI IN. Occupancy checked here; the muted-parent reroute is runtime.
                 if let ir = cell.inputRow, ir != r, ir >= 0, ir < Snap.rows,
