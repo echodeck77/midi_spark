@@ -103,6 +103,7 @@ struct DiagView: View {
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
     @State private var deskShowsColour = false   // the "jump to Colour" swap: show the full sound desk while EDIT is armed
+    @State private var openTrig: Int? = nil       // §cell-edit E: which triggers-accordion row is expanded (one-open-at-a-time)
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -1093,7 +1094,11 @@ struct DiagView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                editSectionStub("INPUT"); editSectionStub("TRIGGERS")
+                editSectionStub("INPUT")
+                VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
+                    Text("TRIGGERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    triggersAccordion
+                }
                 editSectionStub("OUTPUT"); editSectionStub("LOOP · TEST")
                 Button(action: deleteEditedCell) {           // I — DELETE (same SEVER law as the grid verb)
                     Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
@@ -1123,6 +1128,143 @@ struct DiagView: View {
         au.editScene { $0.deleteCellSever(col: selCol, row: selRow) }
         selCol = -1; selRow = -1                             // the station's target is gone → empty state
         refreshFromDocument()
+    }
+
+    // MARK: - §cell-edit E — the TRIGGERS accordion (Colour-side; edits the pointed cell's Colour `OnConfig`)
+
+    /// The Colour-side write path: triggers live on `Colour.on`, and `brush` already points at the pointed cell's
+    /// Colour (set in tapCell), so this mutates the pointed cell's triggers — every same-colour cell follows.
+    /// Reverting to all-defaults clears `.on` back to nil (clean docs). Undoable via `editBrushColour`.
+    private func editOn(_ mutate: @escaping (inout OnConfig) -> Void) {
+        editBrushColour { var c = $0.on ?? OnConfig(); mutate(&c); $0.on = (c == OnConfig() ? nil : c) }
+    }
+    /// The five ON rows, one-open-at-a-time; assigned rows show their summary, unassigned show a dim ＋ (reusing
+    /// the model's `*Summary` strings). Reads the brush Colour's resolved `OnConfig`.
+    @ViewBuilder private var triggersAccordion: some View {
+        let on = brushColour?.onResolved ?? OnConfig()
+        VStack(spacing: 4) {
+            trigRow(0, "TAP", on.tapSummary) { tapEditor(on) }
+            trigRow(1, "HOLD", on.holdSummary) { holdEditor(on) }
+            trigRow(2, "ARRIVE", on.arriveSummary) { arriveEditor(on) }
+            trigRow(3, "LEAVE", on.leaveSummary) { leaveEditor(on) }
+            trigRow(4, "SCENE", on.sceneSummary) { sceneEditor(on) }
+        }
+    }
+    @ViewBuilder private func trigRow<Body: View>(_ id: Int, _ label: String, _ summary: String,
+                                                  @ViewBuilder editor: () -> Body) -> some View {
+        let open = openTrig == id
+        VStack(spacing: 0) {
+            HStack {
+                Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                Spacer()
+                if summary.isEmpty {
+                    Text("＋").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.3))
+                } else {
+                    Text(summary).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Self.editHue).lineLimit(1).minimumScaleFactor(0.6)
+                }
+            }
+            .padding(.horizontal, 8).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(open ? 0.11 : 0.05)))
+            .contentShape(Rectangle()).onTapGesture { openTrig = open ? nil : id }
+            if open { editor().padding(.horizontal, 8).padding(.vertical, 6) }
+        }
+    }
+    // ---- per-section editors ----
+    @ViewBuilder private func tapEditor(_ on: OnConfig) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            trigMenu(OnTap.allCases, on.tap) { v in editOn { $0.tap = v } }
+            if on.tap != .none {
+                facetRow("WHEN") { trigSeg(OnTapWhen.allCases, on.tapWhen, label: { $0.rawValue }) { v in editOn { $0.tapWhen = v } } }
+                facetRow("FOR")  { trigSeg(OnTapFor.allCases, on.tapFor, label: { $0.rawValue }) { v in editOn { $0.tapFor = v } } }
+            }
+        }
+    }
+    @ViewBuilder private func holdEditor(_ on: OnConfig) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            trigMenu(OnHold.allCases, on.hold) { v in editOn { $0.hold = v } }
+            if on.hold != .none {
+                facetRow("REL") { trigSeg(OnHoldRelease.allCases, on.holdRelease, label: { $0.rawValue }) { v in editOn { $0.holdRelease = v } } }
+                if on.hold == .sliceCycle { facetRow("SIZE") { trigSeg(SliceSize.allCases, on.sliceSize, label: { $0.rawValue }) { v in editOn { $0.sliceSize = v } } } }
+                if on.hold == .oct { facetRow("DIR") { trigSeg([true, false], on.octUp, label: { $0 ? "+" : "−" }) { v in editOn { $0.octUp = v } } } }
+            }
+        }
+    }
+    @ViewBuilder private func arriveEditor(_ on: OnConfig) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            trigMenu(OnArrive.allCases, on.arrive) { v in editOn { $0.arrive = v } }
+            if on.arrive != .none {
+                facetRow("EVERY") { trigStepper(on.arriveEvery, 1, 4) { v in editOn { $0.arriveEvery = v } } }
+                if on.arrive == .morphDrift {
+                    facetRow("DRIFT") { trigStepper(on.driftPct, 1, 100) { v in editOn { $0.driftPct = v } } }
+                    facetRow("MODE") { trigSeg(DriftMode.allCases, on.driftMode, label: { $0.rawValue }) { v in editOn { $0.driftMode = v } } }
+                }
+            }
+        }
+    }
+    @ViewBuilder private func leaveEditor(_ on: OnConfig) -> some View {
+        trigMenu(OnLeave.allCases, on.leave) { v in editOn { $0.leave = v } }
+    }
+    @ViewBuilder private func sceneEditor(_ on: OnConfig) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            trigCheck("ENTRANCE", on.sceneEntrance) { v in editOn { $0.sceneEntrance = v } }
+            if on.sceneEntrance { facetRow("PASS") { trigStepper(on.entrancePass, 1, 16) { v in editOn { $0.entrancePass = v } } } }
+            trigCheck("EXIT", on.sceneExit) { v in editOn { $0.sceneExit = v } }
+            if on.sceneExit { facetRow("PASS") { trigStepper(on.exitPass, 1, 16) { v in editOn { $0.exitPass = v } } } }
+            trigCheck("RESET MORPH", on.sceneResetMorph) { v in editOn { $0.sceneResetMorph = v } }
+            trigCheck("AUTO-ARM (no RECORD yet)", false) { _ in }.opacity(0.35).allowsHitTesting(false)   // always greyed this iteration
+        }
+    }
+    // ---- small trigger controls ----
+    private func trigMenu<T: RawRepresentable & Hashable>(_ options: [T], _ current: T,
+                                                          _ pick: @escaping (T) -> Void) -> some View where T.RawValue == String {
+        Menu {
+            ForEach(options, id: \.self) { opt in Button(opt.rawValue) { pick(opt) } }
+        } label: {
+            HStack {
+                Text(current.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
+            }
+            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+        }
+    }
+    private func trigSeg<T: Equatable>(_ options: [T], _ sel: T, label: @escaping (T) -> String,
+                                       _ pick: @escaping (T) -> Void) -> some View {
+        HStack(spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                let hot = opt == sel
+                Text(label(opt)).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundColor(hot ? .black : .white.opacity(0.6))
+                    .padding(.horizontal, 6).frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(hot ? Self.editHue : Color.white.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { pick(opt) }
+            }
+        }
+    }
+    @ViewBuilder private func facetRow<V: View>(_ label: String, @ViewBuilder _ control: () -> V) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 44, alignment: .leading)
+            control(); Spacer(minLength: 0)
+        }
+    }
+    private func trigStepper(_ value: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 8) {
+            Text("−").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(max(lo, value - 1)) }
+            Text("\(value)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white).frame(minWidth: 20)
+            Text("+").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
+        }
+    }
+    private func trigCheck(_ label: String, _ isOn: Bool, _ set: @escaping (Bool) -> Void) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: isOn ? "checkmark.square.fill" : "square").font(.system(size: 12, weight: .heavy)).foregroundColor(isOn ? Self.editHue : .white.opacity(0.4))
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle()).onTapGesture { set(!isOn) }
     }
 
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
