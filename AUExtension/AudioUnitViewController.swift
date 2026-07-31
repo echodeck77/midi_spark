@@ -1234,24 +1234,16 @@ struct DiagView: View {
     }
     private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
         let s = chop.slots[i]
-        let lit: Bool, hue: Color
-        switch row {
-        case .main: lit = s.main && !s.mute; hue = mainDestHue
-        case .alt:  lit = s.alt  && !s.mute; hue = Self.editHue
-        case .mute: lit = s.mute;            hue = Verb.delete.hue
-        }
+        let (state, hue): (ChopSlot, Color) = row == .main ? (.main, mainDestHue)
+                                            : row == .alt  ? (.alt, Self.editHue) : (.mute, Verb.delete.hue)
+        let lit = s == state
         return RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.78) : Color.white.opacity(0.08))
             .frame(maxWidth: .infinity).frame(height: 18)
-            .contentShape(Rectangle()).onTapGesture { tapChop(i, row) }
+            .contentShape(Rectangle()).onTapGesture { tapChop(i, state) }
     }
-    private func tapChop(_ i: Int, _ row: ChopRow) {
-        editChop { ch in
-            switch row {
-            case .main: ch.slots[i].main.toggle(); if ch.slots[i].main { ch.slots[i].mute = false }
-            case .alt:  ch.slots[i].alt.toggle();  if ch.slots[i].alt  { ch.slots[i].mute = false }
-            case .mute: ch.slots[i].mute.toggle(); if ch.slots[i].mute { ch.slots[i].main = false; ch.slots[i].alt = false }   // MUTE exclusive
-            }
-        }
+    private func tapChop(_ i: Int, _ state: ChopSlot) {
+        // MAIN/ALT/MUTE are mutually exclusive; tapping the active one falls back to MAIN (the default).
+        editChop { $0.slots[i] = ($0.slots[i] == state && state != .main) ? .main : state }
     }
     private func toggleMainBus(_ b: Bus) {
         guard let au, selCol >= 0, selRow >= 0 else { return }

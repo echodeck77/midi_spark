@@ -301,6 +301,16 @@ func playingSilenceLeak(playing: Bool, liveInput: Int, latchArmed: Bool, auditio
     return activeVoices > 0 || passthroughHeld > 0
 }
 
+/// §cell-edit F — the emit bus-mask a CHOP slot yields for a cell whose own emitters are `base`: MAIN keeps
+/// them, ALT swaps to the shared alt-destination mask, MUTE silences (0 → no emission). Pure/testable.
+func chopBusMask(_ base: UInt8, slot: ChopSlot, altMask: UInt8) -> UInt8 {
+    switch slot {
+    case .main: return base
+    case .alt:  return altMask
+    case .mute: return 0
+    }
+}
+
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
 /// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads

@@ -755,7 +755,8 @@ final class Router {
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
-            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
+            var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
+            if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[column], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
@@ -1208,7 +1209,8 @@ final class Router {
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                             out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[effColumn], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
         var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
         let octaves = effectiveOctaves(colour, t: t)
@@ -1259,7 +1261,8 @@ final class Router {
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
-        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        var bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
+        if cell.chopActive { bm = chopBusMask(bm, slot: cell.chopSlots[effColumn], altMask: cell.chopAltMask) }   // §cell-edit F CHOP
         let repeats = effectiveRepeats(colour, t: t)
         let ramp = effectiveRamp(colour, t: t)
         let sub = S / Double(repeats)                          // one repeat every `sub` beats

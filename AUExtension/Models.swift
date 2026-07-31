@@ -222,17 +222,12 @@ struct VelWindow: Codable, Equatable {
     var ceil: Int = 127      // 1…127 (≥ floor)
 }
 
-/// §cell-edit F — CHOP ("destination sequence"): per pass-column (8 slots = the 8 grid columns), a THREE-row
-/// choice of where this cell's output goes — MAIN (its own emitters) · ALT (the shared `altDest` set) · MUTE
-/// (silent, note-off at the slice edge). MAIN/ALT compose (a slice can be both); MUTE is the exclusive silence.
-/// Default (all MAIN) = no effect. [Model+UI here; the routing ENGINE is a separate increment.]
-struct ChopSlot: Codable, Equatable {
-    var main = true
-    var alt = false
-    var mute = false
-}
+/// §cell-edit F — CHOP ("destination sequence"): per pass-column (8 slots = the 8 grid columns), where this
+/// cell's output goes — MAIN (its own emitters) · ALT (the shared `altDest` set) · MUTE (silent). The three are
+/// MUTUALLY EXCLUSIVE per slice. Default (all MAIN) = no effect. [Model + the routing ENGINE below.]
+enum ChopSlot: String, Codable, CaseIterable { case main = "MAIN", alt = "ALT", mute = "MUTE" }
 struct Chop: Codable, Equatable {
-    var slots: [ChopSlot] = Array(repeating: ChopSlot(), count: 8)
+    var slots: [ChopSlot] = Array(repeating: .main, count: 8)
     var altDest: Set<Bus> = []
 }
 

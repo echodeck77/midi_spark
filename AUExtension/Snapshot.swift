@@ -42,6 +42,9 @@ struct SnapCell {
     var chordSplit = ChordSplit()   // §cell-edit D: which held source notes this cell takes (ALL default); render reads via srcCount/srcAscending(for:)
     var velFloor: UInt8 = 1         // §cell-edit D VELOCITY WINDOW: admit source notes with velocity in [floor, ceil]
     var velCeil: UInt8 = 127        // (1…127 default = admit all); applied in srcCount/srcAscending(for:) before the split
+    var chopSlots: [ChopSlot] = Array(repeating: .main, count: 8)   // §cell-edit F: per pass-column output route
+    var chopAltMask: UInt8 = 0      // §cell-edit F: the shared ALT destination as a bus bitmask (for ALT slices)
+    var chopActive = false          // fast-path: any slot ≠ MAIN
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)
