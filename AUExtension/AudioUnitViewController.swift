@@ -98,6 +98,13 @@ struct DiagView: View {
     private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
     @State private var selCol = -1
     @State private var selRow = -1
+    // Cell Edit station (AcceptanceCriteria-cell-edit): EDIT is a 6th control, a TOGGLE (not a spring verb),
+    // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
+    // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
+    @State private var editArmed = false
+    @State private var deskShowsColour = false   // the "jump to Colour" swap: show the full sound desk while EDIT is armed
+    private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
+    private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
     @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State private var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
@@ -185,6 +192,13 @@ struct DiagView: View {
     // is a TRIGGER (ON TAP). Routing happens WHILE SELECT is held (user 2026-07-28): the world offers wiring for
     // the selected cell, tapping a candidate wires it, RELEASE applies, CANCEL reverts.
     private func tapCell(_ col: Int, _ row: Int) {
+        if editArmed {                                       // §cell-edit A4/A5: EDIT re-points the station, never fires a trigger
+            if scene.cells[col][row] != nil {                // occupied → point the station here (empty → nothing)
+                selCol = col; selRow = row                   // the edited-cell coord (also lights the white ring)
+                brush = scene.cells[col][row]!.colourID      // demoted desk follows the pointed cell's Colour
+            }
+            return
+        }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
     // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
@@ -365,6 +379,7 @@ struct DiagView: View {
             verbButton(.place)                             // PLACE — top, full width
             HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
             HStack(spacing: 6) { verbButton(.copy); verbButton(.paste) }   // /btw ①: COPY · PASTE (MOVE left the cluster)
+            editVerbButton()                               // §cell-edit A1: the 6th control — a TOGGLE, set apart from the spring verbs
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -392,7 +407,18 @@ struct DiagView: View {
                 .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
                 .onEnded { _ in if v == .select { selection.removeAll() }; heldVerb = nil })   // release = APPLY (clear the stack)
     }
+    // §cell-edit A1: EDIT — a 6th control, a TOGGLE (tap to arm, tap to disarm). Reuses roundVerb with
+    // active:editArmed, so it stays FILLED while armed (latched look) — visually distinct from a spring verb,
+    // which only fills while physically held. Arming drops any held spring verb (A3, the other direction).
+    private func editVerbButton() -> some View {
+        roundVerb(label: editArmed ? "EDIT ✕" : "EDIT", hue: Self.editHue, active: editArmed, badge: nil)
+            .onTapGesture {
+                editArmed.toggle()
+                if editArmed { heldVerb = nil; deskShowsColour = false }
+            }
+    }
     private func onVerbEngaged(_ v: Verb) {
+        editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
         case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells; holdSeq += 1
         case .delete: gridSnapshot = scene.cells
@@ -717,7 +743,7 @@ struct DiagView: View {
                         arrangementBar                               // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         HStack(alignment: .top, spacing: 10) {
                             signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
-                            ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
+                            ScrollView(.vertical, showsIndicators: false) { primarySlot { identityColumn } }.frame(width: 320)
                         }
                     }
                     .padding(12)
@@ -728,7 +754,7 @@ struct DiagView: View {
                     VStack(spacing: 8) {
                         arrangementBar                         // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
-                        colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
+                        primarySlot { colourFlowBand(geo.size.width - 24, 300) }   // the treatment axis (24 = the .padding(12) both sides)
                     }
                     .padding(12)
                 }
@@ -788,7 +814,7 @@ struct DiagView: View {
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
-            let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi }
+            let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi; editArmed = false }   // §cell-edit A6: a scene switch auto-closes EDIT
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
             let act = au.pollEmitterActivity()
@@ -1024,6 +1050,79 @@ struct DiagView: View {
              : "HOLD a verb → the grid does it (release = done; long-press = latch) · else TAP = ALT flip · HOLD cell → ON HOLD")
             .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - §cell-edit — the Cell Edit station (Phase 1: verb + primary-slot swap + identity + delete)
+
+    /// The PRIMARY slot content: normally the sound `desk`; while EDIT is armed, the Cell Edit station CLAIMS it
+    /// (B1) — a swap bar (B2) lets the user jump back to the full Colour desk. The desk is never hidden, just a
+    /// tap away. Everything else on screen stays live (B3). Wraps whichever desk container each orientation uses.
+    @ViewBuilder private func primarySlot<Desk: View>(@ViewBuilder desk: () -> Desk) -> some View {
+        VStack(spacing: 8) {
+            if editArmed { deskSwapBar }                     // CELL EDIT | COLOUR DESK — only ONE occupies the slot at a time
+            if editArmed && !deskShowsColour { cellEditPanel } else { desk() }
+        }
+    }
+    private var deskSwapBar: some View {
+        HStack(spacing: 6) {
+            swapTab("CELL EDIT", on: !deskShowsColour) { deskShowsColour = false }
+            swapTab("COLOUR DESK", on: deskShowsColour) { deskShowsColour = true }
+        }
+    }
+    private func swapTab(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.6))
+            .frame(maxWidth: .infinity).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Self.editHue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    private func editName(_ id: String) -> String {
+        docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
+    }
+    /// The station panel — Phase 1: identity (C) + the deferred-section stubs + delete (I). Input/triggers/
+    /// output/loop/test fill their stubs in later phases.
+    @ViewBuilder private var cellEditPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CELL EDIT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.9))
+            if let cell = editingCell {
+                HStack(spacing: 8) {                         // C — IDENTITY: swatch · name · grid position
+                    RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 28, height: 28)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(editName(cell.colourID)).font(.system(size: 13, weight: .heavy)).foregroundColor(.white)
+                        Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                    }
+                    Spacer(minLength: 0)
+                }
+                editSectionStub("INPUT"); editSectionStub("TRIGGERS")
+                editSectionStub("OUTPUT"); editSectionStub("LOOP · TEST")
+                Button(action: deleteEditedCell) {           // I — DELETE (same SEVER law as the grid verb)
+                    Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                        .frame(maxWidth: .infinity).frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Verb.delete.hue))
+                }.buttonStyle(.plain)
+            } else {
+                Text("Tap an occupied cell to edit it")
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    .frame(maxWidth: .infinity, minHeight: 90)
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03)))
+    }
+    private func editSectionStub(_ label: String) -> some View {   // a section slot the later phases fill in
+        HStack {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Spacer()
+            Text("soon").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
+        }
+        .padding(.horizontal, 8).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.05)))
+    }
+    private func deleteEditedCell() {
+        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
+        au.editScene { $0.deleteCellSever(col: selCol, row: selRow) }
+        selCol = -1; selRow = -1                             // the station's target is gone → empty state
+        refreshFromDocument()
     }
 
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
