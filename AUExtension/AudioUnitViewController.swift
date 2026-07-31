@@ -102,7 +102,7 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    @State private var deskShowsColour = false   // the "jump to Colour" swap: show the full sound desk while EDIT is armed
+    @State private var openSection: Int? = 1      // §cell-edit B5: which top-level page accordion section is open (default INPUT)
     @State private var openTrig: Int? = nil       // §cell-edit E: which triggers-accordion row is expanded (one-open-at-a-time)
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
@@ -415,7 +415,7 @@ struct DiagView: View {
         roundVerb(label: editArmed ? "EDIT ✕" : "EDIT", hue: Self.editHue, active: editArmed, badge: nil)
             .onTapGesture {
                 editArmed.toggle()
-                if editArmed { heldVerb = nil; deskShowsColour = false }
+                if editArmed { heldVerb = nil }
             }
     }
     private func onVerbEngaged(_ v: Verb) {
@@ -736,7 +736,9 @@ struct DiagView: View {
             let landscape = geo.size.width > geo.size.height       // aspect-driven breakpoint (delta §6)
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                if landscape {
+                if let cell = editingCell {
+                    cellEditPage(cell)                     // §cell-edit B: the Cell Edit PAGE — a full takeover (a push, not a panel swap)
+                } else if landscape {
                     // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
                     // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
@@ -744,7 +746,7 @@ struct DiagView: View {
                         arrangementBar                               // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         HStack(alignment: .top, spacing: 10) {
                             signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
-                            ScrollView(.vertical, showsIndicators: false) { primarySlot { identityColumn } }.frame(width: 320)
+                            ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
                         }
                     }
                     .padding(12)
@@ -755,7 +757,7 @@ struct DiagView: View {
                     VStack(spacing: 8) {
                         arrangementBar                         // §2: LOGO · scene chips · ⚙ (header + strip merged)
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
-                        primarySlot { colourFlowBand(geo.size.width - 24, 300) }   // the treatment axis (24 = the .padding(12) both sides)
+                        colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                     }
                     .padding(12)
                 }
@@ -1058,67 +1060,107 @@ struct DiagView: View {
     /// The PRIMARY slot content: normally the sound `desk`; while EDIT is armed, the Cell Edit station CLAIMS it
     /// (B1) — a swap bar (B2) lets the user jump back to the full Colour desk. The desk is never hidden, just a
     /// tap away. Everything else on screen stays live (B3). Wraps whichever desk container each orientation uses.
-    @ViewBuilder private func primarySlot<Desk: View>(@ViewBuilder desk: () -> Desk) -> some View {
+    // MARK: - §cell-edit B — the Cell Edit PAGE (revised: a full-page takeover, not an in-place panel swap)
+
+    /// B1/B3: the page REPLACES the whole working view while EDIT points at a cell (the `body` swaps it in for
+    /// the grid). B2 breadcrumb pinned top · B5 persistent LOOP+TEST strip · then IDENTITY·INPUT·TRIGGERS·OUTPUT
+    /// and the sound desk as ONE vertical accordion (one section open at a time).
+    @ViewBuilder private func cellEditPage(_ cell: Cell) -> some View {
         VStack(spacing: 8) {
-            if editArmed { deskSwapBar }                     // CELL EDIT | COLOUR DESK — only ONE occupies the slot at a time
-            if editArmed && !deskShowsColour { cellEditPanel } else { desk() }
+            breadcrumb(cell)                                 // B2 — pinned anchor back to the grid
+            loopTestStrip(cell)                              // B5 — persistent "listen while you work" strip
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 6) {
+                    pageSection(0, "IDENTITY", editName(cell.colourID)) { identitySection(cell) }
+                    pageSection(1, "INPUT", inputSourceLabel(cell)) { inputSection(cell) }
+                    pageSection(2, "TRIGGERS", (brushColour?.onResolved.isEmpty ?? true) ? "" : "set") { triggersAccordion }
+                    pageSection(3, "OUTPUT", "") { editSectionStub("chop · destinations — soon") }
+                    pageSection(4, "COLOUR · PROCESSOR", "") { identityColumn }   // B4: the sound desk lives WITHIN the page
+                }
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+    // B2 — scene · edited column · an 8-dot minimap (edited column lit) · DONE (returns to the grid instantly).
+    private func breadcrumb(_ cell: Cell) -> some View {
+        HStack(spacing: 10) {
+            Text("SCENE \(activeSceneIdx + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text("COL \(selCol + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+            HStack(spacing: 3) {                             // the 8-dot minimap (columns; the edited one lit)
+                ForEach(0..<8, id: \.self) { c in
+                    Circle().fill(c == selCol ? Self.editHue : Color.white.opacity(0.18)).frame(width: 6, height: 6)
+                }
+            }
+            Spacer()
+            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Self.editHue))
+                .contentShape(Rectangle()).onTapGesture { editArmed = false }
+        }
+        .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
+    }
+    // B5 — the persistent LOOP + TEST strip. Both are deferred phases (5/6); shown as clear placeholders so the
+    // page's shape is honest. The test pad already displays the pointed cell's trigger glyph (H6).
+    private func loopTestStrip(_ cell: Cell) -> some View {
+        HStack(spacing: 8) {
+            Text("LOOP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                .frame(maxWidth: .infinity).frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+            VStack(spacing: 1) {                             // the TEST pad — glyph now, live-fire in Phase 6
+                if let g = triggerMark(brushColour?.onResolved ?? OnConfig())?.glyph {
+                    Image(systemName: g).font(.system(size: 12, weight: .black)).foregroundColor(.white.opacity(0.6))
+                }
+                Text("TEST").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            }
+            .frame(maxWidth: .infinity).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
         }
     }
-    private var deskSwapBar: some View {
-        HStack(spacing: 6) {
-            swapTab("CELL EDIT", on: !deskShowsColour) { deskShowsColour = false }
-            swapTab("COLOUR DESK", on: deskShowsColour) { deskShowsColour = true }
+    // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
+    @ViewBuilder private func pageSection<C: View>(_ id: Int, _ label: String, _ summary: String,
+                                                   @ViewBuilder content: () -> C) -> some View {
+        let open = openSection == id
+        VStack(spacing: 0) {
+            HStack {
+                Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(open ? Self.editHue : .white.opacity(0.7))
+                Spacer()
+                if !summary.isEmpty && !open { Text(summary).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).lineLimit(1) }
+                Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .heavy)).foregroundColor(.white.opacity(0.4))
+            }
+            .padding(10).contentShape(Rectangle()).onTapGesture { openSection = open ? nil : id }
+            if open { content().padding(.horizontal, 10).padding(.bottom, 10) }
+        }
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(open ? 0.07 : 0.035)))
+    }
+    // C — IDENTITY section: swatch · name · position, then DELETE (SEVER).
+    @ViewBuilder private func identitySection(_ cell: Cell) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(editName(cell.colourID)).font(.system(size: 13, weight: .heavy)).foregroundColor(.white)
+                    Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                }
+                Spacer(minLength: 0)
+            }
+            Button(action: deleteEditedCell) {
+                Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Verb.delete.hue))
+            }.buttonStyle(.plain)
         }
     }
-    private func swapTab(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.6))
-            .frame(maxWidth: .infinity).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Self.editHue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
+    // D — INPUT section: source · shift · chord-split · velocity window (the existing controls, re-hosted).
+    @ViewBuilder private func inputSection(_ cell: Cell) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            facetRow("SOURCE") { inputSourceChip(cell) }
+            inputShiftRow
+            chordSplitRow(cell)
+            velWindowRow(cell)
+        }
     }
     private func editName(_ id: String) -> String {
         docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
-    }
-    /// The station panel — Phase 1: identity (C) + the deferred-section stubs + delete (I). Input/triggers/
-    /// output/loop/test fill their stubs in later phases.
-    @ViewBuilder private var cellEditPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("CELL EDIT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.9))
-            if let cell = editingCell {
-                HStack(spacing: 8) {                         // C — IDENTITY: swatch · name · grid position
-                    RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 28, height: 28)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(editName(cell.colourID)).font(.system(size: 13, weight: .heavy)).foregroundColor(.white)
-                        Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    }
-                    Spacer(minLength: 0)
-                }
-                VStack(alignment: .leading, spacing: 4) {     // §D INPUT — the SOURCE picker (cell-level, live)
-                    Text("INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    facetRow("SOURCE") { inputSourceChip(cell) }
-                    inputShiftRow                             // §D octave + transpose (existing steppers, unchanged)
-                    chordSplitRow(cell)                       // §D chord split (per-cell)
-                    velWindowRow(cell)                        // §D velocity window (per-cell)
-                }
-                VStack(alignment: .leading, spacing: 4) {     // §E TRIGGERS — the live accordion (Colour-side)
-                    Text("TRIGGERS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    triggersAccordion
-                }
-                editSectionStub("OUTPUT"); editSectionStub("LOOP · TEST")
-                Button(action: deleteEditedCell) {           // I — DELETE (same SEVER law as the grid verb)
-                    Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                        .frame(maxWidth: .infinity).frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Verb.delete.hue))
-                }.buttonStyle(.plain)
-            } else {
-                Text("Tap an occupied cell to edit it")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    .frame(maxWidth: .infinity, minHeight: 90)
-            }
-        }
-        .padding(10).frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03)))
     }
     private func editSectionStub(_ label: String) -> some View {   // a section slot the later phases fill in
         HStack {

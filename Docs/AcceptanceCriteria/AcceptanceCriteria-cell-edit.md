@@ -36,16 +36,44 @@ user's word.]_
 - Given EDIT is open, when the active SCENE switches, then EDIT
   auto-closes (the pointed cell's context no longer applies).
 
-## B — LAYOUT
+## B — LAYOUT (revised: full takeover, not a compact-strip swap)
 **B1.** Given EDIT is armed and pointing at a cell, then the CELL EDIT
-panel claims the PRIMARY slot (where the sound desk — Colour +
-Processor — currently sits).
-**B2.** Then the sound desk demotes to a compact strip alongside/below
-(not hidden) — only ONE of {sound desk, Cell Edit} occupies the primary
-slot at a time; a "jump to Colour" control swaps which.
-**B3.** Then the grid, strips, FLOW, and the band/master desk remain
-visible and interactive throughout — no modal takeover, no pop-up.
-(Exact geometry is device-iteration territory.)
+PAGE replaces the entire working view (grid, strips, FLOW, band desk —
+all of it) — not a panel swap within the existing layout. This mirrors
+the existing "the surface becomes the tool" principle (INSPECT's
+region-takeover, the strips' session-faces during PLACE/SELECT), taken
+to full scale, because a compact-strip version left too many surfaces
+competing for attention at once.
+**B2. The breadcrumb (the anchor back to the grid)**
+- Then a slim strip at the top of the page shows: the scene name, the
+  edited cell's column number, and a small 8-dot minimap with the
+  edited cell lit — so the user always knows where in the arrangement
+  they are without seeing the grid itself.
+- Given LOOP (section G) is engaged, then the minimap's lit dot shows a
+  small looping indicator — this REPLACES the need for any visible
+  "other columns are silent" state, since the grid isn't on screen.
+**B3. Entry/exit**
+- Tapping EDIT + a cell TRANSITIONS to the Cell Edit page (a push, not
+  an overlay). DONE, or re-tapping EDIT, returns to the grid instantly
+  — no state is lost either direction (the standing no-save-step law).
+**B4.** The sound desk (Colour + Processor) lives WITHIN the Cell Edit
+page now, not as a separate demoted strip — "jump to Colour" becomes a
+section of this page rather than a swap with an external panel.
+**B5. Internal structure: ONE ACCORDION, not tabs.**
+- NOT tabs — the feature groups (IDENTITY, INPUT, TRIGGERS, OUTPUT) are
+  not equal-weight peers; tabs would hide LOOP/the test pad behind a
+  click exactly when they're needed mid-edit, and would stack a second
+  drill-down on top of the TRIGGERS accordion's own picker.
+- Given the page layout, then: the breadcrumb (B2) stays PINNED at the
+  top; a PERSISTENT strip directly below it always shows LOOP + the
+  TEST CELL (section G/H) — never collapsed, never tabbed, since these
+  are "listen while you work" controls, not configuration you visit.
+- Below that, IDENTITY · INPUT · TRIGGERS · OUTPUT run as ONE VERTICAL
+  ACCORDION (collapsible to a summary line each; one section open at a
+  time by default) — the same discipline the TRIGGERS rows already
+  use, one level up, so opening TRIGGERS and tapping the test pad never
+  requires leaving or switching anything.
+(Exact internal geometry is device-iteration territory.)
 
 ## C — IDENTITY (within Cell Edit)
 - Colour swatch, name, grid position. (No separate read-only wiring
@@ -79,11 +107,22 @@ visible and interactive throughout — no modal takeover, no pop-up.
   user: whether this duplicates or supersedes the spatial ROUTE OUT
   tapping under SELECT/PLACE.]
 - Alt destination set (A–D) — feeds REDIRECT when defined.
-- **Destination sequence** ("chop between outputs"): an 8-slice
-  sequence, each slice MAIN · ALT · REST, riding the alt set.
-  - Applies at admission; REST forces a note-off at that slice's edge.
+- **Destination sequence** ("chop between outputs") — GRAPHICAL, an
+  8×2 grid (one column per slice, matching the main grid's own
+  vocabulary — no new interaction language):
+  - **Row 1 = MAIN** (tap a column to activate that slice; lit = plays
+    normally). Tapping a LIT main cell again toggles a small REDIRECT
+    mark on it (a dot/half-fill) — that slice ALSO routes to the ALT
+    set below, layering rather than replacing.
+  - **Row 2 = MUTE** (tap = this slice is silent regardless of any
+    redirect mark; MAIN and MUTE are exclusive per column).
+  - **Four ALT DESTINATION toggles (A–D) below the grid** — one shared
+    set, not per-slice: every slice carrying the redirect mark routes
+    to whichever of A–D are lit here, uniformly.
+  - Applies at admission; MUTE forces a note-off at that slice's edge.
   - Inherits PHASE: under LEGATO, an identical adjacent cell's
-    destination-mask continues across the boundary.
+    destination-mask (both rows + the ALT set) continues across the
+    boundary.
 
 ## G — LOOP (real-engine auditioning)
 _Supersedes the earlier "sandboxed audition chassis" suggestion — per
