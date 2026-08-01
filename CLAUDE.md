@@ -172,17 +172,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   tests updated to the head-only reality. KNOWN stage-1 gaps: audition previews the Colour not the head; the
   normal (non-spike) processor desk still edits the shared Colour. Plan: `~/.claude/plans/resilient-imagining-
   truffle.md`. NOT on main.**
-  - **STAGE 2 — SERIAL EXECUTION (tick-tail slice, 2026-08-01; off-device: iOS builds + 377 unit tests green).**
-    The chain now RUNS in series for the covered case: a 2-slot chain whose TAIL is an ARP arps the HEAD stage's
-    output SET, DERIVED per tick (window-independent) → pool-correct (harmonize→arp arps ALL voices; gate→arp;
-    chance→arp; arp→arp). `SnapCell` carries the full resolved chain (`procs:[SnapParams]` + `slotBypass`); a new
+  - **STAGE 2 — SERIAL EXECUTION (tick-tail slice, 2026-08-01; off-device: iOS builds + 379 unit tests green).**
+    The chain now RUNS in series for the covered case: a 2-slot chain whose TAIL is an ARP or RATCHET runs the
+    HEAD stage's output SET, DERIVED per tick (window-independent) → pool-correct (harmonize→arp arps ALL voices;
+    harmonize→ratchet re-strikes all voices; gate→arp/ratchet; chance→arp; arp→arp). `SnapCell` carries the full resolved chain (`procs:[SnapParams]` + `slotBypass`); a new
     `fillChainInput` computes the head's set at beat m into a fixed `chainScratch` NotePool (identity/gate pass the
     shaped source, chance drops, harmonize expands, arp head = its note at m); `emitArpRow` gains a `chainHead`
     input branch; the dispatch routes covered chains to the tail (grid-fed cells defer to grid-chaining) and
     `emitColumnHolds` skips them so the head doesn't double. Per-slot BYPASS = true-bypass. Tests: gate→arp,
-    harmonize→arp (all voices), bypassed-head=source-only. **DEFERRED (next increment): ratchet/strum tails ·
-    N>2 slots · HOLD tails (X→gate/harmonize, needs the emitColumnHolds path) · the set-returning derivation for
-    cross-window sustained INTERMEDIATE stages.** NOT on main.**
+    harmonize→arp (all voices), harmonize→ratchet, gate→ratchet, bypassed-head=source-only. **DEFERRED (next
+    increment): STRUM tails (once-per-column read model) · N>2 slots · HOLD tails (X→gate/harmonize, needs the
+    emitColumnHolds path) · the set-returning derivation for cross-window sustained INTERMEDIATE stages.** NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

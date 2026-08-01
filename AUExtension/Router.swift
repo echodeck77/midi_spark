@@ -1188,12 +1188,20 @@ final class Router {
             if !fed && isCoveredChain(cell) {
                 let head = cell.procs[0], tailP = cell.procs[1]
                 var treatTail = colour; treatTail.a = tailP; treatTail.b = tailP; treatTail.tier = .none
-                if case .arp = cellMode(type: tailP.type, bypassed: false, passMask: tailP.passMask, pass: diag.pass) {
+                switch cellMode(type: tailP.type, bypassed: false, passMask: tailP.passMask, pass: diag.pass) {
+                case .arp:
                     emitArpRow(cell: cell, row: r, colour: treatTail, t: t, transpose: transpose, parent: -1,
                                fed: false, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                chainHead: head, chainHeadBypassed: cell.slotBypass[0], out: out, diag: &diag)
+                case .ratchet:
+                    emitRatchetRow(cell: cell, row: r, colour: treatTail, t: t, transpose: transpose, parent: -1,
+                                   fed: false, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                                   windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                                   beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
+                                   chainHead: head, chainHeadBypassed: cell.slotBypass[0], out: out, diag: &diag)
+                default: break   // tail silent this pass
                 }
                 continue
             }
@@ -1230,10 +1238,10 @@ final class Router {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
 
-    /// The 2-slot "tick-tail" slice this build covers: head → a (non-bypassed) ARP tail (ratchet/strum tails +
+    /// The 2-slot "tick-tail" slice this build covers: head → a (non-bypassed) ARP or RATCHET tail (strum tail +
     /// N slots + hold tails are the next increment). Everything else falls back to the stage-1 head-only render.
     private func isCoveredChain(_ cell: SnapCell) -> Bool {
-        cell.procs.count == 2 && !cell.slotBypass[1] && cell.procs[1].type == .arp
+        cell.procs.count == 2 && !cell.slotBypass[1] && (cell.procs[1].type == .arp || cell.procs[1].type == .ratchet)
     }
 
     /// Fill `chainScratch` with the HEAD stage's output NOTE SET at musical beat `m` (OMNI — the notes are past
@@ -1354,6 +1362,7 @@ final class Router {
                                 parent: Int, fed: Bool, emits: Bool, box: SnapshotBox, pool: NotePool,
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
+                                chainHead: SnapParams? = nil, chainHeadBypassed: Bool = false,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
@@ -1371,7 +1380,20 @@ final class Router {
             // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
             let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(mTickBeat, columnBeats: S)], altMask: cell.chopAltMask) : bm
             if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
-            if fed {
+            if let head = chainHead {
+                // CELL MACHINE: RATCHET chain TAIL — re-strike the HEAD stage's output SET at this repeat.
+                fillChainInput(head: head, headBypassed: chainHeadBypassed, cell: cell,
+                               pool: pool, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+                for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
+                    let n = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
+                    if emits {
+                        emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime,
+                                  windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                    }
+                }
+            } else if fed {
                 guard let up = parentSoundingNote(row: parent, column: effColumn, m: mTickBeat,
                                                   box: box, pool: pool, S: S, cycleBeats: cycleBeats)
                 else { return }

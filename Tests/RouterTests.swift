@@ -1091,6 +1091,29 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
+    func testChainHarmonizeToRatchetRestrikesAllVoices() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let rat = ProcessorSlot(type: .ratchet)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, rat]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
+                      "ratchet re-strikes BOTH the source and the +7 harmonized voice")
+        assertNothingLeftSounding(e)
+    }
+
+    func testChainGateToRatchetRestrikesChord() {
+        let cs = arpColours()
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        let rat = ProcessorSlot(type: .ratchet)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, rat]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]),
+                      "ratchet re-strikes the whole gated chord")
+        assertNothingLeftSounding(e)
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through
