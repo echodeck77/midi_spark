@@ -1175,10 +1175,8 @@ struct DiagView: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
                 }.buttonStyle(.plain)
             }
-            if chain.count > 1 {   // signpost the current serial-execution coverage (this build)
-                let strumUncovered = chain.last?.type == .strum && !(chain.last?.bypassed ?? false)
-                Text(strumUncovered ? "A STRUM last slot isn't chained yet — the head slot sounds. Other tails run in series."
-                                    : "Chain runs in series.")
+            if chain.count > 1 {   // the chain now runs end-to-end for every tail type
+                Text("Chain runs in series, head→tail.")
                     .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     .fixedSize(horizontal: false, vertical: true)
             }

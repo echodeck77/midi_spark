@@ -1211,6 +1211,10 @@ final class Router {
                                    windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                    beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                    chainTail: true, out: out, diag: &diag)
+                case .strum:
+                    emitStrumRow(cell: cell, row: r, colour: treatTail, t: t, transpose: transpose, emits: emits,
+                                 pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                                 beatsPerSample: beatsPerSample, S: S, a: a, chainTail: true, out: out, diag: &diag)
                 default: break   // tail silent this pass
                 }
                 continue
@@ -1253,7 +1257,7 @@ final class Router {
     /// RATCHET. Everything else (strum/hold tail, 1 slot) falls back to the stage-1 head-only render. Signposted.
     private func isCoveredChain(_ cell: SnapCell) -> Bool {
         guard cell.procs.count >= 2, let last = cell.procs.last, !(cell.slotBypass.last ?? true) else { return false }
-        return last.type == .arp || last.type == .ratchet
+        return last.type == .arp || last.type == .ratchet || last.type == .strum
     }
     /// A multi-slot chain whose TAIL holds at column boundaries via `emitColumnHolds` (holding the tail's
     /// transform of the composed upstream set): a bypassed tail (passthrough of the upstream set), or a
@@ -1456,16 +1460,19 @@ final class Router {
     /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
     private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
                               emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
-                              beatsPerSample: Double, S: Double, a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+                              beatsPerSample: Double, S: Double, a: Double, chainTail: Bool = false,
+                              out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let spread = effectiveSpread(colour, t: t)
         let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
-        let count = pool.srcCount(for: cell)   // §7 source filter
+        let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+        // CELL MACHINE: a STRUM chain TAIL staggers the composed upstream set (derived once at the column start).
+        if chainTail { composeChainSet(cell: cell, pool: pool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
+        let count = chainTail ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : pool.srcCount(for: cell)   // §7 source filter
         if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
         guard count > 0 else { return }
 
-        let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
                                  beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         while strumProgress[r] < count {
@@ -1477,7 +1484,7 @@ final class Router {
             strumProgress[r] += 1
 
             let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-            let n = Int(pool.srcAscending(sortedIdx, for: cell)) + transpose
+            let n = Int(chainTail ? chainScratch.srcAscending(sortedIdx, filter: 0, cableMask: 0b1111) : pool.srcAscending(sortedIdx, for: cell)) + transpose
             guard n >= 0 && n <= 127 else { continue }
             let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
             let onT = max(onsetSample, windowStart)

@@ -190,8 +190,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     tick-tail (arp/ratchet)→tick loop; hold-tail→emitColumnHolds; non-bypassed STRUM tail→head-only fallback.
     Tests: gate→harmonize holds the harmonized chord, closed-gate-tail silent. Since the whole pipeline is now a
     pure per-m derivation (no buffers), the earlier "cross-window sustained intermediate" concern is MOOT.
-    DEFERRED (small): non-bypassed STRUM tails (once-per-column read) · mid-chain ratchet/strum pass the note set
-    through without imprinting their rhythm (approximation — notes correct, downstream samples the set).** NOT on main.**
+    **STRUM TAILS (2026-08-01, 384 green): the last gap — a strum tail staggers the composed upstream set (derived
+    once at colStart, read via chainScratch). So SERIAL EXECUTION IS NOW COMPLETE for all six types in any slot
+    position, N slots deep: {arp·ratchet·strum} tick tails, {gate·chance·harmonize·bypassed} hold tails, any mix
+    upstream. Test: harmonize→strum staggers all voices. UI caption = "Chain runs in series." DEFERRED (minor,
+    arguably inherent): a mid-chain ratchet/strum passes the note SET through without imprinting its own rhythm
+    (a downstream stage samples the set at m, not the rhythm). Device ear-check owed for the whole chain.** NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

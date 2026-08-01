@@ -1163,6 +1163,18 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // CELL MACHINE stage-2 (STRUM tail): [harmonize +7 → STRUM] staggers the WHOLE harmonized set each column.
+    func testChainHarmonizeToStrumStrumsAllVoices() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let strum = ProcessorSlot(type: .strum)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, strum]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
+                      "strum tail staggers both the source and the +7 harmonized voice")
+        assertNothingLeftSounding(e)
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through
