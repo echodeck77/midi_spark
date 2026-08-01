@@ -180,9 +180,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     shaped source, chance drops, harmonize expands, arp head = its note at m); `emitArpRow` gains a `chainHead`
     input branch; the dispatch routes covered chains to the tail (grid-fed cells defer to grid-chaining) and
     `emitColumnHolds` skips them so the head doesn't double. Per-slot BYPASS = true-bypass. Tests: gate→arp,
-    harmonize→arp (all voices), harmonize→ratchet, gate→ratchet, bypassed-head=source-only. **DEFERRED (next
-    increment): STRUM tails (once-per-column read model) · N>2 slots · HOLD tails (X→gate/harmonize, needs the
-    emitColumnHolds path) · the set-returning derivation for cross-window sustained INTERMEDIATE stages.** NOT on main.**
+    harmonize→arp (all voices), harmonize→ratchet, gate→ratchet, bypassed-head=source-only. **N-SLOT (2026-08-01,
+    381 green): generalised to any-length chains ending in arp/ratchet — `composeChainSet` folds every upstream
+    stage into the scratch via a ping-pong of two working pools (identity/gate/ratchet/strum pass, closed gate
+    empties, chance drops, harmonize expands, an ARP mid-chain collapses to its one note at m). Tests: 3-slot
+    gate→harmonize→arp, closed-gate-silences-tail. DEFERRED (next): STRUM tails (once-per-column read) · HOLD
+    tails (X→gate/harmonize, needs the emitColumnHolds path) · the set-derivation for cross-window sustained
+    INTERMEDIATE stages.** NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

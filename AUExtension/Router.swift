@@ -183,7 +183,11 @@ final class Router {
     // sequencer), the TAIL reads the HEAD's output SET at each of its ticks from this fixed scratch pool
     // (refilled in place per tick by `fillChainInput` — no alloc). The head's set is DERIVED (identity/gate/
     // chance/harmonize from the shaped source; arp head = its one note at m), so it is window-independent.
+    // For N>2 slots, `composeChainSet` folds every stage before the tail into `chainScratch` via a ping-pong of
+    // two working pools (chainA/chainB — no alloc). The tail sequencer reads the result each tick.
     private let chainScratch = NotePool()
+    private let chainA = NotePool()
+    private let chainB = NotePool()
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
     // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set each process()
     // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
@@ -1186,7 +1190,7 @@ final class Router {
             // HEAD's per-tick output set. Grid-fed cells (parent ≥ 0) defer to grid-chaining. Only the tail emits;
             // emitColumnHolds skips the head (it would otherwise chord-hold + double the sound).
             if !fed && isCoveredChain(cell) {
-                let head = cell.procs[0], tailP = cell.procs[1]
+                let tailP = cell.procs[cell.procs.count - 1]   // the TAIL sequencer; composeChainSet folds slots before it
                 var treatTail = colour; treatTail.a = tailP; treatTail.b = tailP; treatTail.tier = .none
                 switch cellMode(type: tailP.type, bypassed: false, passMask: tailP.passMask, pass: diag.pass) {
                 case .arp:
@@ -1194,13 +1198,13 @@ final class Router {
                                fed: false, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                               chainHead: head, chainHeadBypassed: cell.slotBypass[0], out: out, diag: &diag)
+                               chainTail: true, out: out, diag: &diag)
                 case .ratchet:
                     emitRatchetRow(cell: cell, row: r, colour: treatTail, t: t, transpose: transpose, parent: -1,
                                    fed: false, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                    windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                    beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                                   chainHead: head, chainHeadBypassed: cell.slotBypass[0], out: out, diag: &diag)
+                                   chainTail: true, out: out, diag: &diag)
                 default: break   // tail silent this pass
                 }
                 continue
@@ -1238,55 +1242,71 @@ final class Router {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
 
-    /// The 2-slot "tick-tail" slice this build covers: head → a (non-bypassed) ARP or RATCHET tail (strum tail +
-    /// N slots + hold tails are the next increment). Everything else falls back to the stage-1 head-only render.
+    /// The "tick-tail" slice this build covers: a chain of ≥2 slots whose LAST slot is a (non-bypassed) ARP or
+    /// RATCHET. Everything else (strum/hold tail, 1 slot) falls back to the stage-1 head-only render. Signposted.
     private func isCoveredChain(_ cell: SnapCell) -> Bool {
-        cell.procs.count == 2 && !cell.slotBypass[1] && (cell.procs[1].type == .arp || cell.procs[1].type == .ratchet)
+        guard cell.procs.count >= 2, let last = cell.procs.last, !(cell.slotBypass.last ?? true) else { return false }
+        return last.type == .arp || last.type == .ratchet
     }
 
-    /// Fill `chainScratch` with the HEAD stage's output NOTE SET at musical beat `m` (OMNI — the notes are past
-    /// the input filter now). Derived, so it is valid at any instant (window-independent): identity/gate pass the
-    /// shaped source, chance drops by probability, harmonize expands to voices, a closed gate yields nothing, and
-    /// an ARP head contributes its single note at m. (RATCHET/STRUM heads fall through to identity for this slice.)
-    private func fillChainInput(head: SnapParams, headBypassed: Bool, cell: SnapCell,
-                                pool: NotePool, m: Double, S: Double, cycleBeats: Double) {
-        chainScratch.reset()
-        let pass = Int((m / cycleBeats).rounded(.down))
-        let mode = cellMode(type: head.type, bypassed: headBypassed, passMask: head.passMask, pass: pass)
+    /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
+    /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
+    /// probability, harmonize expands to voices, an ARP mid-chain collapses the set to its one note at m.
+    private func applyStage(_ p: SnapParams, mode: CellMode, src: NotePool, into dst: NotePool,
+                            cell: SnapCell, m: Double, S: Double, cycleBeats: Double) {
         switch mode {
         case .silent:
-            break                                              // closed passgate → nothing downstream (empty scratch)
+            break                                              // closed passgate → empty
         case .arp:
-            var arpBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), head.rateIndex)))]
+            var arpBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
             if arpBeats <= 0 { arpBeats = 0.25 }
             let tick = Int64((m / arpBeats).rounded(.down))
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats, S: S,
-                                  cycleBeats: cycleBeats, phase: head.phase, runStartColumn: cell.runStartColumn)
-            let n = arpPickSource(phaseIndex: pIdx, octaves: Int(head.octaves), pattern: head.patternIndex,
-                                  pool: pool, for: cell)
-            if n >= 0 && n <= 127 { chainScratch.noteOn(UInt8(n), velocity: 96, channel: 0) }
+                                  cycleBeats: cycleBeats, phase: p.phase, runStartColumn: cell.runStartColumn)
+            let n = arpPickSource(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
+                                  pool: src, filter: 0, cableMask: 0b1111)
+            if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: 96, channel: 0) }
         case .chance:
             let colStart = (m / S).rounded(.down) * S
-            for k in 0..<pool.srcCount(for: cell) {
-                let n = pool.srcAscending(k, for: cell)
-                if chancePasses(beat: colStart, note: Int(n), probability: head.probability) {
-                    chainScratch.noteOn(n, velocity: 96, channel: 0)
-                }
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                if chancePasses(beat: colStart, note: Int(n), probability: p.probability) { dst.noteOn(n, velocity: 96, channel: 0) }
             }
         case .harmonize:
-            let ivs = [head.harmIntervals.0, head.harmIntervals.1, head.harmIntervals.2]
-            for k in 0..<pool.srcCount(for: cell) {
-                let base = Int(pool.srcAscending(k, for: cell))
-                chainScratch.noteOn(UInt8(base), velocity: 96, channel: 0)
-                for iv in ivs where iv != 0 {
-                    let v = base + Int(iv)
-                    if v >= 0 && v <= 127 { chainScratch.noteOn(UInt8(v), velocity: 96, channel: 0) }
-                }
+            let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+                let base = Int(src.srcAscending(k, filter: 0, cableMask: 0b1111))
+                dst.noteOn(UInt8(base), velocity: 96, channel: 0)
+                for iv in ivs where iv != 0 { let v = base + Int(iv); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: 96, channel: 0) } }
             }
-        default:                                               // identity / open passgate (+ ratchet/strum head, this slice)
-            for k in 0..<pool.srcCount(for: cell) { chainScratch.noteOn(pool.srcAscending(k, for: cell), velocity: 96, channel: 0) }
+        default:                                               // identity / open passgate / ratchet / strum → pass through
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { dst.noteOn(src.srcAscending(k, filter: 0, cableMask: 0b1111), velocity: 96, channel: 0) }
         }
-        chainScratch.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it (the source pool is rebuilt in the Kernel)
+        dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
+    }
+
+    /// Compose stages [0…upto] of the chain into `chainScratch` at beat m — the TAIL reads this each tick. Seeds
+    /// from the SHAPED source (the cell's channel/split/vel filter applies only at the head), then folds each
+    /// non-bypassed stage through a ping-pong of the two working pools. Fixed pools → no render-thread alloc.
+    private func composeChainSet(cell: SnapCell, pool: NotePool, upto: Int, m: Double, S: Double, cycleBeats: Double) {
+        let pass = Int((m / cycleBeats).rounded(.down))
+        var cur = chainA, nxt = chainB
+        cur.reset()
+        for k in 0..<pool.srcCount(for: cell) { cur.noteOn(pool.srcAscending(k, for: cell), velocity: 96, channel: 0) }
+        cur.rebuildSorted()
+        var j = 0
+        while j <= upto {
+            if !cell.slotBypass[j] {   // true-bypass: the set passes untouched
+                let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                nxt.reset()
+                applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
+                swap(&cur, &nxt)
+            }
+            j += 1
+        }
+        chainScratch.reset()
+        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) { chainScratch.noteOn(cur.srcAscending(k, filter: 0, cableMask: 0b1111), velocity: 96, channel: 0) }
+        chainScratch.rebuildSorted()
     }
 
     // MARK: - per-row tick emitters (the process() per-window content, one method per processor)
@@ -1297,7 +1317,7 @@ final class Router {
                             parent: Int, fed: Bool, emits: Bool, box: SnapshotBox, pool: NotePool,
                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                            chainHead: SnapParams? = nil, chainHeadBypassed: Bool = false,
+                            chainTail: Bool = false,
                             out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
@@ -1314,11 +1334,10 @@ final class Router {
                                   cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
             let base: Int
-            if let head = chainHead {
-                // CELL MACHINE: this ARP is a chain TAIL — arp the HEAD stage's output SET at this tick (OMNI,
-                // past the input filter). Derived per tick → pool-correct (e.g. arps ALL harmonized voices).
-                fillChainInput(head: head, headBypassed: chainHeadBypassed, cell: cell,
-                               pool: pool, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+            if chainTail {
+                // CELL MACHINE: this ARP is the chain TAIL — arp the composed output SET of every upstream stage
+                // at this tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL voices).
+                composeChainSet(cell: cell, pool: pool, upto: cell.procs.count - 2, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
                                       pool: chainScratch, filter: 0, cableMask: 0b1111)
                 guard b >= 0 else { return }
@@ -1362,7 +1381,7 @@ final class Router {
                                 parent: Int, fed: Bool, emits: Bool, box: SnapshotBox, pool: NotePool,
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
-                                chainHead: SnapParams? = nil, chainHeadBypassed: Bool = false,
+                                chainTail: Bool = false,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
@@ -1380,10 +1399,9 @@ final class Router {
             // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
             let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(mTickBeat, columnBeats: S)], altMask: cell.chopAltMask) : bm
             if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
-            if let head = chainHead {
-                // CELL MACHINE: RATCHET chain TAIL — re-strike the HEAD stage's output SET at this repeat.
-                fillChainInput(head: head, headBypassed: chainHeadBypassed, cell: cell,
-                               pool: pool, m: mTickBeat, S: S, cycleBeats: cycleBeats)
+            if chainTail {
+                // CELL MACHINE: RATCHET chain TAIL — re-strike the composed upstream output SET at this repeat.
+                composeChainSet(cell: cell, pool: pool, upto: cell.procs.count - 2, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
                     let n = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) + transpose
                     guard n >= 0 && n <= 127 else { continue }
