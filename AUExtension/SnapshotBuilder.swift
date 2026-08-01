@@ -45,12 +45,15 @@ enum SnapshotBuilder {
                 // type+params, else the referenced Colour's A face (already resolved into colours[colourIndex].a,
                 // canonically ordered by colourIDs like the render's box.colours[ci]). `bypassed` carries the head
                 // slot's bypass in the chain case (identity), or the legacy cell.bypassed in the fallback case.
-                if let chain = cell.processors, !chain.isEmpty {
+                // CELL MACHINE stage-3: 3-tier resolution — per-cell OVERRIDE → colour TEMPLATE → legacy A face.
+                let override = cell.processors.flatMap { $0.isEmpty ? nil : $0 }
+                let template = (colourIndex < doc.colours.count ? doc.colours[colourIndex].templateChain : nil).flatMap { $0.isEmpty ? nil : $0 }
+                if let chain = override ?? template {
                     sc.procs = chain.map { resolve($0.params, type: $0.type, fallback: nil) }
                     sc.slotBypass = chain.map { $0.bypassed }
                     sc.bypassed = chain[0].bypassed
                 } else {
-                    sc.procs = [colours[colourIndex].a]   // 1-slot head = the Colour's A face
+                    sc.procs = [colours[colourIndex].a]   // legacy: 1-slot head = the Colour's A face
                     sc.slotBypass = [cell.bypassed]
                     sc.bypassed = cell.bypassed
                 }

@@ -1175,6 +1175,33 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // CELL MACHINE stage-3: a colour's shared TEMPLATE chain sounds for a FOLLOWING cell (no per-cell override).
+    func testTemplateChainSoundsForFollowingCell() {
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        cs[gi].templateChain = [gate, ProcessorSlot(type: .arp)]                       // template = gate → arp
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // FOLLOWING (no override)
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]),
+                      "a following cell sounds the colour TEMPLATE chain (arps the chord)")
+        assertNothingLeftSounding(e)
+    }
+
+    // A per-cell OVERRIDE diverges from the template: template = arp, but this cell overrides with a bypassed
+    // passgate (identity) → holds the raw chord instead of arping.
+    func testCellOverrideDivergesFromTemplate() {
+        var cs = arpColours()
+        let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].templateChain = [ProcessorSlot(type: .arp)]
+        var idle = ProcessorSlot(type: .passgate); idle.params.passes = [true, true, true, true]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [idle]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
+                       "the OVERRIDE (open passgate = identity hold) ignores the arp TEMPLATE")
+        assertNothingLeftSounding(e)
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through

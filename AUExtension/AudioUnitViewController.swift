@@ -102,6 +102,10 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
+    // CELL MACHINE stage-3: which scope a chain edit writes to — THIS CELL (per-cell override) or ALL <colour>
+    // (the shared template, every following cell in every scene). The chain editor's explicit scope choice.
+    enum ChainScope { case thisCell, allColour }
+    @State private var chainScope: ChainScope = .thisCell
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -1160,13 +1164,15 @@ struct DiagView: View {
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
     }
     @ViewBuilder private func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
-        let chain = cellChain(cell)
+        let scoped = chainScope == .allColour                                  // editing the shared TEMPLATE?
+        let chain = scoped ? (au?.uiColourTemplate(colourID: cell.colourID) ?? []) : cellChain(cell)
         VStack(alignment: .leading, spacing: 8) {
+            chainScopeHeader(cell)
             ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
-                slotBox(i, slot, cell: cell).frame(width: boxWidth)
+                slotBox(i, slot, cell: cell, scoped: scoped).frame(width: boxWidth)
             }
             if chain.count < 8 {
-                Button { au?.addSlot(col: selCol, row: selRow); refreshFromDocument() } label: {
+                Button { if scoped { au?.addTemplateSlot(colourID: cell.colourID) } else { au?.addSlot(col: selCol, row: selRow) }; refreshFromDocument() } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
                         Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -1175,29 +1181,60 @@ struct DiagView: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
                 }.buttonStyle(.plain)
             }
-            if chain.count > 1 {   // the chain now runs end-to-end for every tail type
+            if chain.count > 1 {   // the chain runs end-to-end for every tail type
                 Text("Chain runs in series, head→tail.")
                     .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
-    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
+    // CELL MACHINE stage-3: THIS CELL | ALL <colour> scope + the FOLLOWS/OVERRIDES badge + ↺ FOLLOW (re-link).
+    @ViewBuilder private func chainScopeHeader(_ cell: Cell) -> some View {
+        let overrides = au?.cellOverrides(col: selCol, row: selRow) ?? false
+        HStack(spacing: 6) {
+            scopeChip("THIS CELL", on: chainScope == .thisCell) { chainScope = .thisCell }
+            scopeChip("ALL \(editName(cell.colourID))", on: chainScope == .allColour) { chainScope = .allColour }
+            Spacer(minLength: 0)
+            if chainScope == .thisCell {
+                Text(overrides ? "OVERRIDES" : "FOLLOWS").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundColor(overrides ? Self.editHue : .white.opacity(0.4))
+                if overrides {
+                    Button { au?.followTemplate(col: selCol, row: selRow); refreshFromDocument() } label: {
+                        Text("↺ FOLLOW").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Self.editHue))
+                    }.buttonStyle(.plain)
+                }
+            } else {
+                Text("shared — changes every following cell, all scenes").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            }
+        }
+    }
+    private func scopeChip(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Self.editHue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell, scoped: Bool) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
+        let cid = cell.colourID
         ProcessorBox(
             colour: sc, colourIndex: -1, face: .a,
             onEdit: { mutate in
-                au?.editSlot(col: selCol, row: selRow, slot: i) { s in
-                    var tmp = Colour(colourID: cell.colourID, type: s.type); tmp.paramsA = s.params
+                let apply: (inout ProcessorSlot) -> Void = { s in
+                    var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
                     mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA (transpose/morph hidden)
                 }
+                if scoped { au?.editTemplateSlot(colourID: cid, slot: i, apply) } else { au?.editSlot(col: selCol, row: selRow, slot: i, apply) }
                 refreshFromDocument()
             },
             onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in au?.setSlotType(col: selCol, row: selRow, slot: i, t); refreshFromDocument() },
+            onSetTypeA: { t in if scoped { au?.setTemplateSlotType(colourID: cid, slot: i, t) } else { au?.setSlotType(col: selCol, row: selRow, slot: i, t) }; refreshFromDocument() },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            onBypass: { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i); refreshFromDocument() },
-            onRemove: i == 0 ? nil : { au?.removeSlot(col: selCol, row: selRow, slot: i); refreshFromDocument() })
+            onBypass: { if scoped { au?.toggleTemplateSlotBypass(colourID: cid, slot: i) } else { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i) }; refreshFromDocument() },
+            onRemove: i == 0 ? nil : { if scoped { au?.removeTemplateSlot(colourID: cid, slot: i) } else { au?.removeSlot(col: selCol, row: selRow, slot: i) }; refreshFromDocument() })
     }
 
     private func sectionHeader(_ label: String) -> some View {
@@ -1569,10 +1606,14 @@ struct DiagView: View {
     // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
     // below the grid), not here.
     private var identityColumn: some View {
-        // LANDSCAPE (user rev 2026-07-27): COLOUR · A · B STACKED top-to-bottom in the narrow right column.
+        // CELL MACHINE stage-3: the shared-Colour processor desk is RETIRED — processors are edited in EDIT (the
+        // CHAIN editor, per-cell or via the ALL-<colour> template scope). Only the colour palette/identity stays.
         VStack(spacing: 8) {
             colourBox
-            processorPanels(vertical: true)   // procA above procB (stacked)
+            Text("Edit processors in EDIT — per cell, or ALL <colour> (shared template).")
+                .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 
@@ -1586,7 +1627,10 @@ struct DiagView: View {
         // palette on the left, the two panels side by side taking the rest.
         return HStack(alignment: .top, spacing: gap) {
             colourBox.frame(width: min(160, avail * 0.28))
-            processorPanels(vertical: false).frame(maxWidth: .infinity)
+            // CELL MACHINE stage-3: processor desk retired — processors are edited in EDIT (chain editor).
+            Text("Edit processors in EDIT — per cell, or ALL <colour> (shared template).")
+                .font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: height)
     }

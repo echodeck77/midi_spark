@@ -39,6 +39,19 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(thru(9), 3, "out-of-range clamps to R4")
     }
 
+    // CELL MACHINE stage-3: 3-tier chain resolution — per-cell OVERRIDE → colour TEMPLATE → legacy A face.
+    func testChainResolvesOverrideThenTemplateThenAFace() {
+        let i = 2, cid = colourIDs[2]
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }   // A face = ARP
+        cs[i].templateChain = [ProcessorSlot(type: .ratchet)]
+        let follow = box(cs) { $0.cells[0][0] = Cell(colourID: cid, buses: [.a]) }   // no override → template
+        XCTAssertEqual(follow.cells[0].procs.first?.type, .ratchet, "a following cell resolves the colour TEMPLATE")
+        let over = box(cs) { $0.cells[0][0] = { var c = Cell(colourID: cid, buses: [.a]); c.processors = [ProcessorSlot(type: .strum)]; return c }() }
+        XCTAssertEqual(over.cells[0].procs.first?.type, .strum, "a per-cell OVERRIDE wins over the template")
+        let legacy = box(colourIDs.map { Colour(colourID: $0, type: .arp) }) { $0.cells[0][0] = Cell(colourID: cid, buses: [.a]) }
+        XCTAssertEqual(legacy.cells[0].procs.first?.type, .arp, "no override, no template → the legacy A face")
+    }
+
     func testBusEnabledMaskFromDocument() {
         func mask(_ e: [Bool]?) -> UInt8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

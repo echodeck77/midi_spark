@@ -196,6 +196,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     upstream. Test: harmonize→strum staggers all voices. UI caption = "Chain runs in series." DEFERRED (minor,
     arguably inherent): a mid-chain ratchet/strum passes the note SET through without imprinting its own rhythm
     (a downstream stage samples the set at m, not the rhythm). Device ear-check owed for the whole chain.** NOT on main.**
+  - **STAGE 3 — shared TEMPLATE chain + explicit edit SCOPE (2026-08-02, 388 green; off-device). Answers "if I
+    change scene 1's harmonize, does scene 3 change?": now user-chosen. `Colour.templateChain: [ProcessorSlot]?`
+    (additive Optional) = the colour's shared default chain; builder resolves 3 tiers `cell.processors ??
+    colour.templateChain ?? [type+paramsA]` (per-cell OVERRIDE → colour TEMPLATE → legacy A face). The CHAIN
+    editor gains a scope segment: THIS CELL (writes `cell.processors`, per-scene) | ALL <colour> (writes
+    `templateChain`, every FOLLOWING cell in every scene) + a FOLLOWS/OVERRIDES badge + ↺ FOLLOW (clears the
+    override). AU: template-path slot setters (via `editColour`, undoable) + `followTemplate`/`cellOverrides`/
+    `uiColourTemplate`. The old shared-Colour processor desk (`processorPanels` in identityColumn/colourFlowBand)
+    is RETIRED — all processor editing goes through EDIT. Tests: 3-tier resolution, template-sounds-for-following-
+    cell, override-diverges, templateChain round-trip. DEFERRED: cell library · per-slot override granularity.** NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

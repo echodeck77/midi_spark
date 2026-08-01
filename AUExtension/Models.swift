@@ -103,6 +103,12 @@ struct Colour: Codable, Equatable {
     // → old docs decode nil ⇒ DEFINED (all 16 as today). Non-persisting read helper below.
     var defined: Bool? = nil
     var isDefined: Bool { defined ?? true }
+    // CELL MACHINE stage-3 (feat/EditPageSpike): the shared TEMPLATE chain — this colour's default processor
+    // chain, followed by every cell of this colour with NO per-cell override (Cell.processors == nil), in every
+    // scene. Optional (append-only §12.0) → old docs decode nil; the builder then falls back to the legacy
+    // single-processor type+paramsA. Editing it in the "ALL <colour>" scope changes every following cell at once.
+    var templateChain: [ProcessorSlot]? = nil
+    var hasTemplate: Bool { !(templateChain?.isEmpty ?? true) }
 
     /// delta item 8: does this Colour have a second processor (procB)? Drives morph/ALT availability + greying.
     var hasProcB: Bool { typeB != nil }

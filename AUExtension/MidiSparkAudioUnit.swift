@@ -74,6 +74,34 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return materializedChain(cell)
     }
 
+    // MARK: - CELL MACHINE stage-3 — shared TEMPLATE chain edits (document Colour; undoable; ALL scenes at once)
+
+    /// The colour's template chain, materialising a 1-slot chain from its legacy single processor the first time.
+    private func materializedTemplate(_ colour: Colour) -> [ProcessorSlot] {
+        if let t = colour.templateChain, !t.isEmpty { return t }
+        return [ProcessorSlot(type: colour.type, params: colour.paramsA)]
+    }
+    private func withTemplate(colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        guard let ci = document.colours.firstIndex(where: { $0.colourID == colourID }) else { return }
+        var chain = materializedTemplate(document.colours[ci]); mutate(&chain)
+        editColour(ci) { $0.templateChain = chain }   // document-level → every FOLLOWING cell (all scenes) updates
+    }
+    func setTemplateSlotType(colourID: String, slot: Int, _ type: ProcessorType) { withTemplate(colourID: colourID) { if slot < $0.count { $0[slot].type = type } } }
+    func editTemplateSlot(colourID: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withTemplate(colourID: colourID) { if slot < $0.count { mutate(&$0[slot]) } } }
+    func toggleTemplateSlotBypass(colourID: String, slot: Int) { withTemplate(colourID: colourID) { if slot < $0.count { $0[slot].bypassed.toggle() } } }
+    func addTemplateSlot(colourID: String) { withTemplate(colourID: colourID) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
+    func removeTemplateSlot(colourID: String, slot: Int) { withTemplate(colourID: colourID) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
+    func uiColourTemplate(colourID: String) -> [ProcessorSlot] {
+        guard let c = document.colours.first(where: { $0.colourID == colourID }) else { return [] }
+        return materializedTemplate(c)
+    }
+    /// FOLLOW TEMPLATE: drop a cell's per-cell override so it tracks the shared template again.
+    func followTemplate(col: Int, row: Int) { editScene { $0.cells[col][row]?.processors = nil } }
+    /// Does this cell hold a per-cell OVERRIDE (true) or FOLLOW its colour's template (false)?
+    func cellOverrides(col: Int, row: Int) -> Bool {
+        !((document.scenes[document.activeSceneResolved].cells[col][row]?.processors?.isEmpty) ?? true)
+    }
+
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
     // and continuous AUParameter sliders (transpose/morph) are excluded for v1 (they bypass these paths).

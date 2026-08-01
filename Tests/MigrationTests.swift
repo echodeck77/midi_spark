@@ -258,6 +258,18 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(reloaded.scenes[0].cells[0][0]?.processors, "a chain-less cell decodes processors == nil")
     }
 
+    func testColourTemplateChainRoundTripsAndOldDocsDecodeNil() throws {
+        // CELL MACHINE stage-3: the shared TEMPLATE chain on the Colour is an additive Optional — round-trips,
+        // and an old colour without the key decodes nil (the builder then falls back to type+paramsA).
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        cs[0].templateChain = [ProcessorSlot(type: .passgate), ProcessorSlot(type: .arp)]
+        let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(colours: cs, scenes: [SceneState.empty()])))
+        XCTAssertEqual(rt.colours[0].templateChain?.count, 2, "the colour template chain round-trips")
+        XCTAssertEqual(rt.colours[0].templateChain?[1].type, .arp)
+        let plain = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])))
+        XCTAssertNil(plain.colours[0].templateChain, "a colour with no template decodes templateChain == nil")
+    }
+
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
             s.cells[0][0] = Cell(colourID: "gold", stack: true)
