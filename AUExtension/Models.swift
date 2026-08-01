@@ -278,6 +278,18 @@ struct Cell: Codable, Equatable {
     // the HEAD slot + per-slot bypass; slots 2…8 are stored but not yet executed (serial chain = a later stage).
     var processors: [ProcessorSlot]? = nil
     var hasChain: Bool { !(processors?.isEmpty ?? true) }
+
+    /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's colour +
+    /// source-shaping (chord-split · velocity window · chop) + the given MATERIALISED chain, with ALL routing
+    /// (input receiver/row + output emitters) and perform state stripped — ready to stamp into a fresh position
+    /// and wire up. The grid-position-specific input row can't transfer; the emitters start blank (null-cell rule).
+    func libraryStripped(materialisedChain: [ProcessorSlot]) -> Cell {
+        var c = Cell(colourID: colourID)
+        c.processors = materialisedChain
+        c.chordSplit = chordSplit; c.velWindow = velWindow; c.chop = chop
+        c.buses = []                 // no output until the user wires one (routing is per-placement)
+        return c                     // inputRow/inputReceiver nil, alt/muted/bypassed false — all defaults
+    }
 }
 
 // CELL MACHINE — one stage of a cell's processor chain: a processor type + its params + a true-bypass toggle.

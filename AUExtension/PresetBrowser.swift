@@ -115,3 +115,80 @@ struct PresetBrowser: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(isCurrent ? 0.08 : 0.03)))
     }
 }
+
+/// CELL LIBRARY browser (§cell-machine 4.8) — mirrors PresetBrowser for named saved CELLS: SAVE the selected
+/// cell under a name, STAMP a saved cell (arms the stamp mode), DELETE. Same overlay look as PRESETS.
+struct CellBrowser: View {
+    let cells: [String]
+    var canSave: Bool = false
+    let onSave: (String) -> Void
+    let onStamp: (String) -> Void
+    let onDelete: (String) -> Void
+    let onClose: () -> Void
+
+    @State private var newName = ""
+    @State private var confirmDelete: String? = nil
+    private let ink = Color.white
+    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private var trimmed: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.82).ignoresSafeArea().onTapGesture { onClose() }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("CELL LIBRARY").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.9))
+                    Spacer()
+                    Text("✕").font(.system(size: 18, weight: .heavy)).foregroundColor(ink.opacity(0.7))
+                        .contentShape(Rectangle()).onTapGesture { onClose() }
+                }.padding(.bottom, 12)
+
+                HStack(spacing: 8) {   // SAVE the selected cell (machine minus routing) under a name
+                    TextField("", text: $newName, prompt: Text(canSave ? "name this cell…" : "select a cell first").foregroundColor(ink.opacity(0.3)))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink)
+                        .textInputAutocapitalization(.words).autocorrectionDisabled().disabled(!canSave)
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.08)))
+                    let ready = canSave && !trimmed.isEmpty
+                    Text("SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundColor(ready ? .black : ink.opacity(0.3))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(ready ? amber : ink.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { if ready { onSave(trimmed); newName = "" } }
+                }.padding(.bottom, 12)
+                Divider().overlay(ink.opacity(0.12)).padding(.bottom, 8)
+
+                if cells.isEmpty {
+                    Text("no saved cells yet — configure a cell, then SAVE").font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.vertical, 12)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(cells, id: \.self) { name in
+                                HStack(spacing: 8) {
+                                    Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.9))
+                                    Spacer()
+                                    Text("STAMP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                        .padding(.horizontal, 10).padding(.vertical, 5)
+                                        .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
+                                        .contentShape(Rectangle()).onTapGesture { onStamp(name) }
+                                    Text(confirmDelete == name ? "SURE?" : "✕")
+                                        .font(.system(size: confirmDelete == name ? 10 : 12, weight: .heavy, design: .monospaced))
+                                        .foregroundColor(confirmDelete == name ? .black : ink.opacity(0.5))
+                                        .padding(.horizontal, confirmDelete == name ? 8 : 6).padding(.vertical, confirmDelete == name ? 5 : 0)
+                                        .background(RoundedRectangle(cornerRadius: 5).fill(confirmDelete == name ? amber : .clear))
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { if confirmDelete == name { onDelete(name); confirmDelete = nil } else { confirmDelete = name } }
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 7)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.05)))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(18).frame(maxWidth: 460, maxHeight: 520)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
+        }
+    }
+}

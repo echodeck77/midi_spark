@@ -62,3 +62,38 @@ enum PresetStore {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 }
+
+/// CELL LIBRARY (§cell-machine 1.5/4.8) — a named, saved CELL reusable across sessions. Same app-level file
+/// pattern as PresetStore (Application Support/Cells · `.8x8cell`), one Codable `Cell` per file. A saved cell is
+/// "machine minus routing": the chain + colour + source-shaping travel; input/output are wired fresh on stamp.
+enum CellLibraryStore {
+    static let ext = "8x8cell"
+    static var directory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("Cells", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    static func fileURL(for name: String) -> URL {
+        directory.appendingPathComponent(PresetStore.sanitize(name)).appendingPathExtension(ext)
+    }
+    static func encode(_ cell: Cell) -> Data? { try? JSONEncoder().encode(cell) }
+    static func decode(_ data: Data) -> Cell? { try? JSONDecoder().decode(Cell.self, from: data) }
+    @discardableResult
+    static func save(_ cell: Cell, as name: String) -> Bool {
+        guard let data = encode(cell) else { return false }
+        return (try? data.write(to: fileURL(for: name), options: .atomic)) != nil
+    }
+    static func load(_ name: String) -> Cell? {
+        guard let data = try? Data(contentsOf: fileURL(for: name)) else { return nil }
+        return decode(data)
+    }
+    static func delete(_ name: String) { try? FileManager.default.removeItem(at: fileURL(for: name)) }
+    /// Saved cell names (no extension), case-insensitively sorted.
+    static func list() -> [String] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == ext }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}

@@ -74,6 +74,11 @@ struct DiagView: View {
     @State private var showPresets = false             // §3 PRESETS: the browser sheet
     @State private var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State private var currentPreset = ""              // §3 the loaded preset's name
+    // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
+    @State private var showCellLibrary = false
+    @State private var cellLibraryList: [String] = []
+    @State private var pendingLibraryCell: Cell? = nil
+    @State private var pendingLibraryName = ""
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var nameDraft = ""        // C1: the desk's Colour-name editor buffer (synced to the brush Colour)
@@ -195,6 +200,9 @@ struct DiagView: View {
     // is a TRIGGER (ON TAP). Routing happens WHILE SELECT is held (user 2026-07-28): the world offers wiring for
     // the selected cell, tapping a candidate wires it, RELEASE applies, CANCEL reverts.
     private func tapCell(_ col: Int, _ row: Int) {
+        if let saved = pendingLibraryCell {                  // CELL MACHINE stage-4: STAMP mode — drop the saved cell here
+            au?.stampLibraryCell(col: col, row: row, saved); refreshFromDocument(); return
+        }
         if editArmed {                                       // §cell-edit A4/A5: EDIT re-points the station, never fires a trigger
             if scene.cells[col][row] != nil {                // occupied → point the station here (empty → nothing)
                 selCol = col; selRow = row                   // the edited-cell coord (also lights the white ring)
@@ -780,6 +788,26 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
+                if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser
+                    CellBrowser(cells: cellLibraryList, canSave: editingCell != nil,
+                                onSave: saveCellNamed, onStamp: stampFromLibrary,
+                                onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false })
+                }
+                if pendingLibraryCell != nil {          // CELL MACHINE stage-4: STAMP mode banner
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Text("STAMPING \(pendingLibraryName) — tap cells").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                            Spacer(minLength: 0)
+                            Text("DONE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.35)))
+                                .contentShape(Rectangle()).onTapGesture { endStamp() }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color(red: 0.15, green: 0.88, blue: 0.94))
+                        Spacer()
+                    }
+                }
                 if let slot = birthingSlot { birthPicker(slot) }   // D2: the "+" slot's type picker (births a Colour)
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)
@@ -1114,6 +1142,11 @@ struct DiagView: View {
                 Text("EDIT · GRID SETUP (spike)").font(.system(size: 11, weight: .heavy, design: .monospaced))
                     .foregroundColor(Self.editHue)
                 Spacer()
+                Button { openCellLibrary() } label: {                // CELL MACHINE stage-4: open the cell library
+                    Text("LIBRARY").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
+                }.buttonStyle(.plain)
                 Button { editArmed = false } label: {                // the only exit while the spike owns the screen
                     Text("DONE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                         .padding(.horizontal, 12).padding(.vertical, 5)
@@ -1874,6 +1907,21 @@ struct DiagView: View {
         presetList = au?.listPresets() ?? []
         currentPreset = au?.uiCurrentPreset() ?? ""
     }
+
+    // CELL MACHINE stage-4 — the CELL LIBRARY: save the selected cell, browse, stamp saved cells.
+    private func openCellLibrary() { cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
+    private func saveCellNamed(_ name: String) {
+        au?.saveCellToLibrary(col: selCol, row: selRow, name: name)
+        cellLibraryList = au?.listLibraryCells() ?? []
+    }
+    private func deleteLibraryCellNamed(_ name: String) {
+        au?.deleteLibraryCell(name: name); cellLibraryList = au?.listLibraryCells() ?? []
+    }
+    private func stampFromLibrary(_ name: String) {   // arm the stamp mode with the loaded cell
+        guard let c = au?.loadLibraryCell(name: name) else { return }
+        pendingLibraryCell = c; pendingLibraryName = name; showCellLibrary = false
+    }
+    private func endStamp() { pendingLibraryCell = nil; pendingLibraryName = "" }
 
     // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter
     //  channel, live activity + MPE-detect indicators). `showSettings` gates it; the ⚙ in the bar opens it.

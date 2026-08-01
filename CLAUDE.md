@@ -205,7 +205,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     override). AU: template-path slot setters (via `editColour`, undoable) + `followTemplate`/`cellOverrides`/
     `uiColourTemplate`. The old shared-Colour processor desk (`processorPanels` in identityColumn/colourFlowBand)
     is RETIRED — all processor editing goes through EDIT. Tests: 3-tier resolution, template-sounds-for-following-
-    cell, override-diverges, templateChain round-trip. DEFERRED: cell library · per-slot override granularity.** NOT on main.**
+    cell, override-diverges, templateChain round-trip. DEFERRED: cell library · per-slot override granularity.**
+  - **▲ Stages 1–3 above were MERGED to `main` + pushed (`4c3288a`, 2026-08-02) with the mute commit.**
+  - **STAGE 4 — the CELL LIBRARY (2026-08-02, 390 green; off-device; branch `feat/EditPageSpike`). Save a
+    configured cell under a name + stamp it into other cells/sessions. Ruling: a saved cell is "MACHINE MINUS
+    ROUTING" — chain (materialised) + colour + source-shaping (split/vel/chop) travel; input receiver/row +
+    output emitters are wired fresh on stamp. `CellLibraryStore` (in PresetStore.swift; `Application Support/
+    Cells`, `.8x8cell`, mirrors PresetStore) stores one Codable `Cell` per file. `Cell.libraryStripped(
+    materialisedChain:)` shapes it. AU: `saveCellToLibrary`/`list`/`load`/`delete`/`stampLibraryCell`. Also FIXED
+    `AU.materializedChain` to the 3-tier resolution (was skipping the template tier → detach/save of a following
+    cell lost the template). UI: `CellBrowser` (in PresetBrowser.swift) opened by a LIBRARY button in the EDIT
+    header; STAMP arms a `pendingLibraryCell` mode (banner + tap-to-place, routed at the top of `tapCell`). Tests:
+    store round-trip, libraryStripped keeps-machine-drops-routing. DEFERRED: factory cells · browser thumbnails ·
+    App-Group container.** NOT yet on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

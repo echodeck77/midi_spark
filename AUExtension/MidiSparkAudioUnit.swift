@@ -52,9 +52,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// The chain as it stands, materialising a 1-slot head from the referenced Colour the first time a cell with
     /// no explicit chain is edited (so an untouched cell keeps rendering as its Colour's A face until then).
     private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
-        if let p = cell.processors, !p.isEmpty { return p }
+        if let p = cell.processors, !p.isEmpty { return p }                    // per-cell override
         let c = document.colours.first { $0.colourID == cell.colourID }
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
+        if let t = c?.templateChain, !t.isEmpty { return t }                   // colour TEMPLATE (3-tier — matches the builder)
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
     }
     private func withChain(col: Int, row: Int, _ mutate: (inout [ProcessorSlot]) -> Void) {
         guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
@@ -100,6 +101,24 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Does this cell hold a per-cell OVERRIDE (true) or FOLLOW its colour's template (false)?
     func cellOverrides(col: Int, row: Int) -> Bool {
         !((document.scenes[document.activeSceneResolved].cells[col][row]?.processors?.isEmpty) ?? true)
+    }
+
+    // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
+
+    /// Save the cell at (col,row) to the library under `name` — "machine minus routing" (chain materialised +
+    /// source-shaping; routing/perform state stripped). Returns false if the slot is empty or the write fails.
+    @discardableResult
+    func saveCellToLibrary(col: Int, row: Int, name: String) -> Bool {
+        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return false }
+        return CellLibraryStore.save(cell.libraryStripped(materialisedChain: materializedChain(cell)), as: name)
+    }
+    func listLibraryCells() -> [String] { CellLibraryStore.list() }
+    func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
+    func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
+    /// STAMP a saved cell onto (col,row) — writes its colour + chain + source-shaping, routing left blank
+    /// (per-placement), overwriting whatever is there. Undoable.
+    func stampLibraryCell(col: Int, row: Int, _ saved: Cell) {
+        editScene { $0.cells[col][row] = saved }
     }
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
