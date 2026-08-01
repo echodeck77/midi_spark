@@ -748,18 +748,20 @@ final class Router {
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
             let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
                                          baseAlt: altFlag, arrivals: pass)
-            let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(colour, t: t), pass: pass)
+            // CELL MACHINE (feat/EditPageSpike): head treatment overrides the morph pair (a==b==head).
+            var treat = colour; treat.a = cell.proc; treat.b = cell.proc; treat.tier = .none
+            let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(treat, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
-            let prob = (mode == .chance) ? effectiveProbability(colour, t: t) : 1
+            let prob = (mode == .chance) ? effectiveProbability(treat, t: t) : 1
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
-            let legato = mode == .identity && colour.a.phase == .legato && (bm & altMask) == 0
+            let legato = mode == .identity && treat.a.phase == .legato && (bm & altMask) == 0
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
             let srcN = cellPool.srcCount(for: cell)   // §7 source filter
             for k in 0..<srcN {
@@ -768,7 +770,7 @@ final class Router {
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
                 if mode == .harmonize {
-                    emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: r, storeArtics: false,
+                    emitHarmony(base: n, colour: treat, t: t, baseVel: 96, row: r, storeArtics: false,
                                 busMask: bm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, out: out, diag: &diag)
                 } else if legato {
@@ -810,10 +812,11 @@ final class Router {
         guard cell.colourIndex >= 0, !cell.muted else { return nil }
         guard parentRow(box, column, pRow) < 0 else { return nil }   // the parent itself references → not a MIDI-IN relay
         let ci = Int(cell.colourIndex), colour = box.colours[ci]
+        var treat = colour; treat.a = cell.proc; treat.b = cell.proc; treat.tier = .none   // CELL MACHINE: head treatment
         let pass = Int((m / cycleBeats).rounded(.down))
         let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
-        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
-                            passMask: effectivePassMask(colour, t: t), pass: pass)
+        let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
+                            passMask: effectivePassMask(treat, t: t), pass: pass)
         guard mode == .identity else { return nil }   // chord-hold this column (open passgate resolves to .identity)
         let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
         return (cell.inputChannel, Int(cell.inputCableMask), transpose)
@@ -837,29 +840,30 @@ final class Router {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: a latched root feeds the frozen chord
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
+        var treat = colour; treat.a = cell.proc; treat.b = cell.proc; treat.tier = .none   // CELL MACHINE: head treatment
         let transpose = colourTranspose(ci, colour)
                       + octaveShift(cell.resolvedReceiver)     // receiver strip: input OCT nudge (rides a referenced parent too)
         let parent = parentRow(box, column, row)               // §1: any-row reference, muted→MIDI IN
         let referencing = parent >= 0
         let pass = Int((m / cycleBeats).rounded(.down))
         let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph), baseAlt: cell.alt, arrivals: pass)
-        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
-                            passMask: effectivePassMask(colour, t: t), pass: pass)
+        let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
+                            passMask: effectivePassMask(treat, t: t), pass: pass)
         if mode == .silent { return nil }      // e.g. a closed passgate sounds nothing
         // ratchet & harmonize sound a POOL (a chord), not one note — a referencing arp can't sample them
         if mode == .ratchet || mode == .harmonize { return nil }
 
         if mode == .arp {
-            var arpBeats = effectiveRateBeats(colour, t: t)
+            var arpBeats = effectiveRateBeats(treat, t: t)
             if arpBeats <= 0 { arpBeats = 0.25 }
-            let octaves = effectiveOctaves(colour, t: t)
+            let octaves = effectiveOctaves(treat, t: t)
             let tick = Int64((m / arpBeats).rounded(.down))
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats,
-                                  S: S, cycleBeats: cycleBeats, phase: colour.a.phase,
+                                  S: S, cycleBeats: cycleBeats, phase: treat.a.phase,
                                   runStartColumn: cell.runStartColumn)
             if referencing {
                 if let rly = chordHoldRelayFilter(box, column: column, pRow: parent, m: m, cycleBeats: cycleBeats) {
-                    let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                    let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: treat.a.patternIndex,
                                           pool: pool, filter: rly.filter, cableMask: rly.cableMask)   // arp the parent's held POOL
                     return b >= 0 ? b + rly.transpose + transpose : nil
                 }
@@ -870,7 +874,7 @@ final class Router {
                 let oct = Int64(max(1, octaves))
                 return up + 12 * Int(((pIdx % oct) + oct) % oct) + transpose
             }
-            let base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+            let base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: treat.a.patternIndex,
                                      pool: pool, for: cell)   // MIDI IN → filtered source (§7)
             return base >= 0 ? base + transpose : nil
         }
@@ -1164,30 +1168,34 @@ final class Router {
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let parent = parentRow(box, effColumn, r)   // §1: resolved input row (−1 = MIDI IN), muted→MIDI IN
             let fed = parent >= 0
-            let mode = cellMode(type: effectiveType(colour, t: t), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(colour, t: t), pass: diag.pass)
+            // CELL MACHINE (feat/EditPageSpike): the per-cell HEAD treatment (cell.proc) overrides the Colour's
+            // A/B morph pair — a==b==head, so every effective*(treat,t) collapses to the head params (morph
+            // dropped this stage). `treat` keeps colour.on/transpose so ON triggers + arrive/rotate still work.
+            var treat = colour; treat.a = cell.proc; treat.b = cell.proc; treat.tier = .none
+            let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(treat, t: t), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
 
             switch mode {
             case .arp:
-                emitArpRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, parent: parent,
+                emitArpRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, parent: parent,
                            fed: fed, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                            windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                            beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .ratchet:
-                emitRatchetRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, parent: parent,
+                emitRatchetRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, parent: parent,
                                fed: fed, emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .strum:
-                emitStrumRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, emits: emits,
+                emitStrumRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .identity, .chance, .harmonize:
                 // Unfed identity/chance/harmonize have no tick content — their hold was emitted at the column
                 // transition; a referenced one mirrors the parent's ticks (+ this transpose).
                 if fed {
-                    emitMirrorRow(cell: cell, row: r, colour: colour, t: t, transpose: transpose, mode: mode,
+                    emitMirrorRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, mode: mode,
                                   parent: parent, emits: emits, windowEnd: windowEnd, out: out, diag: &diag)
                 }
             case .silent:

@@ -41,7 +41,17 @@ enum SnapshotBuilder {
                 var sc = SnapCell()
                 sc.colourIndex = Int8(colourIndex)
                 sc.alt = cell.alt
-                sc.bypassed = cell.bypassed
+                // CELL MACHINE (feat/EditPageSpike): resolve the HEAD treatment — the FIRST chain slot's
+                // type+params, else the referenced Colour's A face (already resolved into colours[colourIndex].a,
+                // canonically ordered by colourIDs like the render's box.colours[ci]). `bypassed` carries the head
+                // slot's bypass in the chain case (identity), or the legacy cell.bypassed in the fallback case.
+                if let head = cell.processors?.first {
+                    sc.bypassed = head.bypassed
+                    sc.proc = resolve(head.params, type: head.type, fallback: nil)
+                } else {
+                    sc.bypassed = cell.bypassed
+                    sc.proc = colours[colourIndex].a
+                }
                 sc.muted = cell.muted
                 sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)

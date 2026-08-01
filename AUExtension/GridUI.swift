@@ -1220,6 +1220,13 @@ struct ProcessorBox: View {
     var onPaste: () -> Void = {}
     var height: CGFloat = panelHeight                   // portrait A-above-B stacking passes a shorter height
     var mixed: Bool = false                             // MIXED-SET law: SELECT spans >1 Colour → dim + disable
+    // CELL MACHINE (feat/EditPageSpike): when slotMode, this box edits ONE chain slot on a cell (not a Colour
+    // face) — the title carries a BYPASS chip (and REMOVE) instead of COPY/PASTE, and transpose/morph are hidden
+    // (those stay Colour-level). Bound via a synthetic Colour whose A face == the slot's type+params.
+    var slotMode: Bool = false
+    var slotBypassed: Bool = false
+    var onBypass: () -> Void = {}
+    var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -1241,13 +1248,15 @@ struct ProcessorBox: View {
                 mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
             } else {
                 if let ft = faceType {
-                    field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
-                        stepper(faceTranspose, -24, 24) { v in
-                            if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
+                    if !slotMode {                       // CELL MACHINE: transpose/morph stay Colour-level, hidden per-slot
+                        field("TRANSPOSE \(faceTranspose > 0 ? "+" : "")\(faceTranspose)") {
+                            stepper(faceTranspose, -24, 24) { v in
+                                if isB { onEdit { $0.transposeB = v } } else { onTranspose(v) }
+                            }
                         }
                     }
                     typeParams(ft)
-                    if isB && glides {                   // morph glides A↔B; only meaningful for a FULL B
+                    if !slotMode && isB && glides {      // morph glides A↔B; only meaningful for a FULL B
                         field("MORPH \(Int(colour.morph * 100))%  → B") {
                             Slider(value: Binding(get: { colour.morph }, set: { onMorph($0) }), in: 0...1).tint(accent)
                         }
@@ -1260,7 +1269,7 @@ struct ProcessorBox: View {
             Spacer(minLength: 0)
         }
         .padding(8).frame(height: height, alignment: .top).clipped()
-        .opacity(mixed ? 0.55 : 1)                        // MIXED-SET: DIM the whole panel
+        .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : 1))   // CELL MACHINE: a bypassed slot dims; MIXED-SET dims too
         .disabled(mixed)                                  // …and block any stray hit (controls aren't rendered anyway)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
@@ -1290,8 +1299,13 @@ struct ProcessorBox: View {
             }
             .buttonStyle(.plain).disabled(mixed)
             Spacer()
-            if !mixed && faceType != nil { pill("COPY", onCopy) }
-            if !mixed && canPaste { pill("PASTE", onPaste) }
+            if slotMode {                                   // CELL MACHINE: per-slot BYPASS (+ REMOVE) instead of COPY/PASTE
+                pill(slotBypassed ? "BYPASSED" : "BYPASS", onBypass)
+                if let onRemove { pill("✕", onRemove) }
+            } else {
+                if !mixed && faceType != nil { pill("COPY", onCopy) }
+                if !mixed && canPaste { pill("PASTE", onPaste) }
+            }
         }
         .popover(isPresented: $showTypePicker) { typePicker }
     }

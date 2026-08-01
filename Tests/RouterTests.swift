@@ -994,8 +994,8 @@ final class RouterTests: XCTestCase {
     }
 
     func testProcBFullMorphsToBFaceUnderAlt() {
-        // FULL procB (both arp): gold procA 1-oct, procB 3-oct. A gold cell with ALT flips to procB
-        // (t=1) → the arp spans 3 octaves, reaching 72/84 that a 1-oct arp never would.
+        // CELL MACHINE (feat/EditPageSpike): A/B morph is DROPPED — the render uses the HEAD (A face) only, so
+        // ALT no longer flips to procB's 3-oct arp. procB stays dormant in the model; NEITHER state reaches 72.
         var cs = arpColours()
         let gi = colourIDs.firstIndex(of: "gold")!
         cs[gi].paramsA.octaves = 1
@@ -1005,13 +1005,13 @@ final class RouterTests: XCTestCase {
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         }
-        XCTAssertFalse(emitted(false).contains(72), "the base 1-oct arp never reaches 72")
-        XCTAssertTrue(emitted(true).contains(72), "ALT → procB's 3-oct arp reaches 72")
+        XCTAssertFalse(emitted(false).contains(72), "the head 1-oct arp never reaches 72")
+        XCTAssertFalse(emitted(true).contains(72), "morph DROPPED: ALT stays on the head (A face) — never reaches procB's 72")
     }
 
     func testProcBSwapFlipsTypeUnderAlt() {
-        // SWAP procB (arp ↔ passgate): gold procA ARP, procB an all-CLOSED PASSGATE. Plain sounds (arp);
-        // ALT flips to the closed passgate → SILENT — proving the render flips both the type and its mask.
+        // CELL MACHINE: A/B morph DROPPED — ALT no longer swaps type. The head (arp) sounds in BOTH states;
+        // procB's closed passgate is dormant.
         var cs = arpColours()
         let gi = colourIDs.firstIndex(of: "gold")!
         cs[gi].typeB = .passgate; cs[gi].paramsB.passes = [false, false, false, false]
@@ -1020,8 +1020,35 @@ final class RouterTests: XCTestCase {
             let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
             return !e.ons.isEmpty
         }
-        XCTAssertTrue(sounds(false), "the base gold arp sounds")
-        XCTAssertFalse(sounds(true), "ALT → SWAP to a closed passgate is silent")
+        XCTAssertTrue(sounds(false), "the head gold arp sounds")
+        XCTAssertTrue(sounds(true), "morph DROPPED: ALT no longer swaps to the closed passgate — the head arp still sounds")
+    }
+
+    // CELL MACHINE (feat/EditPageSpike): a cell's explicit 1-slot chain drives the render identically to the
+    // Colour it references (the head == the Colour's A face). Proves the per-cell head-treatment override.
+    func testSingleSlotChainSoundsLikeTheColour() {
+        let cs = arpColours()   // gold = ARP
+        let gi = colourIDs.firstIndex(of: "gold")!
+        let ctrl = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // Colour drives (no chain)
+        let e0 = RecordingEmitter(); run(ctrl, chord([60, 64, 67]), beats: 16, into: e0)
+        let head = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA)                    // an explicit head == A face
+        let chained = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [head]; return c }() }
+        let e1 = RecordingEmitter(); run(chained, chord([60, 64, 67]), beats: 16, into: e1)
+        XCTAssertGreaterThan(e1.ons.count, 0, "the chained arp sounds")
+        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "a 1-slot chain renders like its Colour's A face")
+        assertNothingLeftSounding(e1)
+    }
+
+    // CELL MACHINE: a bypassed HEAD slot = identity passthrough — the raw held chord passes; the arp is bypassed.
+    func testBypassedHeadSlotIsPassthrough() {
+        let cs = arpColours()   // gold = ARP
+        let gi = colourIDs.firstIndex(of: "gold")!
+        var head = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); head.bypassed = true
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [head]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
+                       "a bypassed head passes the raw held chord (identity), not an arp")
+        assertNothingLeftSounding(e)
     }
 
     func testInputChannelFilterRoutesBySourceChannel() {
@@ -1446,10 +1473,11 @@ final class RouterTests: XCTestCase {
                 beat += wb; ts += Double(frames)
             }
         }
-        let e0 = RecordingEmitter(); runRange(0, cycle, into: e0)             // pass 0 → A open
-        let e1 = RecordingEmitter(); runRange(cycle, 2 * cycle, into: e1)     // pass 1 → ALT flips to B closed
-        XCTAssertGreaterThan(e0.ons.count, 0, "pass 0 (A: open passgate) sounds the held chord")
-        XCTAssertEqual(e1.ons.count, 0, "pass 1 (ALT-ALTERNATE → B: closed passgate) is silent")
+        let e0 = RecordingEmitter(); runRange(0, cycle, into: e0)             // pass 0 → head (A open)
+        let e1 = RecordingEmitter(); runRange(cycle, 2 * cycle, into: e1)     // pass 1 → ALT-ALTERNATE (no face flip now)
+        XCTAssertGreaterThan(e0.ons.count, 0, "pass 0 (head: open passgate) sounds the held chord")
+        // CELL MACHINE: A/B morph DROPPED — ALT-ALTERNATE no longer flips to procB, so the head (open) keeps sounding.
+        XCTAssertGreaterThan(e1.ons.count, 0, "pass 1: morph dropped → ALT-ALTERNATE stays on the head, still sounds")
     }
 
     // §9 item 1 ON ARRIVE (integration): EMITTER-ROTATE walks the firing cable each pass — a cell on
@@ -1544,8 +1572,10 @@ final class RouterTests: XCTestCase {
             }
             return e.ons.count
         }
-        XCTAssertGreaterThan(ons(tapMask: 0), 0, "no tap flip → A (open passgate) sounds")
-        XCTAssertEqual(ons(tapMask: 1 << 0), 0, "tap flip on cell (0,0) → B (closed passgate) → silent")
+        XCTAssertGreaterThan(ons(tapMask: 0), 0, "no tap flip → head (open passgate) sounds")
+        // CELL MACHINE: A/B morph DROPPED — the tap flip still sets the cell's ALT bit but no longer swaps the
+        // processor face, so the head (open passgate) keeps sounding. (The tap-mute path is tested separately.)
+        XCTAssertGreaterThan(ons(tapMask: 1 << 0), 0, "morph dropped: tap flip no longer swaps to procB — head still sounds")
     }
 
     // §9 item 1 ON TAP = MUTE (4b): a cell whose tapMuteMask bit is set falls silent (momentary).

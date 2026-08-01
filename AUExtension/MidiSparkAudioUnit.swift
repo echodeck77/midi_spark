@@ -47,6 +47,33 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         scheduleRebuild()
     }
 
+    // MARK: - CELL MACHINE (feat/EditPageSpike) — per-cell processor CHAIN edits (cell-scoped, undoable via editScene)
+
+    /// The chain as it stands, materialising a 1-slot head from the referenced Colour the first time a cell with
+    /// no explicit chain is edited (so an untouched cell keeps rendering as its Colour's A face until then).
+    private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
+        if let p = cell.processors, !p.isEmpty { return p }
+        let c = document.colours.first { $0.colourID == cell.colourID }
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
+    }
+    private func withChain(col: Int, row: Int, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
+        var chain = materializedChain(cell); mutate(&chain)
+        editScene { $0.cells[col][row]?.processors = chain }
+    }
+    func editSlot(col: Int, row: Int, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
+        withChain(col: col, row: row) { if slot < $0.count { mutate(&$0[slot]) } }
+    }
+    func setSlotType(col: Int, row: Int, slot: Int, _ type: ProcessorType) { editSlot(col: col, row: row, slot: slot) { $0.type = type } }
+    func toggleSlotBypass(col: Int, row: Int, slot: Int) { editSlot(col: col, row: row, slot: slot) { $0.bypassed.toggle() } }
+    func addSlot(col: Int, row: Int) { withChain(col: col, row: row) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
+    func removeSlot(col: Int, row: Int, slot: Int) { withChain(col: col, row: row) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
+    /// The materialised chain for the UI (read-back; never nil for a populated cell).
+    func uiCellChain(col: Int, row: Int) -> [ProcessorSlot] {
+        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return [] }
+        return materializedChain(cell)
+    }
+
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),
     // and continuous AUParameter sliders (transpose/morph) are excluded for v1 (they bypass these paths).

@@ -265,6 +265,22 @@ struct Cell: Codable, Equatable {
     // §cell-edit F CHOP (per-cell output sequence). Optional → old docs decode nil = no chop (all MAIN).
     var chop: Chop? = nil
     var chopResolved: Chop { chop ?? Chop() }
+    // CELL MACHINE (feat/EditPageSpike, §proposal 2026-07-31): the cell OWNS a serial CHAIN of up to 8
+    // processor slots (pedalboard model), replacing the shared-Colour treatment. Optional (append-only §12.0)
+    // → old docs decode nil; the SnapshotBuilder falls back to a 1-slot head seeded from the referenced
+    // Colour's A face (the cell can't see its Colour here, so resolution lives builder-side). Stage 1 renders
+    // the HEAD slot + per-slot bypass; slots 2…8 are stored but not yet executed (serial chain = a later stage).
+    var processors: [ProcessorSlot]? = nil
+    var hasChain: Bool { !(processors?.isEmpty ?? true) }
+}
+
+// CELL MACHINE — one stage of a cell's processor chain: a processor type + its params + a true-bypass toggle.
+// Reuses ColourParams verbatim as the per-slot param bag (append-only §12.0). Codable/Equatable so the chain
+// round-trips like every other cell field.
+struct ProcessorSlot: Codable, Equatable {
+    var type: ProcessorType
+    var params: ColourParams = ColourParams()
+    var bypassed: Bool = false     // per-slot TRUE-BYPASS (the chain's debugger — proposal §2 C3)
 }
 
 // MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object

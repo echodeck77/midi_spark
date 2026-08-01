@@ -157,6 +157,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CELL MACHINE — per-cell processor CHAIN, stage 1 (branch `feat/EditPageSpike`, 2026-08-01; off-device:
+  iOS builds + 374 unit tests green; DEVICE pass owed). Alternative setup model (`_dear_claude_code/PROPOSAL-
+  cell-machine.md`): a cell OWNS a serial chain of ≤8 processor slots (type + params + per-slot bypass), shown
+  as a vertical stack of 50%-width boxes in the EDIT spike page. Stage-1 scope (user rulings): model + stacked
+  UI + engine renders the HEAD slot only (serial run of slots 2…8 = next stage); A/B MORPH DROPPED on this
+  branch (chains seed from the Colour's A face; morph layer dormant); grid-chaining left working. What landed:
+  `ProcessorSlot` + `Cell.processors: [ProcessorSlot]?` (Models, additive Optional, no migration); `SnapCell.proc`
+  resolved head + builder fallback `cell.processors ?? [colour A face]` (SnapshotBuilder); Router reads the
+  per-cell head via a `treat` colour (a==b==head, morph neutralised) at every dispatch incl. parentSoundingNote/
+  chordHoldRelayFilter; cell-scoped undoable slot setters (setSlotType/editSlot/toggleSlotBypass/add/removeSlot,
+  MidiSparkAudioUnit); `ProcessorBox.slotMode` (bypass chip, no transpose/morph) + `chainStack` in editSpikePage.
+  Tests: 1-slot chain == Colour A face, bypassed head = passthrough, chain JSON round-trip + old-doc nil; 4 morph
+  tests updated to the head-only reality. KNOWN stage-1 gaps: audition previews the Colour not the head; the
+  normal (non-spike) processor desk still edits the shared Colour. Plan: `~/.claude/plans/resilient-imagining-
+  truffle.md`. NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

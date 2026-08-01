@@ -238,6 +238,26 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.formatVersion, 3)                    // decoded despite the removed legacy keys
     }
 
+    func testCellProcessorChainRoundTripsAndOldDocsDecodeNil() throws {
+        // CELL MACHINE (feat/EditPageSpike): the per-cell processor CHAIN is an additive Optional — it round-trips
+        // through JSON, and an old doc that never had it decodes `processors == nil` (the builder falls back to
+        // the Colour head). No migration function needed (purely additive), matching chordSplit/velWindow/chop.
+        var cell = Cell(colourID: "gold", buses: [.a])
+        cell.processors = [ProcessorSlot(type: .arp),
+                           { var s = ProcessorSlot(type: .ratchet); s.bypassed = true; return s }()]
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.scenes[0].cells[0][0] = cell
+        let rt = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?.count, 2, "the chain survives a JSON round-trip")
+        XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?[0].type, .arp)
+        XCTAssertEqual(rt.scenes[0].cells[0][0]?.processors?[1].bypassed, true, "per-slot bypass survives")
+
+        var plain = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        plain.scenes[0].cells[0][0] = Cell(colourID: "gold", buses: [.a])   // an "old" cell, no chain
+        let reloaded = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(plain))
+        XCTAssertNil(reloaded.scenes[0].cells[0][0]?.processors, "a chain-less cell decodes processors == nil")
+    }
+
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
             s.cells[0][0] = Cell(colourID: "gold", stack: true)

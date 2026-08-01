@@ -737,7 +737,9 @@ struct DiagView: View {
             let landscape = geo.size.width > geo.size.height       // aspect-driven breakpoint (delta §6)
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                if landscape {
+                if editArmed {
+                    editSpikePage(geo.size)   // feat/EditPageSpike: alt grid-setup surface (grid on top + inspector)
+                } else if landscape {
                     // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
                     // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
                     // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
@@ -1093,6 +1095,106 @@ struct DiagView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // fill the grid's slot (not the window)
     }
+
+    // MARK: - feat/EditPageSpike (2026-08-01) — an ALTERNATIVE grid-setup surface, opened by the existing EDIT
+    // button (body branches to it while `editArmed`). A full-width GRID sits on top; tapping a POPULATED cell
+    // selects it (via `tapCell`'s editArmed re-point) and reveals its controls below in signal-path order:
+    // RECEIVER → PROCESSOR → EMITTERS. Reuses the cell-scoped builders (identitySection / processorPanels /
+    // outputSection), all already wired to selCol/selRow/brush. Self-contained so the spike is easy to drop.
+    @ViewBuilder private func editSpikePage(_ size: CGSize) -> some View {
+        let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
+        let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
+        let inspectorW = min(360, size.width - 24)
+        VStack(spacing: 8) {
+            HStack {
+                Text("EDIT · GRID SETUP (spike)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(Self.editHue)
+                Spacer()
+                Button { editArmed = false } label: {                // the only exit while the spike owns the screen
+                    Text("DONE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue))
+                }.buttonStyle(.plain)
+            }
+            spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top
+            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            if let cell = editingCell {                             // a populated cell is selected → its inspector
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionHeader("RECEIVER");  identitySection(cell)
+                        sectionHeader("CHAIN");     chainStack(cell, boxWidth: size.width * 0.5)
+                        sectionHeader("EMITTERS");  outputSection(cell, emitterWidth: inspectorW)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
+                }
+            } else {
+                Spacer(minLength: 0)
+                Text("Select a populated cell to edit its routing")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(12)
+    }
+
+    // The grid instance for the spike page — the same GridView component, tap = select (editArmed re-point).
+    @ViewBuilder private func spikeGrid(_ cellHeight: CGFloat) -> some View {
+        GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
+                 cellHeight: cellHeight, editing: false,
+                 selCol: selCol, selRow: selRow, onTap: tapCell,
+                 onAuditionStart: startAudition, onAuditionEnd: endAudition,
+                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                 selection: selection,
+                 whiteBorder: [], verbInvite: nil,
+                 routeFoci: [], routeIn: [], routeOut: [],
+                 tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
+                 strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
+    }
+
+    // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
+    // each 50% of screen width, head first, plus [+ ADD] (≤ 8 slots). Stage 1 renders the HEAD; slots 2…8 are
+    // stored + editable but not yet executed (serial run is Phase 2). Reuses ProcessorBox in `slotMode`.
+    private func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // materialise the fallback head from the Colour
+        if let p = cell.processors, !p.isEmpty { return p }
+        let c = docColours.first { $0.colourID == cell.colourID }
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
+    }
+    @ViewBuilder private func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
+        let chain = cellChain(cell)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
+                slotBox(i, slot, cell: cell).frame(width: boxWidth)
+            }
+            if chain.count < 8 {
+                Button { au?.addSlot(col: selCol, row: selRow); refreshFromDocument() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
+                        Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    }
+                    .foregroundColor(Self.editHue).frame(width: boxWidth, height: 34)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
+        let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
+        ProcessorBox(
+            colour: sc, colourIndex: -1, face: .a,
+            onEdit: { mutate in
+                au?.editSlot(col: selCol, row: selRow, slot: i) { s in
+                    var tmp = Colour(colourID: cell.colourID, type: s.type); tmp.paramsA = s.params
+                    mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA (transpose/morph hidden)
+                }
+                refreshFromDocument()
+            },
+            onTranspose: { _ in }, onMorph: { _ in },
+            onSetTypeA: { t in au?.setSlotType(col: selCol, row: selRow, slot: i, t); refreshFromDocument() },
+            height: 260, slotMode: true, slotBypassed: slot.bypassed,
+            onBypass: { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i); refreshFromDocument() },
+            onRemove: i == 0 ? nil : { au?.removeSlot(col: selCol, row: selRow, slot: i); refreshFromDocument() })
+    }
+
     private func sectionHeader(_ label: String) -> some View {
         HStack(spacing: 6) {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
