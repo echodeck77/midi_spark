@@ -119,6 +119,29 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.events.isEmpty, "a muted cell (§6.2) produces no MIDI on any cable")
     }
 
+    func testMutingMidPlaybackSilencesCellWithoutStuckNotes() {
+        // DEFAULT GRID TAP = MUTE (2026-08-01): muting a SOUNDING cell mid-playback must (a) stop its emitter
+        // output and (b) leave no hung note. Simulate the tap by swapping to a snapshot with the cell muted.
+        let live = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }
+        let mb   = box(colours: arpColours()) { for c in 0..<8 { $0.cells[c][0] = { var cell = Cell(colourID: "gold", buses: [.a]); cell.muted = true; return cell }() } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        func win(_ b: SnapshotBox) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<60 { win(live) }                       // sounding
+        XCTAssertGreaterThan(e.ons.count, 0, "the cell sounded before muting")
+        let onsAtMute = e.ons.count
+        for _ in 0..<60 { win(mb) }                          // TAP → muted snapshot
+        XCTAssertEqual(e.ons.count, onsAtMute, "a muted cell emits NO new note-ons")
+        router.process(box: mb, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop
+        assertNothingLeftSounding(e)                          // invariant 4: the muted cell's voice closed cleanly
+    }
+
     func testFanOutEmitsOnBothLitBusesPlusAll() {
         // Buses A and B both lit → each artic emits on cable 1 (A), cable 2 (B) and cable 0 (ALL).
         let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b]) }

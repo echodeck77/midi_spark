@@ -157,6 +157,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
+  DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
+  not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the
+  existing `Cell.muted` engine (already did no-output + `parentRow` muted→MIDI-IN reroute; tests 114/1096).
+  Changes: (1) `triggerTap` (AudioUnitViewController) — `on.tap == .none` now toggles `Cell.muted` via
+  `au.editScene` (undoable) instead of falling through to alt-flip; `.alt/.mute/.solo` triggers unchanged
+  (COEXIST — mute only when no ON-TAP trigger set). (2) `cellView` (GridUI) — a muted cell renders DIMMED
+  (0.28), no longer nil'd to empty. New test `testMutingMidPlaybackSilencesCellWithoutStuckNotes` (no hung
+  note when muting mid-play). Plan: `~/.claude/plans/resilient-imagining-truffle.md`.**
 - **▶ /btw AUTHORING UX + ACCEPTANCE-CRITERIA WAVE — LANDED on main (2026-07-29 session; off-device verified:
   iOS builds + 343 unit tests green; DEVICE pass owed for every UI item). The spec of record for the verbs / grid /
   routing / strips is now `Docs/AcceptanceCriteria/verbs-behaviour.md`. What landed:**

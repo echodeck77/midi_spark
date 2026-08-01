@@ -341,9 +341,12 @@ struct DiagView: View {
         let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
         let kind: TapKind
         switch on.tap {
+        case .none:                                       // DEFAULT grid tap = persisted MUTE-toggle (dimmed).
+            au?.editScene { $0.cells[col][row]?.muted.toggle() }   // no emitter output; children read raw MIDI-IN
+            refreshFromDocument(); return
         case .mute:        kind = .mute
         case .solo:        kind = .solo
-        case .alt, .none:  kind = .alt
+        case .alt:         kind = .alt
         case .fill, .replay: return                       // not yet wired (design clarification pending)
         }
         let idx = col * 8 + row

@@ -252,7 +252,7 @@ struct GridView: View {
 
     @ViewBuilder private func cellView(col: Int, row: Int) -> some View {
         let raw = (col < scene.cells.count && row < scene.cells[col].count) ? scene.cells[col][row] : nil
-        let cell = (raw?.muted == true) ? nil : raw    // a HIDDEN (muted) cell renders as EMPTY (disappeared); a tap toggles it back
+        let cell = raw                                 // a MUTED cell renders DIMMED (not hidden) — visible + tappable to unmute
         let isSel = col == selCol && row == selRow
         let inActiveCol = playing && col == playColumn
         let parent = parentOf(col, row)
@@ -279,7 +279,7 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .opacity(tapMutedHere ? 0.28 : 1)                   // §9 ON TAP = MUTE: the momentarily-muted cell dims
+        .opacity((tapMutedHere || raw?.muted == true) ? 0.28 : 1)   // muted (persisted, or §9 momentary ON TAP = MUTE) dims
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // A2 COMPASS TINT — a slim parent-hue sliver on the parent-facing edge (row-fed cells only)
             if parent >= 0, let pc = cellAt(col, parent).flatMap({ colourColor($0.colourID) }) {
