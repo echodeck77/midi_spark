@@ -1176,9 +1176,9 @@ struct DiagView: View {
                 }.buttonStyle(.plain)
             }
             if chain.count > 1 {   // signpost the current serial-execution coverage (this build)
-                let tailRuns = chain.last?.type == .arp || chain.last?.type == .ratchet
-                Text(tailRuns ? "Chain runs in series (last slot = arp/ratchet)."
-                              : "This build runs the chain when the LAST slot is an ARP or RATCHET; otherwise the head slot sounds.")
+                let strumUncovered = chain.last?.type == .strum && !(chain.last?.bypassed ?? false)
+                Text(strumUncovered ? "A STRUM last slot isn't chained yet — the head slot sounds. Other tails run in series."
+                                    : "Chain runs in series.")
                     .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
                     .fixedSize(horizontal: false, vertical: true)
             }

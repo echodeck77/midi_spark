@@ -184,9 +184,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     381 green): generalised to any-length chains ending in arp/ratchet — `composeChainSet` folds every upstream
     stage into the scratch via a ping-pong of two working pools (identity/gate/ratchet/strum pass, closed gate
     empties, chance drops, harmonize expands, an ARP mid-chain collapses to its one note at m). Tests: 3-slot
-    gate→harmonize→arp, closed-gate-silences-tail. DEFERRED (next): STRUM tails (once-per-column read) · HOLD
-    tails (X→gate/harmonize, needs the emitColumnHolds path) · the set-derivation for cross-window sustained
-    INTERMEDIATE stages.** NOT on main.**
+    gate→harmonize→arp, closed-gate-silences-tail. **HOLD TAILS (2026-08-01, 383 green): chains ending in a HOLD
+    stage (gate/chance/harmonize, or a bypassed tail) now emit at column boundaries — `emitColumnHolds` holds the
+    TAIL slot's transform of `composeChainSet(upto: tail-1)` (window-independent, derived at colStart). Routing:
+    tick-tail (arp/ratchet)→tick loop; hold-tail→emitColumnHolds; non-bypassed STRUM tail→head-only fallback.
+    Tests: gate→harmonize holds the harmonized chord, closed-gate-tail silent. Since the whole pipeline is now a
+    pure per-m derivation (no buffers), the earlier "cross-window sustained intermediate" concern is MOOT.
+    DEFERRED (small): non-bypassed STRUM tails (once-per-column read) · mid-chain ratchet/strum pass the note set
+    through without imprinting their rhythm (approximation — notes correct, downstream samples the set).** NOT on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

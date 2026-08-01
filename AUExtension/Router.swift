@@ -758,9 +758,14 @@ final class Router {
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
             let t = effectiveTWithArrive(colour, baseMorph: over(18 + ci, colour.morph),
                                          baseAlt: altFlag, arrivals: pass)
-            // CELL MACHINE (feat/EditPageSpike): head treatment overrides the morph pair (a==b==head).
-            var treat = colour; treat.a = cell.proc; treat.b = cell.proc; treat.tier = .none
-            let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
+            // CELL MACHINE (feat/EditPageSpike): a HOLD-TAIL chain holds the TAIL slot's transform of every
+            // upstream stage's composed set; a plain cell holds its head-only treatment of the source.
+            let holdChain = isHoldTailChain(cell)
+            let tailIdx = cell.procs.count - 1
+            var treat = colour; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
+            treat.a = treatP; treat.b = treatP; treat.tier = .none
+            let mode = cellMode(type: effectiveType(treat, t: t),
+                                bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat, t: t), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize else { continue }
             guard parentRow(box, column, r) < 0 else { continue }   // holds source only when input is MIDI IN
@@ -773,9 +778,10 @@ final class Router {
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
             let legato = mode == .identity && treat.a.phase == .legato && (bm & altMask) == 0
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
-            let srcN = cellPool.srcCount(for: cell)   // §7 source filter
+            if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
+            let srcN = holdChain ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter
             for k in 0..<srcN {
-                let base = Int(cellPool.srcAscending(k, for: cell))
+                let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
@@ -1209,6 +1215,7 @@ final class Router {
                 }
                 continue
             }
+            if isHoldTailChain(cell) { continue }   // CELL MACHINE: a hold-tail chain emits at column boundaries (emitColumnHolds), not here
 
             switch mode {
             case .arp:
@@ -1247,6 +1254,14 @@ final class Router {
     private func isCoveredChain(_ cell: SnapCell) -> Bool {
         guard cell.procs.count >= 2, let last = cell.procs.last, !(cell.slotBypass.last ?? true) else { return false }
         return last.type == .arp || last.type == .ratchet
+    }
+    /// A multi-slot chain whose TAIL holds at column boundaries via `emitColumnHolds` (holding the tail's
+    /// transform of the composed upstream set): a bypassed tail (passthrough of the upstream set), or a
+    /// gate/chance/harmonize tail. A non-bypassed STRUM tail is NOT covered yet → falls back to head-only.
+    private func isHoldTailChain(_ cell: SnapCell) -> Bool {
+        guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
+        if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
+        switch last.type { case .passgate, .chance, .harmonize: return true; default: return false }
     }
 
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent

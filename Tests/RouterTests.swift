@@ -1139,6 +1139,30 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // CELL MACHINE stage-2 (HOLD tail): a chain ending in a hold stage emits at column boundaries. [gate →
+    // harmonize +7] HOLDS the harmonized chord (source + the +7 voice) rather than arping it.
+    func testChainHoldTailGateToHarmonize() {
+        let cs = arpColours()
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, harm]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 67]),
+                      "hold-tail chain holds the harmonized chord (source + the +7 voice)")
+        assertNothingLeftSounding(e)
+    }
+
+    // CELL MACHINE stage-2: a CLOSED gate as the hold TAIL yields nothing.
+    func testChainHoldTailClosedGateSilent() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "a closed gate TAIL → the chain is silent")
+        assertNothingLeftSounding(e)
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through
