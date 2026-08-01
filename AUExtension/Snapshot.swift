@@ -45,11 +45,14 @@ struct SnapCell {
     var chopSlots: [ChopSlot] = Array(repeating: .main, count: 8)   // §cell-edit F: per pass-column output route
     var chopAltMask: UInt8 = 0      // §cell-edit F: the shared ALT destination as a bus bitmask (for ALT slices)
     var chopActive = false          // fast-path: any slot ≠ MAIN
-    // CELL MACHINE (feat/EditPageSpike): the resolved HEAD treatment — the FIRST chain slot's type+params, or
-    // the referenced Colour's A face when the cell has no chain (builder-side fallback). Stage 1: this is the
-    // effective per-cell treatment (morph dropped; SnapColour.a/b/tier/morph go dormant). `bypassed` above now
-    // carries the HEAD slot's bypass (identity) in the chain case. Slots 2…8 are document-only until Phase 2.
-    var proc = SnapParams()
+    // CELL MACHINE (feat/EditPageSpike): the resolved processor CHAIN — one SnapParams per slot, head first,
+    // resolved from the cell's `processors` (or a 1-slot head from the Colour's A face when the cell has none).
+    // `slotBypass[k]` = slot k's true-bypass. Morph is dropped (SnapColour.a/b/tier/morph go dormant). The
+    // head-only stage-1 reads `proc` (== procs[0]) and `bypassed` (== slotBypass[0]); stage-2 runs the whole
+    // chain in series (Router pipeline) with only the TAIL emitting.
+    var procs: [SnapParams] = [SnapParams()]
+    var slotBypass: [Bool] = [false]
+    var proc: SnapParams { procs.first ?? SnapParams() }   // the head treatment (stage-1 read path)
 }
 
 // MARK: - Resolved per-state params (paramsB pre-merged over paramsA at build time)

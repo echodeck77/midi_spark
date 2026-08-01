@@ -1175,6 +1175,11 @@ struct DiagView: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
                 }.buttonStyle(.plain)
             }
+            if chain.count > 1 {   // signpost the current serial-execution coverage (this build)
+                Text(chain.last?.type == .arp ? "Chain runs head→tail (arp tail)." : "This build runs the chain only when the last slot is an ARP; otherwise the head slot sounds.")
+                    .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
     @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {

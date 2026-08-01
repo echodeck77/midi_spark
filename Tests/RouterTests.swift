@@ -1051,6 +1051,46 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open passgate → ARP] arps the
+    // held chord — the intra-cell echo of the grid PASS→ARP routing (cf. testOpenPassgateParentFeedsArpChild).
+    func testChainGateToArpArpsTheHeldChord() {
+        let cs = arpColours()
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        let arp = ProcessorSlot(type: .arp)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [gate, arp]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.isSuperset(of: [60, 64, 67]), "the ARP tail arpeggiates every note the gate passed")
+        assertNothingLeftSounding(e)
+    }
+
+    // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
+    // voice — the whole set flows to the tail, not one note.
+    func testChainHarmonizeToArpArpsAllVoices() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let arp = ProcessorSlot(type: .arp)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.contains(60), "arps the source note")
+        XCTAssertTrue(notes.contains(67), "arps the +7 harmonized voice too (full note-set flow)")
+        assertNothingLeftSounding(e)
+    }
+
+    // CELL MACHINE stage-2: a BYPASSED head is a true-bypass — the tail sees only the raw source (no +7 voice).
+    func testChainBypassedHeadArpsSourceOnly() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]; harm.bypassed = true
+        let arp = ProcessorSlot(type: .arp)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [harm, arp]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.contains(60), "the source note still arps")
+        XCTAssertFalse(notes.contains(67), "a BYPASSED harmonize head adds no voice — the tail sees only the source")
+        assertNothingLeftSounding(e)
+    }
+
     func testInputChannelFilterRoutesBySourceChannel() {
         // Device T6 (filter-in), previously unit-untested at the Router level: two MIDI-IN cells, one
         // filtering IN CH 1 → Emit A, the other IN CH 2 → Emit B. A note on wire ch 0 sounds only through

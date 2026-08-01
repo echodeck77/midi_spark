@@ -45,12 +45,14 @@ enum SnapshotBuilder {
                 // type+params, else the referenced Colour's A face (already resolved into colours[colourIndex].a,
                 // canonically ordered by colourIDs like the render's box.colours[ci]). `bypassed` carries the head
                 // slot's bypass in the chain case (identity), or the legacy cell.bypassed in the fallback case.
-                if let head = cell.processors?.first {
-                    sc.bypassed = head.bypassed
-                    sc.proc = resolve(head.params, type: head.type, fallback: nil)
+                if let chain = cell.processors, !chain.isEmpty {
+                    sc.procs = chain.map { resolve($0.params, type: $0.type, fallback: nil) }
+                    sc.slotBypass = chain.map { $0.bypassed }
+                    sc.bypassed = chain[0].bypassed
                 } else {
+                    sc.procs = [colours[colourIndex].a]   // 1-slot head = the Colour's A face
+                    sc.slotBypass = [cell.bypassed]
                     sc.bypassed = cell.bypassed
-                    sc.proc = colours[colourIndex].a
                 }
                 sc.muted = cell.muted
                 sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
