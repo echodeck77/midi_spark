@@ -287,9 +287,7 @@ struct GridView: View {
             }   // §quieting (2026-08-02): otherwise an empty cell is NEAR-SILENT — bare faint rect
         }
         .opacity(removeMarks.contains(GridPos(col: col, row: row)) ? 0.3          // MODE ROW · CLEAR: a marked cell recedes
-                 : (tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
-                 : (!twins.isEmpty && cell != nil && !twins.contains(GridPos(col: col, row: row))
-                    && !whiteBorder.contains(GridPos(col: col, row: row)) && !isSel ? 0.4 : 1))   // MODE ROW: non-selected, non-matching cells recede
+                 : (tapMutedHere || raw?.muted == true) ? 0.28 : 1)               // muted dims; otherwise cells stay full (twins advertise by PULSING, not by others dimming)
         .overlay {                                          // MODE ROW · CLEAR: a marked cell wears a dashed red ring + an ✕
             if removeMarks.contains(GridPos(col: col, row: row)) {
                 ZStack {
