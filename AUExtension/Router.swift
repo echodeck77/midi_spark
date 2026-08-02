@@ -51,6 +51,8 @@ final class Router {
         var colourIndex: Int8 = -1
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
+        var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*8+row), for the per-cell
+                                     // SOUNDING gate — the spark travels for exactly as long as the note is held.
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -136,6 +138,10 @@ final class Router {
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
     private var cellStrike = [UInt8](repeating: 0, count: 64)
     private var currentCellIndex: Int = -1
+    // THE SEAL COMET (note-on/off gate): a bitmask of the 64 cells CURRENTLY SOUNDING (≥1 active non-silent
+    // voice). Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI
+    // polls it so the spark travels for exactly as long as the note is held, and stops on release.
+    private var cellSoundingMask: UInt64 = 0
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -355,6 +361,7 @@ final class Router {
         voices[slot].colourIndex = currentColourIndex   // §2 adoption identity (COLOUR-AND-FACE)
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
+        voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < 64) ? Int8(currentCellIndex) : -1   // SEAL sounding gate
         return slot
     }
 
@@ -400,6 +407,19 @@ final class Router {
             soundCount[b] += 1
         }
     }
+
+    /// SEAL comet: snapshot which of the 64 cells are CURRENTLY SOUNDING (≥1 active, non-silent voice) into a
+    /// bitmask. Render thread, once per window after reconciliation (like snapshotEmitterSounding). The UI polls
+    /// `currentCellSounding` and drives the spark's life off the gate — travelling for exactly the held duration.
+    func snapshotCellSounding() {
+        var mask: UInt64 = 0
+        for v in voices where v.active && !v.silent && v.cellIndex >= 0 {
+            mask |= UInt64(1) << UInt64(v.cellIndex)
+        }
+        cellSoundingMask = mask
+    }
+    /// UI-poll read of the per-cell sounding bitmask (main thread; benign render/UI staleness, as the other feeds).
+    func currentCellSounding() -> UInt64 { cellSoundingMask }
 
     /// §strips-done: UI-poll read of the currently-sounding snapshot (main thread; the render/UI race is benign
     /// staleness, identical to the meter + recvHeld feeds). Each emitter → its live (velocity, source colour) set.

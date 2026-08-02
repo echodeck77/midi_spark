@@ -174,6 +174,8 @@ struct GridView: View {
     var showAddPlus: Bool = false                    // MODE ROW · ADD/EDIT with a selection: empty cells show a faint "+" (tap to add)
     var cellHitAt: [Date] = []                       // ORBIT comet: per-cell last-strike time (index col*8+row)
     var cellHitVel: [Double] = []                    // ORBIT comet: per-cell last-strike velocity (0–1)
+    var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
+    var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -561,18 +563,25 @@ struct GridView: View {
         .frame(maxWidth: .infinity).padding(.bottom, 2)
     }
 
-    // THE SEAL COMET (§5) — a spark runs the wire while the cell fires MIDI. The spark position FREE-RUNS on a
-    // continuous clock (it loops the path START→ARROW→START), so a new note does NOT reset it to the start — while
-    // notes keep arriving the spark keeps travelling; each strike RE-GLOWS the wire (decays ~450ms) and keeps the
-    // spark alive; ~1.1s after the LAST note it fades out. Trail ∝ velocity. Driven by the per-cell hit feed; frozen
-    // when hidden. (Precise note-on/off DURATION — spark bound exactly to a held note — wants a per-cell sounding feed.)
+    // THE SEAL COMET (§5) — a spark runs the wire while the cell SOUNDS. Position FREE-RUNS on a continuous clock
+    // (loops the path START→ARROW→START), so a new note never resets it to the start. LIFE is gated by the per-cell
+    // note-on/off feed (`cellSounding`): while the note is HELD the spark is fully alive — travelling for exactly the
+    // sounding duration — then fades ~0.45s from release (`cellReleasedAt`). A very short note the 4Hz gate can miss
+    // still completes a ~1.1s tail off its strike, so plucks aren't lost. Each strike re-glows the wire (~450ms).
+    // Trail ∝ velocity. Frozen when hidden.
     @ViewBuilder private func sealComet(_ geo: SealGeometry, _ idx: Int) -> some View {
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
+        let sounding = (idx >= 0 && idx < cellSounding.count) ? cellSounding[idx] : false
+        let releasedAt = (idx >= 0 && idx < cellReleasedAt.count) ? cellReleasedAt[idx] : Date.distantPast
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
-                let age = tl.date.timeIntervalSince(hitAt)
-                guard age >= 0, age < 1.1 else { return }                       // visible until ~1.1s after the last strike
+                let strikeAge = tl.date.timeIntervalSince(hitAt)
+                let releaseAge = tl.date.timeIntervalSince(releasedAt)
+                // 1 while the note SOUNDS (held), else fade from release (~0.45s) OR the strike tail (~1.1s, for a
+                // pluck too short for the gate) — whichever leaves the spark more alive.
+                let life = sounding ? 1.0 : max(max(0.0, 1 - releaseAge / 0.45), max(0.0, 1 - strikeAge / 1.1))
+                guard life > 0 else { return }
                 let pts = sealNodePoints(geo, size: size, padFraction: 0.16)
                 guard pts.count > 1 else { return }
                 var dense: [CGPoint] = []                                       // arc-length samples along the node polyline
@@ -586,8 +595,7 @@ struct GridView: View {
                 }
                 dense.append(pts[pts.count - 1])
                 guard dense.count > 1 else { return }
-                let life = max(0.0, 1 - age / 1.1)                             // the spark fades over its life
-                let glow = max(0.0, 1 - age / 0.45)                            // the strike glow decays ~450ms
+                let glow = max(0.0, 1 - strikeAge / 0.45)                       // the strike glow decays ~450ms
                 if glow > 0 {                                                   // §5: the wire brightens on strike
                     drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: .white.opacity(0.35 * glow))
                 }

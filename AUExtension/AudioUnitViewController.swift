@@ -148,6 +148,10 @@ struct DiagView: View {
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: 64)
     @State var cellHitVel = [Double](repeating: 0, count: 64)
+    // SEAL comet note-on/off GATE: which cells are currently SOUNDING (from au.pollCellSounding), and when each
+    // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
+    @State var cellSounding = [Bool](repeating: false, count: 64)
+    @State var cellReleasedAt = [Date](repeating: .distantPast, count: 64)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -835,6 +839,17 @@ struct DiagView: View {
                 for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0 }
                 cellHitAt = at; cellHitVel = vel
             }
+            let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
+            var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
+            let nowG = Date()
+            for i in 0..<64 {
+                let on = (sounding >> UInt64(i)) & 1 == 1
+                if on != newSounding[i] {
+                    if !on { relAt[i] = nowG }             // falling edge → stamp the release (the spark fades from here)
+                    newSounding[i] = on; gateChanged = true
+                }
+            }
+            if gateChanged { cellSounding = newSounding; cellReleasedAt = relAt }
         }
         // §4c INVISIBLE = FROZEN: freeze every animated TimelineView (sweeps · marks · flow · emblems · dots)
         // when our plugin view is hidden or the app is backgrounded — the render engine is untouched. onAppear/
@@ -904,6 +919,7 @@ struct DiagView: View {
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
+                     cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells

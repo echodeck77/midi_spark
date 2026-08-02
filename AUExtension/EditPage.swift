@@ -211,6 +211,7 @@ extension DiagView {
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  showAddPlus: editMode == .addEdit && !editSel.isEmpty,
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
+                 cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],

@@ -46,13 +46,14 @@ so it fills the length. Stroke 2.4pt, round caps/joins, ink `rgba(12,12,16,0.8)`
 
 ## D — THE COMET (motion = MIDI only; invisible = frozen)
 **D1. Silent cell:** the seal renders STATIC at rest ink. No timers.
-**D2. Note event** (per-cell strike feed, `cellStrike[64]` → `pollCellStrikes`): ONE spark runs the wire.
-Its POSITION FREE-RUNS on a continuous clock (loops the path at ~0.9 lengths/sec), so a new note does NOT
-reset it to the start (USER FIX — it used to snap back each note); while notes keep arriving the spark keeps
-travelling. Each strike RE-GLOWS the wire (+0.35α, decaying ~450 ms) and keeps the spark alive. TRAIL length
-∝ velocity. ONE traveller per cell (budget law). **The coil-node slowdown** stays deferred polish (constant
-speed for now). _Precise note-on/off DURATION (a spark bound exactly to how long a note is held, release-driven)
-wants a per-cell SOUNDING feed — a follow-up; the current keep-alive is note-ON driven._
+**D2. Note event.** ONE spark runs the wire. Its POSITION FREE-RUNS on a continuous clock (loops the path at
+~0.9 lengths/sec), so a new note does NOT reset it to the start (USER FIX — it used to snap back each note).
+Its LIFE is GATED by the per-cell note-on/off feed (`snapshotCellSounding` → `cellSoundingMask` →
+`pollCellSounding`; a bit per cell with ≥1 active non-silent voice): while the note is HELD the spark is fully
+alive — travelling for EXACTLY the sounding duration — then fades ~0.45 s from release. A pluck too short for
+the 4 Hz gate still completes a ~1.1 s tail off its STRIKE feed (`cellStrike[64]` → `pollCellStrikes`), so
+plucks aren't lost. Each strike RE-GLOWS the wire (+0.35α, ~450 ms) + sets the TRAIL length ∝ velocity. ONE
+traveller per cell (budget law). **The coil-node slowdown** stays deferred polish (constant speed for now).
 **D3. Death:** the spark fades (seal back to rest ink, frozen) ~1.1 s after the last event; backgrounded = frozen.
 
 ## E — THE EDIT PAGE (the large seal)
@@ -77,8 +78,10 @@ If it under-reads on device: stroke weight, plate alpha, badge inset may be tune
 once device-approved. NEVER tune: hue tint, autonomous motion, user editing.
 
 ## Implementation status (2026-08-02)
-Built + off-device green (379 tests, iOS builds); DEVICE pass owed. Pure core `Derivations.sealHash` /
-`sealGeometry` + `SealRNG` (6 tests). Renderer `GridUI.drawSeal` / `sealNodePoints` + the cell BADGE (§C)
-+ the edit-page large seal (§E1) + the `sealComet` (§D, constant-speed). DEFERRED: the coil-node slowdown
-(D2), the 64-point re-route glide (E2), the edit-page audition comet (E3), and reconciliation with the
-mockup's exact PRNG/proportions once the HTML is shipped.
+Built + off-device green (380 tests, iOS builds); DEVICE pass owed. Pure core `Derivations.sealHash` /
+`sealGeometry` + `SealRNG`. Renderer `GridUI.sealLayout` / `drawSeal` (bbox-fit) + the cell BADGE (§C) + the
+edit-page seal matching the cells (§E1). Comet `sealComet` (§D): free-run position + the note-on/off SOUNDING
+GATE (`Router.snapshotCellSounding`/`cellSoundingMask` → `Kernel`/`AU.pollCellSounding` → VC edge-detect →
+GridView), so the spark travels for exactly the held duration. Tests: 6 seal (Derivations) + 2 comet feed
+(RouterTests: strike + sounding-gate). DEFERRED: the coil-node slowdown (D2), the 64-point re-route glide
+(E2), the edit-page audition comet (E3), and reconciliation with the mockup's exact PRNG/proportions.

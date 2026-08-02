@@ -1214,6 +1214,31 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(router.drainCellStrikes().allSatisfy { $0 == 0 }, "drain is read-and-clear")
     }
 
+    // SEAL comet gate: a cell HOLDING a note reports its bit in the sounding mask (index col*8+row) for exactly as
+    // long as it sounds; on release the bit clears. This is the note-on/off feed that binds the spark to the hold.
+    func testCellSoundingGateReflectsHeldNoteThenClears() {
+        let cs = arpColours()
+        // an EMPTY chain = born-audible PASSTHROUGH hold → the chord sustains (deterministic sounding voices)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<4 {   // hold a chord for a few windows
+            router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.snapshotCellSounding()
+        let held = router.currentCellSounding()
+        XCTAssertEqual(held & 1, 1, "cell (0,0) is holding a note → its sounding bit is set")
+        XCTAssertEqual(held >> 1, 0, "no other cell sounds")
+        router.process(box: b, pool: chord([60, 64, 67]), playing: false, beatPos: beat, tempo: tempo,   // stop → release
+                       sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        router.snapshotCellSounding()
+        XCTAssertEqual(router.currentCellSounding(), 0, "after release the gate clears")
+    }
+
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
     func testChainHarmonizeToRatchetRestrikesAllVoices() {
         let cs = arpColours()

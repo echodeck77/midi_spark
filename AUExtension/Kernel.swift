@@ -201,6 +201,7 @@ final class Kernel {
     func drainWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainWithheld() }   // §6a the withheld tell
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { router.drainEmitterSounding() }   // §strips-done: hold-while-sounding
     func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // ORBIT comet: per-cell peak strike velocity
+    func pollCellSounding() -> UInt64 { router.currentCellSounding() }  // SEAL comet: per-cell sounding gate (note-on/off)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
@@ -362,6 +363,7 @@ final class Kernel {
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
+        router.snapshotCellSounding()      // SEAL comet: capture which cells are sounding (note-on/off gate)
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
         flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
         restartRequested = false        // MULTI-SCENE S2b restart-the-pass is a one-shot too
