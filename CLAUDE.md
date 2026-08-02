@@ -157,6 +157,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REFACTORS (2026-08-02, on `main`; 372 green, iOS builds). (1) DEAD-CODE SWEEP `c2ceab8` — removed the
+  mode-row wave's superseded designs (AU twin/solo path, stamp mode, hue popover, MIDI-IN splits UI, old
+  cellEditPage, ChopSlot). (2) PERFORM-REWORK SWEEP `8d1d59a` — colour-desk name-editor/trash/birth-picker +
+  pickPalette/repaintHoldToBrush/placeholderBox/verbButton/verbHint. DEFERRED: the woven verb machinery
+  (heldVerb/activeVerb/doVerb/place/clipboard/strokes) — entangled with tapCell/gridBlock/rowRail + the
+  selection/SELECT bits; own pass once SELECT is defined. (3) EDIT-PAGE FILE SPLIT `3aa2cd6` — the whole edit
+  page moved to `AUExtension/EditPage.swift` (`extension DiagView`); AudioUnitViewController.swift 1882 → 1239
+  lines. Widened DiagView `private` → internal (extension can't see file-scoped private); @State stays in the
+  struct. Pure relocation, zero behaviour change.**
 - **▶ EDIT-PAGE — THE MODE ROW WAVE — MERGED TO `main` + DEVICE-ACCEPTED (2026-08-02, `8cbdd84`; 368 unit
   green, iOS builds). User: "very happy with this." Rounds 1–6 + the chop rework are all on `main`; work
   continues from `main`. SUPERSEDES W1's auto-twin/DETACH (INSTRUCTIONS-edit-page-mode-row). The EDIT
