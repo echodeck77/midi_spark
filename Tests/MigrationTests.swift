@@ -377,52 +377,14 @@ final class MigrationTests: XCTestCase {
 
     // MARK: - §11 VERB LOGIC — REMOVE (heal-on-delete §10b) + MOVE
 
-    func testDeleteHealsChildrenToGrandparentInSameColumn() {
-        var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold")                                  // row0: receiver-fed root (inputRow nil)
-        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)        // row2 ⇐ row0
-        s.cells[0][4] = Cell(colourID: "wine", buses: [.b], inputRow: 2)        // row4 ⇐ row2 (the child of the victim)
-        s.deleteCellHealing(col: 0, row: 2)                                     // delete the middle link
-        XCTAssertNil(s.cells[0][2], "the victim is gone")
-        XCTAssertEqual(s.cells[0][4]?.inputRow, 0, "its child re-points to the GRANDPARENT (row 0)")
-    }
-
-    func testDeleteHealsChildrenToReceiverWhenVictimWasReceiverFed() {
-        var s = SceneState.empty()
-        var root = Cell(colourID: "gold"); root.inputRow = nil; root.inputReceiver = 2   // MIDI-IN via receiver 2
-        s.cells[3][1] = root
-        s.cells[3][5] = Cell(colourID: "cyan", buses: [.a], inputRow: 1)                 // ⇐ row1
-        s.deleteCellHealing(col: 3, row: 1)
-        XCTAssertEqual(s.cells[3][5]?.inputRow, nil, "the child becomes MIDI-IN…")
-        XCTAssertEqual(s.cells[3][5]?.inputReceiver, 2, "…on the victim's receiver (no orphan-silence)")
-    }
-
-    // DELETE = SEVER (AcceptanceCriteria ruling, null-era refinement 2026-07-30): the child does NOT reconnect to
-    // the grandparent; it is cut to NULL input (inputRow nil AND inputReceiver nil — no phantom R1), honest cut.
-    func testDeleteSeverCutsChildToNullInputNotGrandparent() {
-        var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold")                                  // row0: receiver-fed root
-        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a], inputRow: 0)        // row2 ⇐ row0 (the victim)
-        s.cells[0][4] = Cell(colourID: "wine", buses: [.b], inputRow: 2)        // row4 ⇐ row2 (the child)
-        s.deleteCellSever(col: 0, row: 2)
-        XCTAssertNil(s.cells[0][2], "the victim is gone")
-        XCTAssertNil(s.cells[0][4]?.inputRow, "the child is CUT (does NOT reconnect to row 0)")
-        XCTAssertNil(s.cells[0][4]?.inputReceiver, "a severed child falls to NULL input — no phantom R1")
-        XCTAssertEqual(s.cells[0][4]?.buses, [.b], "the child keeps its own emitters")
-        XCTAssertNotNil(s.cells[0][0], "the victim's parent is untouched")
-    }
-
-    // Multi-cell routing (AcceptanceCriteria): a focus offers ALL occupied cells above (SRC) and below (DEST).
-    func testRouteCandidatesSpanAllAboveAndBelow() {
+    // DELETE removes the cell (grid-chaining retired → no children to re-point; it's a plain removal).
+    func testDeleteSeverRemovesTheCell() {
         var s = SceneState.empty()
         s.cells[0][0] = Cell(colourID: "gold")
-        s.cells[0][2] = Cell(colourID: "cyan")                                  // the focus at row 2
-        s.cells[0][4] = Cell(colourID: "wine")
-        s.cells[0][6] = Cell(colourID: "teal", inputRow: 4)                     // already row-fed (NOT a chain head)
-        XCTAssertEqual(s.routeInSourcesAbove(col: 0, row: 2), [0], "SRC = all occupied above")
-        XCTAssertEqual(s.routeOutTargetsBelow(col: 0, row: 2), [4, 6], "DEST = all occupied below, heads or not")
-        s.routeInRow(col: 0, row: 6, sourceRow: 2)                             // DEST tap: row6 reads from the focus
-        XCTAssertEqual(s.cells[0][6]?.inputRow, 2, "a DEST below re-roots to read from the focus")
+        s.cells[0][2] = Cell(colourID: "cyan", buses: [.a])
+        s.deleteCellSever(col: 0, row: 2)
+        XCTAssertNil(s.cells[0][2], "the cell is removed")
+        XCTAssertNotNil(s.cells[0][0], "other cells are untouched")
     }
 
     func testMoveRelocatesAndOverwrites() {
@@ -440,60 +402,10 @@ final class MigrationTests: XCTestCase {
     // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core)
 
     private func headed(_ colourID: String, receiver: Int) -> Cell { var c = Cell(colourID: colourID, buses: [.a]); c.inputRow = nil; c.inputReceiver = receiver; return c }
-    private func bodied(_ colourID: String, from row: Int) -> Cell { var c = Cell(colourID: colourID, buses: [.a]); c.inputRow = row; return c }
-
-    func testIsChainHeadIsReceiverFedRoot() {
-        var s = SceneState.empty()
-        s.cells[0][0] = headed("gold", receiver: 0)   // receiver-fed → head
-        s.cells[0][2] = bodied("cyan", from: 0)        // row-fed → body
-        XCTAssertTrue(s.isChainHead(col: 0, row: 0), "a receiver-fed cell is a chain head")
-        XCTAssertFalse(s.isChainHead(col: 0, row: 2), "a row-fed cell is a body, not a head")
-        XCTAssertFalse(s.isChainHead(col: 0, row: 5), "an empty cell is not a head")
-    }
-
-    func testRouteCandidates_sourcesAbove_headsBelow() {
-        var s = SceneState.empty()
-        s.cells[0][0] = headed("gold", receiver: 0)    // above X
-        s.cells[0][2] = headed("cyan", receiver: 0)    // X (at row 2)
-        s.cells[0][4] = headed("mint", receiver: 1)    // a HEAD below X
-        s.cells[0][6] = bodied("teal", from: 4)         // a BODY below X (child of row 4)
-        XCTAssertEqual(s.routeInSourcesAbove(col: 0, row: 2), [0], "only occupied cells above light as sources")
-        XCTAssertEqual(s.graftHeadsBelow(col: 0, row: 2), [4], "only chain HEADS below light — the body (row 6) does not")
-    }
-
-    func testGraftCarriesTheWholeSubtree() {
-        var s = SceneState.empty()
-        s.cells[0][0] = headed("gold", receiver: 0)    // parent X at row 0
-        s.cells[0][3] = headed("cyan", receiver: 1)    // a HEAD below (row 3)
-        s.cells[0][5] = bodied("mint", from: 3)         // the head's CHILD (references row 3)
-        s.graftHeadBelow(headRow: 3, under: 0, col: 0)
-        XCTAssertEqual(s.cells[0][3]?.inputRow, 0, "the grafted head is now fed by the parent row")
-        XCTAssertEqual(s.cells[0][5]?.inputRow, 3, "its subtree follows — the child still references the head's row")
-    }
-
-    func testGraftRefusesBodiesAndCycles() {
-        var s = SceneState.empty()
-        s.cells[0][0] = headed("gold", receiver: 0)
-        s.cells[0][2] = bodied("cyan", from: 0)         // a BODY below (not a head)
-        s.graftHeadBelow(headRow: 2, under: 0, col: 0)
-        XCTAssertEqual(s.cells[0][2]?.inputRow, 0, "a body is not grafted (its inputRow is untouched)")
-        // cycle: parent (row 4) is fed by the head (row 1) → grafting head under parent would loop → refused
-        var t = SceneState.empty()
-        t.cells[0][1] = headed("gold", receiver: 0)
-        t.cells[0][4] = bodied("cyan", from: 1)         // row 4 is a child of the head at row 1
-        t.graftHeadBelow(headRow: 1, under: 4, col: 0)  // would make head⇐row4 while row4⇐head → cycle
-        XCTAssertNil(t.cells[0][1]?.inputRow, "the grafting head stays receiver-fed — the cycle is refused")
-    }
-
-    func testRouteInAndToggleEmitter() {
+    func testRouteInReceiverAndToggleEmitter() {
         var s = SceneState.empty()
         s.cells[0][3] = headed("gold", receiver: 0)
-        s.routeInRow(col: 0, row: 3, sourceRow: 1)      // no cell at row 1 → no-op (empty source)
-        XCTAssertNil(s.cells[0][3]?.inputRow, "routeInRow onto an empty source is ignored")
-        s.cells[0][1] = headed("cyan", receiver: 0)
-        s.routeInRow(col: 0, row: 3, sourceRow: 1)      // now valid (occupied, above)
-        XCTAssertEqual(s.cells[0][3]?.inputRow, 1, "routeInRow feeds X from the row above")
-        s.routeInReceiver(col: 0, row: 3, receiver: 2)  // back to a door
+        s.routeInReceiver(col: 0, row: 3, receiver: 2)  // pick a receiver door
         XCTAssertNil(s.cells[0][3]?.inputRow); XCTAssertEqual(s.cells[0][3]?.inputReceiver, 2)
         s.toggleEmitter(col: 0, row: 3, bus: .b)         // add B
         XCTAssertEqual(s.cells[0][3]?.buses.contains(.b), true)

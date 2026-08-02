@@ -166,10 +166,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   executed: **A** A/B MORPH REMOVED (render + UI gone; Codable fields + param addresses 200+i/300 reserved for
   decode/automation) · **B** GRID-CHAINING RETIRED (`Cell.inputRow` inert decode-only; parentRow/parentSoundingNote/
   chordHoldRelayFilter/emitMirrorRow deleted; receiver + emitter routing kept) · **D** factory cells · **E** ferry
-  acknowledged + this note. **DEFERRED follow-ups (not done):** (C) audition/preview still reads the Colour A face,
-  not the resolved chain (a preview-fidelity gap, low priority); an inert dead-code sweep left by A/B (unused
-  `SceneState` chaining ops · the routing-viz cell→cell edge + `RoutingVizOverlay` isChain branch + FlowView srcRow
-  half · the unreachable ProcessorBox B-face/MORPH fader · factory/T-session inert `inputRow`); the strum-mid-chain
+  acknowledged + this note. **DEAD-CODE SWEEP done (2026-08-02):** removed the unused `SceneState` chaining ops
+  (isChainHead/routeInSourcesAbove/routeOutTargetsBelow/wouldCycle/routeInRow/graftHead(s)Below) + the deleteCell
+  base/deleteCellHealing (deleteCellSever → plain delete); the retired `processorPanels` desk + its brush morph/
+  clipboard helpers (setBrushMorph/setBrushType/brushGlides/copyProc/pasteProc/procClipboard/ProcClip); the
+  routing-viz cell→cell edge in `routingEdges` + the `RoutingVizOverlay` isChain branch; and ~10 dead tests.
+  **DEFERRED follow-ups (not done):** (C) audition/preview still reads the Colour A face, not the resolved chain
+  (a preview-fidelity gap, low priority); a few CONSERVATIVELY-LEFT inert items (the unreachable ProcessorBox
+  `.b`-face branches — fiddly internal refactor · the FlowView `srcRow` chain-hop half — tangled family logic ·
+  the inert Kernel/AU preview-`inputRow` plumbing · factory/T-session inert `inputRow` data); the strum-mid-chain
   rhythm approximation (accepted as inherent); a full AcceptanceCriteria/spec write-up of the new model.**
 - **▶ CELL MACHINE — per-cell processor CHAIN, stage 1 (branch `feat/EditPageSpike`, 2026-08-01; off-device:
   iOS builds + 374 unit tests green; DEVICE pass owed). Alternative setup model (`_dear_claude_code/PROPOSAL-

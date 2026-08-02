@@ -841,32 +841,17 @@ struct RouteEdge: Equatable { let from: RouteAnchor; let to: RouteAnchor; let li
 func routingEdges(cells: [[Cell?]], selected: Set<RouteCell>) -> [RouteEdge] {
     func occupied(_ col: Int, _ row: Int) -> Bool { col < cells.count && row >= 0 && row < cells[col].count && cells[col][row] != nil }
 
-    // lit = the connected component (over inputRow parent/child links, within a column) of each selected cell.
-    var lit = Set<RouteCell>()
-    for sel in selected where occupied(sel.col, sel.row) {
-        var cur: Int? = sel.row                              // walk UP the ancestor chain to the receiver root
-        while let r = cur, occupied(sel.col, r) { lit.insert(RouteCell(col: sel.col, row: r)); cur = cells[sel.col][r]?.inputRow }
-        var changed = true                                   // flood DOWN to every descendant reading into the chain
-        while changed {
-            changed = false
-            for r in cells[sel.col].indices {
-                guard let c = cells[sel.col][r], let p = c.inputRow else { continue }
-                let child = RouteCell(col: sel.col, row: r)
-                if lit.contains(RouteCell(col: sel.col, row: p)) && lit.insert(child).inserted { changed = true }
-            }
-        }
-    }
+    // lit = the selected cells themselves (grid-chaining retired → there is no cross-cell chain to trace).
+    let lit = Set(selected.filter { occupied($0.col, $0.row) })
 
     var edges: [RouteEdge] = []
     for col in cells.indices {
         for row in cells[col].indices {
             guard let c = cells[col][row] else { continue }
             let here = RouteCell(col: col, row: row), on = lit.contains(here)
-            if let p = c.inputRow, occupied(col, p) {         // chained: parent cell → this cell
-                edges.append(RouteEdge(from: .cell(RouteCell(col: col, row: p)), to: .cell(here), lit: on))
-            } else if c.inputRow == nil, let rcv = c.inputReceiver {   // MIDI-IN: receiver → this cell (only if a receiver is chosen)
+            if let rcv = c.inputReceiver {                     // MIDI-IN: receiver → this cell (nil receiver = unrouted → no edge)
                 edges.append(RouteEdge(from: .receiver(rcv), to: .cell(here), lit: on))
-            }                                                 // else: fully unrouted input (nil receiver) → no edge
+            }
             for b in Bus.allCases where c.buses.contains(b) { // this cell → each emitter it feeds
                 edges.append(RouteEdge(from: .cell(here), to: .emitter(Int(b.cable)), lit: on))
             }

@@ -1636,7 +1636,6 @@ struct RoutingVizOverlay: View {
             Canvas { ctx, _ in
                 guard let g = frames["grid"] else { return }
                 let step = min(CGFloat(7), cellW(g) * 0.24)
-                func isChain(_ e: RouteEdge) -> Bool { if case .cell = e.from, case .cell = e.to { return true }; return false }
                 func render(_ i: Int) {
                     let e = edges[i]
                     guard let p0 = endpoint(e.from, source: true, g), let p1 = endpoint(e.to, source: false, g) else { return }
@@ -1647,27 +1646,15 @@ struct RoutingVizOverlay: View {
                         var holes = Path(); for r in crossed { holes.addRect(cellRect(column(of: e), r, g)) }
                         c.clip(to: holes, options: .inverse)
                     }
-                    if isChain(e) {
-                        // cell → cell: a SOLID white line + a downward ARROW at the receiving node (laned so
-                        // multiple downward routes in a column stay easy to tell apart).
-                        let op = e.lit ? 0.95 : 0.6
-                        c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(op)), lineWidth: 2)
-                        var tri = Path()
-                        tri.move(to: CGPoint(x: p1.x, y: p1.y + 5))        // tip points DOWN, into the receiving cell
-                        tri.addLine(to: CGPoint(x: p1.x - 4, y: p1.y - 3))
-                        tri.addLine(to: CGPoint(x: p1.x + 4, y: p1.y - 3))
-                        tri.closeSubpath()
-                        ctx.fill(tri, with: .color(.white.opacity(op)))
-                    } else {
-                        // receiver → cell / cell → emitter: a curved flow line + a MIDI comet (head + fading tail).
-                        c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(e.lit ? (0.5 + 0.4 * pulse) : 0.14)), lineWidth: e.lit ? 2.0 : 1.0)
-                        let speed = e.lit ? 0.55 : 0.32, phase = Double(i % 9) / 9.0
-                        let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
-                        for k in 0..<6 {
-                            let t = head - CGFloat(k) * 0.03; guard t >= 0 else { continue }
-                            let pt = routePoint(p0, p1, laneX, t), fade = 1 - CGFloat(k) / 6, r = (e.lit ? 3.2 : 1.7) * fade
-                            c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity((e.lit ? 1.0 : 0.45) * fade)))
-                        }
+                    // receiver → cell / cell → emitter: a curved flow line + a MIDI comet (head + fading tail).
+                    // (grid-chaining retired → no cell→cell edges; every edge is a receiver or emitter flow now.)
+                    c.stroke(routePath(p0, p1, laneX), with: .color(.white.opacity(e.lit ? (0.5 + 0.4 * pulse) : 0.14)), lineWidth: e.lit ? 2.0 : 1.0)
+                    let speed = e.lit ? 0.55 : 0.32, phase = Double(i % 9) / 9.0
+                    let head = CGFloat((now * speed + phase).truncatingRemainder(dividingBy: 1.0))
+                    for k in 0..<6 {
+                        let t = head - CGFloat(k) * 0.03; guard t >= 0 else { continue }
+                        let pt = routePoint(p0, p1, laneX, t), fade = 1 - CGFloat(k) / 6, r = (e.lit ? 3.2 : 1.7) * fade
+                        c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity((e.lit ? 1.0 : 0.45) * fade)))
                     }
                 }
                 for i in edges.indices where !edges[i].lit { render(i) }   // dim underneath

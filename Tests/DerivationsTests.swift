@@ -1045,16 +1045,17 @@ final class DerivationsTests: XCTestCase {
 
     private func grid8() -> [[Cell?]] { [[Cell?]](repeating: [Cell?](repeating: nil, count: 8), count: 8) }
 
-    func testRoutingEdgesChainIsLitThroughSelectedCell() {
+    // Grid-chaining retired: every input edge is receiver→cell (no cell→cell edges); only the selected cell's own edges light.
+    func testRoutingEdgesReceiverAndEmitterOnly() {
         var cells = grid8()
-        cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 1; return c }()   // MIDI-IN ⇐ R2
-        cells[0][2] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()         // ⇐ row 0
+        cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 1; return c }()   // MIDI-IN ⇐ R2 (not selected)
+        cells[0][2] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()         // inputRow now INERT → no input edge
         cells[3][0] = { var c = Cell(colourID: "teal", buses: [.c]); c.inputReceiver = 0; return c }()    // unrelated column
         let e = routingEdges(cells: cells, selected: [RouteCell(col: 0, row: 2)])
-        XCTAssertTrue(e.contains(RouteEdge(from: .receiver(1), to: .cell(RouteCell(col: 0, row: 0)), lit: true)))
-        XCTAssertTrue(e.contains(RouteEdge(from: .cell(RouteCell(col: 0, row: 0)), to: .cell(RouteCell(col: 0, row: 2)), lit: true)))
-        XCTAssertTrue(e.contains(RouteEdge(from: .cell(RouteCell(col: 0, row: 0)), to: .emitter(0), lit: true)))
-        XCTAssertTrue(e.contains(RouteEdge(from: .cell(RouteCell(col: 0, row: 2)), to: .emitter(1), lit: true)))
+        XCTAssertFalse(e.contains { if case .cell = $0.from, case .cell = $0.to { return true }; return false }, "no cell→cell edges")
+        XCTAssertTrue(e.contains(RouteEdge(from: .receiver(1), to: .cell(RouteCell(col: 0, row: 0)), lit: false)), "receiver→cell for the receiver-fed cell, dim (not selected)")
+        XCTAssertTrue(e.contains(RouteEdge(from: .cell(RouteCell(col: 0, row: 2)), to: .emitter(1), lit: true)), "the SELECTED cell's emitter edge lights")
+        XCTAssertFalse(e.contains { if case .cell(let rc) = $0.to, rc.col == 0, rc.row == 2, case .receiver = $0.from { return true }; return false }, "a row-fed cell with no receiver has no input edge")
         XCTAssertTrue(e.contains(RouteEdge(from: .receiver(0), to: .cell(RouteCell(col: 3, row: 0)), lit: false)))
     }
     func testRoutingEdgesNoSelectionAllDim() {

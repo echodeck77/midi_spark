@@ -33,7 +33,6 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 
 /// delta item 8: a lifted processor on the clipboard — {type, params, transpose} — COPY'd from one panel,
 /// PASTE'able onto any other (A or B, any Colour); a different type retypes the target.
-struct ProcClip { let type: ProcessorType; let params: ColourParams; let transpose: Int }
 
 /// Live diagnostics: what the kernel is actually seeing, at 4 Hz.
 /// Interpreting it:
@@ -127,7 +126,6 @@ struct DiagView: View {
     @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
-    @State private var procClipboard: ProcClip? = nil   // delta item 8: a lifted processor (COPY) to PASTE onto any panel
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
@@ -522,11 +520,6 @@ struct DiagView: View {
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
     private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
     private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
-    // delta item 8: does the brush Colour's procB GLIDE? (has B + same type as A = FULL). Gates the morph fader.
-    private var brushGlides: Bool {
-        guard let c = brushColour, let tb = c.typeB else { return false }
-        return tb == c.type
-    }
 
     private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
         guard let au else { return }
@@ -580,30 +573,7 @@ struct DiagView: View {
         }
     }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
-    private func setBrushMorph(_ v: Double)  { au?.setColourMorph(brushIndex, v);     docColours = au?.uiColours() ?? docColours }
-    private func setBrushType(_ t: ProcessorType) { au?.setColourType(brushIndex, t); docColours = au?.uiColours() ?? docColours }
-
-    // delta item 8: the processor CLIPBOARD — COPY lifts a face's {type, params, transpose}; PASTE drops it
-    // onto ANY panel (A or B, any Colour), retyping the target if the clipboard is a different type.
-    private func copyProc(_ face: ProcessorBox.Face) {
-        guard let c = brushColour else { return }
-        if face == .b {
-            guard let tb = c.typeB else { return }                       // nothing to copy from a B-less panel
-            procClipboard = ProcClip(type: tb, params: c.paramsB, transpose: c.transposeBResolved)
-        } else {
-            procClipboard = ProcClip(type: c.type, params: c.paramsA, transpose: c.transpose)
-        }
-    }
-    private func pasteProc(_ face: ProcessorBox.Face) {
-        guard let clip = procClipboard else { return }
-        if face == .b {
-            editBrushColour { $0.typeB = clip.type; $0.paramsB = clip.params; $0.transposeB = clip.transpose }
-        } else {
-            au?.setColourType(brushIndex, clip.type)                     // switchType (per-type stash) + tree sync
-            au?.setColourTranspose(brushIndex, clip.transpose)
-            editBrushColour { $0.paramsA = clip.params }                 // refreshes docColours
-        }
-    }
+    // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
     private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
     private var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 
@@ -1817,25 +1787,8 @@ struct DiagView: View {
         Set(selection.compactMap { scene.cells[$0.col][$0.row]?.colourID }).count > 1
     }
 
-    @ViewBuilder private func processorPanels(vertical: Bool) -> some View {
-        if let bc = brushColour {
-            let h: CGFloat = vertical ? 200 : ProcessorBox.panelHeight
-            let mixed = selectionMixed
-            let a = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .a,
-                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                                 onSetTypeA: setBrushType, canPaste: procClipboard != nil,
-                                 onCopy: { copyProc(.a) }, onPaste: { pasteProc(.a) }, height: h, mixed: mixed)
-            let b = ProcessorBox(colour: bc, colourIndex: brushIndex, face: .b,
-                                 onEdit: editBrushColour, onTranspose: setBrushTranspose, onMorph: setBrushMorph,
-                                 canPaste: procClipboard != nil,
-                                 onCopy: { copyProc(.b) }, onPaste: { pasteProc(.b) }, height: h, mixed: mixed)
-            if vertical {
-                VStack(spacing: 8) { a; b }
-            } else {
-                HStack(alignment: .top, spacing: 8) { a.frame(maxWidth: .infinity); b.frame(maxWidth: .infinity) }
-            }
-        }
-    }
+    // (processorPanels — the retired shared-Colour A/B desk — removed with the morph layer; all processor
+    //  editing is the per-cell CHAIN editor in EDIT now. ProcessorBox survives, used only in `slotMode`.)
 
     // Palette tap selects the desk brush (delta item 8 retired the ALT-targeting pairing gesture — a second
     // processor is now made on the B panel, not by pairing to another Colour).

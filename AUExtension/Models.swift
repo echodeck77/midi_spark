@@ -721,39 +721,11 @@ extension SceneState {
 
     // MARK: - §11 VERB LOGIC (the testable model ops behind the round verbs; PLACE stamps a Cell directly)
 
-    /// REMOVE — §10b THE INHERIT-ON-DELETE LAW: delete the cell, and its CHILDREN (same-column cells whose
-    /// `inputRow` points at this row) INHERIT its input — chain-fed ⇒ re-point to the grandparent; receiver-fed
-    /// ⇒ hear the receiver directly. Orphan-silence never happens by accident. One step; the caller records undo.
-    /// Remove the cell at (col,row) and re-point every child that read from it (`inputRow == row`) via the given
-    /// rule. The two public deletes below differ ONLY in that rule — HEAL reconnects to the victim's parent,
-    /// SEVER cuts to MIDI-IN. Shared here so the removal + child-scan lives in one place.
-    private mutating func deleteCell(col: Int, row: Int, reparentChild: (_ child: inout Cell, _ victim: Cell) -> Void) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row), let victim = cells[col][row] else { return }
-        cells[col][row] = nil
-        for r in cells[col].indices {
-            guard var child = cells[col][r], child.inputRow == row else { continue }
-            reparentChild(&child, victim)
-            cells[col][r] = child
-        }
-    }
-
-    /// DELETE = HEAL: children reconnect to the victim's parent (the chain closes up).
-    mutating func deleteCellHealing(col: Int, row: Int) {
-        deleteCell(col: col, row: row) { child, victim in
-            child.inputRow = victim.inputRow                    // inherit the victim's parent (nil = MIDI-IN)
-            if victim.inputRow == nil { child.inputReceiver = victim.inputReceiver }
-        }
-    }
-
-    /// DELETE = SEVER (AcceptanceCriteria 2026-07-29, refined for the null era 2026-07-30): the victim's routing is
-    /// CUT — children do NOT reconnect to its parent and do NOT get silently re-pointed at R1 (which would read as
-    /// a wiring choice nobody made). They fall to NULL input — no input row, no receiver — so the cut is honest
-    /// (no receiver ring / no viz edge). Their own emitters are untouched.
+    /// DELETE — remove the cell at (col,row). (Grid-chaining retired: no cell reads another's row, so there are no
+    /// children to re-point — a plain removal. The name stays `deleteCellSever` for the live DELETE verb caller.)
     mutating func deleteCellSever(col: Int, row: Int) {
-        deleteCell(col: col, row: row) { child, _ in
-            child.inputRow = nil                                // cut the link to the victim
-            child.inputReceiver = nil                           // …to NULL input, not R1 — the honest cut
-        }
+        guard cells.indices.contains(col), cells[col].indices.contains(row) else { return }
+        cells[col][row] = nil
     }
 
     /// MOVE — §11b: relocate a cell to a target, OVERWRITING an occupied one (undo-covered). MOVES NEVER REWRITE
@@ -767,56 +739,12 @@ extension SceneState {
         cells[f.col][f.row] = nil
     }
 
-    // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core; the UI projection lights + taps these)
+    // MARK: - ROUTING (receiver in · emitters out; the UI projection lights + taps these)
 
-    /// A CHAIN HEAD (11f) — a root fed by a RECEIVER (`inputRow == nil`); a tree of one counts. A BODY is row-fed.
-    func isChainHead(col: Int, row: Int) -> Bool {
-        guard cells.indices.contains(col), cells[col].indices.contains(row) else { return false }
-        return cells[col][row]?.inputRow == nil && cells[col][row] != nil
-    }
-    /// ROUTE IN candidate SOURCES for cell X: OCCUPIED cells in the rows ABOVE X (same column). Empties don't light
-    /// (nothing to hear). The four RECEIVERS are always candidates too — the UI adds them alongside these.
-    func routeInSourcesAbove(col: Int, row: Int) -> [Int] {
-        guard cells.indices.contains(col), row > 0 else { return [] }
-        return (0..<row).filter { cells[col][$0] != nil }
-    }
-    /// ROUTE OUT graft targets for cell X: CHAIN HEADS in the rows BELOW X (same column). Heads light; bodies don't (11f).
-    func graftHeadsBelow(col: Int, row: Int) -> [Int] {
-        guard cells.indices.contains(col) else { return [] }
-        return ((row + 1)..<cells[col].count).filter { isChainHead(col: col, row: $0) }
-    }
-    /// All occupied cells BELOW `row` in the column — the DEST candidates for multi-cell routing (each can be
-    /// re-rooted to read from the focus above it). AcceptanceCriteria 2026-07-29: routing spans ALL cells above
-    /// AND below the focus, not only chain heads.
-    func routeOutTargetsBelow(col: Int, row: Int) -> [Int] {
-        guard cells.indices.contains(col) else { return [] }
-        return ((row + 1)..<cells[col].count).filter { cells[col][$0] != nil }
-    }
-    /// Would feeding (col,row) FROM `sourceRow` create a cycle (sourceRow's input chain already reaches row)? Bounded.
-    private func wouldCycle(col: Int, row: Int, feedingFrom sourceRow: Int) -> Bool {
-        var cur: Int? = sourceRow, hops = 0
-        while let r = cur, hops < 8 { if r == row { return true }; cur = cells[col][r]?.inputRow; hops += 1 }
-        return false
-    }
     /// ROUTE IN (single-select radio) — feed cell X from a RECEIVER door: inputRow = nil, inputReceiver = r (0–3).
     mutating func routeInReceiver(col: Int, row: Int, receiver: Int) {
         guard cells.indices.contains(col), cells[col].indices.contains(row), var c = cells[col][row] else { return }
         c.inputRow = nil; c.inputReceiver = max(0, min(3, receiver)); cells[col][row] = c
-    }
-    /// ROUTE IN (single-select radio) — feed cell X from a ROW strictly ABOVE. No-op if not above, empty, or a cycle.
-    mutating func routeInRow(col: Int, row: Int, sourceRow: Int) {
-        guard cells.indices.contains(col), cells[col].indices.contains(row), sourceRow >= 0, sourceRow < row,
-              cells[col][sourceRow] != nil, !wouldCycle(col: col, row: row, feedingFrom: sourceRow),
-              var c = cells[col][row] else { return }
-        c.inputRow = sourceRow; cells[col][row] = c
-    }
-    /// ROUTE OUT GRAFT (11f) — graft a CHAIN HEAD below under cell X: the head becomes row-fed by X and its whole
-    /// SUBTREE follows (children reference the head's row, unchanged). Only a head grafts; its door assignment drops.
-    mutating func graftHeadBelow(headRow: Int, under parentRow: Int, col: Int) {
-        guard cells.indices.contains(col), cells[col].indices.contains(headRow), parentRow >= 0, parentRow < headRow,
-              var h = cells[col][headRow], h.inputRow == nil,                       // only a head below grafts
-              !wouldCycle(col: col, row: headRow, feedingFrom: parentRow) else { return }
-        h.inputRow = parentRow; cells[col][headRow] = h
     }
     /// ROUTE OUT emitters — toggle cell X's membership of an emitter bus (multi).
     mutating func toggleEmitter(col: Int, row: Int, bus: Bus) {
