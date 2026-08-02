@@ -106,10 +106,9 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    // CELL MACHINE stage-3: which scope a chain edit writes to — THIS CELL (per-cell override) or ALL <colour>
-    // (the shared template, every following cell in every scene). The chain editor's explicit scope choice.
-    enum ChainScope { case thisCell, allColour }
-    @State private var chainScope: ChainScope = .thisCell
+    // CELL MACHINE — TWIN editing: edits apply to the pointed cell + its identical twins. DETACH sets soloEdit so
+    // edits target only the pointed cell (it then diverges and leaves the twin set). Cleared on re-point.
+    @State private var soloEdit = false
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -205,6 +204,7 @@ struct DiagView: View {
             if scene.cells[col][row] != nil {                // occupied → point the station here (empty → nothing)
                 selCol = col; selRow = row                   // the edited-cell coord (also lights the white ring)
                 brush = scene.cells[col][row]!.colourID      // demoted desk follows the pointed cell's Colour
+                soloEdit = false                             // CELL MACHINE: re-point resets to twin (edit-together) mode
             }
             return
         }
@@ -1132,10 +1132,15 @@ struct DiagView: View {
                  onAuditionStart: startAudition, onAuditionEnd: endAudition,
                  laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
                  selection: selection,
-                 whiteBorder: [], verbInvite: nil,
+                 whiteBorder: [], twins: twinCells, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
+    }
+    /// The pointed cell's TWIN set (incl. itself) for the grid highlight — empty when not editing or DETACHed.
+    private var twinCells: Set<GridView.GridPos> {
+        guard editingCell != nil, !soloEdit else { return [] }
+        return Set((au?.twinPositions(col: selCol, row: selRow) ?? []).map { GridView.GridPos(col: $0.col, row: $0.row) })
     }
 
     // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
@@ -1147,15 +1152,14 @@ struct DiagView: View {
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
     }
     @ViewBuilder private func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
-        let scoped = chainScope == .allColour                                  // editing the shared TEMPLATE?
-        let chain = scoped ? (au?.uiColourTemplate(colourID: cell.colourID) ?? []) : cellChain(cell)
+        let chain = cellChain(cell)
         VStack(alignment: .leading, spacing: 8) {
-            chainScopeHeader(cell)
+            twinHeader()
             ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
-                slotBox(i, slot, cell: cell, scoped: scoped).frame(width: boxWidth)
+                slotBox(i, slot, cell: cell).frame(width: boxWidth)
             }
             if chain.count < 8 {
-                Button { if scoped { au?.addTemplateSlot(colourID: cell.colourID) } else { au?.addSlot(col: selCol, row: selRow) }; refreshFromDocument() } label: {
+                Button { au?.addSlot(col: selCol, row: selRow, solo: soloEdit); refreshFromDocument() } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
                         Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -1171,53 +1175,42 @@ struct DiagView: View {
             }
         }
     }
-    // CELL MACHINE stage-3: THIS CELL | ALL <colour> scope + the FOLLOWS/OVERRIDES badge + ↺ FOLLOW (re-link).
-    @ViewBuilder private func chainScopeHeader(_ cell: Cell) -> some View {
-        let overrides = au?.cellOverrides(col: selCol, row: selRow) ?? false
+    // CELL MACHINE — TWIN editing: identical cells edit together (DERIVED, no groups). DETACH ("EDIT THIS ONE")
+    // diverges the pointed cell so edits apply to it alone. Deliberate broader pushes use the APPLY TO… utilities.
+    @ViewBuilder private func twinHeader() -> some View {
+        let n = soloEdit ? 1 : (au?.twinCount(col: selCol, row: selRow) ?? 1)
         HStack(spacing: 6) {
-            scopeChip("THIS CELL", on: chainScope == .thisCell) { chainScope = .thisCell }
-            scopeChip("ALL \(editName(cell.colourID))", on: chainScope == .allColour) { chainScope = .allColour }
+            Text(n > 1 ? "EDITING \(n) IDENTICAL CELLS" : "EDITING 1 CELL")
+                .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.5))
             Spacer(minLength: 0)
-            if chainScope == .thisCell {
-                Text(overrides ? "OVERRIDES" : "FOLLOWS").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                    .foregroundColor(overrides ? Self.editHue : .white.opacity(0.4))
-                if overrides {
-                    Button { au?.followTemplate(col: selCol, row: selRow); refreshFromDocument() } label: {
-                        Text("↺ FOLLOW").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Self.editHue))
-                    }.buttonStyle(.plain)
-                }
-            } else {
-                Text("shared — changes every following cell, all scenes").font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+            if n > 1 || soloEdit {
+                Button { soloEdit.toggle() } label: {
+                    Text(soloEdit ? "◉ THIS ONE" : "EDIT THIS ONE").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(soloEdit ? .black : Self.editHue)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(soloEdit ? Self.editHue : Self.editHue.opacity(0.14)))
+                }.buttonStyle(.plain)
             }
         }
     }
-    private func scopeChip(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.5))
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Self.editHue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell, scoped: Bool) -> some View {
+    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
-        let cid = cell.colourID
+        let cid = cell.colourID, solo = soloEdit
         ProcessorBox(
             colour: sc, colourIndex: -1, face: .a,
             onEdit: { mutate in
-                let apply: (inout ProcessorSlot) -> Void = { s in
+                au?.editSlot(col: selCol, row: selRow, slot: i, solo: solo) { s in
                     var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
-                    mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA (transpose/morph hidden)
+                    mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
                 }
-                if scoped { au?.editTemplateSlot(colourID: cid, slot: i, apply) } else { au?.editSlot(col: selCol, row: selRow, slot: i, apply) }
                 refreshFromDocument()
             },
             onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in if scoped { au?.setTemplateSlotType(colourID: cid, slot: i, t) } else { au?.setSlotType(col: selCol, row: selRow, slot: i, t) }; refreshFromDocument() },
+            onSetTypeA: { t in au?.setSlotType(col: selCol, row: selRow, slot: i, solo: solo, t); refreshFromDocument() },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            onBypass: { if scoped { au?.toggleTemplateSlotBypass(colourID: cid, slot: i) } else { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i) }; refreshFromDocument() },
-            onRemove: i == 0 ? nil : { if scoped { au?.removeTemplateSlot(colourID: cid, slot: i) } else { au?.removeSlot(col: selCol, row: selRow, slot: i) }; refreshFromDocument() })
+            onBypass: { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i, solo: solo); refreshFromDocument() },
+            onRemove: i == 0 ? nil : { au?.removeSlot(col: selCol, row: selRow, slot: i, solo: solo); refreshFromDocument() })
     }
 
     private func sectionHeader(_ label: String) -> some View {
@@ -1368,12 +1361,10 @@ struct DiagView: View {
         editChop { $0.slots[i] = ($0.slots[i] == state && state != .main) ? .main : state }
     }
     private func toggleMainBus(_ b: Bus) {
-        guard let au, selCol >= 0, selRow >= 0 else { return }
-        au.editScene { $0.toggleEmitter(col: selCol, row: selRow, bus: b) }
-        refreshFromDocument()
+        editPointedCell { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
     }
     private func editChop(_ mutate: @escaping (inout Chop) -> Void) {
-        setEditSource { s in if var c = s.cells[selCol][selRow] { var ch = c.chopResolved; mutate(&ch); c.chop = (ch == Chop() ? nil : ch); s.cells[selCol][selRow] = c } }
+        editPointedCell { var ch = $0.chopResolved; mutate(&ch); $0.chop = (ch == Chop() ? nil : ch) }
     }
     private func editName(_ id: String) -> String {
         docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
@@ -1495,7 +1486,7 @@ struct DiagView: View {
     @ViewBuilder private func inputSourceChip(_ cell: Cell) -> some View {
         Menu {
             Button("NONE (unrouted)") { setEditSourceNone() }
-            ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { setEditSource { $0.routeInReceiver(col: selCol, row: selRow, receiver: r) } } }
+            ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } } }
         } label: {
             HStack {
                 Text(inputSourceLabel(cell)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
@@ -1510,8 +1501,14 @@ struct DiagView: View {
         guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
         au.editScene(mutate); refreshFromDocument()
     }
+    /// CELL MACHINE — edit the pointed cell AND its twins (or solo, under DETACH) in one undoable step, so
+    /// identical cells stay identical. The input/output/chop edits route through this.
+    private func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
+        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
+        au.editTwins(col: selCol, row: selRow, solo: soloEdit, mutate); refreshFromDocument()
+    }
     private func setEditSourceNone() {
-        setEditSource { s in if var c = s.cells[selCol][selRow] { c.inputRow = nil; c.inputReceiver = nil; s.cells[selCol][selRow] = c } }
+        editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil }
     }
     /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
     /// (−24…+24 st, already applied engine-wide via `setBrushTranspose`). OCTAVE = a ±12 convenience, SEMITONE =

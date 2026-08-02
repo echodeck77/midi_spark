@@ -157,6 +157,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EDIT-PAGE WAVE W1 — TWIN EDITING (2026-08-02, `feat/EditPageSpike`, off-device; 363 green). SUPERSEDES the
+  stage-3 scope toggle: `EditScope.twins` (config-equal cells, perform state ignored); every chain/input/output/
+  chop edit applies to the pointed cell + its DERIVED twins in one undoable step (AU `withChain`/`editTwins` route
+  through `editScopeTargets(.twins)`); DETACH (`soloEdit`) targets only the pointed cell → it diverges + leaves the
+  set; header "EDITING N IDENTICAL CELLS"; grid shows twins (dashed) + dims non-twins. Removed the ChainScope
+  toggle + template-EDIT AU methods (KEEP `Colour.templateChain` as the render fallback + birth default; KEEP
+  APPLY TO… utilities). Remaining wave: W2 sections/labels/DELETE/colour-picker · W3 quieting+grid contract ·
+  W4 value chips + sparse pass.**
 - **▶ CELL MACHINE — SHIPPED + DEVICE-VERIFIED (2026-08-02, on `main` via feat/EditPageSpike). The proposal is
   built end-to-end and confirmed on device. READ THIS, not the per-stage "NOT on main"/"DEVICE owed" flags in the
   bullets below — those are STALE. On `main`: per-cell processor chains · full serial execution (all six types,

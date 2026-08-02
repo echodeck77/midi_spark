@@ -270,6 +270,22 @@ final class MigrationTests: XCTestCase {
         XCTAssertNil(plain.colours[0].templateChain, "a colour with no template decodes templateChain == nil")
     }
 
+    // EDIT-page wave W1 — TWIN editing: `.twins` groups config-equal cells (perform state ignored) and edits
+    // apply to the whole set in one step; a divergent cell / other colour is excluded.
+    func testTwinScopeGroupsIdenticalCellsAndEditsTogether() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.processors = [ProcessorSlot(type: .arp)]
+        s.cells[0][0] = cell; s.cells[1][1] = cell                       // two identical twins
+        var mutedTwin = cell; mutedTwin.muted = true; s.cells[4][4] = mutedTwin   // perform-state differs → STILL a twin
+        var diverged = cell; diverged.processors = [ProcessorSlot(type: .ratchet)]; s.cells[2][2] = diverged   // diff chain → not a twin
+        var other = Cell(colourID: "cyan", buses: [.a]); other.processors = [ProcessorSlot(type: .arp)]; s.cells[3][3] = other   // diff colour → not
+        XCTAssertEqual(Set(s.editScopeTargets(col: 0, row: 0, scope: .twins)), [0, 1 * 8 + 1, 4 * 8 + 4],
+                       "twins = config-identical cells (perform state ignored); divergent chain + other colour excluded")
+        s.applyToScope(col: 0, row: 0, scope: .twins) { $0.buses = [.b] }
+        XCTAssertEqual(s.cells[0][0]?.buses, [.b]); XCTAssertEqual(s.cells[1][1]?.buses, [.b]); XCTAssertEqual(s.cells[4][4]?.buses, [.b])
+        XCTAssertEqual(s.cells[2][2]?.buses, [.a], "the non-twin is untouched")
+    }
+
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
             s.cells[0][0] = Cell(colourID: "gold", stack: true)

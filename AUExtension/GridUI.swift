@@ -101,6 +101,7 @@ struct GridView: View {
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
     var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
+    var twins: Set<GridPos> = []                     // CELL MACHINE: the pointed cell's TWINS (edit-together set) — dashed ring; non-twins dim
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
     var routeFoci: Set<GridPos> = []                 // §10 ROUTE mode: the cells being wired (solid amber ring)
     var routeIn: Set<GridPos> = []                   // §10 SRC candidates above (pulsing "SRC" label — tap = route-in)
@@ -279,7 +280,14 @@ struct GridView: View {
                     .foregroundColor(.white.opacity(0.08))
             }
         }
-        .opacity((tapMutedHere || raw?.muted == true) ? 0.28 : 1)   // muted (persisted, or §9 momentary ON TAP = MUTE) dims
+        .opacity((tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
+                 : (!twins.isEmpty && cell != nil && !twins.contains(GridPos(col: col, row: row)) ? 0.4 : 1))   // CELL MACHINE: non-twins recede while editing
+        .overlay {                                          // CELL MACHINE: a TWIN (edit-together, not the pointed cell) wears a dashed white ring
+            let pos = GridPos(col: col, row: row)
+            if twins.contains(pos) && !isSel {
+                RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            }
+        }
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // A2 COMPASS TINT — a slim parent-hue sliver on the parent-facing edge (row-fed cells only)
             if parent >= 0, let pc = cellAt(col, parent).flatMap({ colourColor($0.colourID) }) {

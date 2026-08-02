@@ -57,50 +57,41 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if let t = c?.templateChain, !t.isEmpty { return t }                   // colour TEMPLATE (3-tier — matches the builder)
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
     }
-    private func withChain(col: Int, row: Int, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
-        var chain = materializedChain(cell); mutate(&chain)
-        editScene { $0.cells[col][row]?.processors = chain }
+    // CELL MACHINE — TWIN EDITING: a per-cell edit applies to the pointed cell AND its DERIVED twins (identical
+    // config) in one undoable step, keeping them identical. `solo:true` (DETACH) targets only the pointed cell.
+    private func twinTargets(col: Int, row: Int, solo: Bool) -> [Int] {
+        solo ? [col * 8 + row] : document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins)
     }
-    func editSlot(col: Int, row: Int, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
-        withChain(col: col, row: row) { if slot < $0.count { mutate(&$0[slot]) } }
+    private func withChain(col: Int, row: Int, solo: Bool, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        guard let src = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
+        var chain = materializedChain(src); mutate(&chain)          // twins share config → same materialised chain
+        let targets = twinTargets(col: col, row: row, solo: solo)
+        editScene { s in for k in targets { s.cells[k / 8][k % 8]?.processors = chain } }
     }
-    func setSlotType(col: Int, row: Int, slot: Int, _ type: ProcessorType) { editSlot(col: col, row: row, slot: slot) { $0.type = type } }
-    func toggleSlotBypass(col: Int, row: Int, slot: Int) { editSlot(col: col, row: row, slot: slot) { $0.bypassed.toggle() } }
-    func addSlot(col: Int, row: Int) { withChain(col: col, row: row) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
-    func removeSlot(col: Int, row: Int, slot: Int) { withChain(col: col, row: row) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
+    /// Apply a whole-Cell mutation (input/output/etc.) across the pointed cell's twins (or solo), one undoable step.
+    func editTwins(col: Int, row: Int, solo: Bool, _ mutate: @escaping (inout Cell) -> Void) {
+        let targets = twinTargets(col: col, row: row, solo: solo)
+        editScene { s in for k in targets { if var cell = s.cells[k / 8][k % 8] { mutate(&cell); s.cells[k / 8][k % 8] = cell } } }
+    }
+    func editSlot(col: Int, row: Int, slot: Int, solo: Bool = false, _ mutate: (inout ProcessorSlot) -> Void) {
+        withChain(col: col, row: row, solo: solo) { if slot < $0.count { mutate(&$0[slot]) } }
+    }
+    func setSlotType(col: Int, row: Int, slot: Int, solo: Bool = false, _ type: ProcessorType) { editSlot(col: col, row: row, slot: slot, solo: solo) { $0.type = type } }
+    func toggleSlotBypass(col: Int, row: Int, slot: Int, solo: Bool = false) { editSlot(col: col, row: row, slot: slot, solo: solo) { $0.bypassed.toggle() } }
+    func addSlot(col: Int, row: Int, solo: Bool = false) { withChain(col: col, row: row, solo: solo) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
+    func removeSlot(col: Int, row: Int, slot: Int, solo: Bool = false) { withChain(col: col, row: row, solo: solo) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
     /// The materialised chain for the UI (read-back; never nil for a populated cell).
     func uiCellChain(col: Int, row: Int) -> [ProcessorSlot] {
         guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return [] }
         return materializedChain(cell)
     }
-
-    // MARK: - CELL MACHINE stage-3 — shared TEMPLATE chain edits (document Colour; undoable; ALL scenes at once)
-
-    /// The colour's template chain, materialising a 1-slot chain from its legacy single processor the first time.
-    private func materializedTemplate(_ colour: Colour) -> [ProcessorSlot] {
-        if let t = colour.templateChain, !t.isEmpty { return t }
-        return [ProcessorSlot(type: colour.type, params: colour.paramsA)]
+    /// The count of the pointed cell's twins (incl. itself), for the "EDITING N IDENTICAL CELLS" header.
+    func twinCount(col: Int, row: Int) -> Int {
+        document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins).count
     }
-    private func withTemplate(colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        guard let ci = document.colours.firstIndex(where: { $0.colourID == colourID }) else { return }
-        var chain = materializedTemplate(document.colours[ci]); mutate(&chain)
-        editColour(ci) { $0.templateChain = chain }   // document-level → every FOLLOWING cell (all scenes) updates
-    }
-    func setTemplateSlotType(colourID: String, slot: Int, _ type: ProcessorType) { withTemplate(colourID: colourID) { if slot < $0.count { $0[slot].type = type } } }
-    func editTemplateSlot(colourID: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withTemplate(colourID: colourID) { if slot < $0.count { mutate(&$0[slot]) } } }
-    func toggleTemplateSlotBypass(colourID: String, slot: Int) { withTemplate(colourID: colourID) { if slot < $0.count { $0[slot].bypassed.toggle() } } }
-    func addTemplateSlot(colourID: String) { withTemplate(colourID: colourID) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
-    func removeTemplateSlot(colourID: String, slot: Int) { withTemplate(colourID: colourID) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
-    func uiColourTemplate(colourID: String) -> [ProcessorSlot] {
-        guard let c = document.colours.first(where: { $0.colourID == colourID }) else { return [] }
-        return materializedTemplate(c)
-    }
-    /// FOLLOW TEMPLATE: drop a cell's per-cell override so it tracks the shared template again.
-    func followTemplate(col: Int, row: Int) { editScene { $0.cells[col][row]?.processors = nil } }
-    /// Does this cell hold a per-cell OVERRIDE (true) or FOLLOW its colour's template (false)?
-    func cellOverrides(col: Int, row: Int) -> Bool {
-        !((document.scenes[document.activeSceneResolved].cells[col][row]?.processors?.isEmpty) ?? true)
+    /// The pointed cell's twin positions (incl. itself) for the grid highlight.
+    func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
+        twinTargets(col: col, row: row, solo: false).map { (col: $0 / 8, row: $0 % 8) }
     }
 
     // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
