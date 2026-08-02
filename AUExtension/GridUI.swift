@@ -30,6 +30,34 @@ extension Color {
     }
 }
 
+// MARK: - THE ORBIT (derived cell face) — a lissajous figure; a re-tune GLIDES via animatableData.
+// Derivation is pure (Derivations.orbitHash/orbitFigure/orbitPoints); this maps unit points → the rect.
+struct OrbitShape: Shape {
+    var a: Double, b: Double, phi: Double, squish: Double
+    var segments: Int = 140
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
+        get { AnimatablePair(AnimatablePair(a, b), AnimatablePair(phi, squish)) }
+        set { a = newValue.first.first; b = newValue.first.second; phi = newValue.second.first; squish = newValue.second.second }
+    }
+    init(hash: UInt32, segments: Int = 140) {
+        let f = orbitFigure(hash); a = f.a; b = f.b; phi = f.phi; squish = f.squish; self.segments = segments
+    }
+    func path(in rect: CGRect) -> Path {
+        let pts = orbitPoints(a: a, b: b, phi: phi, squish: squish, segments: segments)
+        guard pts.count > 1 else { return Path() }
+        let inset = min(rect.width, rect.height) * 0.10
+        let rx = (rect.width - 2 * inset) / 2, ry = (rect.height - 2 * inset) / 2
+        var path = Path()
+        for (i, p) in pts.enumerated() {
+            let pt = CGPoint(x: rect.midX + CGFloat(p.x) * rx, y: rect.midY + CGFloat(p.y) * ry)
+            if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        return path
+    }
+}
+/// The orbit's rest ink (spec §C3: rgba(12,12,16,0.42)).
+let orbitInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.42)
+
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
 let colourHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
@@ -276,10 +304,10 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
+                // THE ORBIT (which) — the derived figure replaces the emblem + digest; bus dots (where) stay below.
                 VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    bodyText(cell)
-                    Spacer(minLength: 0)
+                    OrbitShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     busDots(cell, firing: inActiveCol)
                 }
             } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
@@ -463,21 +491,6 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    // ② BODY — the type EMBLEM leads, then the deviations-only params digest (v59 grammar). Over the colour fill.
-    private func bodyText(_ cell: Cell) -> some View {
-        let c = colours.first { $0.colourID == cell.colourID }
-        let dim = cell.bypassed || cell.muted
-        return HStack(spacing: 3) {
-            if let c { Image(systemName: emblemSymbol(c.type)).font(.system(size: 9, weight: .black))
-                .shadow(color: .white.opacity(0.5), radius: 0.6) }   // EMBLEM leading — keyline so it reads on dark hues too
-            Text(paramText(c))                                                                            // digest — deviations only
-                .font(.system(size: 6.5, weight: .bold, design: .monospaced))
-                .lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .foregroundColor(dim ? .white.opacity(0.3) : .black.opacity(0.65))
-        .padding(.horizontal, 2)
-    }
-
     // ④ BUS DOTS — four small dots at the foot (A–D); lit = that emitter enabled, white = firing this column.
     private func busDots(_ cell: Cell, firing: Bool) -> some View {
         HStack(spacing: 4) {
@@ -503,25 +516,6 @@ struct GridView: View {
     private func isTapped(_ col: Int, _ row: Int) -> Bool {
         for r in 0..<8 where r != row && cellAt(col, r)?.inputRow == row { return true }
         return false
-    }
-    private func paramText(_ c: Colour?) -> String {
-        guard let c else { return "" }
-        var s: String
-        switch c.type {
-        case .arp:
-            s = c.paramsA.rate?.rawValue ?? ""
-            if let o = c.paramsA.octaves, o > 1 { s += " \(o)OCT" }
-            if c.paramsA.phase == .free { s += " ∞" }            // FREE-phase badge (§4)
-        case .ratchet:  s = "×\(c.paramsA.count ?? 3)"
-        case .passgate: s = "GATE"
-        case .strum:    s = "SPR \(Int((c.paramsA.spread ?? 0.1) * 100))"
-        case .chance:   s = "\(Int((c.paramsA.probability ?? 1) * 100))%"
-        case .harmonize:
-            let iv = (c.paramsA.harmIntervals ?? [0,0,0]).filter { $0 != 0 }
-            s = iv.isEmpty ? "UNISON" : iv.map { $0 > 0 ? "+\($0)" : "\($0)" }.joined(separator: " ")
-        }
-        if c.transpose != 0 { s += " \(c.transpose > 0 ? "+" : "")\(c.transpose)" }   // transpose badge
-        return s
     }
 }
 

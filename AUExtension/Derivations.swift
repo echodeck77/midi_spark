@@ -788,6 +788,55 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     }
 }
 
+// MARK: - THE ORBIT (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-orbit-face.md
+
+/// The BEHAVIOURAL config of a cell, normalised for stable hashing: the SAME fields that define TWINS
+/// (Models.editScopeTargets `.twins`) MINUS colourID — colour is the hue block, not the figure. Sets are
+/// sorted (unordered → canonical); chop keeps its raw nil vs value (matching the twin predicate exactly, so
+/// twins share a figure). Triggers live on Colour, not Cell → excluded until they re-host. Codable → bytes.
+private struct OrbitChopKey: Encodable { let m: UInt8; let a: UInt8; let mu: UInt8; let alt: [UInt8] }
+private struct OrbitKey: Encodable {
+    let p: [ProcessorSlot]?    // the chain (slots + params + per-slot bypass)
+    let ir: Int?               // input receiver
+    let irow: Int?             // input row (inert now; kept for twin-parity)
+    let b: [UInt8]             // output emitters (sorted bus cables)
+    let cs: ChordSplit?        // source-shaping: chord split
+    let vw: VelWindow?         // source-shaping: velocity window
+    let ch: OrbitChopKey?      // output chop (nil when the cell has no chop, per twin equality)
+}
+/// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
+/// device (document-visible truth); config-twins (regardless of colour) share it. Pure/testable.
+func orbitHash(_ cell: Cell) -> UInt32 {
+    let chopKey = cell.chop.map { OrbitChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
+    let key = OrbitKey(p: cell.processors, ir: cell.inputReceiver, irow: cell.inputRow,
+                       b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
+    let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+    guard let data = try? enc.encode(key) else { return 0 }
+    var h: UInt32 = 2166136261                                   // FNV-1a offset basis
+    for byte in data { h = (h ^ UInt32(byte)) &* 16777619 }      // ×FNV prime, wrapping
+    return h
+}
+/// Three draws from the hash → the lissajous parameters: RATIO (a,b) from a fixed table, PHASE φ, vertical
+/// SQUISH. Pure/testable. `p(t) = (sin(a·t+φ), squish·sin(b·t))`, t ∈ [0, 2π].
+func orbitFigure(_ hash: UInt32) -> (a: Double, b: Double, phi: Double, squish: Double) {
+    let ratios: [(Double, Double)] = [(1, 2), (2, 3), (3, 4), (3, 5), (4, 5), (5, 6), (2, 5), (3, 7)]
+    let (a, b) = ratios[Int(hash % 8)]
+    let phi = Double((hash >> 8) % 628) / 100.0                  // 0 … ~2π
+    let squish = 0.62 + Double((hash >> 20) % 32) / 100.0        // 0.62 … 0.93
+    return (a, b, phi, squish)
+}
+/// Sample the figure into `segments+1` UNIT-space points (x,y ∈ [−1, 1]); the SwiftUI layer maps to the cell
+/// rect. Pure (Foundation `simd`).
+func orbitPoints(a: Double, b: Double, phi: Double, squish: Double, segments: Int) -> [SIMD2<Double>] {
+    guard segments > 0 else { return [] }
+    var pts: [SIMD2<Double>] = []; pts.reserveCapacity(segments + 1)
+    for i in 0...segments {
+        let t = 2.0 * Double.pi * Double(i) / Double(segments)
+        pts.append(SIMD2(sin(a * t + phi), squish * sin(b * t)))
+    }
+    return pts
+}
+
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
 /// from deletion (scenes-are-precious). Pure/testable.
 func colourCensus(_ scenes: [SceneState]) -> [String: Int] {

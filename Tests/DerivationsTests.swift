@@ -1112,4 +1112,52 @@ final class DerivationsTests: XCTestCase {
         let c = colourCensus([s1, s2])
         XCTAssertEqual(c["gold"], 2); XCTAssertEqual(c["cyan"], 1); XCTAssertNil(c["teal"], "unpainted ⇒ absent (census 0)")
     }
+
+    // MARK: - THE ORBIT (derived cell face)
+
+    private func orbitCell() -> Cell {
+        var c = Cell(colourID: "gold", buses: [.a, .b]); c.inputReceiver = 1
+        c.processors = [ProcessorSlot(type: .harmonize), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
+        c.chop = Chop(mainMask: 0xFF, altMask: 0b0000_0100, muteMask: 0, altDest: [.c])
+        return c
+    }
+    func testOrbitHashIsStableAndConfigSensitive() {
+        let a = orbitCell()
+        XCTAssertEqual(orbitHash(a), orbitHash(orbitCell()), "same config ⇒ same hash (document-visible truth)")
+        var chainChanged = a; chainChanged.processors?[0].params.harmIntervals = [7, 0, 0]
+        XCTAssertNotEqual(orbitHash(a), orbitHash(chainChanged), "a chain-param change ⇒ different figure")
+        var inputChanged = a; inputChanged.inputReceiver = 2
+        XCTAssertNotEqual(orbitHash(a), orbitHash(inputChanged), "an input change ⇒ different figure")
+        var outputChanged = a; outputChanged.buses = [.a]
+        XCTAssertNotEqual(orbitHash(a), orbitHash(outputChanged), "an emitter change ⇒ different figure")
+        var chopChanged = a; chopChanged.chop?.muteMask = 0b0001_0000
+        XCTAssertNotEqual(orbitHash(a), orbitHash(chopChanged), "a chop-mask change ⇒ different figure")
+    }
+    func testOrbitHashExcludesColourNameMutePosition() {
+        let a = orbitCell()
+        var recoloured = a; recoloured.colourID = "cyan"
+        XCTAssertEqual(orbitHash(a), orbitHash(recoloured), "colour is the hue block, NOT the figure — same orbit")
+        var muted = a; muted.muted = true; muted.alt = true; muted.bypassed = true   // transient perform state
+        XCTAssertEqual(orbitHash(a), orbitHash(muted), "mute/alt/bypassed are chrome — a muted twin still twins")
+    }
+    func testOrbitHashBusOrderInvariant() {
+        var a = Cell(colourID: "gold", buses: [.a, .c]); a.processors = []
+        var b = Cell(colourID: "cyan", buses: [.c, .a]); b.processors = []   // same set, different colour + order
+        XCTAssertEqual(orbitHash(a), orbitHash(b), "the emitter SET is unordered — config-twins share the figure")
+    }
+    func testOrbitFigureRatiosCoverTheTable() {
+        let seen = Set((0..<64).map { h -> String in let f = orbitFigure(UInt32(h)); return "\(f.a):\(f.b)" })
+        XCTAssertEqual(seen.count, 8, "all 8 ratios are reachable across hash % 8")
+        for h in [UInt32(0), 999, 123456] {
+            let f = orbitFigure(h)
+            XCTAssertTrue(f.squish >= 0.62 && f.squish <= 0.94, "squish in range")
+            XCTAssertTrue(f.phi >= 0 && f.phi < 6.28, "phase in [0, 2π)")
+        }
+    }
+    func testOrbitPointsSampleUnitSpace() {
+        let f = orbitFigure(orbitHash(orbitCell()))
+        let pts = orbitPoints(a: f.a, b: f.b, phi: f.phi, squish: f.squish, segments: 140)
+        XCTAssertEqual(pts.count, 141, "segments + 1 points")
+        XCTAssertTrue(pts.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "unit space [−1, 1]")
+    }
 }
