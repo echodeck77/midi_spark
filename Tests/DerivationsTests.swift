@@ -1147,7 +1147,7 @@ final class DerivationsTests: XCTestCase {
     }
     func testOrbitFigureRatiosCoverTheTable() {
         let seen = Set((0..<64).map { h -> String in let f = orbitFigure(UInt32(h)); return "\(f.a):\(f.b)" })
-        XCTAssertEqual(seen.count, 8, "all 8 ratios are reachable across hash % 8")
+        XCTAssertEqual(seen.count, 5, "all 5 low-order ratios are reachable")
         for h in [UInt32(0), 999, 123456] {
             let f = orbitFigure(h)
             XCTAssertTrue(f.squish >= 0.62 && f.squish <= 0.94, "squish in range")

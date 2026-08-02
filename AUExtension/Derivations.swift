@@ -819,8 +819,10 @@ func orbitHash(_ cell: Cell) -> UInt32 {
 /// Three draws from the hash → the lissajous parameters: RATIO (a,b) from a fixed table, PHASE φ, vertical
 /// SQUISH. Pure/testable. `p(t) = (sin(a·t+φ), squish·sin(b·t))`, t ∈ [0, 2π].
 func orbitFigure(_ hash: UInt32) -> (a: Double, b: Double, phi: Double, squish: Double) {
-    let ratios: [(Double, Double)] = [(1, 2), (2, 3), (3, 4), (3, 5), (4, 5), (5, 6), (2, 5), (3, 7)]
-    let (a, b) = ratios[Int(hash % 8)]
+    // LOW-ORDER ratios only — high orders (5:6, 2:5, 3:7) read as wool at cell size (design feedback, orbit stage 1).
+    // This table is IDENTITY (twins share it); frozen. Variation also comes from φ (628 values) + squish (32).
+    let ratios: [(Double, Double)] = [(1, 2), (2, 3), (3, 4), (3, 5), (4, 5)]
+    let (a, b) = ratios[Int(hash % UInt32(ratios.count))]
     let phi = Double((hash >> 8) % 628) / 100.0                  // 0 … ~2π
     let squish = 0.62 + Double((hash >> 20) % 32) / 100.0        // 0.62 … 0.93
     return (a, b, phi, squish)

@@ -14,19 +14,23 @@ visible truth: same config ⇒ same figure on every device._
 byte order (the drawing is document-visible truth). Twins share one hash ⇒ share one figure.
 
 ## B — HASH → FIGURE (three draws)
-**B1. RATIO** from the table `[1:2, 2:3, 3:4, 3:5, 4:5, 5:6, 2:5, 3:7]` → `(a, b)` = the sin
-multipliers for x and y.
+**B1. RATIO** from the FROZEN low-order table `[1:2, 2:3, 3:4, 3:5, 4:5]` → `(a, b)` = the sin
+multipliers for x and y. (High orders 5:6/2:5/3:7 dropped — they read as wool at cell size, stage-1
+feedback. This table is IDENTITY — do not change it once shipped.)
 **B2. PHASE** `φ ∈ [0, 2π)` = `hash mod 628 / 100`.
 **B3. SQUISH** `∈ [0.62, 0.94]` = vertical ellipse factor.
 **B4. Path.** `p(t) = (cx + rx·sin(a·t + φ), cy + ry·squish·sin(b·t))`, `t ∈ [0, 2π]`,
 ~140 segments at cell size / 200 at edit size. CACHE one path per unique hash — twins share the
 cached path (×64 grid stays cheap by construction).
+**B5. Square stage** (stage-1 feedback): lissajous figures need a near-square frame — render the
+orbit in a CENTRED SQUARE sized by the cell's usable HEIGHT; the cell's extra width stays clean
+margin (the dots keep their row). Stretching to the cell collapses every ratio into one braid.
 
 ## C — THE FACE GRAMMAR (cell-machine era)
 **C1.** Occupied cell face = **hue block (whose) · THE ORBIT (which) · bus dots (where)**.
 **C2.** The type emblem AND the digest text RETIRE from the cell face.
-**C3. Ink:** `rgba(12,12,16,0.42)`, 1.6pt stroke, round caps — above the bus dots' weight, below
-nothing (the orbit IS the face).
+**C3. Ink:** `rgba(12,12,16,0.38)`, ~2.2pt stroke at cell size, round caps + joins — heavier +
+calmer reads "drawn" not "scratchy" (stage-1 feedback). Above the bus dots' weight, below nothing.
 
 ## D — MOTION = MIDI ONLY (invisible=frozen holds)
 **D1. Silent cell:** the path renders STATIC at rest ink. No timers.

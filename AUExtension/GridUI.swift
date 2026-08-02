@@ -55,8 +55,8 @@ struct OrbitShape: Shape {
         return path
     }
 }
-/// The orbit's rest ink (spec §C3: rgba(12,12,16,0.42)).
-let orbitInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.42)
+/// The orbit's rest ink — heavier stroke, calmer alpha reads "drawn" not "scratchy" (design feedback, stage 1).
+let orbitInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.38)
 
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
 let colourHexes: [UInt32] = [
@@ -305,9 +305,11 @@ struct GridView: View {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
                 // THE ORBIT (which) — the derived figure replaces the emblem + digest; bus dots (where) stay below.
+                // The figure needs a near-SQUARE stage (lissajous collapse into one braid when stretched) — fit a
+                // centred square sized by the usable height; the cell's extra width stays clean margin (feedback §1).
                 VStack(spacing: 0) {
-                    OrbitShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    OrbitShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                        .aspectRatio(1, contentMode: .fit).frame(maxWidth: .infinity, maxHeight: .infinity)
                     busDots(cell, firing: inActiveCol)
                 }
             } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
