@@ -179,7 +179,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (2) re-tapping a NEWBORN now deletes it (+ its controls) via `bornThisSession`. (3) a newborn defaults to a
   NEW colour (first unused palette hue), not the brush. (4) the two column rows collapsed to ONE — the grid's
   own column keys are now tappable (`GridView.onColumnKey`) and drive the loop (fixes "looping not working").
-  (5) twin PULSE made an unmistakable cyan dashed ring (was a subtle white one). Spec of record: §C of
+  (5) twin PULSE made an unmistakable cyan dashed ring (was a subtle white one). **DEVICE ROUND 2 (2026-08-02):**
+  enum slot params (PATTERN/RATE/OCT/PHASE/DIR/REPEATS) are ALWAYS-VISIBLE radio rows (ProcessorBox `seg`
+  rewritten, no dropdown); slot boxes are full-inspector-width + content-sized (no clip, `FixedHeightIf`); form
+  labels/controls enlarged throughout (radio 15, steppers/toggles 42pt tall, headers 17); twin PULSE is now a
+  WHOLE-CELL cyan wash; SELECTION grouping — a true newborn is created ONLY when nothing is selected, and while a
+  group is open a tapped cell JOINS it (an empty one is born as a CLONE of the anchor so the group edits together).
+  Spec of record: §C of
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
   stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
   markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot

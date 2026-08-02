@@ -293,13 +293,14 @@ struct GridView: View {
                 }.allowsHitTesting(false)
             }
         }
-        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES a cyan ring — advertise, tap to add
+        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES the WHOLE cell cyan — advertise, tap to add
             let pos = GridPos(col: col, row: row)
             if twins.contains(pos) && !isSel && !whiteBorder.contains(pos) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 1.0)
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(accentCyan.opacity(0.4 + 0.6 * f), style: StrokeStyle(lineWidth: 2.5, dash: [5, 3]))
+                        .fill(accentCyan.opacity(0.12 + 0.45 * f))                              // whole-cell cyan wash
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentCyan.opacity(0.6 + 0.4 * f), lineWidth: 3))
                 }
                 .allowsHitTesting(false)
             }
@@ -1230,6 +1231,15 @@ private struct ColumnHoldOverlay: UIViewRepresentable {
 /// FIXED frame sized for the largest (arp) field set, so truncation dies by geometry. A transpose/morph are
 /// AUParameters (own callbacks); B's transpose + all params go through editColour. COPY/PASTE let any panel
 /// lift a processor and drop it onto any other (cross-type paste retypes the target).
+/// Apply a fixed height + clip ONLY when a height is given (the Colour-desk static-frames rule); pass nil to let
+/// the view size to its content (slotMode, whose always-visible radio rows must all show).
+private struct FixedHeightIf: ViewModifier {
+    let height: CGFloat?
+    func body(content: Content) -> some View {
+        if let h = height { content.frame(height: h, alignment: .top).clipped() } else { content }
+    }
+}
+
 struct ProcessorBox: View {
     enum Face { case a, b }
     let colour: Colour
@@ -1266,7 +1276,7 @@ struct ProcessorBox: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: slotMode ? 14 : 6) {
             titleRow
             if mixed {
                 mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
@@ -1290,12 +1300,16 @@ struct ProcessorBox: View {
                         .font(.system(size: 8, design: .monospaced)).foregroundColor(.white.opacity(0.4)).padding(.top, 4)
                 }
             }
-            Spacer(minLength: 0)
+            if !slotMode { Spacer(minLength: 0) }
         }
-        .padding(8).frame(height: height, alignment: .top).clipped()
+        // slotMode sizes to content (no clipping — the always-visible radio rows must all show); the old
+        // Colour-desk face keeps its FIXED frame (static-frames rule).
+        .padding(slotMode ? 14 : 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(FixedHeightIf(height: slotMode ? nil : height))
         .opacity(slotBypassed ? 0.45 : (mixed ? 0.55 : 1))   // CELL MACHINE: a bypassed slot dims; MIXED-SET dims too
         .disabled(mixed)                                  // …and block any stray hit (controls aren't rendered anyway)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
     }
 
     // MIXED-SET law: the selection spans more than one Colour, so there is no single Colour-level edit to
@@ -1314,10 +1328,10 @@ struct ProcessorBox: View {
     private var titleRow: some View {
         HStack(spacing: 5) {
             Button { if !mixed { showTypePicker = true } } label: {
-                HStack(spacing: 4) {
-                    if let ft = faceType { Image(systemName: emblemSymbol(ft)).font(.system(size: 11, weight: .black)) }
-                    Text(faceType.map { typeShort($0) } ?? "OFF").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).opacity(0.7)
+                HStack(spacing: 6) {
+                    if let ft = faceType { Image(systemName: emblemSymbol(ft)).font(.system(size: 17, weight: .black)) }
+                    Text(faceType.map { typeShort($0) } ?? "OFF").font(.system(size: 17, weight: .heavy, design: .monospaced))
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .heavy)).opacity(0.7)
                 }
                 .foregroundColor(accent)
             }
@@ -1371,9 +1385,9 @@ struct ProcessorBox: View {
     }
 
     private func pill(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 3).fill(accent.opacity(0.18)))
+        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.2)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
@@ -1400,13 +1414,14 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
             }
         case .passgate:
-            field("PASSES") { HStack(spacing: 4) {
+            field("PASSES") { HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { i in
                     let on = (p.passes ?? [true,true,true,true])[i]
-                    Text("\(i+1)").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    Text("\(i+1)").font(.system(size: 16, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.6))
-                        .frame(maxWidth: .infinity).frame(height: 22)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.1)))
+                        .frame(maxWidth: .infinity).frame(height: 42)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.1)))
+                        .contentShape(Rectangle())
                         .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; pp[i].toggle(); $0.passes = pp } }
                 }
             } }
@@ -1436,35 +1451,46 @@ struct ProcessorBox: View {
         Binding(get: { v }, set: set)
     }
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
             content()
         }
     }
-    // §W4 VALUE CHIP (ruling H): an enum field is now ONE chip showing its value; tap → a Menu picker. (Was a
-    // segmented row — the biggest sparseness gain: each slot collapses to ~2 chip rows + the GATE slider.)
+    // MODE ROW (device round 2): an enum field is an ALWAYS-VISIBLE RADIO ROW — every option shown, the selected
+    // one filled. No dropdown; nothing hidden. Wraps to a second line when the options don't fit one row.
     private func seg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
-        Menu {
-            ForEach(Array(options.enumerated()), id: \.offset) { i, o in Button(o) { onPick(i) } }
-        } label: {
-            HStack(spacing: 4) {
-                Text(sel).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(accent)
-                Spacer(minLength: 2)
-                Image(systemName: "chevron.down").font(.system(size: 6, weight: .heavy)).foregroundColor(.white.opacity(0.4))
+        let rows = radioRows(options.count)
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, span in
+                HStack(spacing: 6) {
+                    ForEach(span, id: \.self) { i in
+                        let on = options[i] == sel
+                        Text(options[i]).font(.system(size: 15, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.55)
+                            .frame(maxWidth: .infinity).frame(height: 42)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
+                            .contentShape(Rectangle()).onTapGesture { onPick(i) }
+                    }
+                }
             }
-            .padding(.horizontal, 8).frame(height: 26).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
         }
     }
+    // Split N options into rows of at most 4 (keeps each segment finger-sized on a full-width box).
+    private func radioRows(_ n: Int) -> [[Int]] {
+        let per = n <= 4 ? n : Int(ceil(Double(n) / ceil(Double(n) / 4.0)))
+        var out: [[Int]] = []; var i = 0
+        while i < n { out.append(Array(i..<min(i + max(1, per), n))); i += max(1, per) }
+        return out
+    }
     private func stepper(_ v: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 4) {
-            Text("−").font(.system(size: 13, weight: .heavy)).foregroundColor(.white.opacity(0.7))
-                .frame(width: 26, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
-                .onTapGesture { set(max(lo, v - 1)) }
-            Text("\(v)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).frame(minWidth: 30)
-            Text("+").font(.system(size: 13, weight: .heavy)).foregroundColor(.white.opacity(0.7))
-                .frame(width: 26, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08)))
-                .onTapGesture { set(min(hi, v + 1)) }
+        HStack(spacing: 8) {
+            Text("−").font(.system(size: 20, weight: .heavy)).foregroundColor(.white.opacity(0.8))
+                .frame(width: 46, height: 42).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+                .contentShape(Rectangle()).onTapGesture { set(max(lo, v - 1)) }
+            Text("\(v)").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.95)).frame(minWidth: 48)
+            Text("+").font(.system(size: 20, weight: .heavy)).foregroundColor(.white.opacity(0.8))
+                .frame(width: 46, height: 42).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+                .contentShape(Rectangle()).onTapGesture { set(min(hi, v + 1)) }
             Spacer()
         }
     }

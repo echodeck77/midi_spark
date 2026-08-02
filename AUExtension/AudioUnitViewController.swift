@@ -221,16 +221,23 @@ struct DiagView: View {
             guard editMode == .edit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
             au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
-            if scene.cells[col][row] == nil {                // tap EMPTY → BIRTH a cell (staged) + add it to the set
-                au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument()
-                editSel.append(pos); bornThisSession.insert(pos)
-            } else if bornThisSession.contains(pos) {        // re-tap a NEWBORN → it disappears (with its controls)
-                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument()
-                editSel.removeAll { $0 == pos }; bornThisSession.remove(pos)
-            } else if editSel.first == pos {                 // the ANCHOR: a plain tap is a no-op (long-press drops it)
-            } else if editSel.contains(pos) {                // a 2nd tap on any OTHER selected cell removes it
-                editSel.removeAll { $0 == pos }
-            } else {                                         // an unselected occupied cell joins the set
+            if editSel.contains(pos) {                       // already in the group
+                if editSel.first == pos {                    // the ANCHOR: a plain tap is a no-op (long-press drops it)
+                } else {
+                    if bornThisSession.contains(pos) {       // a cell created this session → tapping again removes it entirely
+                        au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
+                    }
+                    editSel.removeAll { $0 == pos }          // otherwise just leave the group
+                }
+            } else {                                         // NOT selected → add to the group (any tapped cell joins)
+                if scene.cells[col][row] == nil {            // an empty cell must be created to join
+                    if editSel.isEmpty {                     // nothing selected → a TRUE newborn (new colour, passthrough)
+                        au?.editScene { $0.cells[col][row] = newbornCell() }
+                    } else if let a = editSel.first {        // a group exists → born as a CLONE of the anchor (edits together)
+                        au?.editScene { s in if let src = s.cells[a.col][a.row] { s.cells[col][row] = src } }
+                    }
+                    refreshFromDocument(); bornThisSession.insert(pos)
+                }
                 editSel.append(pos)
             }
             syncAnchor()
@@ -1199,7 +1206,7 @@ struct DiagView: View {
                     VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
                         sectionHeader("IDENTITY");       identitySection(cell)
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
-                        sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(320, size.width * 0.5))
+                        sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(540, size.width - 48))
                         sectionHeader("TO · SYNTHS");    outputSection(cell, emitterWidth: min(320, inspectorW))
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
@@ -1382,13 +1389,13 @@ struct DiagView: View {
     // invite inclusion (they are NOT auto-edited — the user taps to add them). No DETACH: the set is manual.
     @ViewBuilder private func twinHeader() -> some View {
         let n = editSel.count
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Text(n > 1 ? "\(n) SELECTED" : (n == 1 ? "1 SELECTED" : "—"))
-                .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.5))
+                .font(.system(size: 14, weight: .heavy, design: .monospaced))
+                .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.55))
             if !twinCells.isEmpty {
                 Text("· \(twinCells.count) MATCHING (tap to add)")
-                    .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             }
             Spacer(minLength: 0)
         }
@@ -1414,9 +1421,9 @@ struct DiagView: View {
 
     private func sectionHeader(_ label: String) -> some View {
         HStack(spacing: 8) {
-            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // §4 sparse: up one step
+            Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // device round 2: bigger, legible
             Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-        }.padding(.top, 2)
+        }.padding(.top, 4)
     }
     // The grid's column-key row, kept above the edit page (down chevrons; the EDITED column lit) so the page
     // stays visibly anchored to the grid. Mirrors GridView.columnKeys' geometry (cellHeight tall, vGap gaps).
@@ -1472,12 +1479,13 @@ struct DiagView: View {
     @ViewBuilder private func identitySection(_ cell: Cell) -> some View {
         HStack(spacing: 10) {
             Button { showHuePicker = true } label: {                       // §2 tappable swatch → the 16-hue picker
-                RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 32, height: 32)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.25), lineWidth: 1))
+                RoundedRectangle(cornerRadius: 7).fill(colourColor(cell.colourID) ?? .gray).frame(width: 44, height: 44)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.25), lineWidth: 1))
             }.buttonStyle(.plain).popover(isPresented: $showHuePicker) { huePickerPopover }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(editName(cell.colourID)).font(.system(size: 15, weight: .heavy)).foregroundColor(.white)
-                Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(editName(cell.colourID)).font(.system(size: 20, weight: .heavy)).foregroundColor(.white)
+                Text(editSel.count > 1 ? "\(editSel.count) cells · anchor col \(selCol + 1) · row \(selRow + 1)" : "col \(selCol + 1) · row \(selRow + 1)")
+                    .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             }
             Spacer(minLength: 0)
         }
@@ -1527,19 +1535,19 @@ struct DiagView: View {
     // + a NONE chip. Twin-aware (edits the pointed cell + its twins via editPointedCell).
     private func receiverRadio(_ cell: Cell) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "cable.connector").font(.system(size: 12)).foregroundColor(.white.opacity(0.4))
+            Image(systemName: "cable.connector").font(.system(size: 16)).foregroundColor(.white.opacity(0.4))
             ForEach(0..<4, id: \.self) { r in
                 let on = cell.inputReceiver == r
-                Text("R\(r + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                Text("R\(r + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced))
                     .foregroundColor(on ? .black : .white.opacity(0.75))
-                    .frame(maxWidth: .infinity).frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? receiverHues[r] : receiverHues[r].opacity(0.2)))
+                    .frame(maxWidth: .infinity).frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? receiverHues[r] : receiverHues[r].opacity(0.2)))
                     .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } }
             }
-            Text("—").font(.system(size: 11, weight: .heavy, design: .monospaced))   // NONE (unrouted)
+            Text("—").font(.system(size: 15, weight: .heavy, design: .monospaced))   // NONE (unrouted)
                 .foregroundColor(cell.inputReceiver == nil ? .black : .white.opacity(0.5))
-                .frame(width: 34, height: 30)
-                .background(RoundedRectangle(cornerRadius: 6).fill(cell.inputReceiver == nil ? Color.white.opacity(0.55) : Color.white.opacity(0.08)))
+                .frame(width: 44, height: 42)
+                .background(RoundedRectangle(cornerRadius: 7).fill(cell.inputReceiver == nil ? Color.white.opacity(0.55) : Color.white.opacity(0.08)))
                 .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil } }
         }
     }
@@ -1553,11 +1561,11 @@ struct DiagView: View {
     @ViewBuilder private func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         let chop = cell.chopResolved
         VStack(alignment: .leading, spacing: 8) {            // §6 left-aligned with the page grammar (was centred)
-            Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            Text("MAIN DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             HStack(spacing: 6) { ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in   // §2 A–D toggles + channel tags
-                VStack(spacing: 2) {
+                VStack(spacing: 3) {
                     busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) }
-                    Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                    Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 }.frame(maxWidth: .infinity)
             } }
             VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice
@@ -1565,15 +1573,15 @@ struct DiagView: View {
                 HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }
                 HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }
             }
-            Text("ALT DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            Text("ALT DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
         }
         .frame(maxWidth: emitterWidth, alignment: .leading)
     }
     private func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
-            .frame(maxWidth: .infinity).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 5).fill(on ? hue : Color.white.opacity(0.08)))
+        Text(label).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
+            .frame(maxWidth: .infinity).frame(height: 42)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
     private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
