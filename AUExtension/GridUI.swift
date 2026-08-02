@@ -95,6 +95,8 @@ struct GridView: View {
     var onColumnKey: ((Int) -> Void)? = nil          // MODE ROW · EDIT page: TAP a column key → toggle it in the loop set
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
+    var moveMode: Bool = false                       // MODE ROW · MOVE: a plain drag (no long-press) relocates a cell
+    var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -262,7 +264,7 @@ struct GridView: View {
         let inActiveCol = playing && col == playColumn
         let parent = parentOf(col, row)
         let colour = cell.flatMap { c in colourColor(c.colourID) }
-        let noDest = cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false
+        let noDest = flagNoDest && (cell.map { $0.buses.isEmpty && !isTapped(col, row) } ?? false)
         let tapMutedHere = cell != nil && (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1   // §9 ON TAP = MUTE (momentary)
         let isRouteCand = routeIn.contains(GridPos(col: col, row: row)) || routeOut.contains(GridPos(col: col, row: row))
 
@@ -428,6 +430,20 @@ struct GridView: View {
                     guard case .second(true, let drag?) = value, let from = dragFrom,
                           let to = cellAt(location: drag.location), to != from else { return }
                     onMoveCell?((from.col, from.row), (to.col, to.row))           // relocate (overwrite)
+                }
+        )
+        // MODE ROW · MOVE: a plain drag (no long-press) picks up this cell and drops it — over a populated cell SWAPS.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .named("grid"))
+                .onChanged { v in
+                    guard moveMode, cell != nil else { return }
+                    if dragFrom == nil { dragFrom = GridPos(col: col, row: row) }
+                    dragTo = cellAt(location: v.location)
+                }
+                .onEnded { v in
+                    guard moveMode, let from = dragFrom else { dragFrom = nil; dragTo = nil; return }
+                    defer { dragFrom = nil; dragTo = nil }
+                    if let to = cellAt(location: v.location), to != from { onMoveCell?((from.col, from.row), (to.col, to.row)) }
                 }
         )
     }
@@ -1259,6 +1275,7 @@ struct ProcessorBox: View {
     // (those stay Colour-level). Bound via a synthetic Colour whose A face == the slot's type+params.
     var slotMode: Bool = false
     var slotBypassed: Bool = false
+    var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
@@ -1417,10 +1434,12 @@ struct ProcessorBox: View {
             field("PASSES") { HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { i in
                     let on = (p.passes ?? [true,true,true,true])[i]
+                    let head = i == passHead                 // MODE ROW: the playhead sits on the live pass
                     Text("\(i+1)").font(.system(size: 16, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.6))
                         .frame(maxWidth: .infinity).frame(height: 42)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.1)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(head ? Color.white : .clear, lineWidth: 3))   // the playhead ring
                         .contentShape(Rectangle())
                         .onTapGesture { setParam { var pp = $0.passes ?? [true,true,true,true]; pp[i].toggle(); $0.passes = pp } }
                 }

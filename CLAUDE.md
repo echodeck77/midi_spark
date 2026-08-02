@@ -193,7 +193,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   adds voices (367 green). (2) ADD-PROCESSOR shows the big emblem TYPE SELECTOR (`processorTypeRow`, shared with
   the empty invitation) — no default passgate. (3) enum slot params are always-visible radio rows; slots
   full-width. (4) IDENTITY shows a count-only summary (no name/type/position) + the chosen-colour box beside an
-  always-visible equal-size 16-swatch picker. Spec of record: §C of
+  always-visible equal-size 16-swatch picker. **DEVICE ROUND 4 (2026-08-02):** modes are now ADD/EDIT · MOVE ·
+  MUTE · CLEAR; **APPLY/CANCEL + the transactional session apply ONLY to ADD/EDIT** — MOVE/MUTE/CLEAR are
+  IMMEDIATE + undo/redo (fixes the intermittent mute: the session no longer wraps it). MUTE is an immediate
+  undoable toggle (dims 0.28, persists across modes); the confusing "no-emitter" red-dashed border is suppressed
+  on the setup grid (`GridView.flagNoDest:false`). CLEAR removes a cell immediately and reinstates it if the now-
+  empty slot is re-tapped (`clearedStash`, dropped on leaving CLEAR — undo/redo covers it after). MOVE (new,
+  between ADD/EDIT and MUTE): a plain drag relocates a cell, dropping over a populated cell SWAPS
+  (`GridView.moveMode` + `SceneState.swapCells`). UNDO/REDO buttons added to the header. The MIDI-IN splits (chord
+  split · vel window) are removed from the page (to return as a chain processor). The passgate PASSES row shows a
+  PLAYHEAD ring on the live pass (`ProcessorBox.passHead` ← `d.pass & 3`). IDENTITY colour picker is now 4×4,
+  swatch = a grid cell's size, with the selection count to its right. Spec of record: §C of
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
   stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
   markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot
