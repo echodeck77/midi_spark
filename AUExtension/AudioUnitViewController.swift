@@ -237,33 +237,11 @@ struct DiagView: View {
     private func routeProbe(_ id: String) -> some View {
         GeometryReader { p in Color.clear.preference(key: RouteFramesKey.self, value: [id: p.frame(in: .named("signal"))]) }
     }
-    private var routeInCandidates: Set<GridView.GridPos> {   // SRC — occupied cells ABOVE each focus, EXCEPT the one it already reads
-        var s = Set<GridView.GridPos>()
-        for (col, f) in routeFoci {
-            let current = scene.cells[col][f]?.inputRow      // the source the focus already reads from (nil = MIDI-IN)
-            for r in scene.routeInSourcesAbove(col: col, row: f) where r != current {
-                s.insert(GridView.GridPos(col: col, row: r))
-            }
-        }
-        return s
-    }
-    private var routeOutCandidates: Set<GridView.GridPos> {  // DEST — occupied cells BELOW each focus, EXCEPT those already reading it
-        var s = Set<GridView.GridPos>()
-        for (col, f) in routeFoci {
-            for r in scene.routeOutTargetsBelow(col: col, row: f) where scene.cells[col][r]?.inputRow != f {
-                s.insert(GridView.GridPos(col: col, row: r))   // a cell already wired to the focus returns to its standard view
-            }
-        }
-        return s
-    }
-    // A candidate tap while routing: SRC (above the focus in its column) → the focus reads from it; DEST (below)
-    // → that cell reads from the focus. Per column against routeFoci. Returns true if it wired (consumed the tap).
-    @discardableResult private func wireRouteCandidate(_ pos: GridView.GridPos) -> Bool {
-        guard let au, let f = routeFoci[pos.col], pos.row != f, scene.cells[pos.col][pos.row] != nil else { return false }
-        if pos.row < f { au.editScene { $0.routeInRow(col: pos.col, row: f, sourceRow: pos.row) } }        // SRC above
-        else           { au.editScene { $0.routeInRow(col: pos.col, row: pos.row, sourceRow: f) } }        // DEST below
-        refreshFromDocument(); return true
-    }
+    // Grid-chaining retired: the SRC/DEST cell-to-cell candidate glow + tap-to-wire are gone. Receiver + emitter
+    // routing (the strip ROUTE-IN/OUT faces, still driven by routeFoci) are unaffected.
+    private var routeInCandidates: Set<GridView.GridPos> { [] }
+    private var routeOutCandidates: Set<GridView.GridPos> { [] }
+    @discardableResult private func wireRouteCandidate(_ pos: GridView.GridPos) -> Bool { false }
     // §10 the strips wear a SESSION FACE while wiring; a tap applies to ALL foci.
     private func routeInReceiver(_ r: Int) {
         guard !routeFoci.isEmpty else { return }
@@ -1537,21 +1515,16 @@ struct DiagView: View {
 
     // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
 
-    /// The pointed cell's input source in words. `inputRow` set ⇒ FROM ROW n; else a receiver (nil ⇒ unrouted).
+    /// The pointed cell's input source in words: a receiver (nil ⇒ unrouted). (Grid-chaining retired.)
     private func inputSourceLabel(_ cell: Cell) -> String {
-        if let r = cell.inputRow { return "FROM ROW \(r + 1)" }
         if let rcv = cell.inputReceiver { return "MIDI-IN · R\(rcv + 1)" }
-        return "NONE"                                        // null input (inputRow nil AND inputReceiver nil)
+        return "NONE"                                        // null input (no receiver)
     }
-    /// SOURCE = a value chip (tap = picker): NONE · MIDI-IN R1–R4 · FROM ROW n (occupied rows above only —
-    /// the graph flows downward, cycles illegal). Edits the SAME `inputRow`/`inputReceiver` the grid's spatial
-    /// routing does — two doors, one lock (D).
+    /// SOURCE = a value chip (tap = picker): NONE · MIDI-IN R1–R4. (Grid-chaining retired: FROM ROW removed.)
     @ViewBuilder private func inputSourceChip(_ cell: Cell) -> some View {
-        let rowsAbove = scene.routeInSourcesAbove(col: selCol, row: selRow)
         Menu {
             Button("NONE (unrouted)") { setEditSourceNone() }
             ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { setEditSource { $0.routeInReceiver(col: selCol, row: selRow, receiver: r) } } }
-            ForEach(rowsAbove, id: \.self) { r in Button("FROM ROW \(r + 1)") { setEditSource { $0.routeInRow(col: selCol, row: selRow, sourceRow: r) } } }
         } label: {
             HStack {
                 Text(inputSourceLabel(cell)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)

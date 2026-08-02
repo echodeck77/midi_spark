@@ -78,10 +78,7 @@ struct SnapParams {
 
 struct SnapColour {
     var transpose: Int8 = 0
-    var morph: Double = 0
-    var a = SnapParams()
-    var b = SnapParams()             // delta item 8: this Colour's OWN procB resolved params (= a if B-less)
-    var tier: MorphTier = .none      // none/full/swap — gates how a→b resolves (glide vs binary flip)
+    var a = SnapParams()             // the one resolved param bag (A/B morph removed)
     var on = OnConfig()              // delta §9 item 1: the resolved ON assignments (arrive/scene = derivations,
 }                                    // tap/hold = ephemeral gestures); render reads it precomputed here.
 
@@ -148,11 +145,8 @@ final class SnapshotBox {
 /// flip on the ALT bit (0 or 1, no intermediate — the morph fader is inert for a swap pair). The global
 /// morphMaster (param #300) is RETIRED — morph is per-Colour only. Cells differ only by their alt bit.
 // CELL MACHINE (morph removed): the A/B blend is gone — every effective* reads the single (A) param bag.
-// `t` is ignored (kept in the signatures during the phased removal; call sites drop it next). The render feeds
-// these the per-cell chain slot (via the `treat` a==b==head SnapColour); audition reads the colour's A face.
-@inline(__always)
-func effectiveT(_ c: SnapColour, morph: Double, alt: Bool) -> Double { 0 }
-
+// They keep a `t` arg (always 0, ignored) so the render call sites are unchanged; the render feeds them the
+// per-cell chain slot via the `treat.a = head` injection SnapColour.
 @inline(__always)
 func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { c.a.type }
 

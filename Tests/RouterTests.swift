@@ -1310,17 +1310,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    func testReferenceCycleIsTotallySilent() {
-        // Two cells referencing each other (row 2 ⇐ row 4, row 4 ⇐ row 2), both lit → a closed loop
-        // has no entry → TOTAL SILENCE (delta §1, broken by the depth guard).
-        let b = box(colours: arpColours()) {
-            $0.cells[0][2] = Cell(colourID: "gold",  buses: [.a], inputRow: 4)
-            $0.cells[0][4] = Cell(colourID: "azure", buses: [.b], inputRow: 2)
-        }
-        let e = RecordingEmitter()
-        run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.events.isEmpty, "a reference cycle sounds nothing on any cable")
-    }
+    // (grid-chaining retired: the reference-cycle test was removed — no cell-to-cell references exist.)
 
     func testPlayingHarmonizeAtMidiInSoundsTheExpandedChord() {
         // The PLAYING chord-hold path (emitColumnHolds), distinct from audition: a HARMONIZE cell at
@@ -1856,17 +1846,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(soloOns(b, solo: 0b0001, cable: 1), 0, "a soloed BUT muted receiver stays silent")
     }
 
-    func testReceiverSoloSilencesChainedFeedAtItsRoot() {
-        // gold ⇐R1 → A (MIDI-IN root), cyan feeds off row 0 → B. Solo R2 excludes R1 ⇒ BOTH silent
-        // (B goes dark because its root's receiver is excluded, via parentSoundingNote).
-        let b = receiverBox {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
-        }
-        XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 1), 0, "root R1 excluded ⇒ A silent")
-        XCTAssertEqual(soloOns(b, solo: 0b0010, cable: 2), 0, "child of an excluded root ⇒ B silent")
-        XCTAssertGreaterThan(soloOns(b, solo: 0b0001, cable: 2), 0, "solo the root's R1 ⇒ B sounds")
-    }
+    // (grid-chaining retired: the solo-silences-chained-feed test was removed — no cross-cell feeds.)
 
     // MARK: - receiver OCT nudge (receiver strip) — ephemeral ±octave, composes with colour transpose
 
@@ -1907,15 +1887,7 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 1).contains(74), "+2 semis + 1 oct ⇒ 60→74")
     }
 
-    func testReceiverOctaveInheritedThroughChainedFeed() {
-        // gold ⇐R1 → A, cyan feeds off row 0 → B. +1 oct on R1 lifts gold's note; B (mirroring the parent)
-        // inherits the shift through the chain even though B's own receiver is −1.
-        let b = receiverBox {
-            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
-        }
-        XCTAssertTrue(octNotes(b, inputOctave: packOct(0, 1), cable: 2).contains(72), "child inherits the root's +1 oct")
-    }
+    // (grid-chaining retired: the octave-inherited-through-chain test was removed — no cross-cell feeds.)
 
     // MARK: - receiver INPUT-velocity override (the slider) — momentary absolute, keyed on the receiver
 
@@ -2371,36 +2343,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // MARK: - T13b: a chord-hold parent (PASS/identity) feeding a tick child (ARP) — the routing hole
-
-    func testOpenPassgateParentFeedsArpChild() {
-        // T13's INVERSION: row0 OPEN PASS ⇐MIDI →A, row1 ARP ⇐row0 →B. The ARP must arp the parent's HELD
-        // CHORD (was silent — parentSoundingNote returned nil for a chord-hold parent).
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [true, true, true, true]; return c }()
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])                                             // PASS ⇐ MIDI → A
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()     // ARP ⇐ row0 → B
-        }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        let bNotes = Set(e.ons.filter { $0.cable == 2 }.map { $0.note })
-        XCTAssertFalse(bNotes.isEmpty, "the ARP child must SOUND (PASS→ARP fix) — not stay silent")
-        XCTAssertTrue(bNotes.isSuperset(of: [60, 64, 67]), "it arpeggiates every note of the held chord")
-        assertNothingLeftSounding(e)
-    }
-
-    func testClosedPassgateParentSilencesArpChild() {
-        // a CLOSED passgate outputs nothing → the referencing ARP correctly stays silent.
-        var cs = arpColours()
-        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate); c.paramsA.passes = [false, false, false, false]; return c }()
-        let b = box(colours: cs) {
-            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
-            $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputRow = 0; return c }()
-        }
-        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "a closed passgate parent ⇒ the ARP child is silent")
-        assertNothingLeftSounding(e)
-    }
+    // (grid-chaining retired: the PASS→ARP cell-to-cell routing tests were removed — chains live in cells now.)
 
     // MARK: - ALT edge: advance-until-present (no starvation of a partial fan-out)
 

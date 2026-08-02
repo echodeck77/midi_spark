@@ -17,17 +17,9 @@ enum SnapshotBuilder {
         var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
         for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
             var sc = SnapColour()
-            sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // single value — both faces share A's transpose (v1)
-            sc.morph = max(0, min(1, colour.morph))
+            sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // the active type's transpose
             sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
-            sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)
-            if let tb = colour.typeB {
-                sc.b = resolve(colour.paramsB, type: tb, fallback: sc.a)
-                sc.tier = morphTier(selfType: colour.type, partner: tb)
-            } else {
-                sc.b = sc.a
-                sc.tier = .none
-            }
+            sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)   // morph removed: the one param bag (A)
             colours[i] = sc
         }
 
@@ -66,12 +58,8 @@ enum SnapshotBuilder {
                 sc.chopSlots = chp.slots.count == 8 ? chp.slots : Array(repeating: .main, count: 8)   // defensive: render indexes [0…7]
                 sc.chopAltMask = chp.altDest.reduce(0) { $0 | (1 << $1.cable) }
                 sc.chopActive = sc.chopSlots.contains { $0 != .main }
-                // v3.0 (delta §1): resolve the input reference — inputRow if that row is occupied and
-                // not self, else MIDI IN. Occupancy checked here; the muted-parent reroute is runtime.
-                if let ir = cell.inputRow, ir != r, ir >= 0, ir < Snap.rows,
-                   ir < scene.cells[c].count, scene.cells[c][ir] != nil {
-                    sc.resolvedParent = Int8(ir)
-                }
+                // CELL MACHINE (grid-chaining retired): a cell is always MIDI-IN — resolvedParent stays −1.
+                // `cell.inputRow` is now inert decode-only legacy (kept for old-doc/preset compat).
                 // delta §9 item 11: a MIDI-IN cell's source filter comes from the RECEIVER it subscribes
                 // to (channel, or match-nothing if the receiver is muted); with no receivers (or a row
                 // ref) fall back to the legacy per-cell filter. resolvedReceiver drives the UI band later.

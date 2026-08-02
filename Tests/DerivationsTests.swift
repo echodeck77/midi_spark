@@ -175,13 +175,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(arpPickSource(phaseIndex: 0, octaves: 1, pattern: up, pool: p), 60)
     }
 
-    func testMorphTierDerivation() {
-        // delta §9 item 5: unpaired = none; same type = full (glide); different types = swap (flip).
-        XCTAssertEqual(morphTier(selfType: .arp, partner: nil), .none)
-        XCTAssertEqual(morphTier(selfType: .arp, partner: .arp), .full)
-        XCTAssertEqual(morphTier(selfType: .arp, partner: .passgate), .swap)
-    }
-
     func testReceiverHearsOmniAndChannel() {
         // delta §9 item 11: OMNI (0) hears every channel; a filter hears only its own (wire ch = filter−1).
         XCTAssertTrue(receiverHears(filter: 0, channel: 0))

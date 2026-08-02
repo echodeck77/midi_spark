@@ -220,6 +220,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     App-Group container.** NOT yet on main.**
   - **DEVICE-VERIFIED (2026-08-02): the whole cell machine (stages 1–4) + mute + receiver-picker fix accepted on
     device. Stages 1–4 merged to `main` (`d60689b`).**
+  - **ROADMAP DEFERRED-FEATURES (branch `feat/EditPageSpike`, NOT on main). A: A/B MORPH REMOVED (`715861c`) —
+    effective* read the one A bag; arriveMorph/arriveAlt gone. B: GRID-CHAINING RETIRED + morph dead-code cleaned
+    (2026-08-02, 368 green, iOS builds). `Cell.inputRow` is now inert decode-only; `resolvedParent` always −1;
+    deleted `parentRow`/`parentSoundingNote`/`chordHoldRelayFilter`/`emitMirrorRow` + all `fed`/`parent` branches
+    (incl. the preview path); `SnapColour.b/.tier/.morph`, the `treat.b/.tier`, `MorphTier`/`morphTier`/
+    `effectiveT`/`effectiveTWithArrive` all deleted. UI: the "FROM ROW" source option + the SRC/DEST route-
+    candidate glow/wiring removed. Receiver + emitter routing, EMITTER-ROTATE, ALT voice-identity/turn-taking,
+    and the routing viz for receiver/emitter edges all KEPT. Removed the ~7 grid-chaining + morph-tier tests.
+    KEPT reserved: Codable morph fields + param addresses 200+i/300. DEFERRED cleanup (harmless dead code, no
+    effect since inputRow is always nil now): the unused `SceneState` chaining ops, the `routingEdges` cell→cell
+    edge + `RoutingVizOverlay` `isChain` branch + `FlowView` `srcRow` half, SceneFactory/TestSessions still set
+    inert `inputRow`, and the unreachable ProcessorBox B-face/MORPH fader.**
   - **ROADMAP-A: A/B MORPH removed — FUNCTIONAL (2026-08-02, 376 green, iOS builds; branch `feat/EditPageSpike`).
     `effective*` now read the single (A) param bag (no A→B interpolation); `arriveMorph`/`arriveAlt` (MORPH-DRIFT
     + ALT-ALTERNATE, both only steered the gone face) deleted; `effectiveTWithArrive` → 0-shim. Removed tests:

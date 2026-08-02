@@ -452,19 +452,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
 /// Adding a processor = one case here + its branch in the loop.
 enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, identity, silent }
 
-// MARK: - Colour-pair morph tier (delta §9 item 5)
-
-/// The morph capability of a Colour's pairing. `none` = unpaired (inert). `full` = the partner is the
-/// SAME processor type → all params glide (§3.2 stepped-quantize interpolation). `swap` = different types
-/// → a clean binary flip at the cell's ALT bit, NO fader ("the fader never lies"). `partial` = FUTURE
-/// (shared "channels" glide while type identity flips) — the enum admits it; v1 never emits it.
-enum MorphTier: UInt8, Equatable { case none, full, swap, partial }
-
-/// Derive the tier from the pairing. `partner` is nil when unpaired.
-func morphTier(selfType: ProcessorType, partner: ProcessorType?) -> MorphTier {
-    guard let partner else { return .none }
-    return selfType == partner ? .full : .swap
-}
+// (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
 // MARK: - Receiver channel match (delta §9 item 11)
 
@@ -615,11 +603,6 @@ func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
 func mpeLikely(channelMask: UInt16) -> Bool { channelMask.nonzeroBitCount >= 2 }
 
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
-/// CELL MACHINE: morph removed — `t` is always 0 (the render reads the per-cell chain, not an A/B blend). Kept
-/// as a 0-returning shim so the render call sites are unchanged this increment; they drop `t` when the engine
-/// is next simplified.
-@inline(__always)
-func effectiveTWithArrive(_ c: SnapColour, baseMorph: Double, baseAlt: Bool, arrivals: Int) -> Double { 0 }
 
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
 
