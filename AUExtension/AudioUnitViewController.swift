@@ -120,6 +120,8 @@ struct DiagView: View {
     // MODE ROW — cells BORN this session (empty-tap births). Re-tapping a newborn deletes it (it was just created);
     // cleared on APPLY/CANCEL (they become permanent / were reverted).
     @State private var bornThisSession: Set<GridView.GridPos> = []
+    // MODE ROW — a long-press fires its mode action ONCE per press (the underlying gesture repeats while held).
+    @State private var longPressFired = false
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
     @State private var clearedStash: [GridView.GridPos: Cell] = [:]
@@ -266,17 +268,26 @@ struct DiagView: View {
         c.processors = []              // explicit EMPTY chain = passthrough
         return c
     }
-    /// EDIT long-press on the grid: only the ANCHOR responds — it drops from the set (protects the editing context).
-    /// A newborn anchor is also deleted (it was just created, so dropping it removes it entirely).
+    /// Grid long-press. ADD/EDIT: only the ANCHOR responds — it drops from the set (a newborn anchor is deleted).
+    /// MUTE/CLEAR: a long-press does the SAME as a short press (fired once per press — the gesture repeats while held).
     private func editGridLongPress(_ col: Int, _ row: Int) {
-        guard editArmed, editMode == .addEdit else { return }
+        guard editArmed, !longPressFired else { return }
+        longPressFired = true
         let pos = GridView.GridPos(col: col, row: row)
-        guard editSel.first == pos else { return }
-        if bornThisSession.contains(pos) {
-            au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
+        switch editMode {
+        case .addEdit:
+            guard editSel.first == pos else { return }
+            if bornThisSession.contains(pos) {
+                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
+            }
+            editSel.removeFirst(); syncAnchor()
+        case .mute, .clear:
+            editModeTap(col, row)
+        case .move:
+            break
         }
-        editSel.removeFirst(); syncAnchor()
     }
+    private func editGridLongEnd() { longPressFired = false }
     /// MUTE / CLEAR mode taps (occupied cells only). MUTE toggles the cell's mute IMMEDIATELY (its own undo step —
     /// the session is closed in MUTE mode). CLEAR toggles a transactional removal MARK (committed by APPLY).
     private func editModeTap(_ col: Int, _ row: Int) {
@@ -1214,21 +1225,21 @@ struct DiagView: View {
                         sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
                         sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(540, size.width - 48))
-                        sectionHeader("TO · SYNTHS");    outputSection(cell, emitterWidth: min(320, inspectorW))
+                        sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
-            } else if editMode == .addEdit {                          // §1 ADD/EDIT, nothing selected = an invitation
+            } else if editMode == .addEdit {                          // §1 ADD/EDIT, nothing selected = the invitation
                 Spacer(minLength: 0)
-                Text("Tap cells to edit —\nor tap an empty space to create one.")
+                Text("Select 1 cell then duplicates")
                     .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center).frame(maxWidth: 380).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             } else {                                                  // MOVE / MUTE / CLEAR = grid + mode row only
                 Spacer(minLength: 0)
-                Text(editMode == .move ? "MOVE — drag a cell to a new position" :
-                     editMode == .mute ? "MUTE — tap a cell to silence it (tap again to unmute)" :
-                                         "CLEAR — tap a cell to remove it (tap the empty slot to bring it back)")
-                    .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                Text(editMode == .move ? "Drag and drop" :
+                     editMode == .mute ? "Choose cells to mute" :
+                                         "Choose cells to clear")
+                    .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
@@ -1311,9 +1322,9 @@ struct DiagView: View {
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
-                 onAuditionStart: editGridLongPress, onAuditionEnd: {},
+                 onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
                  laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
-                 onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false,
+                 onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],
@@ -1363,7 +1374,7 @@ struct DiagView: View {
                 }
                 if chain.count < 8 {                             // ADD MORE — the same big, bold TYPE selector as the empty state
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("+ ADD PROCESSOR").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                        Text("+ ADD PROCESSOR").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
                         processorTypeRow(boxWidth: boxWidth)
                     }.padding(.top, 4)
                 }
@@ -1390,8 +1401,8 @@ struct DiagView: View {
                         Image(systemName: emblemSymbol(t)).font(.system(size: 22, weight: .black))
                         Text(t.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
                     }
-                    .foregroundColor(Self.editHue).frame(maxWidth: .infinity).frame(height: 62)
-                    .background(RoundedRectangle(cornerRadius: 8).stroke(Self.editHue.opacity(0.45), lineWidth: 1.5))
+                    .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 62)
+                    .background(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.45), lineWidth: 1.5))
                 }.buttonStyle(.plain)
             }
         }.frame(width: boxWidth)
@@ -1426,6 +1437,7 @@ struct DiagView: View {
             onTranspose: { _ in }, onMorph: { _ in },
             onSetTypeA: { t in au?.setSlotTypeCells(targets, slot: i, t); refreshFromDocument() },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
+            accentOverride: mainDestHue,               // same blue as the emitters
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
             onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
             onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() })
@@ -1489,20 +1501,28 @@ struct DiagView: View {
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
     // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
     @ViewBuilder private func identitySection(_ cell: Cell, swatch sw: CGFloat) -> some View {
-        // The ALWAYS-VISIBLE colour picker as a 4×4 grid (each swatch = a grid cell's size), with the selection
-        // COUNT to its right (no name, type, or position — just how many cells this edit touches).
-        HStack(alignment: .center, spacing: 16) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(sw), spacing: 6), count: 4), spacing: 6) {
+        // The chosen-colour BOX (same footprint as the picker grid), the ALWAYS-VISIBLE 4×4 picker (swatches 50%
+        // smaller), and the selection COUNT + how many identical (unselected twin) cells are available to add.
+        let s2 = max(18, sw * 0.5)                         // the colour grid, 50% smaller
+        let gap: CGFloat = 5
+        let box = s2 * 4 + gap * 3                          // the 4×4 grid's footprint = the chosen box's size
+        HStack(alignment: .center, spacing: 14) {
+            RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray).frame(width: box, height: box)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(s2), spacing: gap), count: 4), spacing: gap) {
                 ForEach(colourIDs, id: \.self) { id in
                     let on = cell.colourID == id
-                    RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? .gray).frame(width: sw, height: sw)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(on ? 0.95 : 0.14), lineWidth: on ? 3 : 1))
+                    RoundedRectangle(cornerRadius: 5).fill(colourColor(id) ?? .gray).frame(width: s2, height: s2)
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(on ? 0.95 : 0.14), lineWidth: on ? 2.5 : 1))
                         .contentShape(Rectangle()).onTapGesture { setCellColour(id) }
                 }
             }.fixedSize()
-            Text(editSel.count == 1 ? "1 CELL\nSELECTED" : "\(editSel.count) CELLS\nSELECTED")
-                .font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(editSel.count == 1 ? "1 CELL SELECTED" : "\(editSel.count) CELLS SELECTED")
+                    .font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                Text("\(twinCells.count) IDENTICAL CELLS AVAILABLE")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            }.fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
     }
@@ -1557,7 +1577,7 @@ struct DiagView: View {
                 Text("R\(r + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced))
                     .foregroundColor(on ? .black : .white.opacity(0.75))
                     .frame(maxWidth: .infinity).frame(height: 42)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? receiverHues[r] : receiverHues[r].opacity(0.2)))
+                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : mainDestHue.opacity(0.18)))   // same blue as the emitters
                     .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } }
             }
             Text("—").font(.system(size: 15, weight: .heavy, design: .monospaced))   // NONE (unrouted)

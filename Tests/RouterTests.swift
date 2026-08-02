@@ -1100,6 +1100,17 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the arp gates every arp note → silence")
         assertNothingLeftSounding(e)
     }
+    // The downstream passgate gates on the PASS the user sees (diag.pass): pass 0 closed (passes[0]=false) → the
+    // whole first lap is silent even though later passes are open.
+    func testArpThenPassgateGatesPassZero() {
+        let cs = arpColours()
+        let arp = ProcessorSlot(type: .arp)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, true, true, true]   // pass 0 closed
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 14, into: e)   // stay within the first lap (pass 0; cycle = 16 beats)
+        XCTAssertTrue(e.ons.isEmpty, "pass 0 closed gates the arp for the whole first lap")
+        assertNothingLeftSounding(e)
+    }
     // HARMONIZE after the arp adds its interval voice to EACH arp note (the +7 of 64 = 71 is not a chord note).
     func testArpThenHarmonizeAddsVoiceToEachArpNote() {
         let cs = arpColours()

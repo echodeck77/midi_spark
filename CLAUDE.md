@@ -203,7 +203,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (`GridView.moveMode` + `SceneState.swapCells`). UNDO/REDO buttons added to the header. The MIDI-IN splits (chord
   split · vel window) are removed from the page (to return as a chain processor). The passgate PASSES row shows a
   PLAYHEAD ring on the live pass (`ProcessorBox.passHead` ← `d.pass & 3`). IDENTITY colour picker is now 4×4,
-  swatch = a grid cell's size, with the selection count to its right. Spec of record: §C of
+  swatch = a grid cell's size, with the selection count to its right. **DEVICE ROUND 5 (2026-08-02):** passgate
+  fix — a downstream passgate now gates on `diag.pass` (the authoritative lap counter) not a beat-derived recompute,
+  so `[arp → passgate]` opens/closes on the lap the user sees (`emitDriverNote` takes `pass:`); test
+  `testArpThenPassgateGatesPassZero` (368 green). UI: selected-cell ring BREATHES (`GridView.animateSelection`);
+  IDENTITY has a chosen-colour box (= the picker's footprint) + a 50%-smaller 4×4 grid + count + "N IDENTICAL
+  CELLS AVAILABLE"; mode hints ("Select 1 cell then duplicates" / "Drag and drop" / "Choose cells to mute|clear");
+  TO section renamed "TO · MIDI OUT"; the MIDI-IN receiver radio + chain controls now use the emitter BLUE
+  (`mainDestHue`, via `ProcessorBox.accentOverride`); a MUTE/CLEAR long-press now does the same as a short press
+  (`longPressFired` once-guard). Spec of record: §C of
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
   stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
   markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot

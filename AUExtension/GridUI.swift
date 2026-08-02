@@ -97,6 +97,7 @@ struct GridView: View {
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
     var moveMode: Bool = false                       // MODE ROW · MOVE: a plain drag (no long-press) relocates a cell
     var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
+    var animateSelection: Bool = false               // MODE ROW: the SELECTED cells' white ring BREATHES (setup grid)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -357,9 +358,15 @@ struct GridView: View {
                 routeLabel("OUT", Color(red: 0.35, green: 0.92, blue: 0.50))
             } else if whiteBorder.contains(pos) || selection.contains(pos) {
                 // /btw ③ THE TWO-SOURCES LAW + item 4: a SELECTED or PLACED cell ALWAYS draws WHITE — never a
-                // yellow ring (a yellow outline is invisible on a yellow cell). The route-focus cells are placed/
-                // selected, so they land here and read white too.
-                RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
+                // yellow ring (a yellow outline is invisible on a yellow cell). On the setup grid the ring BREATHES.
+                if animateSelection {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+                        let f = stagingPulseFraction(tl.date, period: 1.1)
+                        RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.55 + 0.45 * f), lineWidth: 2 + 2 * f)
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
+                }
             } else if let inv = verbInvite {                // a verb is held (not PLACE): cells glow the verb hue
                 RoundedRectangle(cornerRadius: 8).stroke(inv.opacity(0.55), lineWidth: 1.5)
             }
@@ -1275,6 +1282,7 @@ struct ProcessorBox: View {
     // (those stay Colour-level). Bound via a synthetic Colour whose A face == the slot's type+params.
     var slotMode: Bool = false
     var slotBypassed: Bool = false
+    var accentOverride: Color? = nil                     // MODE ROW: force the control accent (blue, to match the emitters)
     var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
@@ -1283,7 +1291,7 @@ struct ProcessorBox: View {
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
     private var isB: Bool { face == .b }
-    private var accent: Color { colourColor(colour.colourID) ?? .gray }
+    private var accent: Color { accentOverride ?? (colourColor(colour.colourID) ?? .gray) }
     private var faceType: ProcessorType? { isB ? colour.typeB : colour.type }   // B may be nil = B-less
     private var p: ColourParams { isB ? colour.paramsB : colour.paramsA }
     private var faceTranspose: Int { isB ? colour.transposeBResolved : colour.transpose }

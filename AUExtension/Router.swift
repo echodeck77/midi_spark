@@ -1237,13 +1237,14 @@ final class Router {
     /// after composeChainSet has produced the driver's source (chainScratch is no longer needed by this tick).
     private func emitDriverNote(_ note: Int, cell: SnapCell, driver: Int, bm: UInt8,
                                 onSample: Int64, offSample: Int64, windowEnd: Int64, velocity: UInt8,
-                                m: Double, S: Double, cycleBeats: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+                                m: Double, S: Double, cycleBeats: Double, pass: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard note >= 0 && note <= 127 else { return }
         if driver >= cell.procs.count - 1 {                       // driver IS the tail → no post-stages
             emitChop(note, cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
             return
         }
-        let pass = Int((m / cycleBeats).rounded(.down))
+        // `pass` is the authoritative lap counter (diag.pass) — the SAME one a stand-alone passgate gates on, so a
+        // downstream passgate opens/closes on the lap the user sees (not a beat-derived recomputation that can drift).
         var cur = chainA, nxt = chainB
         cur.reset(); cur.noteOn(UInt8(note), velocity: velocity, channel: 0); cur.rebuildSorted()
         var j = driver + 1
@@ -1314,7 +1315,7 @@ final class Router {
                 // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
                 if chainDriver >= 0 {
                     emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: 96, m: mTickBeat, S: S, cycleBeats: cycleBeats, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: 96, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
                 } else {
                     emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                              velocity: 96, m: mTickBeat, S: S, out: out, diag: &diag)
@@ -1357,7 +1358,7 @@ final class Router {
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                     if emits {
                         emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,   // raw bm — emitChop applies the slice
-                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, out: out, diag: &diag)
+                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
                     }
                 }
             } else {
@@ -1412,7 +1413,7 @@ final class Router {
             if emits {
                 if chainDriver >= 0 {   // fold each strummed note through the stages AFTER the strum (e.g. a downstream passgate)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offSample,
-                                   windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
                 } else {
                     emitArtic(note: UInt8(n), busMask: bm, onSample: onT, offSample: offSample,
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
