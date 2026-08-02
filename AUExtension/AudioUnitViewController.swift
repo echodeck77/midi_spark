@@ -1158,7 +1158,8 @@ struct DiagView: View {
             if let cell = editingCell {                             // a populated cell is selected → its inspector
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
-                        sectionHeader("RECEIVER");  identitySection(cell)
+                        sectionHeader("IDENTITY");  identitySection(cell)
+                        sectionHeader("RECEIVER");  inputSection(cell)   // SOURCE picker (MIDI-IN R1–R4 / FROM ROW) + shift + split + vel
                         sectionHeader("CHAIN");     chainStack(cell, boxWidth: size.width * 0.5)
                         sectionHeader("EMITTERS");  outputSection(cell, emitterWidth: inspectorW)
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
