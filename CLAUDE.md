@@ -157,8 +157,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ EDIT-PAGE — THE MODE ROW WAVE (2026-08-02, branch `feat/EditPageSpike`, off-device: iOS builds + 364
-  unit green; DEVICE pass owed). SUPERSEDES W1's auto-twin/DETACH (INSTRUCTIONS-edit-page-mode-row). The EDIT
+- **▶ EDIT-PAGE — THE MODE ROW WAVE — MERGED TO `main` + DEVICE-ACCEPTED (2026-08-02, `8cbdd84`; 368 unit
+  green, iOS builds). User: "very happy with this." Rounds 1–6 + the chop rework are all on `main`; work
+  continues from `main`. SUPERSEDES W1's auto-twin/DETACH (INSTRUCTIONS-edit-page-mode-row). The EDIT
   page grows a big MODE ROW below the grid — `EDIT · MUTE · CLEAR ‖ APPLY · CANCEL` — and one TRANSACTIONAL
   session: edits/births/clears preview LIVE, APPLY commits them as ONE undo step, CANCEL reverts (AU
   `beginEditSession`/`applyEditSession`/`cancelEditSession` + session-aware `editScene`; `sessionBaseline`

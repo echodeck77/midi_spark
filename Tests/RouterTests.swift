@@ -1150,6 +1150,49 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed passgate] gates every re-strike →
+    // silence; [ratchet → open passgate] re-strikes as a plain ratchet (the gate is transparent).
+    func testRatchetThenClosedPassgateIsSilent() {
+        let cs = arpColours()
+        let rat = ProcessorSlot(type: .ratchet)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the ratchet gates every re-strike")
+        assertNothingLeftSounding(e)
+    }
+    func testRatchetThenOpenPassgateStillRatchets() {
+        let cs = arpColours()
+        let rat = ProcessorSlot(type: .ratchet)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [rat, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).isSuperset(of: [60, 64, 67]), "an open passgate after the ratchet is transparent")
+        XCTAssertGreaterThan(e.ons.count, 3, "the ratchet re-strikes (more than one hit)")
+        assertNothingLeftSounding(e)
+    }
+    // …and STRUM as a non-tail driver: a closed passgate after the strum silences every strummed note.
+    func testStrumThenClosedPassgateIsSilent() {
+        let cs = arpColours()
+        let strum = ProcessorSlot(type: .strum)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [strum, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the strum gates every strummed note")
+        assertNothingLeftSounding(e)
+    }
+    // §cell-edit F CHOP render path: a cell whose every slice is MUTED emits nothing (the render reads muteMask).
+    func testChopMuteMaskSilencesEveryNote() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
+            c.chop = Chop(mainMask: 0xFF, altMask: 0, muteMask: 0xFF, altDest: [])   // every slice muted (overrides main)
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "chop muteMask over every slice → the whole column is silent")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
     func testChainHarmonizeToRatchetRestrikesAllVoices() {
         let cs = arpColours()
