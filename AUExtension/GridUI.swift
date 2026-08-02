@@ -274,11 +274,7 @@ struct GridView: View {
                     Spacer(minLength: 0)
                     busDots(cell, firing: inActiveCol)
                 }
-            } else {
-                Image(systemName: "chevron.down")           // empty-cell watermark (§4) — faded down chevron (user 2026-07-30)
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundColor(.white.opacity(0.08))
-            }
+            }   // §quieting (2026-08-02): an empty cell is NEAR-SILENT — bare faint rect, no chevron/glyph watermark
         }
         .opacity((tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
                  : (!twins.isEmpty && cell != nil && !twins.contains(GridPos(col: col, row: row)) ? 0.4 : 1))   // CELL MACHINE: non-twins recede while editing
@@ -1425,15 +1421,19 @@ struct ProcessorBox: View {
             content()
         }
     }
+    // §W4 VALUE CHIP (ruling H): an enum field is now ONE chip showing its value; tap → a Menu picker. (Was a
+    // segmented row — the biggest sparseness gain: each slot collapses to ~2 chip rows + the GATE slider.)
     private func seg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 2) {
-            ForEach(Array(options.enumerated()), id: \.offset) { i, o in
-                Text(o).font(.system(size: 7.5, weight: .heavy, design: .monospaced))
-                    .foregroundColor(o == sel ? .black : .white.opacity(0.7))
-                    .frame(maxWidth: .infinity).frame(height: 18)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(o == sel ? accent : Color.white.opacity(0.08)))
-                    .onTapGesture { onPick(i) }
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, o in Button(o) { onPick(i) } }
+        } label: {
+            HStack(spacing: 4) {
+                Text(sel).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                Spacer(minLength: 2)
+                Image(systemName: "chevron.down").font(.system(size: 6, weight: .heavy)).foregroundColor(.white.opacity(0.4))
             }
+            .padding(.horizontal, 8).frame(height: 26).frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
         }
     }
     private func stepper(_ v: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {

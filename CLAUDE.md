@@ -163,8 +163,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   through `editScopeTargets(.twins)`); DETACH (`soloEdit`) targets only the pointed cell → it diverges + leaves the
   set; header "EDITING N IDENTICAL CELLS"; grid shows twins (dashed) + dims non-twins. Removed the ChainScope
   toggle + template-EDIT AU methods (KEEP `Colour.templateChain` as the render fallback + birth default; KEEP
-  APPLY TO… utilities). Remaining wave: W2 sections/labels/DELETE/colour-picker · W3 quieting+grid contract ·
-  W4 value chips + sparse pass.**
+  APPLY TO… utilities).**
+- **▶ EDIT-PAGE WAVE W2+W3+W4 (2026-08-02, `feat/EditPageSpike`, off-device; iOS builds + 363 green; DEVICE
+  eyeball owed for look-and-feel). W2: sections read IDENTITY · FROM·MIDI-IN · CHAIN · TO·SYNTHS; INPUT is a
+  RECEIVER RADIO (R1–R4 chips in the identity hues `receiverHues` + NONE); OUTPUT left-aligned with per-bus
+  channel tags; DELETE demoted to a compact foot button; the IDENTITY swatch is tappable → a 16-hue popover that
+  re-tints the cell + its twins (`setCellColour` via `editTwins`). W3: killed the empty-cell chevron watermark
+  (empty = bare faint rect); empty-state = a centred invitation line; tapping an EMPTY cell in EDIT now CREATES a
+  cell (brush default) + points it (grid = position picker); removed the "(routing engine pending)" dev
+  annotation. W4: enum params are VALUE CHIPS now (the `ProcessorBox.seg` helper reimplemented as a tap-Menu
+  chip — PATTERN/RATE/OCT/PHASE/REPEATS/DIR); GATE/sliders + PASSES toggles unchanged; sparse pass (headers up a
+  step, ~2× section spacing, max content width 560, emitters left-aligned). JUDGMENT CALLS / owed: the twin-count
+  header stays in the CHAIN section (W1 placement, not moved to IDENTITY); the column-key chevrons kept (they're
+  the functional playhead, not empty-cell noise); no separate TRIGGERS section reinstated; chip drag-to-scrub not
+  added (tap-picker only); the DIN glyph is SF `cable.connector` (approximation).**
 - **▶ CELL MACHINE — SHIPPED + DEVICE-VERIFIED (2026-08-02, on `main` via feat/EditPageSpike). The proposal is
   built end-to-end and confirmed on device. READ THIS, not the per-stage "NOT on main"/"DEVICE owed" flags in the
   bullets below — those are STALE. On `main`: per-cell processor chains · full serial execution (all six types,

@@ -109,6 +109,7 @@ struct DiagView: View {
     // CELL MACHINE — TWIN editing: edits apply to the pointed cell + its identical twins. DETACH sets soloEdit so
     // edits target only the pointed cell (it then diverges and leaves the twin set). Cleared on re-point.
     @State private var soloEdit = false
+    @State private var showHuePicker = false   // §2 the IDENTITY swatch's hue popover
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -200,12 +201,13 @@ struct DiagView: View {
         if let saved = pendingLibraryCell {                  // CELL MACHINE stage-4: STAMP mode — drop the saved cell here
             au?.stampLibraryCell(col: col, row: row, saved); refreshFromDocument(); return
         }
-        if editArmed {                                       // §cell-edit A4/A5: EDIT re-points the station, never fires a trigger
-            if scene.cells[col][row] != nil {                // occupied → point the station here (empty → nothing)
-                selCol = col; selRow = row                   // the edited-cell coord (also lights the white ring)
-                brush = scene.cells[col][row]!.colourID      // demoted desk follows the pointed cell's Colour
-                soloEdit = false                             // CELL MACHINE: re-point resets to twin (edit-together) mode
+        if editArmed {                                       // §grid-contract: the grid is a POSITION PICKER on this page
+            if scene.cells[col][row] == nil {                // tap EMPTY → CREATE a cell from the brush/template default…
+                au?.editScene { $0.cells[col][row] = Cell(colourID: brush) }; refreshFromDocument()
             }
+            selCol = col; selRow = row                       // …then point the station here (occupied → just point)
+            if let c = scene.cells[col][row] { brush = c.colourID }   // demoted desk follows the pointed cell's Colour
+            soloEdit = false                                 // CELL MACHINE: re-point resets to twin (edit-together) mode
             return
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
@@ -1106,17 +1108,19 @@ struct DiagView: View {
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if let cell = editingCell {                             // a populated cell is selected → its inspector
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        sectionHeader("IDENTITY");  identitySection(cell)
-                        sectionHeader("RECEIVER");  inputSection(cell)   // SOURCE picker (MIDI-IN R1–R4 / FROM ROW) + shift + split + vel
-                        sectionHeader("CHAIN");     chainStack(cell, boxWidth: size.width * 0.5)
-                        sectionHeader("EMITTERS");  outputSection(cell, emitterWidth: inspectorW)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
-                }
-            } else {
+                    VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
+                        sectionHeader("IDENTITY");       identitySection(cell)
+                        sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
+                        sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(320, size.width * 0.5))
+                        sectionHeader("TO · SYNTHS");    outputSection(cell, emitterWidth: min(320, inspectorW))
+                        deleteFootButton()                            // §3 DELETE demoted to the foot (whisper until touched)
+                    }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
+                }.frame(maxWidth: .infinity)
+            } else {                                                  // §1 the empty state = an invitation
                 Spacer(minLength: 0)
-                Text("Select a populated cell to edit its routing")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                Text("Choose a cell to edit —\nor tap an empty space to create one.")
+                    .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                    .multilineTextAlignment(.center).frame(maxWidth: 380).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
         }
@@ -1214,8 +1218,8 @@ struct DiagView: View {
     }
 
     private func sectionHeader(_ label: String) -> some View {
-        HStack(spacing: 6) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // §4 sparse: up one step
             Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
         }.padding(.top, 2)
     }
@@ -1271,17 +1275,41 @@ struct DiagView: View {
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
     // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
     @ViewBuilder private func identitySection(_ cell: Cell) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 28, height: 28)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(editName(cell.colourID)).font(.system(size: 13, weight: .heavy)).foregroundColor(.white)
-                    Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                }
-                Spacer(minLength: 0)
+        HStack(spacing: 10) {
+            Button { showHuePicker = true } label: {                       // §2 tappable swatch → the 16-hue picker
+                RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray).frame(width: 32, height: 32)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.25), lineWidth: 1))
+            }.buttonStyle(.plain).popover(isPresented: $showHuePicker) { huePickerPopover }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(editName(cell.colourID)).font(.system(size: 15, weight: .heavy)).foregroundColor(.white)
+                Text("col \(selCol + 1) · row \(selRow + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             }
-            utilBtn("DELETE CELL", Verb.delete.hue) { deleteEditedCell() }   // (input-shaping utilities parked with the INPUT section, user 2026-07-31)
+            Spacer(minLength: 0)
         }
+    }
+    // §2 the hue picker — the 16 palette colours; picking re-tints the cell + its twins in one undoable step.
+    private var huePickerPopover: some View {
+        let cols = [GridItem](repeating: GridItem(.fixed(30), spacing: 6), count: 4)
+        return LazyVGrid(columns: cols, spacing: 6) {
+            ForEach(colourIDs, id: \.self) { id in
+                Button { setCellColour(id); showHuePicker = false } label: {
+                    RoundedRectangle(cornerRadius: 5).fill(colourColor(id) ?? .gray).frame(width: 30, height: 30)
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(editingCell?.colourID == id ? 0.9 : 0.15), lineWidth: editingCell?.colourID == id ? 2 : 1))
+                }.buttonStyle(.plain)
+            }
+        }.padding(12).frame(width: 168)
+    }
+    private func setCellColour(_ id: String) {   // twin-aware; DETACH-aware
+        au?.editTwins(col: selCol, row: selRow, solo: soloEdit) { $0.colourID = id }
+        brush = id; refreshFromDocument()
+    }
+    // §3 DELETE demoted — a compact red text button at the page foot (pointed-cell only, per W1).
+    private func deleteFootButton() -> some View {
+        Button { deleteEditedCell() } label: {
+            Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Verb.delete.hue)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 5).stroke(Verb.delete.hue.opacity(0.6), lineWidth: 1))
+        }.buttonStyle(.plain).padding(.top, 8)
     }
     private func utilBtn(_ label: String, _ fill: Color, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(fill == Verb.delete.hue ? .black : .white.opacity(0.9))
@@ -1307,11 +1335,31 @@ struct DiagView: View {
     }
     // D — INPUT section: source · shift · chord-split · velocity window (the existing controls, re-hosted).
     @ViewBuilder private func inputSection(_ cell: Cell) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            facetRow("SOURCE") { inputSourceChip(cell) }
+        VStack(alignment: .leading, spacing: 8) {
+            receiverRadio(cell)          // §2 A–D receiver radio in the identity hues (+ NONE)
             inputShiftRow
             chordSplitRow(cell)
             velWindowRow(cell)
+        }
+    }
+    // §2 the receiver radio — MIDI-IN R1–R4 as chips wearing the RECEIVER IDENTITY HUES (slate/purple/green/tan),
+    // + a NONE chip. Twin-aware (edits the pointed cell + its twins via editPointedCell).
+    private func receiverRadio(_ cell: Cell) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "cable.connector").font(.system(size: 12)).foregroundColor(.white.opacity(0.4))
+            ForEach(0..<4, id: \.self) { r in
+                let on = cell.inputReceiver == r
+                Text("R\(r + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : .white.opacity(0.75))
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? receiverHues[r] : receiverHues[r].opacity(0.2)))
+                    .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } }
+            }
+            Text("—").font(.system(size: 11, weight: .heavy, design: .monospaced))   // NONE (unrouted)
+                .foregroundColor(cell.inputReceiver == nil ? .black : .white.opacity(0.5))
+                .frame(width: 34, height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(cell.inputReceiver == nil ? Color.white.opacity(0.55) : Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil } }
         }
     }
     // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×2 grid + ALT destination (model
@@ -1323,23 +1371,23 @@ struct DiagView: View {
     /// chop grid + alt dest persist but their routing ENGINE is a separate increment.
     @ViewBuilder private func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         let chop = cell.chopResolved
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) } } }
-                Text("CHOP · MAIN · ALT · MUTE  (routing engine pending)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-                VStack(spacing: 3) {                         // the 8×3 grid — one column per slice
-                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }
-                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }
-                    HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }
-                }
-                Text("ALT DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
+        VStack(alignment: .leading, spacing: 8) {            // §6 left-aligned with the page grammar (was centred)
+            Text("MAIN DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 6) { ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in   // §2 A–D toggles + channel tags
+                VStack(spacing: 2) {
+                    busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) }
+                    Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
+                }.frame(maxWidth: .infinity)
+            } }
+            VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }
             }
-            .frame(width: emitterWidth)                      // match the MIDI OUTPUT emitter section width
-            Spacer(minLength: 0)
+            Text("ALT DESTINATION").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
         }
+        .frame(maxWidth: emitterWidth, alignment: .leading)
     }
     private func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
