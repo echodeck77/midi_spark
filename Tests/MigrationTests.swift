@@ -286,27 +286,6 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(s.cells[2][2]?.buses, [.a], "the non-twin is untouched")
     }
 
-    func testRowScopeAndConfigCopyMakesTwins() {
-        // APPLY TO… ROW/COLUMN scopes + a full-config copy: the deliberate broader push. Targets become twins.
-        var s = SceneState.empty()
-        var gold = Cell(colourID: "gold", buses: [.a]); gold.processors = [ProcessorSlot(type: .arp)]
-        s.cells[0][2] = gold                                    // (col 0, row 2)
-        s.cells[3][2] = Cell(colourID: "cyan", buses: [.b])     // same row 2, different config
-        s.cells[5][5] = Cell(colourID: "gold")                  // different row
-        XCTAssertEqual(Set(s.editScopeTargets(col: 0, row: 2, scope: .row)), [0 * 8 + 2, 3 * 8 + 2],
-                       "row scope = the grid ROW (occupied cells), excludes other rows")
-        XCTAssertEqual(Set(s.editScopeTargets(col: 0, row: 2, scope: .column)), [0 * 8 + 2],
-                       "column scope = the exemplar's column")
-        let src = s.cells[0][2]!
-        s.applyToScope(col: 0, row: 2, scope: .row) { dst in
-            dst.colourID = src.colourID; dst.processors = src.processors; dst.buses = src.buses
-        }
-        XCTAssertEqual(s.cells[3][2]?.colourID, "gold")
-        XCTAssertEqual(s.cells[3][2]?.processors?.first?.type, .arp)
-        XCTAssertEqual(Set(s.editScopeTargets(col: 0, row: 2, scope: .twins)), [0 * 8 + 2, 3 * 8 + 2],
-                       "after APPLY TO ROW + config copy, the two are now twins")
-    }
-
     func testRoundTripThroughJSONIsStable() throws {
         var d = doc { s in
             s.cells[0][0] = Cell(colourID: "gold", stack: true)

@@ -102,6 +102,7 @@ struct GridView: View {
     var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
     var twins: Set<GridPos> = []                     // CELL MACHINE: the pointed cell's TWINS (edit-together set) — dashed ring; non-twins dim
+    var removeMarks: Set<GridPos> = []               // MODE ROW · CLEAR mode: cells marked for transactional removal — dashed red ring + ✕ + dim
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
     var routeFoci: Set<GridPos> = []                 // §10 ROUTE mode: the cells being wired (solid amber ring)
     var routeIn: Set<GridPos> = []                   // §10 SRC candidates above (pulsing "SRC" label — tap = route-in)
@@ -276,12 +277,28 @@ struct GridView: View {
                 }
             }   // §quieting (2026-08-02): an empty cell is NEAR-SILENT — bare faint rect, no chevron/glyph watermark
         }
-        .opacity((tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
-                 : (!twins.isEmpty && cell != nil && !twins.contains(GridPos(col: col, row: row)) ? 0.4 : 1))   // CELL MACHINE: non-twins recede while editing
-        .overlay {                                          // CELL MACHINE: a TWIN (edit-together, not the pointed cell) wears a dashed white ring
+        .opacity(removeMarks.contains(GridPos(col: col, row: row)) ? 0.3          // MODE ROW · CLEAR: a marked cell recedes
+                 : (tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
+                 : (!twins.isEmpty && cell != nil && !twins.contains(GridPos(col: col, row: row))
+                    && !whiteBorder.contains(GridPos(col: col, row: row)) && !isSel ? 0.4 : 1))   // MODE ROW: non-selected, non-matching cells recede
+        .overlay {                                          // MODE ROW · CLEAR: a marked cell wears a dashed red ring + an ✕
+            if removeMarks.contains(GridPos(col: col, row: row)) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color(red: 0.95, green: 0.25, blue: 0.28), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                    Image(systemName: "xmark").font(.system(size: 16, weight: .black)).foregroundColor(Color(red: 0.95, green: 0.35, blue: 0.38))
+                }.allowsHitTesting(false)
+            }
+        }
+        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES a dashed ring — advertise, tap to add
             let pos = GridPos(col: col, row: row)
-            if twins.contains(pos) && !isSel {
-                RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            if twins.contains(pos) && !isSel && !whiteBorder.contains(pos) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+                    let f = stagingPulseFraction(tl.date, period: 1.1)
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.white.opacity(0.25 + 0.55 * f), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+                .allowsHitTesting(false)
             }
         }
         .frame(maxWidth: .infinity).frame(height: cellHeight)

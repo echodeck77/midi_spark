@@ -59,6 +59,11 @@ enum Verb: String, CaseIterable {
     }
 }
 
+/// The EDIT page's three tap modes (INSTRUCTIONS-edit-page-mode-row). EDIT builds a live-edited selection set;
+/// MUTE toggles per-cell mute immediately; CLEAR marks cells for transactional removal. EDIT/CLEAR stage under
+/// APPLY/CANCEL; MUTE is immediate. Controls (the inspector) show ONLY in .edit.
+enum EditPageMode { case edit, mute, clear }
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -106,9 +111,17 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State private var editArmed = false
-    // CELL MACHINE — TWIN editing: edits apply to the pointed cell + its identical twins. DETACH sets soloEdit so
-    // edits target only the pointed cell (it then diverges and leaves the twin set). Cleared on re-point.
-    @State private var soloEdit = false
+    // MODE ROW (INSTRUCTIONS-edit-page-mode-row): the EDIT page has three tap modes. EDIT = build a selection
+    // set + edit it live; MUTE = tap toggles a cell's mute (immediate); CLEAR = tap marks cells for removal
+    // (transactional). EDIT/CLEAR stage against a baseline committed by APPLY / reverted by CANCEL; MUTE is immediate.
+    @State private var editMode: EditPageMode = .edit
+    // MODE ROW — EDIT mode's manual multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live
+    // to every member; twins of the set only PULSE to advertise inclusion. Replaces the old auto-twin/DETACH model.
+    @State private var editSel: [GridView.GridPos] = []
+    // MODE ROW — CLEAR mode's pending removals (transactional): a tap toggles a mark; APPLY deletes, CANCEL reinstates.
+    @State private var clearMarks: Set<GridView.GridPos> = []
+    // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
+    @State private var editLoopMask: UInt8 = 0
     @State private var showHuePicker = false   // §2 the IDENTITY swatch's hue popover
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
@@ -201,16 +214,61 @@ struct DiagView: View {
         if let saved = pendingLibraryCell {                  // CELL MACHINE stage-4: STAMP mode — drop the saved cell here
             au?.stampLibraryCell(col: col, row: row, saved); refreshFromDocument(); return
         }
-        if editArmed {                                       // §grid-contract: the grid is a POSITION PICKER on this page
-            if scene.cells[col][row] == nil {                // tap EMPTY → CREATE a cell from the brush/template default…
-                au?.editScene { $0.cells[col][row] = Cell(colourID: brush) }; refreshFromDocument()
+        if editArmed {                                       // MODE ROW: EDIT builds a selection set; MUTE/CLEAR = increment 4
+            guard editMode == .edit else { editModeTap(col, row); return }
+            let pos = GridView.GridPos(col: col, row: row)
+            au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
+            if scene.cells[col][row] == nil {                // tap EMPTY → BIRTH a cell (staged) + add it to the set
+                au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument()
+                editSel.append(pos)
+            } else if editSel.first == pos {                 // the ANCHOR: a plain tap is a no-op (long-press drops it)
+            } else if editSel.contains(pos) {                // a 2nd tap on any OTHER selected cell removes it
+                editSel.removeAll { $0 == pos }
+            } else {                                         // an unselected occupied cell joins the set
+                editSel.append(pos)
             }
-            selCol = col; selRow = row                       // …then point the station here (occupied → just point)
-            if let c = scene.cells[col][row] { brush = c.colourID }   // demoted desk follows the pointed cell's Colour
-            soloEdit = false                                 // CELL MACHINE: re-point resets to twin (edit-together) mode
+            syncAnchor()
             return
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
+    }
+
+    // MODE ROW — the selection set's helpers. The ANCHOR is editSel.first: it drives the inspector (selCol/selRow)
+    // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to editSel.
+    private var editSelTargets: [(col: Int, row: Int)] { editSel.map { (col: $0.col, row: $0.row) } }
+    private func syncAnchor() {
+        if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cells[a.col][a.row]?.colourID ?? brush }
+        else { selCol = -1; selRow = -1 }
+    }
+    /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). The engine
+    /// renders an empty chain as identity, and CHAIN shows a "+ ADD PROCESSOR" invitation rather than a PASS slot.
+    private func newbornCell() -> Cell {
+        var c = Cell(colourID: brush)
+        c.inputReceiver = 0            // R1
+        c.buses = [.a]                 // Emitter A
+        c.processors = []              // explicit EMPTY chain = passthrough
+        return c
+    }
+    /// EDIT long-press on the grid: only the ANCHOR responds — it drops from the set (protects the editing context).
+    private func editGridLongPress(_ col: Int, _ row: Int) {
+        guard editArmed, editMode == .edit else { return }
+        if editSel.first == GridView.GridPos(col: col, row: row) { editSel.removeFirst(); syncAnchor() }
+    }
+    /// MUTE / CLEAR mode taps (occupied cells only). MUTE toggles the cell's mute IMMEDIATELY (its own undo step —
+    /// the session is closed in MUTE mode). CLEAR toggles a transactional removal MARK (committed by APPLY).
+    private func editModeTap(_ col: Int, _ row: Int) {
+        guard scene.cells[col][row] != nil else { return }
+        let pos = GridView.GridPos(col: col, row: row)
+        switch editMode {
+        case .mute:
+            au?.editScene { $0.cells[col][row]?.muted.toggle() }   // immediate: MUTE is chrome (post-derivation suppression)
+            refreshFromDocument()
+        case .clear:
+            au?.beginEditSession()                                 // idempotent — APPLY commits, CANCEL reinstates
+            if clearMarks.contains(pos) { clearMarks.remove(pos) } else { clearMarks.insert(pos) }
+        case .edit:
+            break
+        }
     }
     // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
     // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
@@ -768,6 +826,19 @@ struct DiagView: View {
                 #endif
             }
         }
+        .onChange(of: editArmed) { on in
+            // MODE ROW: the EDIT page owns a transactional session. Entering opens a baseline (EDIT mode default);
+            // leaving via DONE commits whatever was staged (live-previewed edits persist as one undo step) and
+            // clears the page's transient state + any edit-page column loop.
+            if on {
+                editMode = .edit
+                au?.beginEditSession()
+            } else {
+                au?.applyEditSession()
+                editMode = .edit; editSel = []; clearMarks = []; syncAnchor()
+                if editLoopMask != 0 { setEditLoop(0) }
+            }
+        }
         .onChange(of: selection) { sel in
             // HARD RULE: selecting a Colour ALWAYS re-points the processor desk to it. A SELECT set of ONE
             // distinct Colour sets brush = that Colour, so the COLOUR + PROCESSOR panels edit the SELECTED
@@ -1104,54 +1175,146 @@ struct DiagView: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue))
                 }.buttonStyle(.plain)
             }
+            editColumnLoopRow(cellH)                                 // MODE ROW §5: the column-loop buttons (audition loop)
             spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top
+            modeRow()                                                // MODE ROW: EDIT · MUTE · CLEAR ‖ APPLY · CANCEL, pinned under the grid
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            if let cell = editingCell {                             // a populated cell is selected → its inspector
+            if editMode == .edit, let cell = editingCell {          // controls show ONLY in EDIT mode, with a cell pointed
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
                         sectionHeader("IDENTITY");       identitySection(cell)
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
                         sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(320, size.width * 0.5))
                         sectionHeader("TO · SYNTHS");    outputSection(cell, emitterWidth: min(320, inspectorW))
-                        footUtilities(cell)                           // §3/§C5 APPLY TO… (deliberate batch) + DELETE, at the foot
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
-            } else {                                                  // §1 the empty state = an invitation
+            } else if editMode == .edit {                             // §1 EDIT, nothing selected = an invitation
                 Spacer(minLength: 0)
-                Text("Choose a cell to edit —\nor tap an empty space to create one.")
+                Text("Tap cells to edit —\nor tap an empty space to create one.")
                     .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center).frame(maxWidth: 380).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            } else {                                                  // MUTE / CLEAR = grid + mode row only
+                Spacer(minLength: 0)
+                Text(editMode == .mute ? "MUTE — tap a cell to silence it" : "CLEAR — tap cells to remove, then APPLY")
+                    .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                    .multilineTextAlignment(.center)
                 Spacer(minLength: 0)
             }
         }
         .padding(12)
     }
 
-    // The grid instance for the spike page — the same GridView component, tap = select (editArmed re-point).
+    // MODE ROW (INSTRUCTIONS-edit-page-mode-row): big, left-justified EDIT·MUTE·CLEAR radio + right-justified
+    // APPLY·CANCEL (greyed until the session is dirty). APPLY commits the staged edits/births/clears as ONE undo
+    // step; CANCEL reverts them. Mode switches auto-commit any pending EDIT/CLEAR work (see setEditMode).
+    @ViewBuilder private func modeRow() -> some View {
+        let dirty = (au?.sessionDirty ?? false) || (editMode == .clear && !clearMarks.isEmpty)
+        HStack(spacing: 8) {
+            modeChip("EDIT", .edit); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
+            Spacer(minLength: 12)
+            Button { commitSession() } label: { transactChip("APPLY", enabled: dirty, fill: true) }
+                .buttonStyle(.plain).disabled(!dirty)
+            Button { revertSession() } label: { transactChip("CANCEL", enabled: dirty, fill: false) }
+                .buttonStyle(.plain).disabled(!dirty)
+        }.padding(.vertical, 4)
+    }
+    private func modeChip(_ label: String, _ mode: EditPageMode) -> some View {
+        let on = editMode == mode
+        return Button { setEditMode(mode) } label: {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? .black : Self.editHue)
+                .frame(minWidth: 66, minHeight: 38)
+                .background(RoundedRectangle(cornerRadius: 7).fill(on ? Self.editHue : Self.editHue.opacity(0.12)))
+        }.buttonStyle(.plain)
+    }
+    private func transactChip(_ label: String, enabled: Bool, fill: Bool) -> some View {
+        let hue: Color = label == "CANCEL" ? Verb.delete.hue : Self.editHue
+        return Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced))
+            .foregroundColor(!enabled ? .white.opacity(0.22) : (fill ? .black : hue))
+            .frame(minWidth: 62, minHeight: 38)
+            .background(RoundedRectangle(cornerRadius: 7)
+                .fill(fill && enabled ? hue : Color.clear)
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(enabled ? hue.opacity(0.6) : Color.white.opacity(0.12), lineWidth: 1)))
+    }
+
+    /// Switch tap mode. Leaving EDIT/CLEAR commits any staged work (so live-previewed edits aren't lost); entering
+    /// EDIT/CLEAR opens a fresh baseline; MUTE runs with the session closed (its taps are immediate).
+    private func setEditMode(_ m: EditPageMode) {
+        guard m != editMode else { return }
+        if editMode == .edit || editMode == .clear { au?.applyEditSession() }
+        editSel = []; clearMarks = []; syncAnchor()
+        editMode = m
+        if m == .edit || m == .clear { au?.beginEditSession() }
+    }
+    /// APPLY — commit the staged session as one undo step, then re-open a fresh baseline so editing continues.
+    /// In CLEAR mode, the pending removal marks are deleted here (folded into the same one undoable commit).
+    private func commitSession() {
+        if editMode == .clear, !clearMarks.isEmpty, let au {
+            au.editScene { s in for m in clearMarks { s.deleteCellSever(col: m.col, row: m.row) } }
+        }
+        au?.applyEditSession(); editSel = []; clearMarks = []; syncAnchor()
+        if editMode == .edit || editMode == .clear { au?.beginEditSession() }
+        refreshFromDocument()
+    }
+    /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
+    private func revertSession() {
+        au?.cancelEditSession(); editSel = []; clearMarks = []; syncAnchor()
+        if editMode == .edit || editMode == .clear { au?.beginEditSession() }
+        refreshFromDocument()
+    }
+
+    // MODE ROW §5 — the column-loop buttons above the grid. Each toggles its bit in the SAME laneMask the PERFORM
+    // column-hold drives (au.setLaneMask → Derivations.lapColumn), so the engine loops exactly the toggled column
+    // subset — one loop mechanism, two surfaces. Multiple columns loop the set; toggled keys light. Cleared on DONE.
+    private func setEditLoop(_ mask: UInt8) { editLoopMask = mask; au?.setLaneMask(mask) }
+    @ViewBuilder private func editColumnLoopRow(_ cellHeight: CGFloat) -> some View {
+        HStack(spacing: GridGeometry.vGap) {
+            ForEach(0..<8, id: \.self) { c in
+                let on = (editLoopMask & (1 << UInt8(c))) != 0
+                Button { setEditLoop(editLoopMask ^ (1 << UInt8(c))) } label: {
+                    Image(systemName: on ? "repeat" : "chevron.down").font(.system(size: 13, weight: .heavy))
+                        .foregroundColor(on ? .black : .white.opacity(0.4))
+                        .frame(maxWidth: .infinity).frame(height: max(24, cellHeight * 0.7))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.06)))
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+
+    // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
+    // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
+    // is parked on this setup surface). CLEAR marks show as a dashed removal ring (increment 4).
     @ViewBuilder private func spikeGrid(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
-                 onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                 laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
-                 selection: selection,
-                 whiteBorder: [], twins: twinCells, verbInvite: nil,
+                 onAuditionStart: editGridLongPress, onAuditionEnd: {},
+                 laneMask: editLoopMask, onLaneMask: nil, holdLatch: false,
+                 selection: [],
+                 whiteBorder: Set(editSel), twins: twinCells, removeMarks: clearMarks, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
     }
-    /// The pointed cell's TWIN set (incl. itself) for the grid highlight — empty when not editing or DETACHed.
+    /// MODE ROW — the ADVERTISE set: cells that are TWINS of anything in the selection but not themselves selected.
+    /// They PULSE to invite inclusion (they are NOT auto-edited). Empty unless EDIT mode has a selection.
     private var twinCells: Set<GridView.GridPos> {
-        guard editingCell != nil, !soloEdit else { return [] }
-        return Set((au?.twinPositions(col: selCol, row: selRow) ?? []).map { GridView.GridPos(col: $0.col, row: $0.row) })
+        guard editArmed, editMode == .edit, !editSel.isEmpty else { return [] }
+        var s = Set<GridView.GridPos>()
+        for m in editSel {
+            for t in au?.twinPositions(col: m.col, row: m.row) ?? [] { s.insert(GridView.GridPos(col: t.col, row: t.row)) }
+        }
+        for m in editSel { s.remove(m) }   // selected cells wear the white ring, not the pulse
+        return s
     }
 
     // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
     // each 50% of screen width, head first, plus [+ ADD] (≤ 8 slots). Stage 1 renders the HEAD; slots 2…8 are
     // stored + editable but not yet executed (serial run is Phase 2). Reuses ProcessorBox in `slotMode`.
-    private func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // materialise the fallback head from the Colour
-        if let p = cell.processors, !p.isEmpty { return p }
+    private func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // the cell's own chain; nil → materialise the Colour head
+        if let p = cell.processors { return p }                       // incl. an EXPLICIT empty chain (passthrough → the invitation)
         let c = docColours.first { $0.colourID == cell.colourID }
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
     }
@@ -1159,62 +1322,91 @@ struct DiagView: View {
         let chain = cellChain(cell)
         VStack(alignment: .leading, spacing: 8) {
             twinHeader()
-            ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
-                slotBox(i, slot, cell: cell).frame(width: boxWidth)
-            }
-            if chain.count < 8 {
-                Button { au?.addSlot(col: selCol, row: selRow, solo: soloEdit); refreshFromDocument() } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
-                        Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    }
-                    .foregroundColor(Self.editHue).frame(width: boxWidth, height: 34)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
-                }.buttonStyle(.plain)
-            }
-            if chain.count > 1 {   // the chain runs end-to-end for every tail type
-                Text("Chain runs in series, head→tail.")
-                    .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                    .fixedSize(horizontal: false, vertical: true)
+            if chain.isEmpty {                                   // MODE ROW: an EMPTY chain = passthrough — an INVITATION, never a "PASS" slot
+                emptyChainInvitation(boxWidth: boxWidth)
+            } else {
+                ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
+                    slotBox(i, slot, cell: cell).frame(width: boxWidth)
+                }
+                if chain.count < 8 {
+                    Button { au?.addSlotCells(editSelTargets); refreshFromDocument() } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
+                            Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        }
+                        .foregroundColor(Self.editHue).frame(width: boxWidth, height: 34)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
+                    }.buttonStyle(.plain)
+                }
+                if chain.count > 1 {   // the chain runs end-to-end for every tail type
+                    Text("Chain runs in series, head→tail.")
+                        .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
-    // CELL MACHINE — TWIN editing: identical cells edit together (DERIVED, no groups). DETACH ("EDIT THIS ONE")
-    // diverges the pointed cell so edits apply to it alone. Deliberate broader pushes use the APPLY TO… utilities.
+    // MODE ROW — the newborn/empty-chain invitation: the cell already SOUNDS (passthrough). A big "+ ADD PROCESSOR"
+    // box + a friendly emblem TYPE SELECTOR; picking a type adds it as the first slot (across the whole selection).
+    @ViewBuilder private func emptyChainInvitation(boxWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus").font(.system(size: 12, weight: .heavy))
+                Text("ADD PROCESSOR").font(.system(size: 12, weight: .heavy, design: .monospaced))
+            }
+            .foregroundColor(Self.editHue).frame(width: boxWidth, height: 44)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Self.editHue.opacity(0.14)))
+            Text("Passing MIDI through untreated — pick a processor to shape it.")
+                .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ProcessorType.allCases, id: \.self) { t in
+                        Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument() } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: emblemSymbol(t)).font(.system(size: 15, weight: .black))
+                                Text(t.rawValue).font(.system(size: 7, weight: .heavy, design: .monospaced))
+                            }
+                            .foregroundColor(Self.editHue).frame(width: 46, height: 46)
+                            .background(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.4), lineWidth: 1))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+    // MODE ROW — the selection header: how many cells this edit touches. Twins of the set PULSE on the grid to
+    // invite inclusion (they are NOT auto-edited — the user taps to add them). No DETACH: the set is manual.
     @ViewBuilder private func twinHeader() -> some View {
-        let n = soloEdit ? 1 : (au?.twinCount(col: selCol, row: selRow) ?? 1)
+        let n = editSel.count
         HStack(spacing: 6) {
-            Text(n > 1 ? "EDITING \(n) IDENTICAL CELLS" : "EDITING 1 CELL")
+            Text(n > 1 ? "\(n) SELECTED" : (n == 1 ? "1 SELECTED" : "—"))
                 .font(.system(size: 9, weight: .heavy, design: .monospaced))
                 .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.5))
-            Spacer(minLength: 0)
-            if n > 1 || soloEdit {
-                Button { soloEdit.toggle() } label: {
-                    Text(soloEdit ? "◉ THIS ONE" : "EDIT THIS ONE").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                        .foregroundColor(soloEdit ? .black : Self.editHue)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(soloEdit ? Self.editHue : Self.editHue.opacity(0.14)))
-                }.buttonStyle(.plain)
+            if !twinCells.isEmpty {
+                Text("· \(twinCells.count) MATCHING (tap to add)")
+                    .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
             }
+            Spacer(minLength: 0)
         }
     }
     @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
-        let cid = cell.colourID, solo = soloEdit
+        let cid = cell.colourID, targets = editSelTargets
         ProcessorBox(
             colour: sc, colourIndex: -1, face: .a,
             onEdit: { mutate in
-                au?.editSlot(col: selCol, row: selRow, slot: i, solo: solo) { s in
+                au?.editSlotCells(targets, slot: i) { s in
                     var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
                     mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
                 }
                 refreshFromDocument()
             },
             onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in au?.setSlotType(col: selCol, row: selRow, slot: i, solo: solo, t); refreshFromDocument() },
+            onSetTypeA: { t in au?.setSlotTypeCells(targets, slot: i, t); refreshFromDocument() },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            onBypass: { au?.toggleSlotBypass(col: selCol, row: selRow, slot: i, solo: solo); refreshFromDocument() },
-            onRemove: i == 0 ? nil : { au?.removeSlot(col: selCol, row: selRow, slot: i, solo: solo); refreshFromDocument() })
+            onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
+            onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() })
     }
 
     private func sectionHeader(_ label: String) -> some View {
@@ -1299,43 +1491,14 @@ struct DiagView: View {
             }
         }.padding(12).frame(width: 168)
     }
-    private func setCellColour(_ id: String) {   // twin-aware; DETACH-aware
-        au?.editTwins(col: selCol, row: selRow, solo: soloEdit) { $0.colourID = id }
+    private func setCellColour(_ id: String) {   // applies to the whole selection set
+        au?.editCells(editSelTargets) { $0.colourID = id }
         brush = id; refreshFromDocument()
     }
     // §3 DELETE demoted — a compact red text button at the page foot (pointed-cell only, per W1).
     // §C5/§3 — the page foot: APPLY TO… (the deliberate broader push; twin editing is automatic, so this is for
     // the rest) + DELETE (whisper until touched). APPLY TO… stamps THIS cell's full config onto the scope → the
     // targets become twins and thereafter edit together.
-    @ViewBuilder private func footUtilities(_ cell: Cell) -> some View {
-        HStack(spacing: 10) {
-            Menu {
-                Button("ALL \(editName(cell.colourID))") { au?.applyCellToScope(col: selCol, row: selRow, scope: .allColour); refreshFromDocument() }
-                Button("THIS ROW")    { au?.applyCellToScope(col: selCol, row: selRow, scope: .row); refreshFromDocument() }
-                Button("THIS COLUMN") { au?.applyCellToScope(col: selCol, row: selRow, scope: .column); refreshFromDocument() }
-            } label: {
-                Text("APPLY TO…").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 5).stroke(Self.editHue.opacity(0.5), lineWidth: 1))
-            }
-            Spacer(minLength: 0)
-            Button { deleteEditedCell() } label: {
-                Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Verb.delete.hue)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 5).stroke(Verb.delete.hue.opacity(0.6), lineWidth: 1))
-            }.buttonStyle(.plain)
-        }.padding(.top, 8)
-    }
-    private func utilBtn(_ label: String, _ fill: Color, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(fill == Verb.delete.hue ? .black : .white.opacity(0.9))
-            .lineLimit(1).minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity).frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 5).fill(fill))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    private func scopeCount(_ scope: SceneState.EditScope) -> Int {
-        (selCol >= 0 && selRow >= 0) ? scene.editScopeTargets(col: selCol, row: selRow, scope: scope).count : 0
-    }
     /// §I Apply-to-scope: carry THIS cell's input shaping (chord split + velocity window) to the scope — twins
     /// (same colour + same routing) or all same-colour cells. One undoable step, reusing SceneState.applyToScope.
     private func applyInputToScope(_ scope: SceneState.EditScope) {
@@ -1432,13 +1595,6 @@ struct DiagView: View {
     private func editName(_ id: String) -> String {
         docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
     }
-    private func deleteEditedCell() {
-        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
-        au.editScene { $0.deleteCellSever(col: selCol, row: selRow) }
-        selCol = -1; selRow = -1                             // the station's target is gone → empty state
-        refreshFromDocument()
-    }
-
     // MARK: - §cell-edit E — the TRIGGERS accordion (Colour-side; edits the pointed cell's Colour `OnConfig`)
 
     /// The Colour-side write path: triggers live on `Colour.on`, and `brush` already points at the pointed cell's
@@ -1564,11 +1720,11 @@ struct DiagView: View {
         guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
         au.editScene(mutate); refreshFromDocument()
     }
-    /// CELL MACHINE — edit the pointed cell AND its twins (or solo, under DETACH) in one undoable step, so
-    /// identical cells stay identical. The input/output/chop edits route through this.
+    /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
+    /// The edit applies to every selected cell; with a single cell selected it's just that cell.
     private func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
-        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
-        au.editTwins(col: selCol, row: selRow, solo: soloEdit, mutate); refreshFromDocument()
+        guard let au, !editSel.isEmpty else { return }
+        au.editCells(editSelTargets, mutate); refreshFromDocument()
     }
     private func setEditSourceNone() {
         editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil }

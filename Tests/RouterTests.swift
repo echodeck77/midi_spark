@@ -1051,6 +1051,17 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MODE ROW: a NEWBORN cell has an EXPLICIT empty chain (`processors == []`) — born AUDIBLE as a passthrough.
+    // The held chord flows to its emitter untreated (no PASS slot, no template), and nothing is left sounding.
+    func testEmptyChainIsBornAudiblePassthrough() {
+        let cs = arpColours()   // gold = ARP — proves the EMPTY chain does NOT fall back to the Colour's arp
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
+                       "an empty chain passes the raw held chord (identity passthrough), not the Colour's arp")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open passgate → ARP] arps the
     // held chord — the intra-cell echo of the grid PASS→ARP routing (cf. testOpenPassgateParentFeedsArpChild).
     func testChainGateToArpArpsTheHeldChord() {

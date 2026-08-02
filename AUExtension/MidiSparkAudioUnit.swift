@@ -35,16 +35,44 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// so the render side sees them exactly as it sees a preset load. UI-only state (selection,
     /// brush) never touches the document.
     func editScene(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout SceneState) -> Void) {
-        if record { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
+        // MODE ROW: inside a transactional EDIT session, individual edits publish for LIVE PREVIEW but defer
+        // their undo — the whole session records ONE step at APPLY (see beginEditSession/applyEditSession).
+        if record && sessionBaseline == nil { undoStack.record(document, coalesceKey: coalesceKey) }   // a6: snapshot BEFORE the mutation
         mutate(&document.scenes[document.activeSceneResolved])   // MULTI-SCENE: edit the ACTIVE scene, bounds-safe
         scheduleRebuild()
     }
 
     /// Document-level edit path (busChannels, receivers, …) — same publish semantics as editScene.
     func editDocument(record: Bool = true, coalesceKey: String? = nil, _ mutate: (inout PluginState) -> Void) {
-        if record { undoStack.record(document, coalesceKey: coalesceKey) }
+        if record && sessionBaseline == nil { undoStack.record(document, coalesceKey: coalesceKey) }
         mutate(&document)
         scheduleRebuild()
+    }
+
+    // MARK: - MODE ROW — transactional EDIT session (APPLY / CANCEL)
+    // The EDIT page stages edits + births + clears against a baseline captured when the selection set opens.
+    // Live edits publish for preview (see editScene above); CANCEL restores the baseline exactly; APPLY records
+    // the whole baseline→applied transition as ONE undoable step. MUTE toggles run OUTSIDE the session (immediate).
+
+    /// The document as it stood when the current session opened. Non-nil ⇒ a live session is staging.
+    private var sessionBaseline: PluginState? = nil
+
+    /// True while a transactional session is open (the selection/marks are pending APPLY/CANCEL).
+    var sessionActive: Bool { sessionBaseline != nil }
+    /// True when the live document diverges from the session baseline (drives APPLY/CANCEL enabled state).
+    var sessionDirty: Bool { if let b = sessionBaseline { return b != document }; return false }
+
+    /// Open a session (idempotent — the FIRST selecting tap calls this; later taps are no-ops).
+    func beginEditSession() { if sessionBaseline == nil { sessionBaseline = document } }
+    /// Revert every staged change since the session opened and close it (nothing enters the undo stack).
+    func cancelEditSession() {
+        if let b = sessionBaseline { document = b; scheduleRebuild() }
+        sessionBaseline = nil
+    }
+    /// Commit the session: record the whole baseline→applied transition as one undo step, then close.
+    func applyEditSession() {
+        if let b = sessionBaseline, b != document { undoStack.record(b) }
+        sessionBaseline = nil
     }
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) — per-cell processor CHAIN edits (cell-scoped, undoable via editScene)
@@ -52,7 +80,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// The chain as it stands, materialising a 1-slot head from the referenced Colour the first time a cell with
     /// no explicit chain is edited (so an untouched cell keeps rendering as its Colour's A face until then).
     private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
-        if let p = cell.processors, !p.isEmpty { return p }                    // per-cell override
+        if let p = cell.processors { return p }                                // per-cell override — incl. an explicit EMPTY chain (passthrough)
         let c = document.colours.first { $0.colourID == cell.colourID }
         if let t = c?.templateChain, !t.isEmpty { return t }                   // colour TEMPLATE (3-tier — matches the builder)
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
@@ -73,6 +101,29 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         let targets = twinTargets(col: col, row: row, solo: solo)
         editScene { s in for k in targets { if var cell = s.cells[k / 8][k % 8] { mutate(&cell); s.cells[k / 8][k % 8] = cell } } }
     }
+    // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row). Unlike the twin path (which
+    // stamps the anchor's chain across identical cells), these apply the SAME operation to EACH selected cell's
+    // OWN config — so a mixed selection keeps its per-cell differences except where the edit touches. One step.
+    func editCells(_ targets: [(col: Int, row: Int)], _ mutate: @escaping (inout Cell) -> Void) {
+        editScene { s in for t in targets { if var c = s.cells[t.col][t.row] { mutate(&c); s.cells[t.col][t.row] = c } } }
+    }
+    func withChainCells(_ targets: [(col: Int, row: Int)], _ mutate: (inout [ProcessorSlot]) -> Void) {
+        editScene { s in
+            for t in targets {
+                guard let cell = s.cells[t.col][t.row] else { continue }
+                var chain = self.materializedChain(cell); mutate(&chain)   // each cell's own chain
+                s.cells[t.col][t.row]?.processors = chain
+            }
+        }
+    }
+    func editSlotCells(_ targets: [(col: Int, row: Int)], slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
+        withChainCells(targets) { if slot < $0.count { mutate(&$0[slot]) } }
+    }
+    func setSlotTypeCells(_ targets: [(col: Int, row: Int)], slot: Int, _ type: ProcessorType) { editSlotCells(targets, slot: slot) { $0.type = type } }
+    func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
+    func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .passgate) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
+    func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count, $0.count > 1 { $0.remove(at: slot) } } }
+
     func editSlot(col: Int, row: Int, slot: Int, solo: Bool = false, _ mutate: (inout ProcessorSlot) -> Void) {
         withChain(col: col, row: row, solo: solo) { if slot < $0.count { mutate(&$0[slot]) } }
     }
@@ -109,22 +160,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }
     func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
 
-    /// APPLY TO… — stamp the pointed cell's FULL config (colour + chain + input + output + source-shaping) onto
-    /// every OCCUPIED cell in `scope` (all ‹colour› / row / column), in ONE undoable step. The targets become
-    /// TWINS of the source, so they then edit together. Perform state (alt/muted) is not copied.
-    func applyCellToScope(col: Int, row: Int, scope: SceneState.EditScope) {
-        guard let src = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
-        editScene { s in
-            for key in s.editScopeTargets(col: col, row: row, scope: scope) {
-                let c = key / 8, r = key % 8
-                guard var dst = s.cells[c][r] else { continue }
-                dst.colourID = src.colourID; dst.processors = src.processors
-                dst.inputReceiver = src.inputReceiver; dst.inputRow = src.inputRow; dst.buses = src.buses
-                dst.chordSplit = src.chordSplit; dst.velWindow = src.velWindow; dst.chop = src.chop
-                s.cells[c][r] = dst
-            }
-        }
-    }
     /// STAMP a saved cell onto (col,row) — writes its colour + chain + source-shaping, routing left blank
     /// (per-placement), overwriting whatever is there. Undoable.
     func stampLibraryCell(col: Int, row: Int, _ saved: Cell) {

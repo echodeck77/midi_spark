@@ -35,35 +35,51 @@ grid-chaining. Where this conflicts with the older §5 cell-editor spec, this wi
 - (Known: a mid-chain ratchet/strum passes the note SET but not its own rhythm
   — a downstream stage samples the set per-beat. Accepted as inherent.)
 
-## C — EDITING: TWIN GROUPS (identical cells edit together)
-**C0. The ruling**
-- Cells own their config; there is NO scope mode. Identical cells edit together
-  automatically; deliberate broader pushes are one-shot actions.
-**C1. Twins are DERIVED**
-- Two cells are TWINS when their config is equal — colourID + chain + input
-  (receiver) + output (buses) + source-shaping (split/vel/chop); perform state
-  (alt/muted) is ignored. No groups to create or maintain.
-**C2. Point → the set lights**
-- When the user points a cell in EDIT, then it wears a solid white ring, its
-  twins wear a dashed white ring, non-twin occupied cells dim, and the header
-  states **"EDITING N IDENTICAL CELLS"** (live count).
-**C3. Edit → the whole set, one undo**
-- Then every edit (chain slot, input, output, colour, chop) applies to the whole
-  twin set in ONE undoable step — identical cells stay identical.
-**C4. DETACH is the only divergence**
-- Given the twin set, when the user taps **EDIT THIS ONE**, then the next edit
-  applies to the pointed cell alone; its config diverges → it leaves the set.
-**C5. APPLY TO… survives**
-- Deliberate broader pushes stay as a one-shot foot action (twins / all ‹colour›
-  / row) via the shipped applyToScope path. No lingering mode.
+## C — EDITING: THE MODE ROW (manual select-set + transactional staging)
+_Supersedes the earlier AUTO-twin/DETACH model (INSTRUCTIONS-edit-page-mode-row):
+twins now only ADVERTISE; the SELECTION decides what edits._
+**C0. The mode row**
+- Below the grid sits a big row: LEFT a radio trio **EDIT · MUTE · CLEAR** (EDIT
+  is the default on entry); RIGHT **APPLY · CANCEL**, greyed until the session is
+  dirty. The page is one transaction: edits + births + clears preview LIVE, then
+  APPLY commits them as ONE undo step, CANCEL reverts everything since the set
+  opened. The controls (the inspector) show ONLY in EDIT mode.
+**C1. EDIT — a manual selection set**
+- Tapping any cell (occupied or empty, twin or not) adds it to the set (white
+  ring); the FIRST is the ANCHOR (drives the inspector + breadcrumb). A 2nd tap
+  on any OTHER selected cell removes it; the ANCHOR needs a LONG PRESS to drop
+  (protects the context). Every edit (chain slot, input, output, colour, chop)
+  writes through to EVERY selected cell in one step; the header reads **"N
+  SELECTED"**. Divergent controls read MIXED.
+**C2. Twins PULSE (advertise, not auto-edit)**
+- Cells whose config equals a selected cell's — colourID + chain + input +
+  output + source-shaping (split/vel/chop), perform state ignored — PULSE a
+  dashed ring to invite inclusion. They are NOT auto-included and NOT auto-edited;
+  the user taps to add them. Non-matching occupied cells recede.
+**C3. Newborn = born audible passthrough**
+- Tapping an EMPTY cell births it as part of the transaction (CANCEL removes it):
+  born AUDIBLE — input R1 → Emitter A, an EXPLICIT empty chain (the source flows
+  through untreated). The empty chain is NEVER a "PASS" slot — CHAIN shows a "+
+  ADD PROCESSOR" invitation + a friendly type selector. Engine: empty chain ⇒
+  identity (a single true-bypass hold-tail).
+**C4. MUTE — immediate**
+- In MUTE mode a tap toggles that cell's mute at once (loud-mute: dimmed + marked)
+  — post-derivation output suppression, its own undo step, OUTSIDE the transaction.
+**C5. CLEAR — transactional removal**
+- In CLEAR mode a tap MARKS a cell for removal (dashed red ring + ✕, dimmed);
+  retap reinstates. APPLY deletes the marked set in one step; CANCEL reinstates all.
+**C6. Column looping**
+- The edit page's column buttons drive the SAME laneMask as the perform-side
+  column-hold: toggling columns loops exactly the toggled subset (the audition
+  loop for the session). Cleared on leaving the page.
 
 ## D — THE EDIT PAGE (the assembly surface)
 **D1. Signal-path order**
 - Given EDIT armed and a cell pointed, then the page reads top-to-bottom:
   **IDENTITY · FROM · MIDI IN · CHAIN · TO · SYNTHS**. The scroll IS the signal.
 **D2. Identity + colour**
-- IDENTITY shows the swatch + name + the twin count/DETACH. The swatch is
-  tappable → a 16-hue popover; picking re-tints the cell + its twins live.
+- IDENTITY shows the swatch + name. The swatch is tappable → a 16-hue popover;
+  picking re-tints the whole selection live. COLOUR + LABEL are editable here.
 **D3. Input / output wear what they are**
 - FROM · MIDI IN is a receiver radio (R1–R4 + NONE) in the receiver identity
   hues (slate/purple/green/tan). TO · SYNTHS shows the emitter toggles with
@@ -76,11 +92,12 @@ grid-chaining. Where this conflicts with the older §5 cell-editor spec, this wi
 - Empty cells are near-silent (no chevrons — a bare faint rect). Section
   headers are large, spacing generous, content max-width bounded; pending
   features simply don't render (no dev annotations).
-**D6. The grid is a position picker**
-- When EDIT is armed: tap an EMPTY cell → CREATE a cell (brush/template default)
-  + point it; tap an OCCUPIED cell → point it. REMOVE is a compact red button at
-  the page FOOT — never a grid gesture. Empty + no pointed cell → the invitation
-  "Choose a cell to edit — or tap an empty space to create one."
+**D6. The grid is the selection surface (mode-aware — see §C)**
+- EDIT: tap builds the selection set (empty tap BIRTHS a passthrough); long-press
+  drops the anchor. MUTE: tap toggles mute. CLEAR: tap marks for removal. There is
+  no foot DELETE and no APPLY TO… — removal is CLEAR mode, cross-cell edits are the
+  select-set. Empty EDIT selection → "Tap cells to edit — or tap an empty space to
+  create one."
 
 ## E — THE CELL LIBRARY
 **E1. Save "machine minus routing"**
@@ -95,16 +112,22 @@ grid-chaining. Where this conflicts with the older §5 cell-editor spec, this wi
   Cascade `arp→strum`) ships so the library isn't empty first-run — STAMP only.
 
 ## Owed (not yet built)
-- A TRIGGERS section on the EDIT page (tap/hold/arrive) + the LOOP/TEST pinned
-  strip; SAVE-TO-LIBRARY + the full breadcrumb beside DONE.
-- Audition now previews the cell's RESOLVED HEAD (override/template-aware, no
-  longer the raw Colour A face); a full multi-slot serial preview (the tail over
-  the composed chain) is still owed.
+- A TRIGGERS section on the EDIT page (tap/hold/arrive); SAVE-TO-LIBRARY + the
+  full breadcrumb beside DONE.
+- Audition previews the cell's RESOLVED HEAD (override/template-aware); a full
+  multi-slot serial preview is owed — but audition is PARKED until TRIGGERS land.
 - Cell/colour NAME editing on the EDIT page (read-only label today).
-- Twin-count header sits in CHAIN (not IDENTITY); chip drag-to-scrub; the DIN
-  glyph is an SF approximation; DELETE targets the pointed cell only (by design).
+- MIXED-set markers on divergent controls are minimal (the edit still writes
+  through); the anchor is not yet visually distinct from the other selected cells
+  (both wear the white ring); chip drag-to-scrub not added; the DIN glyph is an SF
+  approximation.
 
 ## Done since ratification
-- **APPLY TO…** (C5) is wired: a foot Menu (ALL ‹colour› / THIS ROW / THIS
-  COLUMN) stamps the pointed cell's full config onto the scope → targets become
-  twins (`EditScope.row`/`.column` + `AU.applyCellToScope`).
+- **THE MODE ROW wave** (INSTRUCTIONS-edit-page-mode-row) — §C rewritten above,
+  superseding auto-twin/DETACH: mode row (EDIT·MUTE·CLEAR ‖ APPLY·CANCEL) +
+  transactional session (`AU.beginEditSession`/`applyEditSession`/`cancelEditSession`,
+  session-aware `editScene`); manual select-set (`editSel`, anchor = first,
+  long-press to drop) editing through `AU.editCells`/`withChainCells`; twins PULSE;
+  newborn passthrough (empty chain → builder emits a bypassed identity hold-tail);
+  MUTE immediate; CLEAR transactional (`removeMarks` render + APPLY-deletes);
+  column-loop row → `setLaneMask`. Removed APPLY TO…/foot DELETE + `EditScope.row/.column`.

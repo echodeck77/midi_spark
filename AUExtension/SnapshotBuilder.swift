@@ -38,9 +38,16 @@ enum SnapshotBuilder {
                 // canonically ordered by colourIDs like the render's box.colours[ci]). `bypassed` carries the head
                 // slot's bypass in the chain case (identity), or the legacy cell.bypassed in the fallback case.
                 // CELL MACHINE stage-3: 3-tier resolution — per-cell OVERRIDE → colour TEMPLATE → legacy A face.
+                // MODE ROW: an EXPLICIT empty chain (`processors == []`, a newborn) is a PASSTHROUGH — the held
+                // source flows through untreated. It renders as a single BYPASSED identity slot (true-bypass =
+                // source-only hold-tail), which the engine already handles; nil still means "follow the template".
                 let override = cell.processors.flatMap { $0.isEmpty ? nil : $0 }
                 let template = (colourIndex < doc.colours.count ? doc.colours[colourIndex].templateChain : nil).flatMap { $0.isEmpty ? nil : $0 }
-                if let chain = override ?? template {
+                if cell.processors?.isEmpty == true {
+                    sc.procs = [SnapParams()]             // identity params (ignored — the slot is bypassed)
+                    sc.slotBypass = [true]                // true-bypass → the source passes through as a hold-tail
+                    sc.bypassed = true
+                } else if let chain = override ?? template {
                     sc.procs = chain.map { resolve($0.params, type: $0.type, fallback: nil) }
                     sc.slotBypass = chain.map { $0.bypassed }
                     sc.bypassed = chain[0].bypassed

@@ -686,7 +686,7 @@ struct PluginState: Codable, Equatable {
 // MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <COLOUR>
 
 extension SceneState {
-    enum EditScope { case thisOne, allIdentical, allColour, twins, row, column }
+    enum EditScope { case thisOne, allIdentical, allColour, twins }
 
     /// The cells an EDIT at `(col,row)` should touch under `scope`, as encoded positions (col*8 + row), sorted.
     /// ALL IDENTICAL = same Colour AND same routing (input source + emitter buses); ALL COLOUR = same Colour.
@@ -710,8 +710,6 @@ extension SceneState {
                                         && cell.inputReceiver == ex.inputReceiver && cell.inputRow == ex.inputRow
                                         && cell.buses == ex.buses && cell.chordSplit == ex.chordSplit
                                         && cell.velWindow == ex.velWindow && cell.chop == ex.chop
-                case .row:          hit = r == row     // the exemplar's grid ROW, every column (APPLY TO… target)
-                case .column:       hit = c == col     // the exemplar's COLUMN, every row
                 }
                 if hit { out.append(c * 8 + r) }
             }

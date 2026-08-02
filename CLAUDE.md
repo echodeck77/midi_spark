@@ -157,6 +157,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EDIT-PAGE — THE MODE ROW WAVE (2026-08-02, branch `feat/EditPageSpike`, off-device: iOS builds + 364
+  unit green; DEVICE pass owed). SUPERSEDES W1's auto-twin/DETACH (INSTRUCTIONS-edit-page-mode-row). The EDIT
+  page grows a big MODE ROW below the grid — `EDIT · MUTE · CLEAR ‖ APPLY · CANCEL` — and one TRANSACTIONAL
+  session: edits/births/clears preview LIVE, APPLY commits them as ONE undo step, CANCEL reverts (AU
+  `beginEditSession`/`applyEditSession`/`cancelEditSession` + session-aware `editScene`; `sessionBaseline`
+  defers per-edit undo). **EDIT** = a MANUAL select-set (`editSel`, anchor = first, 2nd tap toggles others,
+  LONG-PRESS drops the anchor — repurposes the parked spike-grid audition hold); edits write through to the
+  whole set via new AU `editCells`/`withChainCells`/`editSlotCells`/`addSlotCells(type:)`; twins now only PULSE
+  to advertise (dashed pulsing ring), never auto-edit. **Newborn** empty-tap births a PASSTHROUGH — R1 → Emitter
+  A, an EXPLICIT empty chain (`processors == []`); the builder renders empty as a single true-bypass identity
+  hold-tail (born audible), and CHAIN shows a "+ ADD PROCESSOR" invitation + emblem type selector, never a PASS
+  slot. **MUTE** = immediate mute toggle (outside the session). **CLEAR** = transactional removal marks
+  (`clearMarks`/GridView `removeMarks` dashed-red ✕; APPLY deletes via `deleteCellSever`, CANCEL/retap reinstate).
+  **Column-loop row** above the grid → `au.setLaneMask` (same lap path as the perform column-hold). REMOVED the
+  superseded APPLY TO… foot menu + `applyCellToScope` + `EditScope.row/.column` + DETACH/`soloEdit` + foot
+  DELETE (`footUtilities`/`deleteEditedCell`/`utilBtn`/`scopeCount`) + their test. Test: empty-chain =
+  born-audible passthrough (`testEmptyChainIsBornAudiblePassthrough`). Spec of record: §C of
+  `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
+  stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
+  markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot
+  audition preview stays owed (audition parked until TRIGGERS).**
 - **▶ EDIT-PAGE WAVE W1 — TWIN EDITING (2026-08-02, DEVICE-VERIFIED + on `main`; 363 green). SUPERSEDES the
   stage-3 scope toggle: `EditScope.twins` (config-equal cells, perform state ignored); every chain/input/output/
   chop edit applies to the pointed cell + its DERIVED twins in one undoable step (AU `withChain`/`editTwins` route
