@@ -232,13 +232,14 @@ struct DiagView: View {
                     editSel.removeAll { $0 == pos }          // otherwise just leave the group
                 }
             } else {                                         // NOT selected → add to the group (any tapped cell joins)
-                if scene.cells[col][row] == nil {            // an empty cell must be created to join
-                    if editSel.isEmpty {                     // nothing selected → a TRUE newborn (new colour, passthrough)
-                        au?.editScene { $0.cells[col][row] = newbornCell() }
-                    } else if let a = editSel.first {        // a group exists → born as a CLONE of the anchor (edits together)
-                        au?.editScene { s in if let src = s.cells[a.col][a.row] { s.cells[col][row] = src } }
-                    }
-                    refreshFromDocument(); bornThisSession.insert(pos)
+                let wasEmpty = scene.cells[col][row] == nil
+                if editSel.isEmpty {                          // FIRST selection
+                    if wasEmpty { au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument(); bornThisSession.insert(pos) }
+                    // a populated first cell is just selected as the anchor
+                } else if let a = editSel.first {            // a group exists → the new cell ADOPTS the anchor's full
+                    au?.editScene { s in if let anchor = s.cells[a.col][a.row] { s.cells[col][row] = anchor } }   // config (populated or empty) → identical twins, edit together
+                    refreshFromDocument()
+                    if wasEmpty { bornThisSession.insert(pos) }   // an empty cell cloned into the group is "born" (re-tap deletes)
                 }
                 editSel.append(pos)
             }
@@ -1218,6 +1219,9 @@ struct DiagView: View {
             }
             spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top (its column keys toggle the loop)
             modeRow()                                                // MODE ROW: ADD/EDIT · MOVE · MUTE · CLEAR ‖ APPLY · CANCEL
+            Text(modeGuidance)                                       // the ALWAYS-VISIBLE guidance for the current mode
+                .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
                 ScrollView(.vertical, showsIndicators: false) {
@@ -1228,20 +1232,8 @@ struct DiagView: View {
                         sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
-            } else if editMode == .addEdit {                          // §1 ADD/EDIT, nothing selected = the invitation
-                Spacer(minLength: 0)
-                Text("Select 1 cell then duplicates")
-                    .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    .multilineTextAlignment(.center).frame(maxWidth: 380).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            } else {                                                  // MOVE / MUTE / CLEAR = grid + mode row only
-                Spacer(minLength: 0)
-                Text(editMode == .move ? "Drag and drop" :
-                     editMode == .mute ? "Choose cells to mute" :
-                                         "Choose cells to clear")
-                    .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 0)                                  // grid + guidance only (nothing selected, or a non-edit mode)
             }
         }
         .padding(12)
@@ -1251,17 +1243,26 @@ struct DiagView: View {
     // in ADD/EDIT — the one staging mode; MOVE/MUTE/CLEAR are immediate + undo/redo). APPLY commits the staged
     // edits/births as ONE undo step; CANCEL reverts them.
     @ViewBuilder private func modeRow() -> some View {
-        let dirty = au?.sessionDirty ?? false
+        let canCommit = !editSel.isEmpty                     // APPLY/CANCEL are available whenever ≥1 cell is selected
         HStack(spacing: 6) {
             modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
             Spacer(minLength: 10)
             if editMode == .addEdit {
-                Button { commitSession() } label: { transactChip("APPLY", enabled: dirty, fill: true) }
-                    .buttonStyle(.plain).disabled(!dirty)
-                Button { revertSession() } label: { transactChip("CANCEL", enabled: dirty, fill: false) }
-                    .buttonStyle(.plain).disabled(!dirty)
+                Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
+                    .buttonStyle(.plain).disabled(!canCommit)
+                Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
+                    .buttonStyle(.plain).disabled(!canCommit)
             }
         }.padding(.vertical, 4)
+    }
+    /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
+    private var modeGuidance: String {
+        switch editMode {
+        case .addEdit: return "Select 1 cell, then tap more to duplicate it into a group"
+        case .move:    return "Drag and drop a cell to a new position"
+        case .mute:    return "Choose cells to mute"
+        case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
+        }
     }
     private func headerIcon(_ system: String, on: Bool) -> some View {
         Image(systemName: system).font(.system(size: 15, weight: .heavy)).foregroundColor(on ? Self.editHue : .white.opacity(0.2))
@@ -1325,6 +1326,7 @@ struct DiagView: View {
                  onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
                  laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
+                 showAddPlus: editMode == .addEdit && !editSel.isEmpty,
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],

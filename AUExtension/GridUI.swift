@@ -97,7 +97,8 @@ struct GridView: View {
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
     var moveMode: Bool = false                       // MODE ROW · MOVE: a plain drag (no long-press) relocates a cell
     var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
-    var animateSelection: Bool = false               // MODE ROW: the SELECTED cells' white ring BREATHES (setup grid)
+    var animateSelection: Bool = false               // MODE ROW: the SELECTED cells wear a marching black/white dashed border (setup grid)
+    var showAddPlus: Bool = false                    // MODE ROW · ADD/EDIT with a selection: empty cells show a faint "+" (tap to add)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -281,7 +282,9 @@ struct GridView: View {
                     Spacer(minLength: 0)
                     busDots(cell, firing: inActiveCol)
                 }
-            }   // §quieting (2026-08-02): an empty cell is NEAR-SILENT — bare faint rect, no chevron/glyph watermark
+            } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
+                Image(systemName: "plus").font(.system(size: 18, weight: .heavy)).foregroundColor(.white.opacity(0.22))
+            }   // §quieting (2026-08-02): otherwise an empty cell is NEAR-SILENT — bare faint rect
         }
         .opacity(removeMarks.contains(GridPos(col: col, row: row)) ? 0.3          // MODE ROW · CLEAR: a marked cell recedes
                  : (tapMutedHere || raw?.muted == true) ? 0.28                     // muted dims
@@ -360,9 +363,13 @@ struct GridView: View {
                 // /btw ③ THE TWO-SOURCES LAW + item 4: a SELECTED or PLACED cell ALWAYS draws WHITE — never a
                 // yellow ring (a yellow outline is invisible on a yellow cell). On the setup grid the ring BREATHES.
                 if animateSelection {
+                    // A thick MARCHING black/white dashed border (two offset dashed strokes) — reads as black/white chevrons.
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-                        let f = stagingPulseFraction(tl.date, period: 1.1)
-                        RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.55 + 0.45 * f), lineWidth: 2 + 2 * f)
+                        let phase = CGFloat(tl.date.timeIntervalSinceReferenceDate * 22).truncatingRemainder(dividingBy: 16)
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8).stroke(Color.white, style: StrokeStyle(lineWidth: 4, dash: [8, 8], dashPhase: phase))
+                            RoundedRectangle(cornerRadius: 8).stroke(Color.black, style: StrokeStyle(lineWidth: 4, dash: [8, 8], dashPhase: phase + 8))
+                        }
                     }
                 } else {
                     RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2.5)
