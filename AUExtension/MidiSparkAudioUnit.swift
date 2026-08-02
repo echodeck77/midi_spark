@@ -85,25 +85,13 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if let t = c?.templateChain, !t.isEmpty { return t }                   // colour TEMPLATE (3-tier — matches the builder)
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
     }
-    // CELL MACHINE — TWIN EDITING: a per-cell edit applies to the pointed cell AND its DERIVED twins (identical
-    // config) in one undoable step, keeping them identical. `solo:true` (DETACH) targets only the pointed cell.
-    private func twinTargets(col: Int, row: Int, solo: Bool) -> [Int] {
-        solo ? [col * 8 + row] : document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins)
+    /// The pointed cell's TWIN positions (config-equal cells, incl. itself), as encoded indices — for the grid's
+    /// advertise-PULSE set (twins only advertise now; editing is the manual selection set below).
+    private func twinTargets(col: Int, row: Int) -> [Int] {
+        document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins)
     }
-    private func withChain(col: Int, row: Int, solo: Bool, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        guard let src = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
-        var chain = materializedChain(src); mutate(&chain)          // twins share config → same materialised chain
-        let targets = twinTargets(col: col, row: row, solo: solo)
-        editScene { s in for k in targets { s.cells[k / 8][k % 8]?.processors = chain } }
-    }
-    /// Apply a whole-Cell mutation (input/output/etc.) across the pointed cell's twins (or solo), one undoable step.
-    func editTwins(col: Int, row: Int, solo: Bool, _ mutate: @escaping (inout Cell) -> Void) {
-        let targets = twinTargets(col: col, row: row, solo: solo)
-        editScene { s in for k in targets { if var cell = s.cells[k / 8][k % 8] { mutate(&cell); s.cells[k / 8][k % 8] = cell } } }
-    }
-    // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row). Unlike the twin path (which
-    // stamps the anchor's chain across identical cells), these apply the SAME operation to EACH selected cell's
-    // OWN config — so a mixed selection keeps its per-cell differences except where the edit touches. One step.
+    // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row): apply the SAME operation to EACH
+    // selected cell's OWN config — so a mixed selection keeps its per-cell differences except where the edit touches.
     func editCells(_ targets: [(col: Int, row: Int)], _ mutate: @escaping (inout Cell) -> Void) {
         editScene { s in for t in targets { if var c = s.cells[t.col][t.row] { mutate(&c); s.cells[t.col][t.row] = c } } }
     }
@@ -126,14 +114,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
     func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .passgate) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
     func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count, $0.count > 1 { $0.remove(at: slot) } } }
-
-    func editSlot(col: Int, row: Int, slot: Int, solo: Bool = false, _ mutate: (inout ProcessorSlot) -> Void) {
-        withChain(col: col, row: row, solo: solo) { if slot < $0.count { mutate(&$0[slot]) } }
-    }
-    func setSlotType(col: Int, row: Int, slot: Int, solo: Bool = false, _ type: ProcessorType) { editSlot(col: col, row: row, slot: slot, solo: solo) { $0.type = type } }
-    func toggleSlotBypass(col: Int, row: Int, slot: Int, solo: Bool = false) { editSlot(col: col, row: row, slot: slot, solo: solo) { $0.bypassed.toggle() } }
-    func addSlot(col: Int, row: Int, solo: Bool = false) { withChain(col: col, row: row, solo: solo) { if $0.count < 8 { $0.append(ProcessorSlot(type: .passgate)) } } }
-    func removeSlot(col: Int, row: Int, slot: Int, solo: Bool = false) { withChain(col: col, row: row, solo: solo) { if $0.count > 1, slot < $0.count { $0.remove(at: slot) } } }
     /// The materialised chain for the UI (read-back; never nil for a populated cell).
     func uiCellChain(col: Int, row: Int) -> [ProcessorSlot] {
         guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return [] }
@@ -145,7 +125,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
     func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
-        twinTargets(col: col, row: row, solo: false).map { (col: $0 / 8, row: $0 % 8) }
+        twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }
     }
 
     // MARK: - CELL MACHINE stage-4 — the CELL LIBRARY (named saved cells, reusable across sessions)
@@ -162,12 +142,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
     func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }
     func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
-
-    /// STAMP a saved cell onto (col,row) — writes its colour + chain + source-shaping, routing left blank
-    /// (per-placement), overwriting whatever is there. Undoable.
-    func stampLibraryCell(col: Int, row: Int, _ saved: Cell) {
-        editScene { $0.cells[col][row] = saved }
-    }
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
     // mutations record (the callers above default record:true); the PERFORM ALT flip opts out (record:false),

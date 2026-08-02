@@ -81,8 +81,6 @@ struct DiagView: View {
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State private var showCellLibrary = false
     @State private var cellLibraryList: [String] = []
-    @State private var pendingLibraryCell: Cell? = nil
-    @State private var pendingLibraryName = ""
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
     @State private var nameDraft = ""        // C1: the desk's Colour-name editor buffer (synced to the brush Colour)
@@ -130,7 +128,6 @@ struct DiagView: View {
     @State private var clearedStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
     @State private var editLoopMask: UInt8 = 0
-    @State private var showHuePicker = false   // §2 the IDENTITY swatch's hue popover
     private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
     private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State private var busChannels: [Int] = [1, 2, 3, 4]
@@ -219,9 +216,6 @@ struct DiagView: View {
     // is a TRIGGER (ON TAP). Routing happens WHILE SELECT is held (user 2026-07-28): the world offers wiring for
     // the selected cell, tapping a candidate wires it, RELEASE applies, CANCEL reverts.
     private func tapCell(_ col: Int, _ row: Int) {
-        if let saved = pendingLibraryCell {                  // CELL MACHINE stage-4: STAMP mode — drop the saved cell here
-            au?.stampLibraryCell(col: col, row: row, saved); refreshFromDocument(); return
-        }
         if editArmed {                                       // MODE ROW: EDIT builds a selection set; MUTE/CLEAR = increment 4
             guard editMode == .addEdit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
@@ -852,21 +846,6 @@ struct DiagView: View {
                                 onSave: saveCellNamed, onStamp: stampFromLibrary, onStampFactory: stampFromFactory,
                                 onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false })
                 }
-                if pendingLibraryCell != nil {          // CELL MACHINE stage-4: STAMP mode banner
-                    VStack(spacing: 0) {
-                        HStack(spacing: 8) {
-                            Text("STAMPING \(pendingLibraryName) — tap cells").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                            Spacer(minLength: 0)
-                            Text("DONE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                                .padding(.horizontal, 10).padding(.vertical, 3)
-                                .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.35)))
-                                .contentShape(Rectangle()).onTapGesture { endStamp() }
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color(red: 0.15, green: 0.88, blue: 0.94))
-                        Spacer()
-                    }
-                }
                 if let slot = birthingSlot { birthPicker(slot) }   // D2: the "+" slot's type picker (births a Colour)
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)
@@ -1044,20 +1023,7 @@ struct DiagView: View {
     }
 
     @ViewBuilder private func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
-        if let cell = editingCell {
-            // §cell-edit B (user 2026-07-31): the CELL EDIT page replaces the GRID in place — the same
-            // "grid region becomes the tool" move FLOW uses. Receivers/emitters/strips/desk stay visible + live.
-            // The row rails + a column-chevron strip stay in place (edited row/column lit) so the page reads as
-            // grid-anchored — this info still pertains to the grid (user 2026-07-31).
-            HStack(spacing: 3) {
-                rowRail(cellHeight, chevron: "chevron.right")   // LEFT rail (kept for grid context)
-                VStack(spacing: GridGeometry.vGap) {
-                    editColumnKeys(cellHeight)                   // top column chevrons — the edited column lit
-                    cellEditPage(cell, emitterWidth: emitterWidth)
-                }
-                rowRail(cellHeight, chevron: "chevron.left")    // RIGHT rail (kept for grid context)
-            }
-        } else if flowVariation > 0 {
+        if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
@@ -1177,28 +1143,6 @@ struct DiagView: View {
     /// The PRIMARY slot content: normally the sound `desk`; while EDIT is armed, the Cell Edit station CLAIMS it
     /// (B1) — a swap bar (B2) lets the user jump back to the full Colour desk. The desk is never hidden, just a
     /// tap away. Everything else on screen stays live (B3). Wraps whichever desk container each orientation uses.
-    // MARK: - §cell-edit B — the Cell Edit PAGE (revised: a full-page takeover, not an in-place panel swap)
-
-    /// B1/B3: the page REPLACES the whole working view while EDIT points at a cell (the `body` swaps it in for
-    /// the grid). B2 breadcrumb pinned top · B5 persistent LOOP+TEST strip · then IDENTITY·INPUT·TRIGGERS·OUTPUT
-    /// and the sound desk as ONE vertical accordion (one section open at a time).
-    // FLAT layout (user 2026-08-01): no accordions — every section shows inline and the user scrolls. (Also
-    // removes the doubly-nested accordion that crashed SwiftUI's metadata earlier.) INPUT + LOOP/TEST parked.
-    @ViewBuilder private func cellEditPage(_ cell: Cell, emitterWidth: CGFloat) -> some View {
-        VStack(spacing: 6) {
-            breadcrumb(cell)                                 // pinned anchor (scene · column · minimap · DONE)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader("IDENTITY"); identitySection(cell, swatch: 40)
-                    sectionHeader("TRIGGERS"); triggersInline(cell)
-                    sectionHeader("OUTPUT");   outputSection(cell, emitterWidth: emitterWidth)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // fill the grid's slot (not the window)
-    }
-
     // MARK: - feat/EditPageSpike (2026-08-01) — an ALTERNATIVE grid-setup surface, opened by the existing EDIT
     // button (body branches to it while `editArmed`). A full-width GRID sits on top; tapping a POPULATED cell
     // selects it (via `tapCell`'s editArmed re-point) and reveals its controls below in signal-path order:
@@ -1470,53 +1414,6 @@ struct DiagView: View {
             }.buttonStyle(.plain)
         }.padding(.top, 4)
     }
-    // The grid's column-key row, kept above the edit page (down chevrons; the EDITED column lit) so the page
-    // stays visibly anchored to the grid. Mirrors GridView.columnKeys' geometry (cellHeight tall, vGap gaps).
-    private func editColumnKeys(_ cellHeight: CGFloat) -> some View {
-        HStack(spacing: GridGeometry.vGap) {
-            ForEach(0..<8, id: \.self) { c in
-                Image(systemName: "chevron.down").font(.system(size: 15, weight: .heavy))
-                    .foregroundColor(c == selCol ? .black : .white.opacity(0.45))
-                    .frame(maxWidth: .infinity).frame(height: cellHeight)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(c == selCol ? Self.editHue : Color.white.opacity(0.06)))
-            }
-        }
-    }
-    // B2 — scene · edited column · an 8-dot minimap (edited column lit) · DONE (returns to the grid instantly).
-    private func breadcrumb(_ cell: Cell) -> some View {
-        HStack(spacing: 10) {
-            Text("SCENE \(activeSceneIdx + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            Text("COL \(selCol + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-            HStack(spacing: 3) {                             // the 8-dot minimap (columns; the edited one lit)
-                ForEach(0..<8, id: \.self) { c in
-                    Circle().fill(c == selCol ? Self.editHue : Color.white.opacity(0.18)).frame(width: 6, height: 6)
-                }
-            }
-            Spacer()
-            Text("DONE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Self.editHue))
-                .contentShape(Rectangle()).onTapGesture { editArmed = false }
-        }
-        .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
-    }
-    // B5 — the persistent LOOP + TEST strip. Both are deferred phases (5/6); shown as clear placeholders so the
-    // page's shape is honest. The test pad already displays the pointed cell's trigger glyph (H6).
-    private func loopTestStrip(_ cell: Cell) -> some View {
-        HStack(spacing: 8) {
-            Text("LOOP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-                .frame(maxWidth: .infinity).frame(height: 34)
-                .background(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-            VStack(spacing: 1) {                             // the TEST pad — glyph now, live-fire in Phase 6
-                if let g = triggerMark(brushColour?.onResolved ?? OnConfig())?.glyph {
-                    Image(systemName: g).font(.system(size: 12, weight: .black)).foregroundColor(.white.opacity(0.6))
-                }
-                Text("TEST").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-            }
-            .frame(maxWidth: .infinity).frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-        }
-    }
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
@@ -1547,39 +1444,11 @@ struct DiagView: View {
             Spacer(minLength: 0)
         }
     }
-    // §2 the hue picker — the 16 palette colours; picking re-tints the cell + its twins in one undoable step.
-    private var huePickerPopover: some View {
-        let cols = [GridItem](repeating: GridItem(.fixed(30), spacing: 6), count: 4)
-        return LazyVGrid(columns: cols, spacing: 6) {
-            ForEach(colourIDs, id: \.self) { id in
-                Button { setCellColour(id); showHuePicker = false } label: {
-                    RoundedRectangle(cornerRadius: 5).fill(colourColor(id) ?? .gray).frame(width: 30, height: 30)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(editingCell?.colourID == id ? 0.9 : 0.15), lineWidth: editingCell?.colourID == id ? 2 : 1))
-                }.buttonStyle(.plain)
-            }
-        }.padding(12).frame(width: 168)
-    }
     private func setCellColour(_ id: String) {   // applies to the whole selection set
         au?.editCells(editSelTargets) { $0.colourID = id }
         brush = id; refreshFromDocument()
     }
-    // §3 DELETE demoted — a compact red text button at the page foot (pointed-cell only, per W1).
-    // §C5/§3 — the page foot: APPLY TO… (the deliberate broader push; twin editing is automatic, so this is for
-    // the rest) + DELETE (whisper until touched). APPLY TO… stamps THIS cell's full config onto the scope → the
-    // targets become twins and thereafter edit together.
-    /// §I Apply-to-scope: carry THIS cell's input shaping (chord split + velocity window) to the scope — twins
-    /// (same colour + same routing) or all same-colour cells. One undoable step, reusing SceneState.applyToScope.
-    private func applyInputToScope(_ scope: SceneState.EditScope) {
-        guard let au, let src = editingCell else { return }
-        au.editScene { $0.applyToScope(col: selCol, row: selRow, scope: scope) { dst in
-            dst.chordSplit = src.chordSplit; dst.velWindow = src.velWindow
-        } }
-        refreshFromDocument()
-    }
-    private func resetInput() {   // §I reset the cell's input shaping to defaults (ALL · full velocity)
-        setEditSource { s in if var c = s.cells[selCol][selRow] { c.chordSplit = nil; c.velWindow = nil; s.cells[selCol][selRow] = c } }
-    }
-    // D — INPUT section: source · shift · chord-split · velocity window (the existing controls, re-hosted).
+    // D — INPUT section: source · shift (the chord-split + velocity-window "splits" were removed — a future processor).
     @ViewBuilder private func inputSection(_ cell: Cell) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             receiverRadio(cell)          // §2 A–D receiver radio in the identity hues (+ NONE)
@@ -1832,48 +1701,6 @@ struct DiagView: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
     /// CHORD SPLIT (D) — a per-cell field (not Colour-side): ALL · TOP n · BOTTOM n · KEY RANGE (split + side).
-    @ViewBuilder private func chordSplitRow(_ cell: Cell) -> some View {
-        let sp = cell.chordSplitResolved
-        VStack(alignment: .leading, spacing: 4) {
-            facetRow("SPLIT") { trigSeg(SplitMode.allCases, sp.mode, label: { $0.rawValue }) { m in editSplit { $0.mode = m } } }
-            if sp.mode == .top || sp.mode == .bottom {
-                facetRow("N") { trigStepper(sp.n, 1, 8) { v in editSplit { $0.n = v } } }
-            }
-            if sp.mode == .range {
-                facetRow("KEY") { trigStepper(sp.note, 0, 127) { v in editSplit { $0.note = v } } }
-                facetRow("SIDE") { trigSeg([true, false], sp.high, label: { $0 ? "HIGH ≥" : "LOW <" }) { v in editSplit { $0.high = v } } }
-            }
-        }
-    }
-    private func editSplit(_ mutate: @escaping (inout ChordSplit) -> Void) {
-        setEditSource { s in
-            if var c = s.cells[selCol][selRow] {
-                var sp = c.chordSplitResolved; mutate(&sp)
-                c.chordSplit = (sp == ChordSplit() ? nil : sp)   // back to nil = ALL keeps clean docs
-                s.cells[selCol][selRow] = c
-            }
-        }
-    }
-    /// VELOCITY WINDOW (D) — a per-cell floor/ceiling admission gate.
-    @ViewBuilder private func velWindowRow(_ cell: Cell) -> some View {
-        let vw = cell.velWindowResolved
-        VStack(alignment: .leading, spacing: 4) {
-            facetRow("VEL ≥") { trigStepper(vw.floor, 1, 127) { v in editVel { $0.floor = v } } }
-            facetRow("VEL ≤") { trigStepper(vw.ceil, 1, 127) { v in editVel { $0.ceil = v } } }
-        }
-    }
-    private func editVel(_ mutate: @escaping (inout VelWindow) -> Void) {
-        setEditSource { s in
-            if var c = s.cells[selCol][selRow] {
-                var vw = c.velWindowResolved; mutate(&vw)
-                vw.floor = max(1, min(127, vw.floor)); vw.ceil = max(1, min(127, vw.ceil))
-                vw.floor = min(vw.floor, vw.ceil)                // floor never exceeds ceil
-                c.velWindow = (vw == VelWindow() ? nil : vw)     // back to nil = full range keeps clean docs
-                s.cells[selCol][selRow] = c
-            }
-        }
-    }
-
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
     // LANDSCAPE stacks it top→bottom in the right column (this VStack); PORTRAIT lays it out via
     // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
@@ -2149,7 +1976,6 @@ struct DiagView: View {
     }
     private func stampFromLibrary(_ name: String) { applyLibraryChain(au?.loadLibraryCell(name: name)) }
     private func stampFromFactory(_ name: String) { applyLibraryChain(au?.factoryLibraryCell(name: name)) }
-    private func endStamp() { pendingLibraryCell = nil; pendingLibraryName = "" }
 
     // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter
     //  channel, live activity + MPE-detect indicators). `showSettings` gates it; the ⚙ in the bar opens it.

@@ -232,7 +232,6 @@ struct VelWindow: Codable, Equatable {
 /// §cell-edit F — per-slice output CHOP: each of a column's 8 slices can INDEPENDENTLY route to MAIN (own
 /// emitters), ALT (the shared `altDest` set), and/or be MUTED (silent — overrides). Three per-slice bitmasks
 /// (bit i = slice i). Default = all MAIN, no ALT, no MUTE (no effect). [Model + the routing ENGINE below.]
-enum ChopSlot: String, Codable, CaseIterable { case main = "MAIN", alt = "ALT", mute = "MUTE" }   // legacy (old-doc decode)
 struct Chop: Codable, Equatable {
     var mainMask: UInt8 = 0xFF   // slices routed to the cell's own emitters
     var altMask: UInt8 = 0       // slices ALSO routed to altDest
