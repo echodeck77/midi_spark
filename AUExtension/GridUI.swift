@@ -34,45 +34,46 @@ extension Color {
 // sealGeometry); this layer maps lattice nodes → the rect and draws the wire (arc/mitre corners), the coil,
 // and the terminals (start dot + arrowhead). Same config ⇒ same seal (badge + edit page). Design INSTRUCTIONS §2–4.
 
-/// The seal's rest ink at CELL scale — near-black, firm (design §3).
+/// The seal's rest ink — near-black, firm (design §3). Shared by the cell BADGE + the edit-page identity plate
+/// (user: the edit seal must match the cells, black not white).
 let sealInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.8)
-/// The seal's ink at EDIT scale — light on the panel plate (design §4).
-let sealInkLarge = Color(.sRGB, red: 236.0 / 255, green: 234.0 / 255, blue: 223.0 / 255, opacity: 0.9)
 
-/// The seal's lattice pitch inside `size`, FILLING a padded rectangle (independent x/y pitch → the glyph takes
-/// its container's aspect: a square box ⇒ a square seal, a wide box ⇒ a wide seal). Pad = padFraction of the
-/// SHORTER side; the lattice is 0…2 = two pitches per axis.
-private func sealPitch(_ size: CGSize, _ padFraction: CGFloat) -> (pad: CGFloat, px: CGFloat, py: CGFloat) {
+/// Lay the seal into `size` by FITTING the route's bounding box to a padded rectangle (independent x/y scale),
+/// so the glyph fills the full LENGTH + height regardless of where the route sits on the lattice — no more
+/// hugging one side (user request). Returns the node points + a corner-arc radius from the tighter axis' node
+/// spacing. Pad = padFraction of the shorter side; a zero-range axis (a straight run) centres on that axis.
+func sealLayout(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> (pts: [CGPoint], arcRadius: CGFloat) {
     let pad = min(size.width, size.height) * padFraction
-    return (pad, (size.width - 2 * pad) / 2, (size.height - 2 * pad) / 2)
+    let availW = size.width - 2 * pad, availH = size.height - 2 * pad
+    let xs = geo.nodes.map { CGFloat($0.x) }, ys = geo.nodes.map { CGFloat($0.y) }
+    let minX = xs.min() ?? 0, maxX = xs.max() ?? 0, minY = ys.min() ?? 0, maxY = ys.max() ?? 0
+    let rangeX = maxX - minX, rangeY = maxY - minY
+    let pts = geo.nodes.map { n -> CGPoint in
+        let fx: CGFloat = rangeX > 0 ? (CGFloat(n.x) - minX) / rangeX : 0.5
+        let fy: CGFloat = rangeY > 0 ? (CGFloat(n.y) - minY) / rangeY : 0.5
+        return CGPoint(x: pad + fx * availW, y: pad + fy * availH)
+    }
+    let pitchX = rangeX > 0 ? availW / rangeX : availW
+    let pitchY = rangeY > 0 ? availH / rangeY : availH
+    return (pts, 0.45 * min(pitchX, pitchY))
 }
 
-/// The seal's node points inside `size` (arc-length source for the comet + the drawn wire).
+/// The seal's node points inside `size` (arc-length source for the comet).
 func sealNodePoints(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> [CGPoint] {
-    let (pad, px, py) = sealPitch(size, padFraction)
-    return geo.nodes.map { CGPoint(x: pad + CGFloat($0.x) * px, y: pad + CGFloat($0.y) * py) }
+    sealLayout(geo, size: size, padFraction: padFraction).pts
 }
 
 /// Draw the seal into a GraphicsContext (design §2): the WIRE (quarter-arc iff flagged, else sharp mitre),
 /// an optional COIL astride its node, and the filled TERMINALS (start dot + end arrowhead). `showLattice`
 /// adds the nine faint lattice dots (edit page, §4). Pure of state — draws the same seal for the same geo.
 func drawSeal(_ geo: SealGeometry, into ctx: GraphicsContext, size: CGSize, padFraction: CGFloat,
-              stroke: CGFloat, ink: Color, showLattice: Bool = false, latticeInk: Color = .clear) {
-    let (pad, px, py) = sealPitch(size, padFraction)
-    let pts = sealNodePoints(geo, size: size, padFraction: padFraction)
+              stroke: CGFloat, ink: Color) {
+    let (pts, radius) = sealLayout(geo, size: size, padFraction: padFraction)
     guard pts.count > 1 else { return }
 
-    if showLattice {                                    // §4: nine 1.6pt lattice dots at low alpha
-        for gx in 0..<3 { for gy in 0..<3 {
-            let c = CGPoint(x: pad + CGFloat(gx) * px, y: pad + CGFloat(gy) * py)
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 0.8, y: c.y - 0.8, width: 1.6, height: 1.6)), with: .color(latticeInk))
-        } }
-    }
-
-    // the WIRE — quarter-arc (radius 0.45·pitch, the shorter axis) at flagged interior nodes, else a sharp mitre
+    // the WIRE — quarter-arc (radius from the tighter axis) at flagged interior nodes, else a sharp mitre
     var wire = Path()
     wire.move(to: pts[0])
-    let radius = 0.45 * min(px, py)
     for i in 1..<(pts.count - 1) {
         if geo.arcAtNode[i] { wire.addArc(tangent1End: pts[i], tangent2End: pts[i + 1], radius: radius) }
         else { wire.addLine(to: pts[i]) }
@@ -560,17 +561,19 @@ struct GridView: View {
         .frame(maxWidth: .infinity).padding(.bottom, 2)
     }
 
-    // THE SEAL COMET (§5) — a single spark runs the wire START→ARROW while the cell fires MIDI, then dies ~1s
-    // after the last note. Trail ∝ velocity; a strike GLOW brightens the whole seal, decaying ~450ms. Driven by
-    // the per-cell hit feed (col*8+row); frozen when the view is hidden. (Coil-node slowdown = deferred §5 polish.)
+    // THE SEAL COMET (§5) — a spark runs the wire while the cell fires MIDI. The spark position FREE-RUNS on a
+    // continuous clock (it loops the path START→ARROW→START), so a new note does NOT reset it to the start — while
+    // notes keep arriving the spark keeps travelling; each strike RE-GLOWS the wire (decays ~450ms) and keeps the
+    // spark alive; ~1.1s after the LAST note it fades out. Trail ∝ velocity. Driven by the per-cell hit feed; frozen
+    // when hidden. (Precise note-on/off DURATION — spark bound exactly to a held note — wants a per-cell sounding feed.)
     @ViewBuilder private func sealComet(_ geo: SealGeometry, _ idx: Int) -> some View {
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
                 let age = tl.date.timeIntervalSince(hitAt)
-                guard age >= 0, age < 1.1 else { return }                       // the spark lives ~1.1s after the strike
-                let pts = sealNodePoints(geo, size: size, padFraction: 0.18)
+                guard age >= 0, age < 1.1 else { return }                       // visible until ~1.1s after the last strike
+                let pts = sealNodePoints(geo, size: size, padFraction: 0.16)
                 guard pts.count > 1 else { return }
                 var dense: [CGPoint] = []                                       // arc-length samples along the node polyline
                 let per = 10
@@ -586,9 +589,11 @@ struct GridView: View {
                 let life = max(0.0, 1 - age / 1.1)                             // the spark fades over its life
                 let glow = max(0.0, 1 - age / 0.45)                            // the strike glow decays ~450ms
                 if glow > 0 {                                                   // §5: the wire brightens on strike
-                    drawSeal(geo, into: ctx, size: size, padFraction: 0.18, stroke: 2.4, ink: .white.opacity(0.35 * glow))
+                    drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: .white.opacity(0.35 * glow))
                 }
-                let head = min(dense.count - 1, Int(age * 0.9 * Double(dense.count - 1)))   // START→ARROW at ~0.9 lengths/s
+                // FREE-RUN position — a continuous clock, independent of the strike, so notes don't reset the spark
+                let prog = (tl.date.timeIntervalSinceReferenceDate * 0.9).truncatingRemainder(dividingBy: 1.0)
+                let head = Int(prog * Double(dense.count - 1))                  // loops the path at ~0.9 lengths/s
                 let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§5)
                 for k in 0..<trailLen {
                     let i = head - k

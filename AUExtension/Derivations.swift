@@ -850,10 +850,15 @@ struct SealGeometry: Equatable {
 func sealGeometry(_ hash: UInt32) -> SealGeometry {
     var rng = SealRNG(s: hash)
     let dx = [1, -1, 0, 0], dy = [0, 0, 1, -1]      // dir 0/1 = ±x, 2/3 = ±y → opposite = dir^1 (backtrack test)
-    var x = rng.next(mod: 3), y = rng.next(mod: 3)
+    // START on a LEFT/RIGHT edge, then a FORCED horizontal move inward — so the route ALWAYS spans across the
+    // lattice and (with bbox-fit rendering) fills the full LENGTH instead of hugging one side (user request).
+    let startLeft = rng.next(mod: 2) == 0
+    var x = startLeft ? 0 : 2, y = rng.next(mod: 3)
     var nodes = [SIMD2(Double(x), Double(y))]
-    var lastDir = -1
-    for _ in 0..<4 {                                 // ≤4 moves → ≤5 nodes
+    var lastDir = startLeft ? 0 : 1
+    x += dx[lastDir]; y += dy[lastDir]
+    nodes.append(SIMD2(Double(x), Double(y)))
+    for _ in 0..<3 {                                 // up to 3 further free moves → ≤5 nodes
         var moved = false
         for _ in 0..<8 {                             // ≤8 rejection tries per move
             let dir = rng.next(mod: 4)

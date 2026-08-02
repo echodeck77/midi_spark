@@ -1167,6 +1167,8 @@ final class DerivationsTests: XCTestCase {
                 XCTAssertEqual(abs(d.x) + abs(d.y), 1, "each move is one orthogonal step")
                 if i >= 2 { XCTAssertFalse(d == -(g.nodes[i - 1] - g.nodes[i - 2]), "no immediate backtrack") }
             }
+            let xr = (g.nodes.map { $0.x }.max() ?? 0) - (g.nodes.map { $0.x }.min() ?? 0)
+            XCTAssertGreaterThanOrEqual(xr, 1, "the route spans across horizontally (edge start + forced entry) → fills the length")
             if g.coilNode >= 0 { XCTAssertTrue(g.coilNode >= 1 && g.coilNode <= g.nodes.count - 2, "coil straddles a mid node") }
         }
     }

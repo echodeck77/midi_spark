@@ -17,10 +17,12 @@ FNV-1a (offset 2166136261, prime 16777619). Twins share one hash ⇒ share one s
 Via a **mulberry32 step PRNG** seeded by the hash (`SealRNG`) — every decision is a successive draw, so
 the seal is reproducible from the hash. (The mockup HTML wasn't shipped to Code; the generation is ported
 from the prose below. If the mockup's exact PRNG/proportions differ, reconcile — the GRAMMAR is fixed.)
-**B1. START.** `x = rnd()%3, y = rnd()%3` on a 3×3 lattice.
-**B2. ROUTE.** ≤4 orthogonal moves (≤5 nodes). Per move draw `dir = rnd()%4` (0/1 = ±x, 2/3 = ±y);
-REJECT immediate backtrack (`dir == last^1`) and out-of-bounds, ≤8 rejection tries each; a boxed-in move
-stops the route early.
+**B1. START — edge-biased (USER CHANGE, deviates from the mockup's `x=rnd()%3`).** Start on a LEFT/RIGHT
+edge column (`x ∈ {0,2}`), `y = rnd()%3`. Then a FORCED first move horizontally inward. This guarantees the
+route spans across the lattice so the seal uses the full LENGTH instead of hugging one side.
+**B2. ROUTE.** Then ≤3 further orthogonal moves (≤5 nodes total). Per move draw `dir = rnd()%4` (0/1 = ±x,
+2/3 = ±y); REJECT immediate backtrack (`dir == last^1`) and out-of-bounds, ≤8 rejection tries each; a
+boxed-in move stops the route early.
 **B3. CORNER BITS.** One hash word `round`; at interior node `i` the turn is a QUARTER-ARC iff
 `(round>>i)&1` (arcTo, radius = 0.45 × pitch), else a sharp MITRE.
 **B4. COIL.** Iff `hash%4==0` (and there are interior nodes): ONE open 300° circle (start angle 0.6 rad,
@@ -29,33 +31,38 @@ At most one, ever.
 **B5. TERMINALS.** FILLED start dot (r = 1.15 × stroke) · ARROWHEAD at the end (length 2.5 × stroke,
 ±2.5-rad wings, filled), oriented by the last segment.
 **B6. Pure geometry.** `sealGeometry(hash) -> SealGeometry {nodes, arcAtNode, coilNode}` in lattice space;
-the SwiftUI layer (`drawSeal`) maps nodes → the rect (pitch = half the drawable span) and draws it. Cache
-one path per unique hash — twins share it (×64 grid stays cheap by construction).
+the SwiftUI layer (`sealLayout`/`drawSeal`) FITS the route's bounding box to the padded rect (independent
+x/y scale) — so the seal fills the full length + height wherever the route sits (USER CHANGE — replaces the
+fixed 0…2 lattice mapping; the visible-lattice option of §E is dropped as a consequence). Twins share one path.
 
 ## C — THE BADGE (cell face)
 **C1.** Occupied cell face = **hue block (whose) · THE SEAL (which) · bus dots (where)**.
-**C2. The plate.** A rounded-square inset plate, LEFT-set: inset 6pt (top/left/bottom), width = height
-(square by construction), corner radius 8pt, fill ≈ 14% black + a 1pt inner hairline 10% black — an
-engraved plate on the hue. The type emblem AND the digest text RETIRE from the face.
-**C3. The seal inside** the plate: padding 18% of badge width; pitch = (W − 2·pad)/2. Stroke 2.4pt, round
-caps/joins, ink `rgba(12,12,16,0.8)`. NO lattice dots at cell size.
-**C4. Bus dots** move to the bottom-RIGHT; the face's right region stays clear (future name/space).
+**C2. The plate (USER CHANGE — CENTRED + rectangular, was left-set square).** A rounded-square-cornered
+engraved plate, CENTRED, filling the cell above the dots so it reads LANDSCAPE (wider than tall); corner
+radius 8pt, fill ≈ 14% black + a 1pt inner hairline 10% black. The type emblem AND digest text RETIRE.
+**C3. The seal inside** the plate: padding 16% of the shorter side; the route's bbox fits the plate (§B6),
+so it fills the length. Stroke 2.4pt, round caps/joins, ink `rgba(12,12,16,0.8)`. NO lattice at cell size.
+**C4. Bus dots** sit CENTRED at the foot (USER CHANGE — was bottom-right).
 
 ## D — THE COMET (motion = MIDI only; invisible = frozen)
 **D1. Silent cell:** the seal renders STATIC at rest ink. No timers.
-**D2. Note event** (per-cell strike feed, `cellStrike[64]` → `pollCellStrikes`): ONE spark runs the wire
-START→ARROW at ~0.9 lengths/sec; TRAIL length ∝ velocity; the seal ink BRIGHTENS by up to +0.35α on
-strike, decaying ~450 ms. Re-strikes re-glow, never spawn a second spark (ONE traveller per cell; budget
-law). **The spark slows to ~0.6× while crossing the coil node** (the one charm) — _deferred §5 polish;
-current build runs a constant-speed spark._
-**D3. Death:** the spark dies (seal back to rest ink, frozen) ~1 s after the last event; backgrounded = frozen.
+**D2. Note event** (per-cell strike feed, `cellStrike[64]` → `pollCellStrikes`): ONE spark runs the wire.
+Its POSITION FREE-RUNS on a continuous clock (loops the path at ~0.9 lengths/sec), so a new note does NOT
+reset it to the start (USER FIX — it used to snap back each note); while notes keep arriving the spark keeps
+travelling. Each strike RE-GLOWS the wire (+0.35α, decaying ~450 ms) and keeps the spark alive. TRAIL length
+∝ velocity. ONE traveller per cell (budget law). **The coil-node slowdown** stays deferred polish (constant
+speed for now). _Precise note-on/off DURATION (a spark bound exactly to how long a note is held, release-driven)
+wants a per-cell SOUNDING feed — a follow-up; the current keep-alive is note-ON driven._
+**D3. Death:** the spark fades (seal back to rest ink, frozen) ~1.1 s after the last event; backgrounded = frozen.
 
 ## E — THE EDIT PAGE (the large seal)
-**E1.** IDENTITY hosts the seal LARGE (a big plate beside the 4×4 hue picker): stroke 3.4pt, ink
-`rgba(236,234,223,0.9)` on the panel plate, LATTICE VISIBLE (nine 1.6pt dots at ~20% alpha).
+**E1. (USER CHANGE — MATCH THE CELLS.)** IDENTITY hosts the seal on the chosen-colour box, drawn to MATCH
+the grid cells: a LANDSCAPE engraved plate with the SAME BLACK ink `rgba(12,12,16,0.8)` (was light
+`rgba(236,234,223,0.9)`), stroke 2.8pt, NO visible lattice (was on). Same dimensions/aspect as a cell seal —
+the selected-colour indicator and the cells now read identically.
 **E2. Change:** on ANY config change, re-hash → re-route. Design target = arc-length resample old+new to
-64 points and lerp ~400 ms (terminals + coil crossfade the same window). _CURRENT build: a simple ~250ms
-opacity CROSSFADE stands in; the per-point lerp is deferred polish. Cells: a 250ms crossfade suffices._
+64 points and lerp ~400 ms. _CURRENT build: a simple ~250ms opacity CROSSFADE stands in; the per-point lerp
+is deferred polish._
 **E3.** While the audition loop runs, the big seal carries the comet too (same D rules). _Not yet built —
 only the grid comet + the edit-page crossfade are live._
 

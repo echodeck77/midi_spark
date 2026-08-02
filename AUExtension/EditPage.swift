@@ -358,16 +358,20 @@ extension DiagView {
         let gap: CGFloat = 5
         let box = s2 * 4 + gap * 3                          // the 4×4 grid's footprint = the chosen box's size
         HStack(alignment: .center, spacing: 14) {
-            // The chosen-colour box hosts the LARGE SEAL (the cell's derived signature, §4): light ink on the plate,
-            // the nine lattice dots VISIBLE. A config change (hence a new hash) CROSSFADES the seal (~250ms). (The
-            // arc-length re-route glide of §4 is deferred polish — the crossfade stands in.)
+            // The chosen-colour box hosts the cell's SEAL, drawn to MATCH the grid cells: a landscape (wider-than-tall)
+            // engraved plate with the SAME BLACK ink (user: it must match the cells, not show white/square). A config
+            // change (new hash) CROSSFADES the seal (~250ms). (The arc-length re-route glide of §4 is deferred polish.)
             RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray).frame(width: box, height: box)
                 .overlay(
-                    Canvas { ctx, size in
-                        drawSeal(sealGeometry(sealHash(cell)), into: ctx, size: size, padFraction: 0.18,
-                                 stroke: 3.4, ink: sealInkLarge, showLattice: true, latticeInk: sealInkLarge.opacity(0.22))
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                   // engraved plate (as cells)
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                        Canvas { ctx, size in
+                            drawSeal(sealGeometry(sealHash(cell)), into: ctx, size: size, padFraction: 0.16, stroke: 2.8, ink: sealInk)
+                        }
                     }
-                    .padding(6).id(sealHash(cell)).transition(.opacity)
+                    .frame(width: box - 16, height: (box - 16) * 0.62)                                       // landscape — matches the cell seal's dims
+                    .id(sealHash(cell)).transition(.opacity)
                 )
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
                 .animation(.easeInOut(duration: 0.25), value: sealHash(cell))
