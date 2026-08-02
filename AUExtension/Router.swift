@@ -131,6 +131,11 @@ final class Router {
     private var soundCol = [[Int8]](repeating: [Int8](repeating: -1, count: 12), count: 4)
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
+    // THE ORBIT COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
+    // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
+    // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
+    private var cellStrike = [UInt8](repeating: 0, count: 64)
+    private var currentCellIndex: Int = -1
     private var currentAlt = false                   // §2 the emitting cell's effective FACE (A/B), stamped onto opened voices
     // §2 CONTINUITY: transition scratch — a legato immortal voice is a candidate for ADOPTION until the
     // reconcile either keeps it (matched by the new column) or closes it (dropped). Sized to the pool, reused.
@@ -359,6 +364,13 @@ final class Router {
     func drainMeters() -> (peak: [UInt8], events: [UInt32]) {
         let r = (meterPeakVel, meterEvents)
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
+        return r
+    }
+    /// ORBIT comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
+    /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
+    func drainCellStrikes() -> [UInt8] {
+        let r = cellStrike
+        for i in 0..<64 { cellStrike[i] = 0 }
         return r
     }
 
@@ -672,6 +684,8 @@ final class Router {
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
+        if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // ORBIT comet: this cell struck
+
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
             markVel[bus][markCount[bus]] = v; markCol[bus][markCount[bus]] = currentColourIndex
             markCount[bus] += 1
@@ -738,6 +752,7 @@ final class Router {
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
+            currentCellIndex = column * Snap.rows + r  // ORBIT comet: this cell's grid index
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -1070,6 +1085,7 @@ final class Router {
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
+            currentCellIndex = effColumn * Snap.rows + r  // ORBIT comet: this cell's grid index (the sounding column)
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited

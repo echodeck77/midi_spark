@@ -855,24 +855,6 @@ func orbitInitialPoints(a: Double, b: Double, phi: Double, squish: Double, point
     }
     return pts
 }
-/// C — THE MINI-WAVEFORM: one period of a 3-harmonic mix whose amplitudes/phases come from the hash — maximally
-/// "audio-native". Returns `samples+1` points, x ∈ [−1,1] left→right, y normalised to [−1,1]. Pure.
-func orbitWaveform(_ hash: UInt32, samples: Int = 48) -> [SIMD2<Double>] {
-    let amps = [1.0, 0.25 + Double((hash >> 4) & 7) / 10.0, 0.15 + Double((hash >> 12) & 7) / 16.0]
-    let phs = [Double(hash % 628) / 100.0, Double((hash >> 8) % 628) / 100.0, Double((hash >> 16) % 628) / 100.0]
-    let n = max(2, samples)
-    var pts: [SIMD2<Double>] = []; pts.reserveCapacity(n + 1)
-    var maxY = 0.0001
-    for i in 0...n {
-        let x = Double(i) / Double(n)                                // 0…1 (one period)
-        var y = 0.0
-        for k in 0..<3 { y += amps[k] * sin(2.0 * Double.pi * Double(k + 1) * x + phs[k]) }
-        maxY = max(maxY, abs(y))
-        pts.append(SIMD2(x * 2 - 1, y))
-    }
-    for i in pts.indices { pts[i].y /= maxY }                        // normalise into [−1, 1]
-    return pts
-}
 
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
 /// from deletion (scenes-are-precious). Pure/testable.

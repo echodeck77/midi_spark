@@ -92,48 +92,6 @@ struct OrbitInitialShape: Shape {
         return smoothedOpenPath(pts)
     }
 }
-/// C — THE MINI-WAVEFORM (cell scale): one period of a hash-derived 3-harmonic mix, as a polyline.
-struct WaveformShape: Shape {
-    let hash: UInt32
-    var samples: Int = 48
-    func path(in rect: CGRect) -> Path {
-        let inset = min(rect.width, rect.height) * 0.12
-        let pts = orbitWaveform(hash, samples: samples).map { orbitMap($0, in: rect, inset: inset) }
-        var path = Path()
-        guard pts.count > 1 else { return path }
-        path.move(to: pts[0]); for p in pts.dropFirst() { path.addLine(to: p) }
-        return path
-    }
-}
-
-/// THE ORBIT HARNESS (stage-1 feedback) — the 3-way bake-off at REAL cell size: A the reduced INITIAL ·
-/// B the full ORBIT · C the mini-WAVE, over 8 sample hashes. The user picks the body that stays distinct at a
-/// glance; the winner freezes. Dev-only (opened from the dev loader).
-struct OrbitHarness: View {
-    private let side: CGFloat = 42
-    private let hashes: [UInt32] = [0x1A2B3C4D, 0x009F1E22, 0x7788AA33, 0x33CC9911, 0x00ABCDEF, 0x24681012, 0xFEDCBA98, 0x55500077]
-    private let fill = Color(hex: 0xFFC53D)   // a sample cell hue
-    private let ink = StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("ORBIT HARNESS · A INITIAL · B ORBIT · C WAVE — pick the body that stays distinct at a glance")
-                .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(alignment: .top, spacing: 14) {
-                col("A") { AnyView(OrbitInitialShape(hash: $0).stroke(orbitInk, style: ink)) }
-                col("B") { AnyView(OrbitShape(hash: $0).stroke(orbitInk, style: ink).aspectRatio(1, contentMode: .fit)) }
-                col("C") { AnyView(WaveformShape(hash: $0).stroke(orbitInk, style: ink)) }
-            }
-        }
-    }
-    private func col(_ label: String, _ body: @escaping (UInt32) -> AnyView) -> some View {
-        VStack(spacing: 5) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
-            ForEach(hashes, id: \.self) { h in
-                ZStack { RoundedRectangle(cornerRadius: 6).fill(fill); body(h).padding(3) }.frame(width: side, height: side)
-            }
-        }
-    }
-}
 
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
 let colourHexes: [UInt32] = [
@@ -204,6 +162,8 @@ struct GridView: View {
     var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
     var animateSelection: Bool = false               // MODE ROW: the SELECTED cells wear a marching black/white dashed border (setup grid)
     var showAddPlus: Bool = false                    // MODE ROW · ADD/EDIT with a selection: empty cells show a faint "+" (tap to add)
+    var cellHitAt: [Date] = []                       // ORBIT comet: per-cell last-strike time (index col*8+row)
+    var cellHitVel: [Double] = []                    // ORBIT comet: per-cell last-strike velocity (0–1)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -383,9 +343,13 @@ struct GridView: View {
             } else if let cell {
                 // THE SIGNATURE (which) — TWO-SCALE: cells wear the REDUCED open stroke (the "initial", legible at
                 // ~30px); the Edit page carries the full orbit. Same hash → both. Bus dots (where) stay below.
+                // A COMET travels the stroke while the cell fires MIDI (D).
                 VStack(spacing: 0) {
-                    OrbitInitialShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                        .aspectRatio(1, contentMode: .fit).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ZStack {
+                        OrbitInitialShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                        orbitComet(cell, col * 8 + row)
+                    }
+                    .aspectRatio(1, contentMode: .fit).frame(maxWidth: .infinity, maxHeight: .infinity)
                     busDots(cell, firing: inActiveCol)
                 }
             } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
@@ -580,6 +544,43 @@ struct GridView: View {
             }
         }
         .frame(maxWidth: .infinity).padding(.bottom, 3)
+    }
+
+    // THE ORBIT COMET (§D) — a single traveller runs the drawn stroke while the cell fires MIDI, then dies ~1s
+    // after the last note. Ping-pong along the initial; trail ∝ velocity; a strike GLOW brightens the stroke,
+    // decaying ~450ms. Driven by the per-cell hit feed (col*8+row); frozen when the view is hidden.
+    @ViewBuilder private func orbitComet(_ cell: Cell, _ idx: Int) -> some View {
+        let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
+        let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
+        let fig = orbitFigure(orbitHash(cell))
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+            Canvas { ctx, size in
+                let age = tl.date.timeIntervalSince(hitAt)
+                guard age >= 0, age < 1.1 else { return }                       // the comet lives ~1.1s after the strike
+                let inset = min(size.width, size.height) * 0.12
+                let dense = orbitInitialPoints(a: fig.a, b: fig.b, phi: fig.phi, squish: fig.squish, points: 40)
+                    .map { orbitMap($0, in: CGRect(origin: .zero, size: size), inset: inset) }
+                guard dense.count > 1 else { return }
+                let life = max(0.0, 1 - age / 1.1)                              // the comet fades over its life
+                let glow = max(0.0, 1 - age / 0.45)                            // the strike glow decays ~450ms
+                if glow > 0 {                                                   // §D2: the stroke brightens on strike
+                    var p = Path(); p.move(to: dense[0]); for pt in dense.dropFirst() { p.addLine(to: pt) }
+                    ctx.stroke(p, with: .color(.white.opacity(0.35 * glow)), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                }
+                let f = (age * 0.9 * 2).truncatingRemainder(dividingBy: 2)      // ping-pong 0→1→0 at ~0.9 cyc/s
+                let head = Int((f < 1 ? f : 2 - f) * Double(dense.count - 1))
+                let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§D2)
+                for k in 0..<trailLen {
+                    let i = head - k
+                    guard i >= 0, i < dense.count else { continue }
+                    let alpha = life * (1 - Double(k) / Double(trailLen)) * 0.95
+                    let r: CGFloat = k == 0 ? 2.6 : max(0.6, 2.2 - CGFloat(k) * 0.22)
+                    ctx.fill(Path(ellipseIn: CGRect(x: dense[i].x - r, y: dense[i].y - r, width: r * 2, height: r * 2)),
+                             with: .color(.white.opacity(alpha)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     // ---- routing derivation (mirrors engine resolvedParent/parentRow — truthful, delta §1) ----

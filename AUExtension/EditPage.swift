@@ -210,6 +210,7 @@ extension DiagView {
                  laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  showAddPlus: editMode == .addEdit && !editSel.isEmpty,
+                 cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],

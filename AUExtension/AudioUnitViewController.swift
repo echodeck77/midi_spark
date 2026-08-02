@@ -144,6 +144,10 @@ struct DiagView: View {
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
+    // ORBIT comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
+    // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
+    @State var cellHitAt = [Date](repeating: .distantPast, count: 64)
+    @State var cellHitVel = [Double](repeating: 0, count: 64)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -825,6 +829,12 @@ struct DiagView: View {
             if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
+            let strikes = au.pollCellStrikes()             // ORBIT comet: stamp a hit time + velocity per struck cell
+            if strikes.contains(where: { $0 > 0 }) {
+                let now = Date(); var at = cellHitAt, vel = cellHitVel
+                for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0 }
+                cellHitAt = at; cellHitVel = vel
+            }
         }
         // §4c INVISIBLE = FROZEN: freeze every animated TimelineView (sweeps · marks · flow · emblems · dots)
         // when our plugin view is hidden or the app is backgrounded — the render engine is untouched. onAppear/
@@ -893,6 +903,7 @@ struct DiagView: View {
                      selCol: selCol, selRow: selRow, onTap: tapCell,
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                     cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
@@ -1211,7 +1222,6 @@ struct DiagView: View {
                 }
                 devLoader
                 stuckNoteMonitor
-                ScrollView(.vertical, showsIndicators: false) { OrbitHarness() }.frame(maxHeight: 300)   // ORBIT bake-off
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.14)))

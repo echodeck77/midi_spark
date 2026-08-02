@@ -1193,6 +1193,27 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // ORBIT comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
+    // silent cell records nothing. Drains read-and-clear.
+    func testCellStrikeFeedRecordsFiringCell() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<8 {   // a few windows so the arp fires
+            router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let strikes = router.drainCellStrikes()
+        XCTAssertEqual(strikes.count, 64)
+        XCTAssertGreaterThan(strikes[0], 0, "cell (0,0) fired → its strike velocity is recorded at index 0")
+        XCTAssertEqual(strikes[1], 0, "a silent cell records nothing")
+        XCTAssertTrue(router.drainCellStrikes().allSatisfy { $0 == 0 }, "drain is read-and-clear")
+    }
+
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
     func testChainHarmonizeToRatchetRestrikesAllVoices() {
         let cs = arpColours()
