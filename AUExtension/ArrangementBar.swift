@@ -8,8 +8,9 @@ import SwiftUI
 /// tap/drag/sweep logic live in one cohesive place. The VC still owns the 4 Hz poll and the grid's scene/
 /// colours: it passes the polled `sceneEmpty`/`activeSceneIdx` DOWN and gets `onSceneOpDone` back after any op.
 ///
-/// TRANSITIONAL: the EDIT/PERFORM toggle + undo/redo stay until the modeless verbs cover grid authoring AND the
-/// cog page hosts the strip EDIT-face config (§6) — only then does the toggle die and the bar go pure.
+/// The bar hosts the prominent PERFORM/EDIT toggle (`modeToggle`) + undo/redo, and is now rendered at the top of
+/// BOTH the perform page and the edit page — one consistent header/scenes surface. The toggle replaces the old
+/// verbs-box EDIT button and the edit page's DONE close button.
 struct ArrangementBar: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
@@ -27,6 +28,8 @@ struct ArrangementBar: View {
     var canRedo: Bool = false
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
+    var isEditMode: Bool = false            // the prominent PERFORM/EDIT toggle — reflected on BOTH pages (shared bar)
+    var onSetEditMode: (Bool) -> Void = { _ in }
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -40,6 +43,7 @@ struct ArrangementBar: View {
 
     private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — the EDIT segment (matches DiagView.editHue)
     private let sceneStripSpace = "sceneStripRow"     // one name for the chip-row coordinate space + its drag gesture
 
     var body: some View {
@@ -48,6 +52,7 @@ struct ArrangementBar: View {
                 Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
                     .foregroundColor(.white.opacity(0.85)).fixedSize()
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
+                modeToggle                                                         // the prominent PERFORM/EDIT toggle
                 presetButton                                                       // §3 PRESETS: the selector, right of the logo
                 undoRedo                                                            // /btw ②: UNDO/REDO to the right of the preset selector
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
@@ -66,6 +71,27 @@ struct ArrangementBar: View {
             beatSampledAt = Date()
             if pendingScene != nil || pendingRecue { sceneBlink.toggle() } else if sceneBlink { sceneBlink = false }
         }
+    }
+
+    // THE PERFORM/EDIT TOGGLE — a prominent two-segment control, present on BOTH pages (the shared bar). PERFORM
+    // lights cyan, EDIT lights orchid. Replaces the verbs-box EDIT button + the edit page's DONE close button.
+    private var modeToggle: some View {
+        HStack(spacing: 0) {
+            modeSeg("PERFORM", active: !isEditMode, hue: barCyan)
+            modeSeg("EDIT", active: isEditMode, hue: editHue)
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .fixedSize()
+    }
+    private func modeSeg(_ label: String, active: Bool, hue: Color) -> some View {
+        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1)
+            .foregroundColor(active ? .black : .white.opacity(0.55))
+            .padding(.horizontal, 13).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.clear))
+            .contentShape(Rectangle())
+            .onTapGesture { onSetEditMode(label == "EDIT") }
     }
 
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.

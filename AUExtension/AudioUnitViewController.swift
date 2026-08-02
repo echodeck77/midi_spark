@@ -410,29 +410,18 @@ struct DiagView: View {
     var verbCluster: some View {
         VStack(spacing: 6) {
             // HOLD (moved from the controls panel — the §5c sustain latch) · MUTE (arm → tap cells to mute) ·
-            // SELECT (to be implemented) · EDIT (the toggle to the cell Edit page, kept set apart).
+            // SELECT (to be implemented). EDIT moved OUT of the cluster — it's the header PERFORM/EDIT toggle now.
             roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
                 .contentShape(Rectangle()).onTapGesture { toggleHold() }
             roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
                 .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
             roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
                 .opacity(0.4).allowsHitTesting(false)
-            editVerbButton()                               // §cell-edit A1: the EDIT toggle — kept, set apart
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
-    // §cell-edit A1: EDIT — a 6th control, a TOGGLE (tap to arm, tap to disarm). Reuses roundVerb with
-    // active:editArmed, so it stays FILLED while armed (latched look) — visually distinct from a spring verb,
-    // which only fills while physically held. Arming drops any held spring verb (A3, the other direction).
-    func editVerbButton() -> some View {
-        roundVerb(label: editArmed ? "EDIT ✕" : "EDIT", hue: Self.editHue, active: editArmed, badge: nil)
-            .onTapGesture {
-                editArmed.toggle()
-                if editArmed { heldVerb = nil }
-            }
-    }
     func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
@@ -1160,7 +1149,9 @@ struct DiagView: View {
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
                        currentPreset: currentPreset, onOpenPresets: openPresets,
                        canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
-                       onUndo: undo, onRedo: redo)
+                       onUndo: undo, onRedo: redo,
+                       isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
+                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on })
     }
     // §3 PRESETS wiring
     func openPresets() {

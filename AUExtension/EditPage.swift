@@ -85,20 +85,8 @@ extension DiagView {
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Text("GRID SETUP").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Self.editHue)
-                Spacer()
-                Button { au?.uiUndo(); refreshFromDocument() } label: { headerIcon("arrow.uturn.backward", on: au?.uiCanUndo ?? false) }
-                    .buttonStyle(.plain).disabled(!(au?.uiCanUndo ?? false))
-                Button { au?.uiRedo(); refreshFromDocument() } label: { headerIcon("arrow.uturn.forward", on: au?.uiCanRedo ?? false) }
-                    .buttonStyle(.plain).disabled(!(au?.uiCanRedo ?? false))
-                Button { editArmed = false } label: {                // the only exit while the spike owns the screen
-                    Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue))
-                }.buttonStyle(.plain)
-            }
+            arrangementBar                                          // the SHARED header + scenes bar (consistent with PERFORM;
+                                                                    // the PERFORM/EDIT toggle here replaces the old DONE button)
             spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top (its column keys toggle the loop)
             modeRow()                                                // MODE ROW: ADD/EDIT · MOVE · MUTE · CLEAR ‖ APPLY · CANCEL
             Text(modeGuidance)                                       // the ALWAYS-VISIBLE guidance for the current mode
@@ -146,10 +134,6 @@ extension DiagView {
         case .mute:    return "Choose cells to mute"
         case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
         }
-    }
-    func headerIcon(_ system: String, on: Bool) -> some View {
-        Image(systemName: system).font(.system(size: 15, weight: .heavy)).foregroundColor(on ? Self.editHue : .white.opacity(0.2))
-            .frame(width: 34, height: 30).background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(on ? 0.14 : 0.05)))
     }
     func modeChip(_ label: String, _ mode: EditPageMode) -> some View {
         let on = editMode == mode
