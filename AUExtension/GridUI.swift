@@ -39,19 +39,18 @@ let sealInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255,
 /// The seal's ink at EDIT scale — light on the panel plate (design §4).
 let sealInkLarge = Color(.sRGB, red: 236.0 / 255, green: 234.0 / 255, blue: 223.0 / 255, opacity: 0.9)
 
-/// Map a lattice node (x,y ∈ 0…2) into a square drawn centred in `size`, at `pitch` per lattice unit.
-private func sealMap(_ n: SIMD2<Double>, side: CGFloat, origin: CGPoint, pad: CGFloat, pitch: CGFloat) -> CGPoint {
-    CGPoint(x: origin.x + pad + CGFloat(n.x) * pitch, y: origin.y + pad + CGFloat(n.y) * pitch)
+/// The seal's lattice pitch inside `size`, FILLING a padded rectangle (independent x/y pitch → the glyph takes
+/// its container's aspect: a square box ⇒ a square seal, a wide box ⇒ a wide seal). Pad = padFraction of the
+/// SHORTER side; the lattice is 0…2 = two pitches per axis.
+private func sealPitch(_ size: CGSize, _ padFraction: CGFloat) -> (pad: CGFloat, px: CGFloat, py: CGFloat) {
+    let pad = min(size.width, size.height) * padFraction
+    return (pad, (size.width - 2 * pad) / 2, (size.height - 2 * pad) / 2)
 }
 
-/// The seal's node points inside `size` (arc-length source for the comet + the drawn wire). Centred square,
-/// padding `padFraction` of the side; pitch = half the drawable span (the lattice is 0…2 = two pitches).
+/// The seal's node points inside `size` (arc-length source for the comet + the drawn wire).
 func sealNodePoints(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> [CGPoint] {
-    let side = min(size.width, size.height)
-    let pad = side * padFraction
-    let pitch = (side - 2 * pad) / 2
-    let origin = CGPoint(x: (size.width - side) / 2, y: (size.height - side) / 2)
-    return geo.nodes.map { sealMap($0, side: side, origin: origin, pad: pad, pitch: pitch) }
+    let (pad, px, py) = sealPitch(size, padFraction)
+    return geo.nodes.map { CGPoint(x: pad + CGFloat($0.x) * px, y: pad + CGFloat($0.y) * py) }
 }
 
 /// Draw the seal into a GraphicsContext (design §2): the WIRE (quarter-arc iff flagged, else sharp mitre),
@@ -59,24 +58,21 @@ func sealNodePoints(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> 
 /// adds the nine faint lattice dots (edit page, §4). Pure of state — draws the same seal for the same geo.
 func drawSeal(_ geo: SealGeometry, into ctx: GraphicsContext, size: CGSize, padFraction: CGFloat,
               stroke: CGFloat, ink: Color, showLattice: Bool = false, latticeInk: Color = .clear) {
-    let side = min(size.width, size.height)
-    let pad = side * padFraction
-    let pitch = (side - 2 * pad) / 2
-    let origin = CGPoint(x: (size.width - side) / 2, y: (size.height - side) / 2)
+    let (pad, px, py) = sealPitch(size, padFraction)
     let pts = sealNodePoints(geo, size: size, padFraction: padFraction)
     guard pts.count > 1 else { return }
 
     if showLattice {                                    // §4: nine 1.6pt lattice dots at low alpha
         for gx in 0..<3 { for gy in 0..<3 {
-            let c = sealMap(SIMD2(Double(gx), Double(gy)), side: side, origin: origin, pad: pad, pitch: pitch)
+            let c = CGPoint(x: pad + CGFloat(gx) * px, y: pad + CGFloat(gy) * py)
             ctx.fill(Path(ellipseIn: CGRect(x: c.x - 0.8, y: c.y - 0.8, width: 1.6, height: 1.6)), with: .color(latticeInk))
         } }
     }
 
-    // the WIRE — quarter-arc (radius 0.45·pitch) at flagged interior nodes, else a sharp mitre
+    // the WIRE — quarter-arc (radius 0.45·pitch, the shorter axis) at flagged interior nodes, else a sharp mitre
     var wire = Path()
     wire.move(to: pts[0])
-    let radius = 0.45 * pitch
+    let radius = 0.45 * min(px, py)
     for i in 1..<(pts.count - 1) {
         if geo.arcAtNode[i] { wire.addArc(tangent1End: pts[i], tangent2End: pts[i + 1], radius: radius) }
         else { wire.addLine(to: pts[i]) }
@@ -354,21 +350,18 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                // THE SEAL (which) — §3: a LEFT-set engraved square BADGE carries the derived seal; the bus dots
-                // (where) move to the bottom-RIGHT and the right region stays clear (future name). A COMET runs the
-                // wire while the cell fires MIDI (§5). The SAME seal appears on the Edit page (larger, lattice shown).
+                // THE SEAL (which) — a CENTRED, RECTANGULAR (wider-than-tall) engraved plate carries the derived
+                // seal (the glyph fills its plate's aspect, so it reads landscape); the bus dots (where) sit CENTRED
+                // at the foot. A COMET runs the wire while the cell fires MIDI (§5). The SAME seal is on the Edit page.
                 let geo = sealGeometry(sealHash(cell))
-                ZStack(alignment: .bottomTrailing) {
-                    HStack(spacing: 0) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))               // engraved plate
-                            RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
-                            Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.18, stroke: 2.4, ink: sealInk) }
-                            sealComet(geo, col * 8 + row)
-                        }
-                        .aspectRatio(1, contentMode: .fit)                                                   // square by height, left-set
-                        Spacer(minLength: 0)                                                                 // right region clear
+                VStack(spacing: 2) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                   // engraved plate
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                        Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
+                        sealComet(geo, col * 8 + row)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)                                        // fills → wider than tall
                     busDots(cell, firing: inActiveCol)
                 }
                 .padding(6)
@@ -554,7 +547,7 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    // ④ BUS DOTS — four small dots at the bottom-RIGHT (§3; A–D); lit = that emitter enabled, white = firing this column.
+    // ④ BUS DOTS — four small dots CENTRED at the foot (A–D); lit = that emitter enabled, white = firing this column.
     private func busDots(_ cell: Cell, firing: Bool) -> some View {
         HStack(spacing: 4) {
             ForEach(Bus.allCases, id: \.self) { b in
@@ -564,7 +557,7 @@ struct GridView: View {
                     .frame(width: 5, height: 5)
             }
         }
-        .padding([.trailing, .bottom], 3)
+        .frame(maxWidth: .infinity).padding(.bottom, 2)
     }
 
     // THE SEAL COMET (§5) — a single spark runs the wire START→ARROW while the cell fires MIDI, then dies ~1s
