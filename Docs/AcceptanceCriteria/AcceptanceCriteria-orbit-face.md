@@ -35,10 +35,10 @@ identity, two renderings:
   (ratio, φ, squish) yields a distinct simple gesture (rising S / falling hook / shallow double-wave),
   legible small because it's open + sparse. Twins share the reduction. The comet travels the drawn
   stroke end-to-end per note (ping-pong).
-- **THE BODY IS CHOSEN BY EYE**: a dev HARNESS bakes off A the INITIAL · B the full ORBIT · C a
-  mini-WAVEFORM (hash → one period of a 3-harmonic mix) over 8 sample hashes at real cell size (open
-  the dev loader). The user picks the body that stays distinct; the winner FREEZES here as identity.
-  Current interim default for cells: **A (the reduced initial)**.
+- **THE BODY IS CHOSEN — FROZEN: A (the reduced initial).** The dev HARNESS bake-off (A the INITIAL ·
+  B the full ORBIT · C a mini-WAVEFORM) ran on device; the user chose A and it "grew on me a lot." A is
+  the frozen cell identity. The harness / `WaveformShape` / `orbitWaveform` scaffolding (candidates B, C)
+  is REMOVED from the code (`a7c30b2`) — no longer a tunable.
 
 ## C — THE FACE GRAMMAR (cell-machine era)
 **C1.** Occupied cell face = **hue block (whose) · THE ORBIT (which) · bus dots (where)**.

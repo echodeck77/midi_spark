@@ -157,6 +157,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE ORBIT — the derived cell face (2026-08-02, on `main`; 379 green, iOS builds; DEVICE pass owed for the
+  comet). Spec of record: `Docs/AcceptanceCriteria/AcceptanceCriteria-orbit-face.md`. Plan:
+  `~/.claude/plans/resilient-imagining-truffle.md`. Replaces the type emblem + digest text on the cell face with
+  a lissajous figure DERIVED from the cell's BEHAVIOURAL config (twin-equality fields MINUS colourID) — so config-
+  twins VISIBLY share one figure ("the orbit cannot be dressed"). Grammar: hue block (whose) · orbit (which) ·
+  bus dots (where). PHASE 1 — THE FIGURE (`31b893f`/`a8ca5ac`/`952e71a`): pure derivation in `Derivations.swift`
+  (`orbitHash` = FNV-1a over a `.sortedKeys` JSON of processors/inputReceiver/inputRow/sorted-buses/chordSplit/
+  velWindow/chop; `orbitFigure` draws (a,b)/phi/squish from the hash via a frozen low-order 5-ratio table;
+  `orbitPoints` full t∈[0,2π] + `orbitInitialPoints` reduced half-period). TWO-SCALE signature: CELLS draw a
+  reduced open "initial" stroke (`OrbitInitialShape`, Catmull-Rom smoothed) since a full lissajous knots at ~30px;
+  the EDIT-page identity box draws the full `OrbitShape` with a ~400ms `animatableData` GLIDE on config change.
+  Ink `orbitInk` (near-black 0.38α, ~2.4pt round). PHASE 2 — THE COMET (`a7c30b2`): body A FROZEN (harness/
+  WaveformShape/orbitWaveform scaffolding removed) + a velocity-scaled comet runs the orbit while the cell fires.
+  NEW per-cell strike feed (the engine had only per-bus/per-colour marks): render-thread `Router.cellStrike[64]`
+  keyed by grid index, `currentCellIndex` tracked in emitColumnHolds + the tick loop, peak vel recorded in
+  emitArtic → `drainCellStrikes` (read-and-clear, mirrors drainMeters) → `Kernel.drainCellStrikes` →
+  `AU.pollCellStrikes` → VC 4Hz poll stamps `cellHitAt`/`cellHitVel[64]` → GridView → `orbitComet` (TimelineView+
+  Canvas: ping-pong head along the stroke, trail ∝ velocity, strike glow decaying ~450ms, dies ~1.1s after the
+  last strike, paused when idle/backgrounded). Tests: 6 Derivations (hash stable/config-sensitive/excludes colour+
+  name+mute+position/bus-order-invariant, figure ratios, reduced stroke = half-period unit space) +
+  `RouterTests.testCellStrikeFeedRecordsFiringCell`. DEFERRED: edit-page comet during the AUDITION loop (spec §E3
+  — only the grid comet + edit-page glide are built); update spec §B6 (body A frozen, harness removed) — done.**
 - **▶ REFACTORS (2026-08-02, on `main`; 372 green, iOS builds). (1) DEAD-CODE SWEEP `c2ceab8` — removed the
   mode-row wave's superseded designs (AU twin/solo path, stamp mode, hue popover, MIDI-IN splits UI, old
   cellEditPage, ChopSlot). (2) PERFORM-REWORK SWEEP `8d1d59a` — colour-desk name-editor/trash/birth-picker +
