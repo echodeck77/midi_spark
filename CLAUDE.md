@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CELL MACHINE — SHIPPED + DEVICE-VERIFIED (2026-08-02, on `main` via feat/EditPageSpike). The proposal is
+  built end-to-end and confirmed on device. READ THIS, not the per-stage "NOT on main"/"DEVICE owed" flags in the
+  bullets below — those are STALE. On `main`: per-cell processor chains · full serial execution (all six types,
+  N slots deep, pure per-beat derivation) · shared TEMPLATE + explicit edit SCOPE (colour = template+tag) · the
+  cell LIBRARY (save/stamp "machine minus routing" + FACTORY starter cells) · default grid tap = mute · the EDIT
+  page's RECEIVER source picker. Deferred-features roadmap (`~/.claude/plans/resilient-imagining-truffle.md`)
+  executed: **A** A/B MORPH REMOVED (render + UI gone; Codable fields + param addresses 200+i/300 reserved for
+  decode/automation) · **B** GRID-CHAINING RETIRED (`Cell.inputRow` inert decode-only; parentRow/parentSoundingNote/
+  chordHoldRelayFilter/emitMirrorRow deleted; receiver + emitter routing kept) · **D** factory cells · **E** ferry
+  acknowledged + this note. **DEFERRED follow-ups (not done):** (C) audition/preview still reads the Colour A face,
+  not the resolved chain (a preview-fidelity gap, low priority); an inert dead-code sweep left by A/B (unused
+  `SceneState` chaining ops · the routing-viz cell→cell edge + `RoutingVizOverlay` isChain branch + FlowView srcRow
+  half · the unreachable ProcessorBox B-face/MORPH fader · factory/T-session inert `inputRow`); the strum-mid-chain
+  rhythm approximation (accepted as inherent); a full AcceptanceCriteria/spec write-up of the new model.**
 - **▶ CELL MACHINE — per-cell processor CHAIN, stage 1 (branch `feat/EditPageSpike`, 2026-08-01; off-device:
   iOS builds + 374 unit tests green; DEVICE pass owed). Alternative setup model (`_dear_claude_code/PROPOSAL-
   cell-machine.md`): a cell OWNS a serial chain of ≤8 processor slots (type + params + per-slot bypass), shown
