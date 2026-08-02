@@ -1075,6 +1075,43 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MODE ROW (device round 2): the tick DRIVER need not be the TAIL. [ARP → open passgate] keeps ARPEGGIATING —
+    // the arp drives the rhythm and the passgate folds onto each arp note — instead of the arp collapsing to one
+    // held note (the pre-fix bug). An OPEN passgate after the arp is transparent.
+    func testArpThenOpenPassgateStillArpeggiates() {
+        let cs = arpColours()
+        let arp = ProcessorSlot(type: .arp)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+        let plain = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp]; return c }() }
+        let e0 = RecordingEmitter(); run(plain, chord([60, 64, 67]), beats: 16, into: e0)
+        let chained = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let e1 = RecordingEmitter(); run(chained, chord([60, 64, 67]), beats: 16, into: e1)
+        XCTAssertGreaterThan(e1.ons.count, 3, "arp → open passgate arpeggiates (many onsets), not one held note")
+        XCTAssertEqual(Set(e0.ons.map { $0.note }), Set(e1.ons.map { $0.note }), "an open passgate after the arp is transparent")
+        assertNothingLeftSounding(e1)
+    }
+    // A CLOSED passgate after the arp gates every arp note → silence (the fold empties the set each tick).
+    func testArpThenClosedPassgateIsSilent() {
+        let cs = arpColours()
+        let arp = ProcessorSlot(type: .arp)
+        var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, gate]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "a closed passgate after the arp gates every arp note → silence")
+        assertNothingLeftSounding(e)
+    }
+    // HARMONIZE after the arp adds its interval voice to EACH arp note (the +7 of 64 = 71 is not a chord note).
+    func testArpThenHarmonizeAddsVoiceToEachArpNote() {
+        let cs = arpColours()
+        let arp = ProcessorSlot(type: .arp)
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, harm]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(71) || notes.contains(74), "harmonize after the arp adds the +7 voice to arp notes")
+        assertNothingLeftSounding(e)
+    }
+
     // CELL MACHINE stage-2 (FULL note-set flow): [harmonize +7 → ARP] arps BOTH the source note AND the added
     // voice — the whole set flows to the tail, not one note.
     func testChainHarmonizeToArpArpsAllVoices() {

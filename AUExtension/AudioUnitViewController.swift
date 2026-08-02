@@ -1338,52 +1338,45 @@ struct DiagView: View {
                 ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
                     slotBox(i, slot, cell: cell).frame(width: boxWidth)
                 }
-                if chain.count < 8 {
-                    Button { au?.addSlotCells(editSelTargets); refreshFromDocument() } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus").font(.system(size: 10, weight: .heavy))
-                            Text("ADD PROCESSOR").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        }
-                        .foregroundColor(Self.editHue).frame(width: boxWidth, height: 34)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.12)))
-                    }.buttonStyle(.plain)
-                }
                 if chain.count > 1 {   // the chain runs end-to-end for every tail type
                     Text("Chain runs in series, head→tail.")
-                        .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                        .font(.system(size: 11, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if chain.count < 8 {                             // ADD MORE — the same big, bold TYPE selector as the empty state
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("+ ADD PROCESSOR").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                        processorTypeRow(boxWidth: boxWidth)
+                    }.padding(.top, 4)
                 }
             }
         }
     }
-    // MODE ROW — the newborn/empty-chain invitation: the cell already SOUNDS (passthrough). A big "+ ADD PROCESSOR"
-    // box + a friendly emblem TYPE SELECTOR; picking a type adds it as the first slot (across the whole selection).
+    // MODE ROW — the newborn/empty-chain invitation: the cell already SOUNDS (passthrough). A big, friendly emblem
+    // TYPE SELECTOR; picking a type adds it as the first slot (across the whole selection).
     @ViewBuilder private func emptyChainInvitation(boxWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "plus").font(.system(size: 12, weight: .heavy))
-                Text("ADD PROCESSOR").font(.system(size: 12, weight: .heavy, design: .monospaced))
-            }
-            .foregroundColor(Self.editHue).frame(width: boxWidth, height: 44)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Self.editHue.opacity(0.14)))
-            Text("Passing MIDI through untreated — pick a processor to shape it.")
-                .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PASSING MIDI THROUGH UNTREATED — PICK A PROCESSOR TO SHAPE IT")
+                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                 .fixedSize(horizontal: false, vertical: true)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(ProcessorType.allCases, id: \.self) { t in
-                        Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument() } label: {
-                            VStack(spacing: 3) {
-                                Image(systemName: emblemSymbol(t)).font(.system(size: 15, weight: .black))
-                                Text(t.rawValue).font(.system(size: 7, weight: .heavy, design: .monospaced))
-                            }
-                            .foregroundColor(Self.editHue).frame(width: 46, height: 46)
-                            .background(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.4), lineWidth: 1))
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
+            processorTypeRow(boxWidth: boxWidth)
         }
+    }
+    // The big, bold processor TYPE selector — one emblem per type; tapping appends that type to the selection's
+    // chain(s). Shared by the empty-cell invitation AND the "add another processor" control (not a default passgate).
+    @ViewBuilder private func processorTypeRow(boxWidth: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            ForEach(ProcessorType.allCases, id: \.self) { t in
+                Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument() } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: emblemSymbol(t)).font(.system(size: 22, weight: .black))
+                        Text(t.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                    }
+                    .foregroundColor(Self.editHue).frame(maxWidth: .infinity).frame(height: 62)
+                    .background(RoundedRectangle(cornerRadius: 8).stroke(Self.editHue.opacity(0.45), lineWidth: 1.5))
+                }.buttonStyle(.plain)
+            }
+        }.frame(width: boxWidth)
     }
     // MODE ROW — the selection header: how many cells this edit touches. Twins of the set PULSE on the grid to
     // invite inclusion (they are NOT auto-edited — the user taps to add them). No DETACH: the set is manual.
@@ -1477,17 +1470,24 @@ struct DiagView: View {
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
     // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
     @ViewBuilder private func identitySection(_ cell: Cell) -> some View {
-        HStack(spacing: 10) {
-            Button { showHuePicker = true } label: {                       // §2 tappable swatch → the 16-hue picker
-                RoundedRectangle(cornerRadius: 7).fill(colourColor(cell.colourID) ?? .gray).frame(width: 44, height: 44)
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.25), lineWidth: 1))
-            }.buttonStyle(.plain).popover(isPresented: $showHuePicker) { huePickerPopover }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(editName(cell.colourID)).font(.system(size: 20, weight: .heavy)).foregroundColor(.white)
-                Text(editSel.count > 1 ? "\(editSel.count) cells · anchor col \(selCol + 1) · row \(selRow + 1)" : "col \(selCol + 1) · row \(selRow + 1)")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+        let sw: CGFloat = 36
+        VStack(alignment: .leading, spacing: 12) {
+            // §4 summarise the SELECTION (count only — no colour/type name, no position).
+            Text(editSel.count == 1 ? "1 CELL SELECTED" : "\(editSel.count) CELLS SELECTED")
+                .font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+            // The chosen colour box + the ALWAYS-VISIBLE picker beside it; every box is the SAME size.
+            HStack(alignment: .top, spacing: 14) {
+                RoundedRectangle(cornerRadius: 7).fill(colourColor(cell.colourID) ?? .gray).frame(width: sw, height: sw)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.7), lineWidth: 2.5))
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(sw), spacing: 7), count: 8), spacing: 7) {
+                    ForEach(colourIDs, id: \.self) { id in
+                        let on = cell.colourID == id
+                        RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? .gray).frame(width: sw, height: sw)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(on ? 0.95 : 0.14), lineWidth: on ? 2.5 : 1))
+                            .contentShape(Rectangle()).onTapGesture { setCellColour(id) }
+                    }
+                }
             }
-            Spacer(minLength: 0)
         }
     }
     // §2 the hue picker — the 16 palette colours; picking re-tints the cell + its twins in one undoable step.

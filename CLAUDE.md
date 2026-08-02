@@ -185,7 +185,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   labels/controls enlarged throughout (radio 15, steppers/toggles 42pt tall, headers 17); twin PULSE is now a
   WHOLE-CELL cyan wash; SELECTION grouping — a true newborn is created ONLY when nothing is selected, and while a
   group is open a tapped cell JOINS it (an empty one is born as a CLONE of the anchor so the group edits together).
-  Spec of record: §C of
+  **DEVICE ROUND 3 (2026-08-02):** (1) SERIAL-EXECUTION FIX — the chain's tick DRIVER is now the LAST non-bypassed
+  arp/ratchet/strum (`Router.chainDriverIndex`), not necessarily the tail; slots before it compose as its source,
+  slots AFTER it FOLD onto each emitted note (`emitDriverNote`/`emitChop`). So `[arp → passgate]` KEEPS
+  arpeggiating (the arp drives, the passgate gates each note) instead of collapsing to one held note; `emit*Row`
+  take `chainDriver:` (was `chainTail:`). Tests: arp→open-gate arpeggiates, arp→closed-gate silent, arp→harmonize
+  adds voices (367 green). (2) ADD-PROCESSOR shows the big emblem TYPE SELECTOR (`processorTypeRow`, shared with
+  the empty invitation) — no default passgate. (3) enum slot params are always-visible radio rows; slots
+  full-width. (4) IDENTITY shows a count-only summary (no name/type/position) + the chosen-colour box beside an
+  always-visible equal-size 16-swatch picker. Spec of record: §C of
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
   stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
   markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot
