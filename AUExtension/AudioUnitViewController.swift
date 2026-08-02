@@ -83,8 +83,6 @@ struct DiagView: View {
     @State private var cellLibraryList: [String] = []
     @State private var scene = SceneState.empty()
     @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
-    @State private var nameDraft = ""        // C1: the desk's Colour-name editor buffer (synced to the brush Colour)
-    @State private var birthingSlot: String? = nil   // D2: the "+" palette slot awaiting a type pick (nil = closed)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
     @State private var heldVerb: Verb? = nil          // the currently-pressed verb
@@ -485,29 +483,6 @@ struct DiagView: View {
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     private let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
-    private func verbHint(_ v: Verb) -> String {
-        switch v {
-        case .place:  return "PLACE \(brush.uppercased()) — tap empties"
-        case .delete: return "DELETE — tap cells (links cut)"
-        case .select: return "SELECT \(selection.count) — tap to toggle"
-        case .copy:   return "COPY — tap a cell to capture"
-        case .paste:  return clipboard == nil ? "PASTE — copy a cell first" : "PASTE — tap to stamp"
-        }
-    }
-    // §11b SPRING-ONLY (user 2026-07-27): the verb is active ONLY while the button is held; release = done.
-    // No latch, no toggle. A plain press/release DragGesture gives exactly that.
-    private func verbButton(_ v: Verb) -> some View {
-        let active = activeVerb == v
-        let disabled = v == .paste && clipboard == nil     // /btw ①: PASTE is inert until the clipboard holds a cell
-        let badge: String? = v == .select && !selection.isEmpty ? "\(selection.count)"
-            : (v == .copy && clipboard != nil) ? "•" : nil   // COPY wears a dot once something's on the clipboard
-        return roundVerb(label: v.label, hue: v.hue, active: active, badge: badge)
-            .opacity(disabled ? 0.4 : 1)
-            .allowsHitTesting(!disabled)
-            .gesture(DragGesture(minimumDistance: 0)          // SPRING-ONLY (no latch): active only while held
-                .onChanged { _ in if heldVerb != v { heldVerb = v; onVerbEngaged(v) } }
-                .onEnded { _ in if v == .select { selection.removeAll() }; heldVerb = nil })   // release = APPLY (clear the stack)
-    }
     // §cell-edit A1: EDIT — a 6th control, a TOGGLE (tap to arm, tap to disarm). Reuses roundVerb with
     // active:editArmed, so it stays FILLED while armed (latched look) — visually distinct from a spring verb,
     // which only fills while physically held. Arming drops any held spring verb (A3, the other direction).
@@ -636,52 +611,6 @@ struct DiagView: View {
         guard let au else { return }
         au.editColour(brushIndex, f)
         docColours = au.uiColours()
-    }
-    // C1: commit the desk's name field to the brush Colour (empty or == the type name ⇒ nil = default label).
-    private func commitBrushName() {
-        let t = nameDraft.trimmingCharacters(in: .whitespaces)
-        let typeName = brushColour?.type.rawValue ?? ""
-        editBrushColour { $0.name = (t.isEmpty || t == typeName) ? nil : t }
-    }
-    private func syncNameDraft() { nameDraft = brushColour?.nameResolved ?? "" }
-    // D2: a "+" slot tapped → open the type picker; picking a type BIRTHS the Colour (its slot hue is the wheel
-    // default; name = the type) and makes it the brush — creation never exits a PLACE hold.
-    private func birthColour(_ id: String) { birthingSlot = id }
-    // D3: a Colour with NO painted cells (census 0) can be un-defined (deleted → a "+" slot); painted Colours
-    // are protected. Undoable (editColour records). After deleting the brush's Colour, hop the brush to a
-    // remaining defined chip so the desk never points at a "+" slot.
-    private func deleteBrushColour() {
-        guard let au, (au.uiColourCensus()[brush] ?? 0) == 0 else { return }
-        au.editColour(brushIndex) { $0.defined = false }
-        docColours = au.uiColours()
-        if let next = docColours.first(where: { $0.isDefined })?.colourID { brush = next }
-    }
-    private func doBirth(_ id: String, _ type: ProcessorType) {
-        defer { birthingSlot = nil }
-        guard let idx = colourIDs.firstIndex(of: id) else { return }
-        au?.editColour(idx) { $0.type = type; $0.defined = true; $0.name = nil }
-        docColours = au?.uiColours() ?? docColours
-        brush = id
-    }
-    private func birthPicker(_ slot: String) -> some View {
-        ZStack {
-            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { birthingSlot = nil }   // tap-out cancels
-            VStack(spacing: 0) {
-                Text("NEW COLOUR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6)).padding(.vertical, 9)
-                ForEach(ProcessorType.allCases, id: \.self) { t in
-                    Button { doBirth(slot, t) } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: emblemSymbol(t)).font(.system(size: 14, weight: .black)).frame(width: 22)
-                            Text(t.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                            Spacer()
-                        }
-                        .foregroundColor(.white).padding(.horizontal, 14).padding(.vertical, 9).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-            .frame(width: 220).padding(.bottom, 6)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(red: 0.1, green: 0.11, blue: 0.14)))
-        }
     }
     private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
@@ -840,7 +769,6 @@ struct DiagView: View {
                                 onSave: saveCellNamed, onStamp: stampFromLibrary, onStampFactory: stampFromFactory,
                                 onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false })
                 }
-                if let slot = birthingSlot { birthPicker(slot) }   // D2: the "+" slot's type picker (births a Colour)
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)
                 }
@@ -1108,21 +1036,6 @@ struct DiagView: View {
         }
     }
     private func endStroke() { strokeKey = nil }
-
-    // /btw ④: a mid-PLACE-hold palette pick switches the brush AND RETRO-REPAINTS — every cell placed THIS hold
-    // recolours to the new brush, the brush-tinted PLACE chevrons follow, and the processor desk switches to
-    // that colour (brush is the desk pointer). Coalesced per hold so repeated chip switches are one undo entry;
-    // CANCEL still reverts the whole hold via gridSnapshot.
-    private func repaintHoldToBrush(_ id: String) {
-        brush = id
-        guard let au, !placedThisHold.isEmpty else { return }
-        au.editScene(coalesceKey: "place-recolor-\(holdSeq)") { s in
-            for p in placedThisHold where s.cells[p.col][p.row] != nil {
-                s.cells[p.col][p.row]!.colourID = id
-            }
-        }
-        refreshFromDocument()
-    }
 
     private var hint: some View {
         Text(flowVariation > 0
@@ -1803,13 +1716,6 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    // A neutral placeholder box (reserved space for a future control) — flanks the bands.
-    private var placeholderBox: some View {
-        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.02))
-            .overlay(RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(.white.opacity(0.06), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-    }
-
     // The dev diagnostics (a8 stuck-note monitor) as a compact VERTICAL box — sits to the RIGHT of RECEIVERS.
     private var diagBox: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1842,7 +1748,6 @@ struct DiagView: View {
 
     // Palette tap selects the desk brush (delta item 8 retired the ALT-targeting pairing gesture — a second
     // processor is now made on the B panel, not by pairing to another Colour).
-    private func pickPalette(_ id: String) { brush = id }
 
     // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
     // colours: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
