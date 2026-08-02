@@ -139,59 +139,8 @@ final class SnapshotBuilderTests: XCTestCase {
 
     // MARK: - TWO-PROCESSOR morph (delta item 8) — b sourced from this Colour's OWN procB, tier gates resolve
 
-    func testProcBFullSourcesBFromOwnProcBAndGlides() {
-        // A FULL procB (same type as A): b comes from THIS Colour's procB, and morph glides a→b — so t=1
-        // adopts procB's params.
-        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        cs[0].paramsA.octaves = 1            // A face
-        cs[0].typeB = .arp                   // procB, same type ⇒ FULL
-        cs[0].paramsB.octaves = 3            // B face differs
-        let sc = box(cs) { _ in }.colours[0]
-        XCTAssertEqual(sc.tier, .full)
-        XCTAssertEqual(sc.a.octaves, 1)
-        XCTAssertEqual(sc.b.octaves, 3, "b comes from the Colour's own procB")
-        XCTAssertEqual(effectiveOctaves(sc, t: 1.0), 3, "morphing to procB adopts its octaves")
-    }
-
-    func testProcBSwapIsCrossTypeAndBLessIsNone() {
-        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        cs[2].type = .passgate
-        cs[2].typeB = .chance                // procB is a different type ⇒ SWAP
-        let b = box(cs) { _ in }
-        XCTAssertEqual(b.colours[2].tier, .swap, "different types ⇒ swap")
-        XCTAssertEqual(b.colours[2].b.type, .chance, "b carries procB's type")
-        XCTAssertEqual(b.colours[0].tier, .none, "no procB (typeB nil) ⇒ none")
-    }
-
-    func testSparseProcBInheritsAViaFallback() {
-        // procB is resolved with fallback A, so a field left unset on procB inherits the A face.
-        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        cs[0].paramsA.gate = 0.9
-        cs[0].typeB = .arp
-        cs[0].paramsB.octaves = 2            // set octaves on B; gate left nil → should inherit A's 0.9
-        cs[0].paramsB.gate = nil
-        let sc = box(cs) { _ in }.colours[0]
-        XCTAssertEqual(sc.b.octaves, 2)
-        XCTAssertEqual(sc.b.gate, 0.9, accuracy: 1e-9, "sparse procB gate inherits A via fallback")
-    }
-
-    func testMorphMasterRetiredNoLongerAffectsResolve() {
-        // delta §9 item 5: morphMaster (#300) is retired — the snapshot morph is the per-Colour value only.
-        let cs = colours(customizing: 0) { $0.morph = 0.2 }
-        var st = PluginState(colours: cs, scenes: [SceneState.empty()])
-        st.morphMaster = 1.0                              // would have pushed morph→1 in the old model
-        XCTAssertEqual(SnapshotBuilder.build(from: st).colours[0].morph, 0.2, accuracy: 1e-9)
-    }
-
-    func testBLessColourBEqualsAIgnoringStaleParamsB() {
-        // B-less (typeB nil): b equals a even with a stale paramsB set (a pre-pair doc must stay inert).
-        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
-        cs[0].paramsA.octaves = 2
-        cs[0].paramsB.octaves = 4            // stale — B is sourced ONLY when typeB != nil
-        let sc = box(cs) { _ in }.colours[0]
-        XCTAssertEqual(sc.tier, .none)
-        XCTAssertEqual(sc.b.octaves, 2, "b == a; procB not consulted when B-less")
-    }
+    // (CELL MACHINE: the A/B morph resolution tests — b/tier/glide/morphMaster — were REMOVED with the morph
+    //  layer. The Colour's procB Codable fields still round-trip, tested below.)
 
     func testProcBFieldsRoundTripThroughCodable() {
         // typeB/transposeB persist through a round-trip.

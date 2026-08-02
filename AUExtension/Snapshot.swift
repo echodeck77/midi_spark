@@ -147,86 +147,57 @@ final class SnapshotBox {
 /// (same-ish type) → ALT pins full-B, else the Colour's morph macro (0…1); `swap` (cross-type) → a BINARY
 /// flip on the ALT bit (0 or 1, no intermediate — the morph fader is inert for a swap pair). The global
 /// morphMaster (param #300) is RETIRED — morph is per-Colour only. Cells differ only by their alt bit.
+// CELL MACHINE (morph removed): the A/B blend is gone — every effective* reads the single (A) param bag.
+// `t` is ignored (kept in the signatures during the phased removal; call sites drop it next). The render feeds
+// these the per-cell chain slot (via the `treat` a==b==head SnapColour); audition reads the colour's A face.
 @inline(__always)
-func effectiveT(_ c: SnapColour, morph: Double, alt: Bool) -> Double {
-    switch c.tier {
-    case .none:  return 0
-    case .swap:  return alt ? 1.0 : 0.0
-    default:     return alt ? 1.0 : min(1.0, max(0.0, morph))   // full, partial
-    }
-}
+func effectiveT(_ c: SnapColour, morph: Double, alt: Bool) -> Double { 0 }
 
-/// The effective processor TYPE for a cell — flips to the partner's type at t≥0.5 (only a `swap` pair has
-/// a≠b type; `full`/`none` keep A's type at every t).
 @inline(__always)
-func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { t >= 0.5 ? c.b.type : c.a.type }
+func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { c.a.type }
 
-/// The effective passgate mask for a cell — follows the type flip (partner's mask past the midpoint).
 @inline(__always)
-func effectivePassMask(_ c: SnapColour, t: Double) -> UInt8 { t >= 0.5 ? c.b.passMask : c.a.passMask }
+func effectivePassMask(_ c: SnapColour, t: Double) -> UInt8 { c.a.passMask }
 
 @inline(__always)
 func effectiveRateBeats(_ c: SnapColour, t: Double) -> Double {
-    let ia = Double(c.a.rateIndex), ib = Double(c.b.rateIndex)
-    let idx = Int((ia + (ib - ia) * t).rounded())
-    return Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, idx))]
+    Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(c.a.rateIndex)))]
 }
 
 @inline(__always)
-func effectiveGate(_ c: SnapColour, t: Double) -> Double {
-    c.a.gate + (c.b.gate - c.a.gate) * t                      // continuous: linear
-}
+func effectiveGate(_ c: SnapColour, t: Double) -> Double { c.a.gate }
 
 @inline(__always)
-func effectiveOctaves(_ c: SnapColour, t: Double) -> Int {
-    let v = Double(c.a.octaves) + (Double(c.b.octaves) - Double(c.a.octaves)) * t
-    return max(1, min(4, Int(v.rounded())))                   // stepped: round, clamp legal
-}
+func effectiveOctaves(_ c: SnapColour, t: Double) -> Int { max(1, min(4, Int(c.a.octaves))) }
 
-// RATCHET (§3): repeats per step. Stepped field — interpolate then quantize to a LEGAL count
-// (2/3/4/6/8; 5 and 7 are not legal), never gliding through illegal values (§3.2).
+// RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
 @inline(__always)
 func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
-    let v = Double(c.a.count) + (Double(c.b.count) - Double(c.a.count)) * t
-    let legal = [2, 3, 4, 6, 8]
+    let v = Double(c.a.count), legal = [2, 3, 4, 6, 8]
     var best = legal[0], bestD = Double.greatestFiniteMagnitude
     for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
     return best
 }
 
-// RATCHET velocity ramp 0–100% (§3): continuous.
 @inline(__always)
-func effectiveRamp(_ c: SnapColour, t: Double) -> Double {
-    max(0, min(1, c.a.ramp + (c.b.ramp - c.a.ramp) * t))
-}
+func effectiveRamp(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.ramp)) }
 
-// STRUM (§3): spread is B-overridable + continuous; curve/velTilt continuous. Direction not morphed.
 @inline(__always)
-func effectiveSpread(_ c: SnapColour, t: Double) -> Double {
-    max(0, min(1, c.a.spread + (c.b.spread - c.a.spread) * t))
-}
+func effectiveSpread(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.spread)) }
 
-// CHANCE (§3): probability is B-overridable + continuous.
 @inline(__always)
-func effectiveProbability(_ c: SnapColour, t: Double) -> Double {
-    max(0, min(1, c.a.probability + (c.b.probability - c.a.probability) * t))
-}
+func effectiveProbability(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.probability)) }
 
-// HARMONIZE (§3): the 3 added-voice intervals are STEPPED (semitones) — interpolate each toward B
-// and round; velScale is continuous. Intervals clamp to −24…+24; 0 = voice off.
 @inline(__always)
 func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
-    let a: Int, b: Int
+    let a: Int
     switch voice {
-    case 0: a = Int(c.a.harmIntervals.0); b = Int(c.b.harmIntervals.0)
-    case 1: a = Int(c.a.harmIntervals.1); b = Int(c.b.harmIntervals.1)
-    default: a = Int(c.a.harmIntervals.2); b = Int(c.b.harmIntervals.2)
+    case 0: a = Int(c.a.harmIntervals.0)
+    case 1: a = Int(c.a.harmIntervals.1)
+    default: a = Int(c.a.harmIntervals.2)
     }
-    let v = (Double(a) + (Double(b) - Double(a)) * t).rounded()
-    return max(-24, min(24, Int(v)))
+    return max(-24, min(24, a))
 }
 
 @inline(__always)
-func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double {
-    max(0.1, min(1, c.a.harmVelScale + (c.b.harmVelScale - c.a.harmVelScale) * t))
-}
+func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double { max(0.1, min(1, c.a.harmVelScale)) }

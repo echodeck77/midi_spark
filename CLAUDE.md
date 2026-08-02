@@ -218,6 +218,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
     header; STAMP arms a `pendingLibraryCell` mode (banner + tap-to-place, routed at the top of `tapCell`). Tests:
     store round-trip, libraryStripped keeps-machine-drops-routing. DEFERRED: factory cells · browser thumbnails ·
     App-Group container.** NOT yet on main.**
+  - **DEVICE-VERIFIED (2026-08-02): the whole cell machine (stages 1–4) + mute + receiver-picker fix accepted on
+    device. Stages 1–4 merged to `main` (`d60689b`).**
+  - **ROADMAP-A: A/B MORPH removed — FUNCTIONAL (2026-08-02, 376 green, iOS builds; branch `feat/EditPageSpike`).
+    `effective*` now read the single (A) param bag (no A→B interpolation); `arriveMorph`/`arriveAlt` (MORPH-DRIFT
+    + ALT-ALTERNATE, both only steered the gone face) deleted; `effectiveTWithArrive` → 0-shim. Removed tests:
+    EffectiveParamsTests (emptied), 5 SnapshotBuilder procB tests, 2 Derivations arrive tests. KEPT (invariant 5 /
+    old-doc decode): Colour.morph/paramsB/typeB/… + morph param addresses 200+i/300 + arriveBusMask + ALT/voice
+    plumbing. DEFERRED to fold with ROADMAP-B (same engine paths): deleting the inert `SnapColour.b/.tier/.morph`
+    fields + the `treat` plumbing + `morphTier`/`MorphTier` + the dead UI B-face/MORPH fader (already unreachable
+    via the retired `processorPanels`).** NOT yet on main.**
 - **▶ DEFAULT GRID TAP = MUTE-TOGGLE — LANDED (2026-08-01, off-device: iOS builds + full unit suite green;
   DEVICE pass owed). User ruling: a plain perform tap on an occupied cell toggles a PERSISTED mute (dimmed,
   not hidden); muted = no emitter output + children read raw MIDI-IN (arp bypassed downstream). Reuses the

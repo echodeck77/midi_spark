@@ -508,27 +508,8 @@ func peakHoldLevel(peak: Double, since: Date, now: Date, hold: Double = 0.15) ->
 // per pass, so arrivals == the true pass counter). EVERY-N advances the effect once every N arrivals. All
 // pure functions of (config, arrivals) — no accumulation, no render-thread writes (derive-vs-mutate law).
 
-/// ALT-ALTERNATE: flip the cell's ALT bit every EVERY-N arrivals. arrivals 0 (first pass) = the base state.
-func arriveAlt(base: Bool, on: OnConfig, arrivals: Int) -> Bool {
-    guard on.arrive == .altAlternate, arrivals >= 0 else { return base }
-    let n = max(1, on.arriveEvery)
-    return base != ((arrivals / n) & 1 == 1)          // XOR the base with the flip parity
-}
-
-/// MORPH-DRIFT: advance the morph position by driftPct% every EVERY-N arrivals, wrapped (↻ sawtooth) or
-/// bounced (⇄ triangle) into [0,1]. arrivals 0 = the base morph.
-func arriveMorph(base: Double, on: OnConfig, arrivals: Int) -> Double {
-    guard on.arrive == .morphDrift, arrivals >= 0 else { return base }
-    let n = max(1, on.arriveEvery)
-    let pos = base + Double(arrivals / n) * (Double(on.driftPct) / 100.0)
-    switch on.driftMode {
-    case .loop:                                       // sawtooth 0→1→0
-        return pos - floor(pos)
-    case .pingpong:                                   // triangle 0→1→0→1
-        var ph = pos.truncatingRemainder(dividingBy: 2); if ph < 0 { ph += 2 }
-        return ph <= 1 ? ph : 2 - ph
-    }
-}
+// (CELL MACHINE: ALT-ALTERNATE `arriveAlt` and MORPH-DRIFT `arriveMorph` were REMOVED with the morph layer —
+//  both only steered the now-gone A/B face. EMITTER-ROTATE below is independent and stays.)
 
 /// EMITTER-ROTATE: rotate the cell's 4-bit emitter mask (A–D) left one position every EVERY-N arrivals,
 /// so the firing emitter(s) walk A→B→C→D→A across passes. Preserves the count of lit emitters; inert unless
@@ -634,12 +615,11 @@ func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
 func mpeLikely(channelMask: UInt16) -> Bool { channelMask.nonzeroBitCount >= 2 }
 
 /// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
-/// PLAYING derivation sites share one hook. Preview/audition pass through `effectiveT` directly (no arrivals).
+/// CELL MACHINE: morph removed — `t` is always 0 (the render reads the per-cell chain, not an A/B blend). Kept
+/// as a 0-returning shim so the render call sites are unchanged this increment; they drop `t` when the engine
+/// is next simplified.
 @inline(__always)
-func effectiveTWithArrive(_ c: SnapColour, baseMorph: Double, baseAlt: Bool, arrivals: Int) -> Double {
-    effectiveT(c, morph: arriveMorph(base: baseMorph, on: c.on, arrivals: arrivals),
-               alt: arriveAlt(base: baseAlt, on: c.on, arrivals: arrivals))
-}
+func effectiveTWithArrive(_ c: SnapColour, baseMorph: Double, baseAlt: Bool, arrivals: Int) -> Double { 0 }
 
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
 
