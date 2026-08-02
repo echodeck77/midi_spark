@@ -157,15 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ EDIT-PAGE WAVE W1 — TWIN EDITING (2026-08-02, `feat/EditPageSpike`, off-device; 363 green). SUPERSEDES the
+- **▶ EDIT-PAGE WAVE W1 — TWIN EDITING (2026-08-02, DEVICE-VERIFIED + on `main`; 363 green). SUPERSEDES the
   stage-3 scope toggle: `EditScope.twins` (config-equal cells, perform state ignored); every chain/input/output/
   chop edit applies to the pointed cell + its DERIVED twins in one undoable step (AU `withChain`/`editTwins` route
   through `editScopeTargets(.twins)`); DETACH (`soloEdit`) targets only the pointed cell → it diverges + leaves the
   set; header "EDITING N IDENTICAL CELLS"; grid shows twins (dashed) + dims non-twins. Removed the ChainScope
   toggle + template-EDIT AU methods (KEEP `Colour.templateChain` as the render fallback + birth default; KEEP
   APPLY TO… utilities).**
-- **▶ EDIT-PAGE WAVE W2+W3+W4 (2026-08-02, `feat/EditPageSpike`, off-device; iOS builds + 363 green; DEVICE
-  eyeball owed for look-and-feel). W2: sections read IDENTITY · FROM·MIDI-IN · CHAIN · TO·SYNTHS; INPUT is a
+- **▶ EDIT-PAGE WAVE W2+W3+W4 (2026-08-02, DEVICE-VERIFIED + on `main`; iOS builds + 363 green). Spec of
+  record for the model + this page: `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md`. W2: sections
+  read IDENTITY · FROM·MIDI-IN · CHAIN · TO·SYNTHS; INPUT is a
   RECEIVER RADIO (R1–R4 chips in the identity hues `receiverHues` + NONE); OUTPUT left-aligned with per-bus
   channel tags; DELETE demoted to a compact foot button; the IDENTITY swatch is tappable → a 16-hue popover that
   re-tints the cell + its twins (`setCellColour` via `editTwins`). W3: killed the empty-cell chevron watermark
