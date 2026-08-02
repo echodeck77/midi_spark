@@ -120,6 +120,9 @@ struct DiagView: View {
     // MODE ROW — cells BORN this session (empty-tap births). Re-tapping a newborn deletes it (it was just created);
     // cleared on APPLY/CANCEL (they become permanent / were reverted).
     @State private var bornThisSession: Set<GridView.GridPos> = []
+    // MODE ROW — ADD/EDIT: a POPULATED cell adopted into the group has its ORIGINAL config stashed here, so
+    // deselecting it during the session reverts it to how it was (empty-cloned cells delete instead).
+    @State private var preAdoptStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — a long-press fires its mode action ONCE per press (the underlying gesture repeats while held).
     @State private var longPressFired = false
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
@@ -223,23 +226,21 @@ struct DiagView: View {
             guard editMode == .addEdit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
             au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
-            if editSel.contains(pos) {                       // already in the group
+            if editSel.contains(pos) {                       // already in the group → tapping DESELECTS + reverts it
                 if editSel.first == pos {                    // the ANCHOR: a plain tap is a no-op (long-press drops it)
                 } else {
-                    if bornThisSession.contains(pos) {       // a cell created this session → tapping again removes it entirely
-                        au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
-                    }
-                    editSel.removeAll { $0 == pos }          // otherwise just leave the group
+                    deselect(pos)
                 }
             } else {                                         // NOT selected → add to the group (any tapped cell joins)
                 let wasEmpty = scene.cells[col][row] == nil
                 if editSel.isEmpty {                          // FIRST selection
                     if wasEmpty { au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument(); bornThisSession.insert(pos) }
                     // a populated first cell is just selected as the anchor
-                } else if let a = editSel.first {            // a group exists → the new cell ADOPTS the anchor's full
-                    au?.editScene { s in if let anchor = s.cells[a.col][a.row] { s.cells[col][row] = anchor } }   // config (populated or empty) → identical twins, edit together
+                } else if let a = editSel.first {            // a group exists → the new cell ADOPTS the anchor's full config
+                    if !wasEmpty { preAdoptStash[pos] = scene.cells[col][row] }   // stash the original so deselect can revert it
+                    au?.editScene { s in if let anchor = s.cells[a.col][a.row] { s.cells[col][row] = anchor } }   // → identical twins, edit together
                     refreshFromDocument()
-                    if wasEmpty { bornThisSession.insert(pos) }   // an empty cell cloned into the group is "born" (re-tap deletes)
+                    if wasEmpty { bornThisSession.insert(pos) }   // an empty cell cloned into the group is "born" (deselect deletes)
                 }
                 editSel.append(pos)
             }
@@ -255,6 +256,17 @@ struct DiagView: View {
     private func syncAnchor() {
         if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cells[a.col][a.row]?.colourID ?? brush }
         else { selCol = -1; selRow = -1 }
+    }
+    /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
+    /// a populated cell adopted into the group is restored from its pre-adopt stash.
+    private func deselect(_ pos: GridView.GridPos) {
+        if bornThisSession.contains(pos) {
+            au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; bornThisSession.remove(pos); refreshFromDocument()
+        } else if let orig = preAdoptStash[pos] {
+            au?.editScene { $0.cells[pos.col][pos.row] = orig }; preAdoptStash[pos] = nil; refreshFromDocument()
+        }
+        editSel.removeAll { $0 == pos }
+        syncAnchor()
     }
     /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). It defaults
     /// to a NEW colour (the first palette hue not already on the grid) so it reads as a fresh, independent cell.
@@ -277,11 +289,8 @@ struct DiagView: View {
         let pos = GridView.GridPos(col: col, row: row)
         switch editMode {
         case .addEdit:
-            guard editSel.first == pos else { return }
-            if bornThisSession.contains(pos) {
-                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
-            }
-            editSel.removeFirst(); syncAnchor()
+            guard editSel.first == pos else { return }   // only the anchor responds to a long-press (drops + reverts)
+            deselect(pos)
         case .mute, .clear:
             editModeTap(col, row)
         case .move:
@@ -873,7 +882,7 @@ struct DiagView: View {
                 au?.beginEditSession()
             } else {
                 au?.applyEditSession()
-                editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; syncAnchor()
+                editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
                 if editLoopMask != 0 { setEditLoop(0) }
             }
         }
@@ -1206,11 +1215,6 @@ struct DiagView: View {
                     .buttonStyle(.plain).disabled(!(au?.uiCanUndo ?? false))
                 Button { au?.uiRedo(); refreshFromDocument() } label: { headerIcon("arrow.uturn.forward", on: au?.uiCanRedo ?? false) }
                     .buttonStyle(.plain).disabled(!(au?.uiCanRedo ?? false))
-                Button { openCellLibrary() } label: {                // CELL MACHINE stage-4: open the cell library
-                    Text("LIBRARY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
-                }.buttonStyle(.plain)
                 Button { editArmed = false } label: {                // the only exit while the spike owns the screen
                     Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1228,7 +1232,8 @@ struct DiagView: View {
                     VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
                         sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
-                        sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(540, size.width - 48))
+                        chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
+                        chainStack(cell, boxWidth: min(540, size.width - 48))
                         sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
@@ -1293,19 +1298,19 @@ struct DiagView: View {
     private func setEditMode(_ m: EditPageMode) {
         guard m != editMode else { return }
         if editMode == .addEdit { au?.applyEditSession() }
-        editSel = []; clearedStash = [:]; bornThisSession = []; syncAnchor()
+        editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
         editMode = m
         if m == .addEdit { au?.beginEditSession() }
         refreshFromDocument()
     }
     /// APPLY — commit the staged ADD/EDIT session as one undo step, then re-open a fresh baseline so editing continues.
     private func commitSession() {
-        au?.applyEditSession(); editSel = []; bornThisSession = []; syncAnchor()
+        au?.applyEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
         au?.beginEditSession(); refreshFromDocument()
     }
     /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
     private func revertSession() {
-        au?.cancelEditSession(); editSel = []; bornThisSession = []; syncAnchor()
+        au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
         au?.beginEditSession(); refreshFromDocument()
     }
 
@@ -1449,6 +1454,18 @@ struct DiagView: View {
         HStack(spacing: 8) {
             Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // device round 2: bigger, legible
             Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
+        }.padding(.top, 4)
+    }
+    // The CHAIN section header carries the LIBRARY button at its top-right (moved off the page header).
+    @ViewBuilder private func chainSectionHeader() -> some View {
+        HStack(spacing: 8) {
+            Text("CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
+            Button { openCellLibrary() } label: {
+                Text("LIBRARY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
+            }.buttonStyle(.plain)
         }.padding(.top, 4)
     }
     // The grid's column-key row, kept above the edit page (down chevrons; the EDITED column lit) so the page

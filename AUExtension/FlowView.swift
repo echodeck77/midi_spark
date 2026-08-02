@@ -339,7 +339,7 @@ extension FlowView {
             ctx.stroke(Path(roundedRect: box, cornerRadius: 5), with: .color(accent.opacity(en ? 0.7 : 0.25)), lineWidth: 1.2)
             let ch = i < busChannels.count ? busChannels[i] : i+1
             if !thumbnail {
-                ctx.draw(Text("EMIT \("ABCD"[i]) · CH\(ch)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent.opacity(en ? 1 : 0.4)), at: CGPoint(x: x, y: eY + 22))
+                ctx.draw(Text(verbatim: "EMIT \(String("ABCD"[i])) · CH\(ch)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent.opacity(en ? 1 : 0.4)), at: CGPoint(x: x, y: eY + 22))
             }
             let lvl = i < ladder.count ? ladder[i] : 0
             for s in 0..<8 {
