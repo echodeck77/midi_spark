@@ -301,14 +301,12 @@ func playingSilenceLeak(playing: Bool, liveInput: Int, latchArmed: Bool, auditio
     return activeVoices > 0 || passthroughHeld > 0
 }
 
-/// §cell-edit F — the emit bus-mask a CHOP slot yields for a cell whose own emitters are `base`: MAIN keeps
-/// them, ALT swaps to the shared alt-destination mask, MUTE silences (0 → no emission). Pure/testable.
-func chopBusMask(_ base: UInt8, slot: ChopSlot, altMask: UInt8) -> UInt8 {
-    switch slot {
-    case .main: return base
-    case .alt:  return altMask
-    case .mute: return 0
-    }
+/// §cell-edit F — the emit bus-mask a CHOP slice yields for a cell whose own emitters are `base`. The three are
+/// INDEPENDENT: MAIN adds the cell's own emitters, ALT adds the shared alt-destination mask, MUTE silences (wins
+/// over both → 0). MAIN+ALT emits to both. Pure/testable.
+func chopBusMask(_ base: UInt8, main: Bool, alt: Bool, mute: Bool, altMask: UInt8) -> UInt8 {
+    if mute { return 0 }
+    return (main ? base : 0) | (alt ? altMask : 0)
 }
 
 /// §cell-edit F — which of the 8 chop slices a musical onset `mBeat` falls in, WITHIN its column of length `S`

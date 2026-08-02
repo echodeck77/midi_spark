@@ -49,7 +49,7 @@ final class PresetStoreTests: XCTestCase {
     func testCellLibraryRoundTripsThroughTheCodec() {
         var cell = Cell(colourID: "gold", buses: [.a])
         cell.processors = [ProcessorSlot(type: .passgate), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
-        cell.chop = Chop(slots: Array(repeating: .alt, count: 8), altDest: [.b])
+        cell.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.b])   // all slices → alt
         guard let data = CellLibraryStore.encode(cell), let back = CellLibraryStore.decode(data) else {
             return XCTFail("encode/decode produced nil")
         }
@@ -63,11 +63,11 @@ final class PresetStoreTests: XCTestCase {
     func testLibraryStrippedKeepsMachineDropsRouting() {
         var cell = Cell(colourID: "gold", buses: [.a, .b])
         cell.inputRow = 2; cell.inputReceiver = 1; cell.alt = true; cell.muted = true
-        cell.chop = Chop(slots: Array(repeating: .mute, count: 8), altDest: [])
+        cell.chop = Chop(mainMask: 0, altMask: 0, muteMask: 0xFF, altDest: [])   // all slices muted
         let s = cell.libraryStripped(materialisedChain: [ProcessorSlot(type: .harmonize), ProcessorSlot(type: .arp)])
         XCTAssertEqual(s.colourID, "gold")
         XCTAssertEqual(s.processors?.count, 2, "the materialised chain travels")
-        XCTAssertEqual(s.chop?.slots.first, .mute, "source-shaping (chop) travels")
+        XCTAssertEqual(s.chop?.muteMask, 0xFF, "source-shaping (chop) travels")
         XCTAssertNil(s.inputRow, "input row stripped"); XCTAssertNil(s.inputReceiver, "receiver stripped")
         XCTAssertTrue(s.buses.isEmpty, "output emitters stripped")
         XCTAssertFalse(s.alt); XCTAssertFalse(s.muted)   // perform state defaulted

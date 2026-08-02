@@ -1262,11 +1262,18 @@ final class Router {
                      onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
         }
     }
+    /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
+    private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {
+        guard cell.chopActive else { return base }
+        let sl = UInt8(chopSlice(m, columnBeats: S))
+        return chopBusMask(base, main: (cell.chopMain >> sl) & 1 == 1, alt: (cell.chopAlt >> sl) & 1 == 1,
+                           mute: (cell.chopMute >> sl) & 1 == 1, altMask: cell.chopAltMask)
+    }
     /// Emit one note applying the cell's per-slice CHOP routing (the shared tail of every tick emitter).
     private func emitChop(_ note: Int, cell: SnapCell, bm: UInt8, onSample: Int64, offSample: Int64,
                           windowEnd: Int64, velocity: UInt8, m: Double, S: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard note >= 0 && note <= 127 else { return }
-        let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(m, columnBeats: S)], altMask: cell.chopAltMask) : bm
+        let tbm = chopMask(cell, m: m, S: S, base: bm)
         if tbm != 0 { emitArtic(note: UInt8(note), busMask: tbm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, out: out, diag: &diag) }
     }
 
@@ -1346,7 +1353,7 @@ final class Router {
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
             let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
             // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
-            let tbm = cell.chopActive ? chopBusMask(bm, slot: cell.chopSlots[chopSlice(mTickBeat, columnBeats: S)], altMask: cell.chopAltMask) : bm
+            let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)
             if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
             if chainDriver >= 0 {
                 // CELL MACHINE: RATCHET chain DRIVER — re-strike the composed set of the stages BEFORE it at this

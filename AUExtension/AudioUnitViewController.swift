@@ -1265,7 +1265,7 @@ struct DiagView: View {
     /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
     private var modeGuidance: String {
         switch editMode {
-        case .addEdit: return "Select 1 cell, then tap more to duplicate it into a group"
+        case .addEdit: return "Select 1 cell, then choose more to edit them as a group"
         case .move:    return "Drag and drop a cell to a new position"
         case .mute:    return "Choose cells to mute"
         case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
@@ -1625,10 +1625,10 @@ struct DiagView: View {
                     Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                 }.frame(maxWidth: .infinity)
             } }
-            VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }
+            VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice; rows are INDEPENDENT
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }   // TOP = MAIN dest
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }   // MIDDLE = MUTE
+                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }   // BOTTOM = ALT dest
             }
             Text("ALT DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
             HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
@@ -1641,18 +1641,29 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : Color.white.opacity(0.08)))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
-    private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
-        let s = chop.slots[i]
-        let (state, hue): (ChopSlot, Color) = row == .main ? (.main, mainDestHue)
-                                            : row == .alt  ? (.alt, Self.editHue) : (.mute, Verb.delete.hue)
-        let lit = s == state
-        return RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.78) : Color.white.opacity(0.08))
-            .frame(maxWidth: .infinity).frame(height: 18)
-            .contentShape(Rectangle()).onTapGesture { tapChop(i, state) }
+    @ViewBuilder private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
+        let bit = UInt8(1) << UInt8(i)
+        let on: Bool = row == .main ? (chop.mainMask & bit != 0) : row == .alt ? (chop.altMask & bit != 0) : (chop.muteMask & bit != 0)
+        let hue: Color = row == .main ? mainDestHue : row == .alt ? Self.editHue : Verb.delete.hue
+        ZStack {
+            RoundedRectangle(cornerRadius: 4).fill(on ? hue.opacity(0.85) : Color.white.opacity(0.08))
+            if row == .mute {   // the MUTE row shows a speaker: unmuted when off, muted (slash) when on
+                Image(systemName: on ? "speaker.slash.fill" : "speaker.fill").font(.system(size: 11, weight: .heavy))
+                    .foregroundColor(on ? .black : .white.opacity(0.55))
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: 24)
+        .contentShape(Rectangle()).onTapGesture { tapChop(i, row) }
     }
-    private func tapChop(_ i: Int, _ state: ChopSlot) {
-        // MAIN/ALT/MUTE are mutually exclusive; tapping the active one falls back to MAIN (the default).
-        editChop { $0.slots[i] = ($0.slots[i] == state && state != .main) ? .main : state }
+    private func tapChop(_ i: Int, _ row: ChopRow) {   // each row is an INDEPENDENT per-slice toggle
+        let bit = UInt8(1) << UInt8(i)
+        editChop { c in
+            switch row {
+            case .main: c.mainMask ^= bit
+            case .alt:  c.altMask ^= bit
+            case .mute: c.muteMask ^= bit
+            }
+        }
     }
     private func toggleMainBus(_ b: Bus) {
         editPointedCell { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
@@ -2129,14 +2140,15 @@ struct DiagView: View {
     private func deleteLibraryCellNamed(_ name: String) {
         au?.deleteLibraryCell(name: name); cellLibraryList = au?.listLibraryCells() ?? []
     }
-    private func stampFromLibrary(_ name: String) {   // arm the stamp mode with the loaded cell
-        guard let c = au?.loadLibraryCell(name: name) else { return }
-        pendingLibraryCell = c; pendingLibraryName = name; showCellLibrary = false
+    // LIBRARY · APPLY — replace the CHAIN of the cells currently being edited with the library cell's chain.
+    private func applyLibraryChain(_ cell: Cell?) {
+        guard let cell, !editSel.isEmpty else { return }
+        let chain = cell.processors ?? []          // the saved cell's materialised chain (empty = passthrough)
+        au?.editCells(editSelTargets) { $0.processors = chain }
+        refreshFromDocument(); showCellLibrary = false
     }
-    private func stampFromFactory(_ name: String) {   // arm the stamp mode with a read-only factory cell
-        guard let c = au?.factoryLibraryCell(name: name) else { return }
-        pendingLibraryCell = c; pendingLibraryName = name; showCellLibrary = false
-    }
+    private func stampFromLibrary(_ name: String) { applyLibraryChain(au?.loadLibraryCell(name: name)) }
+    private func stampFromFactory(_ name: String) { applyLibraryChain(au?.factoryLibraryCell(name: name)) }
     private func endStamp() { pendingLibraryCell = nil; pendingLibraryName = "" }
 
     // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter

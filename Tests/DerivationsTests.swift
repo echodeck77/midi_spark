@@ -907,10 +907,12 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(d.velWindow, "no key ⇒ nil")
         XCTAssertEqual(d.velWindowResolved.floor, 1); XCTAssertEqual(d.velWindowResolved.ceil, 127)
     }
-    func testChopBusMaskRoutes() {   // §cell-edit F — the per-slice emit routing
-        XCTAssertEqual(chopBusMask(0b0011, slot: .main, altMask: 0b1100), 0b0011, "MAIN keeps the cell's own emitters")
-        XCTAssertEqual(chopBusMask(0b0011, slot: .alt,  altMask: 0b1100), 0b1100, "ALT swaps to the alt destination")
-        XCTAssertEqual(chopBusMask(0b0011, slot: .mute, altMask: 0b1100), 0,      "MUTE silences")
+    func testChopBusMaskRoutes() {   // §cell-edit F — the per-slice emit routing, main/alt/mute INDEPENDENT
+        XCTAssertEqual(chopBusMask(0b0011, main: true,  alt: false, mute: false, altMask: 0b1100), 0b0011, "MAIN keeps the cell's own emitters")
+        XCTAssertEqual(chopBusMask(0b0011, main: false, alt: true,  mute: false, altMask: 0b1100), 0b1100, "ALT adds the alt destination")
+        XCTAssertEqual(chopBusMask(0b0011, main: true,  alt: true,  mute: false, altMask: 0b1100), 0b1111, "MAIN+ALT emits to BOTH")
+        XCTAssertEqual(chopBusMask(0b0011, main: true,  alt: true,  mute: true,  altMask: 0b1100), 0,      "MUTE wins over both")
+        XCTAssertEqual(chopBusMask(0b0011, main: false, alt: false, mute: false, altMask: 0b1100), 0,      "nothing lit → silent")
     }
     func testChopSliceDividesTheColumn() {   // §cell-edit F — 8 slices within one column of length S beats
         XCTAssertEqual(chopSlice(0.0,   columnBeats: 1.0), 0)
@@ -922,13 +924,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(chopSlice(0.0,   columnBeats: 0.0), 0, "guard: zero-length column")
     }
     func testChopCodableAndMigration() throws {   // §cell-edit F — chop model round-trips; absent key ⇒ all-MAIN
-        var ch = Chop(); ch.slots[2] = .alt; ch.slots[5] = .mute; ch.altDest = [.c]
+        var ch = Chop(); ch.altMask = 0b0000_0100; ch.muteMask = 0b0010_0000; ch.altDest = [.c]   // slice 2 → alt, slice 5 → mute
         var c = Cell(colourID: "gold"); c.chop = ch
         let back = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(c))
-        XCTAssertEqual(back.chop, ch, "a set chop round-trips (slots + altDest)")
+        XCTAssertEqual(back.chop, ch, "a set chop round-trips (masks + altDest)")
         let d = try JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(Cell(colourID: "gold")))
         XCTAssertNil(d.chop, "no chop key ⇒ nil")
-        XCTAssertEqual(d.chopResolved.slots, Array(repeating: ChopSlot.main, count: 8), "…resolves to all-MAIN")
+        XCTAssertEqual(d.chopResolved.mainMask, 0xFF, "…resolves to all-MAIN")
+        XCTAssertEqual(d.chopResolved.altMask, 0); XCTAssertEqual(d.chopResolved.muteMask, 0)
         XCTAssertTrue(d.chopResolved.altDest.isEmpty)
     }
 

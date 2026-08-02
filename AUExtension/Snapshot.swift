@@ -42,9 +42,11 @@ struct SnapCell {
     var chordSplit = ChordSplit()   // §cell-edit D: which held source notes this cell takes (ALL default); render reads via srcCount/srcAscending(for:)
     var velFloor: UInt8 = 1         // §cell-edit D VELOCITY WINDOW: admit source notes with velocity in [floor, ceil]
     var velCeil: UInt8 = 127        // (1…127 default = admit all); applied in srcCount/srcAscending(for:) before the split
-    var chopSlots: [ChopSlot] = Array(repeating: .main, count: 8)   // §cell-edit F: per pass-column output route
-    var chopAltMask: UInt8 = 0      // §cell-edit F: the shared ALT destination as a bus bitmask (for ALT slices)
-    var chopActive = false          // fast-path: any slot ≠ MAIN
+    var chopMain: UInt8 = 0xFF       // §cell-edit F: per-slice → the cell's own emitters (bit i = slice i)
+    var chopAlt: UInt8 = 0           // §cell-edit F: per-slice → ALSO the shared ALT destination
+    var chopMute: UInt8 = 0          // §cell-edit F: per-slice → silenced (overrides)
+    var chopAltMask: UInt8 = 0       // §cell-edit F: the shared ALT destination as a bus bitmask
+    var chopActive = false           // fast-path: any slice deviates from all-MAIN
     // CELL MACHINE (feat/EditPageSpike): the resolved processor CHAIN — one SnapParams per slot, head first,
     // resolved from the cell's `processors` (or a 1-slot head from the Colour's A face when the cell has none).
     // `slotBypass[k]` = slot k's true-bypass. Morph is dropped (SnapColour.a/b/tier/morph go dormant). The

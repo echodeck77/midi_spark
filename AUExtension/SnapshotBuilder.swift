@@ -61,10 +61,10 @@ enum SnapshotBuilder {
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
                 sc.velFloor = UInt8(max(1, min(127, vw.floor))); sc.velCeil = UInt8(max(1, min(127, vw.ceil)))
-                let chp = cell.chopResolved                      // §cell-edit F: per-slice output chop (8 slots)
-                sc.chopSlots = chp.slots.count == 8 ? chp.slots : Array(repeating: .main, count: 8)   // defensive: render indexes [0…7]
+                let chp = cell.chopResolved                      // §cell-edit F: per-slice output chop (independent main/alt/mute)
+                sc.chopMain = chp.mainMask; sc.chopAlt = chp.altMask; sc.chopMute = chp.muteMask
                 sc.chopAltMask = chp.altDest.reduce(0) { $0 | (1 << $1.cable) }
-                sc.chopActive = sc.chopSlots.contains { $0 != .main }
+                sc.chopActive = chp.mainMask != 0xFF || chp.altMask != 0 || chp.muteMask != 0
                 // CELL MACHINE (grid-chaining retired): a cell is always MIDI-IN — resolvedParent stays −1.
                 // `cell.inputRow` is now inert decode-only legacy (kept for old-doc/preset compat).
                 // delta §9 item 11: a MIDI-IN cell's source filter comes from the RECEIVER it subscribes

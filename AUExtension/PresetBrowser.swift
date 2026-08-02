@@ -170,7 +170,7 @@ struct CellBrowser: View {
                                 HStack(spacing: 8) {
                                     Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.9))
                                     Spacer()
-                                    Text("STAMP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                    Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
                                         .contentShape(Rectangle()).onTapGesture { onStamp(name) }
@@ -192,7 +192,7 @@ struct CellBrowser: View {
                                 HStack(spacing: 8) {
                                     Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.8))
                                     Spacer()
-                                    Text("STAMP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                    Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
                                         .contentShape(Rectangle()).onTapGesture { onStampFactory(name) }
