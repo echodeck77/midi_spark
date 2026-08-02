@@ -173,7 +173,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   **Column-loop row** above the grid → `au.setLaneMask` (same lap path as the perform column-hold). REMOVED the
   superseded APPLY TO… foot menu + `applyCellToScope` + `EditScope.row/.column` + DETACH/`soloEdit` + foot
   DELETE (`footUtilities`/`deleteEditedCell`/`utilBtn`/`scopeCount`) + their test. Test: empty-chain =
-  born-audible passthrough (`testEmptyChainIsBornAudiblePassthrough`). Spec of record: §C of
+  born-audible passthrough (`testEmptyChainIsBornAudiblePassthrough`). **DEVICE ROUND 1 FIXES (2026-08-02):**
+  (1) CRASH editing arp PATTERN/RATE — `withChainCells` read `document` (via `materializedChain`) INSIDE the
+  `editScene` `&document…` mutation = exclusive-access trap; now materialises each chain BEFORE `editScene`.
+  (2) re-tapping a NEWBORN now deletes it (+ its controls) via `bornThisSession`. (3) a newborn defaults to a
+  NEW colour (first unused palette hue), not the brush. (4) the two column rows collapsed to ONE — the grid's
+  own column keys are now tappable (`GridView.onColumnKey`) and drive the loop (fixes "looping not working").
+  (5) twin PULSE made an unmistakable cyan dashed ring (was a subtle white one). Spec of record: §C of
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-machine.md` (rewritten). The audition head-fix from `ea4206a`
   stays (parked); its APPLY TO… half is reverted by this wave. NOT on main. JUDGMENT CALLS / owed: MIXED-set
   markers are minimal; the anchor isn't yet visually distinct from other selected cells; a full multi-slot

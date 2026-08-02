@@ -92,6 +92,7 @@ struct GridView: View {
     var onLongPressStageCell: ((Int, Int) -> Void)? = nil   // EDIT: long-press a populated cell → put it in cell-edit (+ armed for relocate)
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
+    var onColumnKey: ((Int) -> Void)? = nil          // MODE ROW · EDIT page: TAP a column key → toggle it in the loop set
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
@@ -181,15 +182,17 @@ struct GridView: View {
         HStack(spacing: Self.vGap) {
             ForEach(0..<8, id: \.self) { col in
                 let active = playing && col == playColumn
-                let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held set
-                Image(systemName: "chevron.down")           // column key — down chevron (points into the column), user 2026-07-30
-                    .font(.system(size: 15, weight: .heavy))
+                let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held (loop) set
+                Image(systemName: held ? "repeat" : "chevron.down")   // column key — LOOP glyph when in the set, else a down chevron
+                    .font(.system(size: held ? 12 : 15, weight: .heavy))
                     .foregroundColor(active ? .black : (held ? accentCyan : .white.opacity(0.45)))
                     .frame(maxWidth: .infinity).frame(height: cellHeight)   // key row = a cell's height (user 2026-07-26)
                     .background(RoundedRectangle(cornerRadius: 6)
                         .fill(active ? accentCyan : Color.white.opacity(0.06)))
                     .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
                         .stroke(held ? accentCyan : .clear, lineWidth: 2).padding(1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onColumnKey?(col) }             // MODE ROW · EDIT page: tap toggles this column in the loop
             }
         }
         .overlay { masterArrow }
@@ -290,13 +293,13 @@ struct GridView: View {
                 }.allowsHitTesting(false)
             }
         }
-        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES a dashed ring — advertise, tap to add
+        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES a cyan ring — advertise, tap to add
             let pos = GridPos(col: col, row: row)
             if twins.contains(pos) && !isSel && !whiteBorder.contains(pos) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-                    let f = stagingPulseFraction(tl.date, period: 1.1)
+                    let f = stagingPulseFraction(tl.date, period: 1.0)
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.white.opacity(0.25 + 0.55 * f), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .strokeBorder(accentCyan.opacity(0.4 + 0.6 * f), style: StrokeStyle(lineWidth: 2.5, dash: [5, 3]))
                 }
                 .allowsHitTesting(false)
             }

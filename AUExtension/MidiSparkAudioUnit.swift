@@ -108,13 +108,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         editScene { s in for t in targets { if var c = s.cells[t.col][t.row] { mutate(&c); s.cells[t.col][t.row] = c } } }
     }
     func withChainCells(_ targets: [(col: Int, row: Int)], _ mutate: (inout [ProcessorSlot]) -> Void) {
-        editScene { s in
-            for t in targets {
-                guard let cell = s.cells[t.col][t.row] else { continue }
-                var chain = self.materializedChain(cell); mutate(&chain)   // each cell's own chain
-                s.cells[t.col][t.row]?.processors = chain
-            }
+        // Materialise + mutate each target's chain OUTSIDE editScene — materializedChain reads `document`, and
+        // doing that inside editScene's `&document…` mutation would be an exclusive-access violation (crash).
+        var writes: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
+        let scene = document.scenes[document.activeSceneResolved]
+        for t in targets {
+            guard let cell = scene.cells[t.col][t.row] else { continue }
+            var chain = materializedChain(cell); mutate(&chain)
+            writes.append((t.col, t.row, chain))
         }
+        editScene { s in for w in writes { s.cells[w.col][w.row]?.processors = w.chain } }
     }
     func editSlotCells(_ targets: [(col: Int, row: Int)], slot: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         withChainCells(targets) { if slot < $0.count { mutate(&$0[slot]) } }

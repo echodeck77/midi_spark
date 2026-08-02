@@ -118,6 +118,9 @@ struct DiagView: View {
     // MODE ROW — EDIT mode's manual multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live
     // to every member; twins of the set only PULSE to advertise inclusion. Replaces the old auto-twin/DETACH model.
     @State private var editSel: [GridView.GridPos] = []
+    // MODE ROW — cells BORN this session (empty-tap births). Re-tapping a newborn deletes it (it was just created);
+    // cleared on APPLY/CANCEL (they become permanent / were reverted).
+    @State private var bornThisSession: Set<GridView.GridPos> = []
     // MODE ROW — CLEAR mode's pending removals (transactional): a tap toggles a mark; APPLY deletes, CANCEL reinstates.
     @State private var clearMarks: Set<GridView.GridPos> = []
     // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
@@ -220,7 +223,10 @@ struct DiagView: View {
             au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
             if scene.cells[col][row] == nil {                // tap EMPTY → BIRTH a cell (staged) + add it to the set
                 au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument()
-                editSel.append(pos)
+                editSel.append(pos); bornThisSession.insert(pos)
+            } else if bornThisSession.contains(pos) {        // re-tap a NEWBORN → it disappears (with its controls)
+                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument()
+                editSel.removeAll { $0 == pos }; bornThisSession.remove(pos)
             } else if editSel.first == pos {                 // the ANCHOR: a plain tap is a no-op (long-press drops it)
             } else if editSel.contains(pos) {                // a 2nd tap on any OTHER selected cell removes it
                 editSel.removeAll { $0 == pos }
@@ -240,19 +246,29 @@ struct DiagView: View {
         if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cells[a.col][a.row]?.colourID ?? brush }
         else { selCol = -1; selRow = -1 }
     }
-    /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). The engine
-    /// renders an empty chain as identity, and CHAIN shows a "+ ADD PROCESSOR" invitation rather than a PASS slot.
+    /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). It defaults
+    /// to a NEW colour (the first palette hue not already on the grid) so it reads as a fresh, independent cell.
+    private func newbornColour() -> String {
+        let used = Set(scene.cells.flatMap { $0 }.compactMap { $0?.colourID })
+        return colourIDs.first { !used.contains($0) } ?? colourIDs.first ?? brush
+    }
     private func newbornCell() -> Cell {
-        var c = Cell(colourID: brush)
+        var c = Cell(colourID: newbornColour())
         c.inputReceiver = 0            // R1
         c.buses = [.a]                 // Emitter A
         c.processors = []              // explicit EMPTY chain = passthrough
         return c
     }
     /// EDIT long-press on the grid: only the ANCHOR responds — it drops from the set (protects the editing context).
+    /// A newborn anchor is also deleted (it was just created, so dropping it removes it entirely).
     private func editGridLongPress(_ col: Int, _ row: Int) {
         guard editArmed, editMode == .edit else { return }
-        if editSel.first == GridView.GridPos(col: col, row: row) { editSel.removeFirst(); syncAnchor() }
+        let pos = GridView.GridPos(col: col, row: row)
+        guard editSel.first == pos else { return }
+        if bornThisSession.contains(pos) {
+            au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument(); bornThisSession.remove(pos)
+        }
+        editSel.removeFirst(); syncAnchor()
     }
     /// MUTE / CLEAR mode taps (occupied cells only). MUTE toggles the cell's mute IMMEDIATELY (its own undo step —
     /// the session is closed in MUTE mode). CLEAR toggles a transactional removal MARK (committed by APPLY).
@@ -835,7 +851,7 @@ struct DiagView: View {
                 au?.beginEditSession()
             } else {
                 au?.applyEditSession()
-                editMode = .edit; editSel = []; clearMarks = []; syncAnchor()
+                editMode = .edit; editSel = []; clearMarks = []; bornThisSession = []; syncAnchor()
                 if editLoopMask != 0 { setEditLoop(0) }
             }
         }
@@ -1175,8 +1191,7 @@ struct DiagView: View {
                         .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue))
                 }.buttonStyle(.plain)
             }
-            editColumnLoopRow(cellH)                                 // MODE ROW §5: the column-loop buttons (audition loop)
-            spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top
+            spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top (its column keys toggle the loop)
             modeRow()                                                // MODE ROW: EDIT · MUTE · CLEAR ‖ APPLY · CANCEL, pinned under the grid
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .edit, let cell = editingCell {          // controls show ONLY in EDIT mode, with a cell pointed
@@ -1243,7 +1258,7 @@ struct DiagView: View {
     private func setEditMode(_ m: EditPageMode) {
         guard m != editMode else { return }
         if editMode == .edit || editMode == .clear { au?.applyEditSession() }
-        editSel = []; clearMarks = []; syncAnchor()
+        editSel = []; clearMarks = []; bornThisSession = []; syncAnchor()
         editMode = m
         if m == .edit || m == .clear { au?.beginEditSession() }
     }
@@ -1253,34 +1268,22 @@ struct DiagView: View {
         if editMode == .clear, !clearMarks.isEmpty, let au {
             au.editScene { s in for m in clearMarks { s.deleteCellSever(col: m.col, row: m.row) } }
         }
-        au?.applyEditSession(); editSel = []; clearMarks = []; syncAnchor()
+        au?.applyEditSession(); editSel = []; clearMarks = []; bornThisSession = []; syncAnchor()
         if editMode == .edit || editMode == .clear { au?.beginEditSession() }
         refreshFromDocument()
     }
     /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
     private func revertSession() {
-        au?.cancelEditSession(); editSel = []; clearMarks = []; syncAnchor()
+        au?.cancelEditSession(); editSel = []; clearMarks = []; bornThisSession = []; syncAnchor()
         if editMode == .edit || editMode == .clear { au?.beginEditSession() }
         refreshFromDocument()
     }
 
-    // MODE ROW §5 — the column-loop buttons above the grid. Each toggles its bit in the SAME laneMask the PERFORM
-    // column-hold drives (au.setLaneMask → Derivations.lapColumn), so the engine loops exactly the toggled column
-    // subset — one loop mechanism, two surfaces. Multiple columns loop the set; toggled keys light. Cleared on DONE.
+    // MODE ROW §5 — the grid's own column keys ARE the loop control (one row, not two): a TAP toggles the column in
+    // the SAME laneMask the PERFORM column-hold drives (au.setLaneMask → Derivations.lapColumn), so the engine loops
+    // exactly the toggled subset — one loop mechanism, two surfaces. Toggled keys show the LOOP glyph. Cleared on DONE.
     private func setEditLoop(_ mask: UInt8) { editLoopMask = mask; au?.setLaneMask(mask) }
-    @ViewBuilder private func editColumnLoopRow(_ cellHeight: CGFloat) -> some View {
-        HStack(spacing: GridGeometry.vGap) {
-            ForEach(0..<8, id: \.self) { c in
-                let on = (editLoopMask & (1 << UInt8(c))) != 0
-                Button { setEditLoop(editLoopMask ^ (1 << UInt8(c))) } label: {
-                    Image(systemName: on ? "repeat" : "chevron.down").font(.system(size: 13, weight: .heavy))
-                        .foregroundColor(on ? .black : .white.opacity(0.4))
-                        .frame(maxWidth: .infinity).frame(height: max(24, cellHeight * 0.7))
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.06)))
-                }.buttonStyle(.plain)
-            }
-        }
-    }
+    private func toggleLoopColumn(_ c: Int) { setEditLoop(editLoopMask ^ (1 << UInt8(c))) }
 
     // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
     // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
@@ -1291,7 +1294,7 @@ struct DiagView: View {
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: editGridLongPress, onAuditionEnd: {},
-                 laneMask: editLoopMask, onLaneMask: nil, holdLatch: false,
+                 laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, removeMarks: clearMarks, verbInvite: nil,
                  routeFoci: [], routeIn: [], routeOut: [],
