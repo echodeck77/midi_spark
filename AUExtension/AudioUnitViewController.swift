@@ -66,128 +66,128 @@ enum EditPageMode { case addEdit, move, mute, clear }
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
-    @State private var d = KernelDiag()      // polled for the grid's effColumn / playing
-    @State private var uiAppeared = true     // §4c INVISIBLE=FROZEN: this view is on-screen (host shows our plugin)
-    @State private var appActive = true      // §4c: the app is foregrounded
-    private var animationsPaused: Bool { !(uiAppeared && appActive) }   // hidden OR backgrounded ⇒ freeze the canvas
-    @State private var loadedID = "—"
-    @State private var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
-    @State private var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
+    @State var d = KernelDiag()      // polled for the grid's effColumn / playing
+    @State var uiAppeared = true     // §4c INVISIBLE=FROZEN: this view is on-screen (host shows our plugin)
+    @State var appActive = true      // §4c: the app is foregrounded
+    var animationsPaused: Bool { !(uiAppeared && appActive) }   // hidden OR backgrounded ⇒ freeze the canvas
+    @State var loadedID = "—"
+    @State var sceneEmpty: [Bool] = []       // MULTI-SCENE: per-slot occupancy (empty ⇒ a "+" save slot)
+    @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
-    @State private var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
-    @State private var showPresets = false             // §3 PRESETS: the browser sheet
-    @State private var presetList: [String] = []       // §3 the user preset names (refreshed on open)
-    @State private var currentPreset = ""              // §3 the loaded preset's name
+    @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    @State var showPresets = false             // §3 PRESETS: the browser sheet
+    @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
+    @State var currentPreset = ""              // §3 the loaded preset's name
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
-    @State private var showCellLibrary = false
-    @State private var cellLibraryList: [String] = []
-    @State private var scene = SceneState.empty()
-    @State private var brush = "gold"        // the paint Colour (view-local; never in the document)
+    @State var showCellLibrary = false
+    @State var cellLibraryList: [String] = []
+    @State var scene = SceneState.empty()
+    @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
-    @State private var heldVerb: Verb? = nil          // the currently-pressed verb
-    @State private var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
+    @State var heldVerb: Verb? = nil          // the currently-pressed verb
+    @State var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
     // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
     // stamps it (PASTE is disabled while this is nil). Replaces the old per-hold moveSource/copySource.
-    @State private var clipboard: Cell? = nil
+    @State var clipboard: Cell? = nil
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
-    @State private var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
-    @State private var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
-    @State private var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
-    @State private var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
-    @State private var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
-    @State private var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
-    @State private var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
-    private var activeVerb: Verb? { heldVerb }
-    private var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
-    @State private var selCol = -1
-    @State private var selRow = -1
+    @State var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
+    @State var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
+    @State var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
+    @State var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
+    @State var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
+    @State var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
+    @State var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
+    var activeVerb: Verb? { heldVerb }
+    var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
+    @State var selCol = -1
+    @State var selRow = -1
     // Cell Edit station (AcceptanceCriteria-cell-edit): EDIT is a 6th control, a TOGGLE (not a spring verb),
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
-    @State private var editArmed = false
+    @State var editArmed = false
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
-    @State private var editMode: EditPageMode = .addEdit
+    @State var editMode: EditPageMode = .addEdit
     // MODE ROW — ADD/EDIT mode's manual multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live
     // to every member; twins of the set only PULSE to advertise inclusion. Replaces the old auto-twin/DETACH model.
-    @State private var editSel: [GridView.GridPos] = []
+    @State var editSel: [GridView.GridPos] = []
     // MODE ROW — cells BORN this session (empty-tap births). Re-tapping a newborn deletes it (it was just created);
     // cleared on APPLY/CANCEL (they become permanent / were reverted).
-    @State private var bornThisSession: Set<GridView.GridPos> = []
+    @State var bornThisSession: Set<GridView.GridPos> = []
     // MODE ROW — ADD/EDIT: a POPULATED cell adopted into the group has its ORIGINAL config stashed here, so
     // deselecting it during the session reverts it to how it was (empty-cloned cells delete instead).
-    @State private var preAdoptStash: [GridView.GridPos: Cell] = [:]
+    @State var preAdoptStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — a long-press fires its mode action ONCE per press (the underlying gesture repeats while held).
-    @State private var longPressFired = false
+    @State var longPressFired = false
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
-    @State private var clearedStash: [GridView.GridPos: Cell] = [:]
+    @State var clearedStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
-    @State private var editLoopMask: UInt8 = 0
-    private var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
-    private static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
-    @State private var busChannels: [Int] = [1, 2, 3, 4]
-    @State private var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
-    @State private var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
-    @State private var claimLeak: [Int] = [0, 0, 0, 0]                // delta §6a CLAIM v2: per-claimant LEAK % (0…100)
-    @State private var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
-    @State private var flattenMask: UInt8 = 0                         // role family: FLATTEN set (persisted)
-    @State private var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
-    @State private var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
-    @State private var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
-    @State private var masterMute = false                           // master panel: global emission kill (persisted)
-    @State private var masterKey = 0                                // master panel: per-scene transpose (persisted)
-    @State private var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
-    @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
-    @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
-    @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
-    @State private var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
-    @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
-    @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
-    @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
-    @State private var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
-    @State private var mpeSeenAt: [Date] = Array(repeating: .distantPast, count: 4)   // §MPE: last auto-detected per receiver
-    @State private var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
-    @State private var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
-    @State private var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
-    @State private var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
-    @State private var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
-    @State private var emitRelease: [[VelMark]] = [[], [], [], []]    // §strips-done: marks FADING (~250ms) as sounding notes release
-    @State private var docColours: [Colour] = []
-    @State private var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
-    @State private var stepIndex = 2
-    @State private var swing = 50
+    @State var editLoopMask: UInt8 = 0
+    var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
+    static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
+    @State var busChannels: [Int] = [1, 2, 3, 4]
+    @State var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
+    @State var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
+    @State var claimLeak: [Int] = [0, 0, 0, 0]                // delta §6a CLAIM v2: per-claimant LEAK % (0…100)
+    @State var thruReceiver: Int = 0                          // receiver strip: the THRU pip (passthrough source)
+    @State var flattenMask: UInt8 = 0                         // role family: FLATTEN set (persisted)
+    @State var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
+    @State var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
+    @State var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
+    @State var masterMute = false                           // master panel: global emission kill (persisted)
+    @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
+    @State var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
+    @State var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
+    @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
+    @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
+    @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
+    @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
+    @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
+    @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
+    @State var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
+    @State var mpeSeenAt: [Date] = Array(repeating: .distantPast, count: 4)   // §MPE: last auto-detected per receiver
+    @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
+    @State var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
+    @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
+    @State var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
+    @State var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
+    @State var emitRelease: [[VelMark]] = [[], [], [], []]    // §strips-done: marks FADING (~250ms) as sounding notes release
+    @State var docColours: [Colour] = []
+    @State var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
+    @State var stepIndex = 2
+    @State var swing = 50
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
-    @State private var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
-    @State private var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
+    @State var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
+    @State var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
     #if DEBUG
-    @State private var vizShowDiag = false     // dev: the VIZ slot flips to the DIAG face (design item 2)
+    @State var vizShowDiag = false     // dev: the VIZ slot flips to the DIAG face (design item 2)
     #endif
-    @State private var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
-    @State private var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
-    @State private var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
-    @State private var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
-    @State private var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
-    @State private var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
-    @State private var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
+    @State var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
+    @State var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
+    @State var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
+    @State var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
+    @State var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
+    @State var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
+    @State var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
     // ON-TAP overlay: TapKind/TapOverlay + the apply/mask logic are pure functions in Derivations (testable).
-    @State private var tapActions: [TapOverlay] = []
-    private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+    @State var tapActions: [TapOverlay] = []
+    let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
     // the engine (ephemeral, never persisted) and keep a copy for the key LOOP highlight. Cleared to 0
     // on release (the overlay reports empty) and on the EDIT switch (see the mode toggle).
-    private func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
+    func setLane(_ mask: UInt8) { laneMask = mask; au?.setLaneMask(mask) }
 
     // EDIT/PERFORM toggle. Leaving PERFORM ends any lap (belt-and-suspenders — the overlay also cancels).
 
     // §9 item 1 ON TAP: clear every ephemeral perform-tap overlay (timed actions + alt flips, mutes, emitter solo).
-    private func clearOnTap() {
+    func clearOnTap() {
         if !tapActions.isEmpty { tapActions.removeAll() }
         if tapAltMask != 0 { tapAltMask = 0; au?.setTapAltMask(0) }
         if tapMuteMask != 0 { tapMuteMask = 0; au?.setTapMuteMask(0) }
@@ -196,25 +196,25 @@ struct DiagView: View {
     }
 
     // emitter strip: additive foot SOLO — toggle a bit, then re-derive so the kernel sees the union immediately.
-    private func toggleEmitterSolo(_ i: Int) {
+    func toggleEmitterSolo(_ i: Int) {
         guard (0..<4).contains(i) else { return }
         emitterFootSolo ^= UInt8(1 << i)
         refreshTapMasks()
     }
     // emitter strip: output ±octave nudge (±1 per tap, clamp ±3). Ephemeral weather — clears on transport stop.
-    private func nudgeEmitterOctave(_ i: Int, _ delta: Int) {
+    func nudgeEmitterOctave(_ i: Int, _ delta: Int) {
         guard (0..<4).contains(i) else { return }
         emitterOctave[i] = max(-3, min(3, emitterOctave[i] + delta))
         au?.setEmitterOctave(i, emitterOctave[i])
     }
-    private func clearEmitterPerform() {
+    func clearEmitterPerform() {
         emitterOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setEmitterOctave(i, 0) }
     }
 
     // §11b dispatch: a verb held → the tap does the verb (SELECT also routes candidates in-session); else a tap
     // is a TRIGGER (ON TAP). Routing happens WHILE SELECT is held (user 2026-07-28): the world offers wiring for
     // the selected cell, tapping a candidate wires it, RELEASE applies, CANCEL reverts.
-    private func tapCell(_ col: Int, _ row: Int) {
+    func tapCell(_ col: Int, _ row: Int) {
         if editArmed {                                       // MODE ROW: EDIT builds a selection set; MUTE/CLEAR = increment 4
             guard editMode == .addEdit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
@@ -249,79 +249,11 @@ struct DiagView: View {
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
 
-    // MODE ROW — the selection set's helpers. The ANCHOR is editSel.first: it drives the inspector (selCol/selRow)
-    // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to editSel.
-    private var editSelTargets: [(col: Int, row: Int)] { editSel.map { (col: $0.col, row: $0.row) } }
-    private func syncAnchor() {
-        if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cells[a.col][a.row]?.colourID ?? brush }
-        else { selCol = -1; selRow = -1 }
-    }
-    /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
-    /// a populated cell adopted into the group is restored from its pre-adopt stash.
-    private func deselect(_ pos: GridView.GridPos) {
-        if bornThisSession.contains(pos) {
-            au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; bornThisSession.remove(pos); refreshFromDocument()
-        } else if let orig = preAdoptStash[pos] {
-            au?.editScene { $0.cells[pos.col][pos.row] = orig }; preAdoptStash[pos] = nil; refreshFromDocument()
-        }
-        editSel.removeAll { $0 == pos }
-        syncAnchor()
-    }
-    /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). It defaults
-    /// to a NEW colour (the first palette hue not already on the grid) so it reads as a fresh, independent cell.
-    private func newbornColour() -> String {
-        let used = Set(scene.cells.flatMap { $0 }.compactMap { $0?.colourID })
-        return colourIDs.first { !used.contains($0) } ?? colourIDs.first ?? brush
-    }
-    private func newbornCell() -> Cell {
-        var c = Cell(colourID: newbornColour())
-        c.inputReceiver = 0            // R1
-        c.buses = [.a]                 // Emitter A
-        c.processors = []              // explicit EMPTY chain = passthrough
-        return c
-    }
-    /// Grid long-press. ADD/EDIT: only the ANCHOR responds — it drops from the set (a newborn anchor is deleted).
-    /// MUTE/CLEAR: a long-press does the SAME as a short press (fired once per press — the gesture repeats while held).
-    private func editGridLongPress(_ col: Int, _ row: Int) {
-        guard editArmed, !longPressFired else { return }
-        longPressFired = true
-        let pos = GridView.GridPos(col: col, row: row)
-        switch editMode {
-        case .addEdit:
-            guard editSel.first == pos else { return }   // only the anchor responds to a long-press (drops + reverts)
-            deselect(pos)
-        case .mute, .clear:
-            editModeTap(col, row)
-        case .move:
-            break
-        }
-    }
-    private func editGridLongEnd() { longPressFired = false }
-    /// MUTE / CLEAR mode taps (occupied cells only). MUTE toggles the cell's mute IMMEDIATELY (its own undo step —
-    /// the session is closed in MUTE mode). CLEAR toggles a transactional removal MARK (committed by APPLY).
-    private func editModeTap(_ col: Int, _ row: Int) {
-        let pos = GridView.GridPos(col: col, row: row)
-        switch editMode {
-        case .mute:
-            guard scene.cells[col][row] != nil else { return }
-            au?.editScene { $0.cells[col][row]?.muted.toggle() }   // IMMEDIATE + undoable: MUTE is chrome (post-derivation suppression)
-            refreshFromDocument()
-        case .clear:
-            if let removed = scene.cells[col][row] {              // occupied → remove NOW (stash it for re-tap reinstate)
-                clearedStash[pos] = removed
-                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument()
-            } else if let stashed = clearedStash[pos] {           // empty slot we just cleared → reinstate it
-                au?.editScene { $0.cells[col][row] = stashed }; clearedStash[pos] = nil; refreshFromDocument()
-            }
-        case .addEdit, .move:
-            break                                                 // MOVE uses drag, not tap
-        }
-    }
     // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
     // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
     // ambiguous → no routing there). Each focus lights ALL cells above it (SRC) and ALL cells below it (DEST) in
     // its own column. Release applies; CANCEL reverts.
-    private var routeFoci: [Int: Int] {                  // col → focus row (≤ one per column) — PLACE: cells placed
+    var routeFoci: [Int: Int] {                  // col → focus row (≤ one per column) — PLACE: cells placed
         let cells: [GridView.GridPos]                    // this hold (incl. a whole row); SELECT: the selection.
         if heldVerb == .place { cells = Array(placedThisHold) }
         else if heldVerb == .select { cells = Array(selection) }
@@ -329,34 +261,34 @@ struct DiagView: View {
         let occupied = cells.filter { $0.col < scene.cells.count && $0.row < scene.cells[$0.col].count && scene.cells[$0.col][$0.row] != nil }
         return routeFociByColumn(occupied.map { (col: $0.col, row: $0.row) })
     }
-    private var routeFocusCells: Set<GridView.GridPos> {
+    var routeFocusCells: Set<GridView.GridPos> {
         Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
     }
     // §viz — the routing graph drawn while ANY verb is held, and the "selected" set that lights the paths
     // through it (PLACE = this hold's placed cells, SELECT = the selection).
-    private var vizSelectedCells: Set<RouteCell> {
+    var vizSelectedCells: Set<RouteCell> {
         let src: Set<GridView.GridPos> = heldVerb == .place ? placedThisHold : (heldVerb == .select ? selection : [])
         return Set(src.map { RouteCell(col: $0.col, row: $0.row) })
     }
-    private var vizEdges: [RouteEdge] { routingEdges(cells: scene.cells, selected: vizSelectedCells) }
-    private func routeProbe(_ id: String) -> some View {
+    var vizEdges: [RouteEdge] { routingEdges(cells: scene.cells, selected: vizSelectedCells) }
+    func routeProbe(_ id: String) -> some View {
         GeometryReader { p in Color.clear.preference(key: RouteFramesKey.self, value: [id: p.frame(in: .named("signal"))]) }
     }
     // Grid-chaining retired: the SRC/DEST cell-to-cell candidate glow + tap-to-wire are gone. Receiver + emitter
     // routing (the strip ROUTE-IN/OUT faces, still driven by routeFoci) are unaffected.
-    private var routeInCandidates: Set<GridView.GridPos> { [] }
-    private var routeOutCandidates: Set<GridView.GridPos> { [] }
-    @discardableResult private func wireRouteCandidate(_ pos: GridView.GridPos) -> Bool { false }
+    var routeInCandidates: Set<GridView.GridPos> { [] }
+    var routeOutCandidates: Set<GridView.GridPos> { [] }
+    @discardableResult func wireRouteCandidate(_ pos: GridView.GridPos) -> Bool { false }
     // §10 the strips wear a SESSION FACE while wiring; a tap applies to ALL foci.
-    private func routeInReceiver(_ r: Int) {
+    func routeInReceiver(_ r: Int) {
         guard !routeFoci.isEmpty else { return }
         au?.editScene { s in for (col, f) in routeFoci { s.routeInReceiver(col: col, row: f, receiver: r) } }; refreshFromDocument()
     }
-    private func toggleFocusEmitter(_ b: Bus) {
+    func toggleFocusEmitter(_ b: Bus) {
         guard !routeFoci.isEmpty else { return }
         au?.editScene { s in for (col, f) in routeFoci { s.toggleEmitter(col: col, row: f, bus: b) } }; refreshFromDocument()
     }
-    private var routeInCurrentReceiver: Int? {           // the receiver ALL foci share (nil ⇒ mixed / row-fed → no ring)
+    var routeInCurrentReceiver: Int? {           // the receiver ALL foci share (nil ⇒ mixed / row-fed → no ring)
         var recv: Int?; var first = true
         for (col, f) in routeFoci {
             guard let cell = scene.cells[col][f] else { continue }
@@ -365,13 +297,13 @@ struct DiagView: View {
         }
         return recv
     }
-    private var routeOutBusesOn: [Bool] {                // a bus reads ON only if EVERY focus enables it
+    var routeOutBusesOn: [Bool] {                // a bus reads ON only if EVERY focus enables it
         guard !routeFoci.isEmpty else { return [false, false, false, false] }
         return Bus.allCases.map { b in routeFoci.allSatisfy { (col, f) in scene.cells[col][f]?.buses.contains(b) ?? false } }
     }
 
     // §11 dispatch a grid tap to the active verb.
-    private func doVerb(_ v: Verb, _ col: Int, _ row: Int) {
+    func doVerb(_ v: Verb, _ col: Int, _ row: Int) {
         guard let au else { return }
         let pos = GridView.GridPos(col: col, row: row)
         switch v {
@@ -401,7 +333,7 @@ struct DiagView: View {
     // PLACE toggle-with-memory for ONE cell (used by a cell tap AND, looped, by a row chevron). Call inside
     // `au.editScene { placeToggle(&$0, …) }`. Re-tapping a placed empty REMOVES it; re-tapping a replaced cell
     // RESTORES the original (wiring preserved); a fresh tap PLACES (empty, downhill-nudge) or REPLACES (populated).
-    private func placeToggle(_ s: inout SceneState, _ col: Int, _ row: Int) {
+    func placeToggle(_ s: inout SceneState, _ col: Int, _ row: Int) {
         let pos = GridView.GridPos(col: col, row: row)
         if placeFresh.contains(pos) {                        // placed onto empty this hold → REMOVE (retoggle)
             s.cells[col][row] = nil; placeFresh.remove(pos)
@@ -431,7 +363,7 @@ struct DiagView: View {
 
     // §9 item 1 ON TAP (4b/4c): the TRIGGER path — a tap runs the Colour's ON TAP action as a TIMED, EPHEMERAL
     // overlay. Never a document write; cleared on transport stop.
-    private func triggerTap(_ col: Int, _ row: Int) {
+    func triggerTap(_ col: Int, _ row: Int) {
         guard scene.cells[col][row] != nil, let c = scene.cells[col][row] else { return }
         let on = docColours.first { $0.colourID == c.colourID }?.onResolved ?? OnConfig()
         let kind: TapKind
@@ -456,7 +388,7 @@ struct DiagView: View {
 
     // §9 item 1 ON TAP (4c): derive the three ephemeral masks from the actions live at the current beat —
     // pruning expired ones. Runs on tap AND each poll (so onsets fire + durations expire). Dedup-guarded.
-    private func refreshTapMasks() {
+    func refreshTapMasks() {
         let r = tapOverlayMasks(tapActions, now: d.beat, footSolo: emitterFootSolo)   // pure: expire + build masks
         if r.surviving.count != tapActions.count { tapActions = r.surviving }          // only mutate @State on real expiry
         if r.alt  != tapAltMask      { tapAltMask = r.alt;        au?.setTapAltMask(r.alt) }
@@ -467,7 +399,7 @@ struct DiagView: View {
     // §11b THE VERB CLUSTER — six round buttons, bottom-left (thumb reach): PLACE·HOLD / DELETE·SELECT / MOVE·COPY.
     // HELD quasimode: press-hold a verb = spring-active; long-press (0.5s) = LATCH (tap again releases). HOLD is
     // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
-    private var verbCluster: some View {
+    var verbCluster: some View {
         VStack(spacing: 6) {
             // HOLD (moved from the controls panel — the §5c sustain latch) · MUTE (arm → tap cells to mute) ·
             // SELECT (to be implemented) · EDIT (the toggle to the cell Edit page, kept set apart).
@@ -482,18 +414,18 @@ struct DiagView: View {
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
-    private let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
+    let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
     // §cell-edit A1: EDIT — a 6th control, a TOGGLE (tap to arm, tap to disarm). Reuses roundVerb with
     // active:editArmed, so it stays FILLED while armed (latched look) — visually distinct from a spring verb,
     // which only fills while physically held. Arming drops any held spring verb (A3, the other direction).
-    private func editVerbButton() -> some View {
+    func editVerbButton() -> some View {
         roundVerb(label: editArmed ? "EDIT ✕" : "EDIT", hue: Self.editHue, active: editArmed, badge: nil)
             .onTapGesture {
                 editArmed.toggle()
                 if editArmed { heldVerb = nil }
             }
     }
-    private func onVerbEngaged(_ v: Verb) {
+    func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
         case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells; holdSeq += 1
@@ -504,8 +436,8 @@ struct DiagView: View {
     }
     // §11 CANCEL (user 2026-07-28): revert the in-progress changes to the state when the verb was engaged AND
     // END the held status (release the button). PLACE/DELETE revert the grid; SELECT reverts the built selection.
-    private var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete || activeVerb == .select }
-    private func cancelVerb() {
+    var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete || activeVerb == .select }
+    func cancelVerb() {
         switch heldVerb {
         case .place, .delete, .select:                      // SELECT reverts its routing edits too (grid → prior state)
             if let au, let snap = gridSnapshot { au.editScene { $0.cells = snap }; refreshFromDocument() }
@@ -516,7 +448,7 @@ struct DiagView: View {
         heldVerb = nil                                      // end the held status
     }
     // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
-    private func verbBanner(_ v: Verb) -> some View {
+    func verbBanner(_ v: Verb) -> some View {
         let text: String
         switch v {
         case .place:  text = "Place cell(s) — tap the grid or a row · Choose one route in and multiple out"
@@ -536,7 +468,7 @@ struct DiagView: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(v.hue)
     }
-    private func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
+    func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
         RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(active ? 0 : 0.4), lineWidth: 1.5))
             .overlay(Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -552,7 +484,7 @@ struct DiagView: View {
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
     // v1 captures: §6a velocity overrides (in OutputsView) + audition (below). Lap + ON-HOLD deferred.
-    private func setHold(_ on: Bool) {
+    func setHold(_ on: Bool) {
         guard holdLatch != on else { return }
         holdLatch = on
         if !on {                                 // the drop: release the captures this layer owns
@@ -562,12 +494,12 @@ struct DiagView: View {
                                                  // back via OutputsView's onChange(holdLatch))
         }
     }
-    private func toggleHold() { setHold(!holdLatch) }
+    func toggleHold() { setHold(!holdLatch) }
 
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
-    private func undo() { if au?.uiUndo() == true { refreshFromDocument() } }
-    private func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
-    private func refreshFromDocument() {
+    func undo() { if au?.uiUndo() == true { refreshFromDocument() } }
+    func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
+    func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
         docColours = au.uiColours()
@@ -591,41 +523,41 @@ struct DiagView: View {
     // never re-renders the grid mid-press (which would tear down the long-press gesture). The deduped
     // poll above does the rest — when stopped the grid is quiescent, so the gesture is never disturbed.
     final class AuditionBox { var target: (col: Int, row: Int)? = nil; var held = false }
-    @State private var abox = AuditionBox()
+    @State var abox = AuditionBox()
 
     // PERFORM press-hold → ON HOLD (§9 item 1): while a cell is held (playing), its ON HOLD treatment overlays.
     // Kernel-only (no @State / re-render). (Stopped-audition retired with the editing UI — it returns via PLACE.)
-    private func startAudition(_ col: Int, _ row: Int) {
+    func startAudition(_ col: Int, _ row: Int) {
         guard let au, scene.cells[col][row] != nil, d.playing else { return }
         au.setHoldCell(col * 8 + row); abox.held = true             // ON HOLD overlay (idempotent per onChanged)
     }
-    private func endAudition() {                                     // release (SPRING); §5c-HOLD latch keeps it (see setHold)
+    func endAudition() {                                     // release (SPRING); §5c-HOLD latch keeps it (see setHold)
         if abox.held { au?.setHoldCell(-1); abox.held = false }
     }
 
     // ---- PROCESSOR box: edit the selected (brush) Colour ----
-    private var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
-    private var brushColour: Colour? { docColours.first { $0.colourID == brush } }
+    var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
+    var brushColour: Colour? { docColours.first { $0.colourID == brush } }
 
-    private func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
+    func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
         guard let au else { return }
         au.editColour(brushIndex, f)
         docColours = au.uiColours()
     }
-    private func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
+    func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
-    private func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
-    private var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
+    func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
+    var stepBeats: Double { StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)].beats }
 
     // EMITTERS (delta §6a): toggle emitter i on/off; set its stamp channel (from the EDIT popover).
-    private func toggleEmitter(_ i: Int) {
+    func toggleEmitter(_ i: Int) {
         guard let au else { return }
         au.setBusEnabled(i, !(i < busEnabled.count ? busEnabled[i] : true))
         busEnabled = au.uiBusEnabled()
     }
     // §6a PERFORM velocity override: while a fader is touched, force emitter i to `v` (1–127); nil on
     // release springs it back to natural velocity. Ephemeral — nothing is written to the document.
-    private func setVelOverride(_ i: Int, _ v: Int?) {
+    func setVelOverride(_ i: Int, _ v: Int?) {
         // §4b FADER-KILL: the fader's bottom sends 0 = KILL (full silence). 1–127 = velocity override; nil = release.
         if v == 0 { au?.setEmitterVelKill(i, true); au?.setVelOverride(i, nil) }
         else { au?.setEmitterVelKill(i, false); au?.setVelOverride(i, v) }
@@ -633,33 +565,33 @@ struct DiagView: View {
     // delta §9 item 11: RECEIVERS panel edits — input mute (undoable). Channel filter / input cable / latch mode
     // now live on the cog page (CogPage.swift → au.setReceiverChannel/Cable/LatchAdd directly). MPE is silent
     // auto-detect (user ruling 2026-07-25) — no control.
-    private func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
-    private func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
+    func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
+    func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
-    private func toggleReceiverSolo(_ i: Int) {
+    func toggleReceiverSolo(_ i: Int) {
         guard (0..<4).contains(i) else { return }
         soloReceiverMask ^= UInt8(1 << i)
         au?.setSoloReceiverMask(soloReceiverMask)
     }
     // receiver strip: ±octave nudge (±1 per tap, clamp ±3). Ephemeral, composes with the colour transpose.
-    private func nudgeReceiverOctave(_ i: Int, _ delta: Int) {
+    func nudgeReceiverOctave(_ i: Int, _ delta: Int) {
         guard (0..<4).contains(i) else { return }
         receiverOctave[i] = max(-3, min(3, receiverOctave[i] + delta))
         au?.setInputOctave(i, receiverOctave[i])
     }
     // receiver strip: the slider's momentary input-velocity override (touch = absolute, release = nil → spring).
-    private func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
+    func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
     // receiver strip: per-receiver chord LATCH (additive toggle). Arm = detect-and-hold; a new chord replaces;
     // disarm releases (physical holds persist). PERFORM-only ⇒ clears on the EDIT switch as well as stop.
-    private func toggleReceiverLatch(_ i: Int) {
+    func toggleReceiverLatch(_ i: Int) {
         guard (0..<4).contains(i) else { return }
         latchMask ^= UInt8(1 << i)
         au?.setLatchArm(latchMask)
     }
-    private func clearReceiverLatch() { if latchMask != 0 { latchMask = 0; au?.setLatchArm(0) } }
+    func clearReceiverLatch() { if latchMask != 0 { latchMask = 0; au?.setLatchArm(0) } }
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
-    private func clearReceiverPerform() {
+    func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
         receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputVelOverride(i, nil) }
         clearReceiverLatch()
@@ -667,47 +599,47 @@ struct DiagView: View {
 
     // §6a CLAIM v2: tap an emitter's CLAIM button → toggle it in/out of the claim set (multi-claim, no longer
     // a radio); vertical drag sets its LEAK % (the bleed-through). Persisted (the AU toggles + rebuilds).
-    private func setClaim(_ i: Int) {
+    func setClaim(_ i: Int) {
         guard let au else { return }
         au.setClaim(i)
         claimMask = au.uiClaimMask()
         thruReceiver = au.uiThruReceiver()
     }
-    private func setClaimLeak(_ i: Int, _ pct: Int) {
+    func setClaimLeak(_ i: Int, _ pct: Int) {
         guard let au else { return }
         au.setClaimLeak(i, pct)
         claimLeak = au.uiClaimLeak()
     }
     // role family: FLATTEN (persisted) — tap toggles the emitter into the ducking set; drag sets its amount %.
-    private func toggleFlatten(_ i: Int) {
+    func toggleFlatten(_ i: Int) {
         let on = flattenMask & (1 << UInt8(i)) != 0
         au?.setFlatten(i, !on)
         flattenMask = au?.uiFlattenMask() ?? flattenMask
     }
-    private func setFlatAmount(_ i: Int, _ amount: Int) {
+    func setFlatAmount(_ i: Int, _ amount: Int) {
         au?.setFlattenAmount(i, amount)
         flattenAmount = au?.uiFlattenAmount() ?? flattenAmount
     }
     // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
-    private func toggleAlt(_ i: Int) {
+    func toggleAlt(_ i: Int) {
         let on = altMask & (1 << UInt8(i)) != 0
         au?.setAlt(i, !on)
         altMask = au?.uiAltMask() ?? altMask
     }
-    private func setAltCnt(_ i: Int, _ count: Int) {
+    func setAltCnt(_ i: Int, _ count: Int) {
         au?.setAltCount(i, count)
         altCount = au?.uiAltCount() ?? altCount
     }
     // master panel: MUTE (persisted, tap) / PANIC (long-press) / KEY ± (persisted per-scene) / the momentary fader.
-    private func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
-    private func masterPanic() { au?.masterPanic() }
-    private func nudgeMasterKey(_ d: Int) { au?.nudgeMasterKey(d); masterKey = au?.uiMasterKey() ?? masterKey }
-    private func setMasterVel(_ v: Int?) {
+    func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
+    func masterPanic() { au?.masterPanic() }
+    func nudgeMasterKey(_ d: Int) { au?.nudgeMasterKey(d); masterKey = au?.uiMasterKey() ?? masterKey }
+    func setMasterVel(_ v: Int?) {
         // §4b FADER-KILL: master fader bottom = 0 = KILL every emitter (the DJ master-down).
         if v == 0 { au?.setMasterKill(true); au?.setMasterVelOverride(nil) }
         else { au?.setMasterKill(false); au?.setMasterVelOverride(v) }
     }
-    private func setEmitterChannel(_ i: Int, _ ch: Int) {
+    func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
             while d.busChannels.count < 4 { d.busChannels.append(d.busChannels.count + 1) }
@@ -716,14 +648,14 @@ struct DiagView: View {
         busChannels = au.uiBusChannels()
     }
 
-    private var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
-    private var sceneName: String {
+    var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
+    var sceneName: String {
         guard loadedID.hasPrefix("S"), let i = Int(loadedID.dropFirst()), i >= 1, i <= SceneFactory.scenes.count
         else { return "1–16 · the factory curriculum" }
         return SceneFactory.scenes[i - 1].name
     }
 
-    private func load(_ s: TestSessions.Session) {
+    func load(_ s: TestSessions.Session) {
         au?.loadTestSession(s)          // main thread: SwiftUI actions already are
         loadedID = s.id
     }
@@ -908,7 +840,7 @@ struct DiagView: View {
 
     // Dev-build only: a 1.2s long-press on the "8×8 STATE" logotype toggles the hidden T-session loader
     // overlay (the canned rigs for device passes). No-op in release — the loader never ships on the product face.
-    private func secretDevTap() {
+    func secretDevTap() {
         #if DEBUG
         showDevLoader.toggle()
         #endif
@@ -920,7 +852,7 @@ struct DiagView: View {
     // §6d TWO FLOWS signal column: RECEIVERS (4 grid-rows tall, 50% width, centred) → GRID → EMITTERS (same),
     // filling the available height as 17 equal rows (4 receiver + 9 grid [key + 8] + 4 emitter). The bands are
     // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
-    private func signalColumn(_ appWidth: CGFloat) -> some View {
+    func signalColumn(_ appWidth: CGFloat) -> some View {
         GeometryReader { g in
             let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
             let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
@@ -944,7 +876,7 @@ struct DiagView: View {
         }
     }
 
-    @ViewBuilder private func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
+    @ViewBuilder func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
         if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
@@ -975,7 +907,7 @@ struct DiagView: View {
     // §11 ROW SELECT — a chevron per row, on BOTH sides of the grid, always visible (aligned past the column-
     // key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held). The
     // right rail points left, the left rail points right — both point INTO the grid. `chevron` picks which.
-    private func rowRail(_ cellHeight: CGFloat, chevron: String) -> some View {
+    func rowRail(_ cellHeight: CGFloat, chevron: String) -> some View {
         // PLACE lights the chevrons in the BRUSH colour (the cell to be placed); other verbs use the verb hue.
         let hue = activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35))
         return VStack(spacing: GridGeometry.vGap) {
@@ -991,7 +923,7 @@ struct DiagView: View {
         }
     }
     // §11 apply the active verb across a whole row (all 8 columns).
-    private func doVerbOnRow(_ v: Verb, _ row: Int) {
+    func doVerbOnRow(_ v: Verb, _ row: Int) {
         guard let au else { return }
         switch v {
         case .place: au.editScene { for c in 0..<8 { placeToggle(&$0, c, row) } }; refreshFromDocument()   // row toggle-with-memory
@@ -1006,7 +938,7 @@ struct DiagView: View {
         }
     }
     // §11 SELECT "touching edits": recolour every selected cell to `id` (the Colour edit propagates per-Colour).
-    private func recolorSelection(_ id: String) {
+    func recolorSelection(_ id: String) {
         guard let au, !selection.isEmpty else { return }
         au.editScene { s in for p in selection { if var c = s.cells[p.col][p.row] { c.colourID = id; s.cells[p.col][p.row] = c } } }
         brush = id                                          // desk re-point: the recoloured (single-Colour) set points the desk at it
@@ -1014,11 +946,11 @@ struct DiagView: View {
     }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
-    private var strokeActive: Bool { heldVerb == .place || heldVerb == .delete || heldVerb == .select }
+    var strokeActive: Bool { heldVerb == .place || heldVerb == .delete || heldVerb == .select }
     // Apply the HELD verb to one cell entered mid-drag. PLACE paints via placeToggle (⑥ enforced inside),
     // DELETE severs, SELECT lassos (additive; the visited-guard blocks re-toggle). The whole swathe coalesces
     // into ONE undo via strokeKey (opened on the first cell, closed by endStroke).
-    private func strokeCell(_ col: Int, _ row: Int) {
+    func strokeCell(_ col: Int, _ row: Int) {
         guard let au, let v = heldVerb else { return }
         if strokeKey == nil { strokeSeq += 1; strokeKey = "stroke-\(strokeSeq)" }
         let pos = GridView.GridPos(col: col, row: row)
@@ -1035,9 +967,9 @@ struct DiagView: View {
         default: break
         }
     }
-    private func endStroke() { strokeKey = nil }
+    func endStroke() { strokeKey = nil }
 
-    private var hint: some View {
+    var hint: some View {
         Text(flowVariation > 0
              ? "FLOW · \(FlowView.names[min(flowVariation, FlowView.names.count - 1)]) · comets = the PLAN · bright rings = LIVE (where notes really fired) · TAP a cell → TRACE"
              : "HOLD a verb → the grid does it (release = done; long-press = latch) · else TAP = ALT flip · HOLD cell → ON HOLD")
@@ -1050,563 +982,6 @@ struct DiagView: View {
     /// The PRIMARY slot content: normally the sound `desk`; while EDIT is armed, the Cell Edit station CLAIMS it
     /// (B1) — a swap bar (B2) lets the user jump back to the full Colour desk. The desk is never hidden, just a
     /// tap away. Everything else on screen stays live (B3). Wraps whichever desk container each orientation uses.
-    // MARK: - feat/EditPageSpike (2026-08-01) — an ALTERNATIVE grid-setup surface, opened by the existing EDIT
-    // button (body branches to it while `editArmed`). A full-width GRID sits on top; tapping a POPULATED cell
-    // selects it (via `tapCell`'s editArmed re-point) and reveals its controls below in signal-path order:
-    // RECEIVER → PROCESSOR → EMITTERS. Reuses the cell-scoped builders (identitySection / processorPanels /
-    // outputSection), all already wired to selCol/selRow/brush. Self-contained so the spike is easy to drop.
-    @ViewBuilder private func editSpikePage(_ size: CGSize) -> some View {
-        let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
-        let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
-        let inspectorW = min(360, size.width - 24)
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Text("GRID SETUP").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Self.editHue)
-                Spacer()
-                Button { au?.uiUndo(); refreshFromDocument() } label: { headerIcon("arrow.uturn.backward", on: au?.uiCanUndo ?? false) }
-                    .buttonStyle(.plain).disabled(!(au?.uiCanUndo ?? false))
-                Button { au?.uiRedo(); refreshFromDocument() } label: { headerIcon("arrow.uturn.forward", on: au?.uiCanRedo ?? false) }
-                    .buttonStyle(.plain).disabled(!(au?.uiCanRedo ?? false))
-                Button { editArmed = false } label: {                // the only exit while the spike owns the screen
-                    Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue))
-                }.buttonStyle(.plain)
-            }
-            spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top (its column keys toggle the loop)
-            modeRow()                                                // MODE ROW: ADD/EDIT · MOVE · MUTE · CLEAR ‖ APPLY · CANCEL
-            Text(modeGuidance)                                       // the ALWAYS-VISIBLE guidance for the current mode
-                .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
-                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
-                        sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
-                        sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
-                        chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
-                        chainStack(cell, boxWidth: min(540, size.width - 48))
-                        sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
-                    }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
-                }.frame(maxWidth: .infinity)
-            } else {
-                Spacer(minLength: 0)                                  // grid + guidance only (nothing selected, or a non-edit mode)
-            }
-        }
-        .padding(12)
-    }
-
-    // MODE ROW: big, left-justified ADD/EDIT · MOVE · MUTE · CLEAR radio + right-justified APPLY·CANCEL (shown ONLY
-    // in ADD/EDIT — the one staging mode; MOVE/MUTE/CLEAR are immediate + undo/redo). APPLY commits the staged
-    // edits/births as ONE undo step; CANCEL reverts them.
-    @ViewBuilder private func modeRow() -> some View {
-        let canCommit = !editSel.isEmpty                     // APPLY/CANCEL are available whenever ≥1 cell is selected
-        HStack(spacing: 6) {
-            modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
-            Spacer(minLength: 10)
-            if editMode == .addEdit {
-                Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
-                    .buttonStyle(.plain).disabled(!canCommit)
-                Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
-                    .buttonStyle(.plain).disabled(!canCommit)
-            }
-        }.padding(.vertical, 4)
-    }
-    /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
-    private var modeGuidance: String {
-        switch editMode {
-        case .addEdit: return "Select 1 cell, then choose more to edit them as a group"
-        case .move:    return "Drag and drop a cell to a new position"
-        case .mute:    return "Choose cells to mute"
-        case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
-        }
-    }
-    private func headerIcon(_ system: String, on: Bool) -> some View {
-        Image(systemName: system).font(.system(size: 15, weight: .heavy)).foregroundColor(on ? Self.editHue : .white.opacity(0.2))
-            .frame(width: 34, height: 30).background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(on ? 0.14 : 0.05)))
-    }
-    private func modeChip(_ label: String, _ mode: EditPageMode) -> some View {
-        let on = editMode == mode
-        return Button { setEditMode(mode) } label: {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-                .foregroundColor(on ? .black : Self.editHue)
-                .frame(maxWidth: .infinity).frame(minHeight: 38)
-                .background(RoundedRectangle(cornerRadius: 7).fill(on ? Self.editHue : Self.editHue.opacity(0.12)))
-        }.buttonStyle(.plain)
-    }
-    private func transactChip(_ label: String, enabled: Bool, fill: Bool) -> some View {
-        let hue: Color = label == "CANCEL" ? Verb.delete.hue : Self.editHue
-        return Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-            .foregroundColor(!enabled ? .white.opacity(0.22) : (fill ? .black : hue))
-            .frame(minWidth: 62, minHeight: 38)
-            .background(RoundedRectangle(cornerRadius: 7)
-                .fill(fill && enabled ? hue : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(enabled ? hue.opacity(0.6) : Color.white.opacity(0.12), lineWidth: 1)))
-    }
-
-    /// Switch tap mode. Leaving ADD/EDIT commits any staged work (live-previewed edits persist); entering it opens a
-    /// fresh baseline. MOVE/MUTE/CLEAR run with the session CLOSED (their edits are immediate + undo/redo). Leaving
-    /// CLEAR drops its re-tap stash (undo/redo covers removals thereafter).
-    private func setEditMode(_ m: EditPageMode) {
-        guard m != editMode else { return }
-        if editMode == .addEdit { au?.applyEditSession() }
-        editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
-        editMode = m
-        if m == .addEdit { au?.beginEditSession() }
-        refreshFromDocument()
-    }
-    /// APPLY — commit the staged ADD/EDIT session as one undo step, then re-open a fresh baseline so editing continues.
-    private func commitSession() {
-        au?.applyEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
-        au?.beginEditSession(); refreshFromDocument()
-    }
-    /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
-    private func revertSession() {
-        au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
-        au?.beginEditSession(); refreshFromDocument()
-    }
-
-    // MODE ROW §5 — the grid's own column keys ARE the loop control (one row, not two): a TAP toggles the column in
-    // the SAME laneMask the PERFORM column-hold drives (au.setLaneMask → Derivations.lapColumn), so the engine loops
-    // exactly the toggled subset — one loop mechanism, two surfaces. Toggled keys show the LOOP glyph. Cleared on DONE.
-    private func setEditLoop(_ mask: UInt8) { editLoopMask = mask; au?.setLaneMask(mask) }
-    private func toggleLoopColumn(_ c: Int) { setEditLoop(editLoopMask ^ (1 << UInt8(c))) }
-
-    // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
-    // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
-    // is parked on this setup surface). CLEAR marks show as a dashed removal ring (increment 4).
-    @ViewBuilder private func spikeGrid(_ cellHeight: CGFloat) -> some View {
-        GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
-                 beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                 cellHeight: cellHeight, editing: false,
-                 selCol: selCol, selRow: selRow, onTap: tapCell,
-                 onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
-                 laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
-                 onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
-                 showAddPlus: editMode == .addEdit && !editSel.isEmpty,
-                 selection: [],
-                 whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
-                 routeFoci: [], routeIn: [], routeOut: [],
-                 tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
-                 strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
-    }
-    /// MOVE mode — drag a cell to a new position; drop over a populated cell SWAPS them. Immediate + undoable.
-    private func moveCell(_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) {
-        guard from.col != to.col || from.row != to.row else { return }
-        au?.editScene { $0.swapCells((from.col, from.row), (to.col, to.row)) }
-        refreshFromDocument()
-    }
-    /// MODE ROW — the ADVERTISE set: cells that are TWINS of anything in the selection but not themselves selected.
-    /// They PULSE to invite inclusion (they are NOT auto-edited). Empty unless ADD/EDIT mode has a selection.
-    private var twinCells: Set<GridView.GridPos> {
-        guard editArmed, editMode == .addEdit, !editSel.isEmpty else { return [] }
-        var s = Set<GridView.GridPos>()
-        for m in editSel {
-            for t in au?.twinPositions(col: m.col, row: m.row) ?? [] { s.insert(GridView.GridPos(col: t.col, row: t.row)) }
-        }
-        for m in editSel { s.remove(m) }   // selected cells wear the white ring, not the pulse
-        return s
-    }
-
-    // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
-    // each 50% of screen width, head first, plus [+ ADD] (≤ 8 slots). Stage 1 renders the HEAD; slots 2…8 are
-    // stored + editable but not yet executed (serial run is Phase 2). Reuses ProcessorBox in `slotMode`.
-    private func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // the cell's own chain; nil → materialise the Colour head
-        if let p = cell.processors { return p }                       // incl. an EXPLICIT empty chain (passthrough → the invitation)
-        let c = docColours.first { $0.colourID == cell.colourID }
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
-    }
-    @ViewBuilder private func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
-        let chain = cellChain(cell)
-        VStack(alignment: .leading, spacing: 8) {
-            twinHeader()
-            if chain.isEmpty {                                   // MODE ROW: an EMPTY chain = passthrough — an INVITATION, never a "PASS" slot
-                emptyChainInvitation(boxWidth: boxWidth)
-            } else {
-                ForEach(Array(chain.enumerated()), id: \.offset) { i, slot in
-                    slotBox(i, slot, cell: cell).frame(width: boxWidth)
-                }
-                if chain.count > 1 {   // the chain runs end-to-end for every tail type
-                    Text("Chain runs in series, head→tail.")
-                        .font(.system(size: 11, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if chain.count < 8 {                             // ADD MORE — the same big, bold TYPE selector as the empty state
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("+ ADD PROCESSOR").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
-                        processorTypeRow(boxWidth: boxWidth)
-                    }.padding(.top, 4)
-                }
-            }
-        }
-    }
-    // MODE ROW — the newborn/empty-chain invitation: the cell already SOUNDS (passthrough). A big, friendly emblem
-    // TYPE SELECTOR; picking a type adds it as the first slot (across the whole selection).
-    @ViewBuilder private func emptyChainInvitation(boxWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("PASSING MIDI THROUGH UNTREATED — PICK A PROCESSOR TO SHAPE IT")
-                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                .fixedSize(horizontal: false, vertical: true)
-            processorTypeRow(boxWidth: boxWidth)
-        }
-    }
-    // The big, bold processor TYPE selector — one emblem per type; tapping appends that type to the selection's
-    // chain(s). Shared by the empty-cell invitation AND the "add another processor" control (not a default passgate).
-    @ViewBuilder private func processorTypeRow(boxWidth: CGFloat) -> some View {
-        HStack(spacing: 8) {
-            ForEach(ProcessorType.allCases, id: \.self) { t in
-                Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument() } label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: emblemSymbol(t)).font(.system(size: 22, weight: .black))
-                        Text(t.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                    }
-                    .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 62)
-                    .background(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.45), lineWidth: 1.5))
-                }.buttonStyle(.plain)
-            }
-        }.frame(width: boxWidth)
-    }
-    // MODE ROW — the selection header: how many cells this edit touches. Twins of the set PULSE on the grid to
-    // invite inclusion (they are NOT auto-edited — the user taps to add them). No DETACH: the set is manual.
-    @ViewBuilder private func twinHeader() -> some View {
-        let n = editSel.count
-        HStack(spacing: 8) {
-            Text(n > 1 ? "\(n) SELECTED" : (n == 1 ? "1 SELECTED" : "—"))
-                .font(.system(size: 14, weight: .heavy, design: .monospaced))
-                .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.55))
-            if !twinCells.isEmpty {
-                Text("· \(twinCells.count) MATCHING (tap to add)")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            }
-            Spacer(minLength: 0)
-        }
-    }
-    @ViewBuilder private func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
-        let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
-        let cid = cell.colourID, targets = editSelTargets
-        ProcessorBox(
-            colour: sc, colourIndex: -1, face: .a,
-            onEdit: { mutate in
-                au?.editSlotCells(targets, slot: i) { s in
-                    var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
-                    mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
-                }
-                refreshFromDocument()
-            },
-            onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in au?.setSlotTypeCells(targets, slot: i, t); refreshFromDocument() },
-            height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            accentOverride: mainDestHue,               // same blue as the emitters
-            passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
-            onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
-            onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() })
-    }
-
-    private func sectionHeader(_ label: String) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // device round 2: bigger, legible
-            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-        }.padding(.top, 4)
-    }
-    // The CHAIN section header carries the LIBRARY button at its top-right (moved off the page header).
-    @ViewBuilder private func chainSectionHeader() -> some View {
-        HStack(spacing: 8) {
-            Text("CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-            Button { openCellLibrary() } label: {
-                Text("LIBRARY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
-            }.buttonStyle(.plain)
-        }.padding(.top, 4)
-    }
-    // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
-    // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
-    // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
-    // shaping (chord split + velocity window) to the exemplar's twins / all same-colour cells.
-    @ViewBuilder private func identitySection(_ cell: Cell, swatch sw: CGFloat) -> some View {
-        // The chosen-colour BOX (same footprint as the picker grid), the ALWAYS-VISIBLE 4×4 picker (swatches 50%
-        // smaller), and the selection COUNT + how many identical (unselected twin) cells are available to add.
-        let s2 = max(18, sw * 0.5)                         // the colour grid, 50% smaller
-        let gap: CGFloat = 5
-        let box = s2 * 4 + gap * 3                          // the 4×4 grid's footprint = the chosen box's size
-        HStack(alignment: .center, spacing: 14) {
-            RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray).frame(width: box, height: box)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(s2), spacing: gap), count: 4), spacing: gap) {
-                ForEach(colourIDs, id: \.self) { id in
-                    let on = cell.colourID == id
-                    RoundedRectangle(cornerRadius: 5).fill(colourColor(id) ?? .gray).frame(width: s2, height: s2)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(on ? 0.95 : 0.14), lineWidth: on ? 2.5 : 1))
-                        .contentShape(Rectangle()).onTapGesture { setCellColour(id) }
-                }
-            }.fixedSize()
-            VStack(alignment: .leading, spacing: 4) {
-                Text(editSel.count == 1 ? "1 CELL SELECTED" : "\(editSel.count) CELLS SELECTED")
-                    .font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                Text("\(twinCells.count) IDENTICAL CELLS AVAILABLE")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            }.fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-    private func setCellColour(_ id: String) {   // applies to the whole selection set
-        au?.editCells(editSelTargets) { $0.colourID = id }
-        brush = id; refreshFromDocument()
-    }
-    // D — INPUT section: source · shift (the chord-split + velocity-window "splits" were removed — a future processor).
-    @ViewBuilder private func inputSection(_ cell: Cell) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            receiverRadio(cell)          // §2 A–D receiver radio in the identity hues (+ NONE)
-            inputShiftRow
-            // The MIDI-IN SPLITS (chord split · velocity window) are removed here — they'll return as a standalone
-            // processor in the chain. `chordSplitRow`/`velWindowRow` stay defined but unused (behaviour preserved).
-        }
-    }
-    // §2 the receiver radio — MIDI-IN R1–R4 as chips wearing the RECEIVER IDENTITY HUES (slate/purple/green/tan),
-    // + a NONE chip. Twin-aware (edits the pointed cell + its twins via editPointedCell).
-    private func receiverRadio(_ cell: Cell) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "cable.connector").font(.system(size: 16)).foregroundColor(.white.opacity(0.4))
-            ForEach(0..<4, id: \.self) { r in
-                let on = cell.inputReceiver == r
-                Text("R\(r + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : .white.opacity(0.75))
-                    .frame(maxWidth: .infinity).frame(height: 42)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : mainDestHue.opacity(0.18)))   // same blue as the emitters
-                    .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } }
-            }
-            Text("—").font(.system(size: 15, weight: .heavy, design: .monospaced))   // NONE (unrouted)
-                .foregroundColor(cell.inputReceiver == nil ? .black : .white.opacity(0.5))
-                .frame(width: 44, height: 42)
-                .background(RoundedRectangle(cornerRadius: 7).fill(cell.inputReceiver == nil ? Color.white.opacity(0.55) : Color.white.opacity(0.08)))
-                .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil } }
-        }
-    }
-    // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×2 grid + ALT destination (model
-    // persisted; the routing ENGINE is a separate increment — labelled so it's honest, not a silent no-op).
-    private let mainDestHue = Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — the emitters
-    private enum ChopRow { case main, alt, mute }
-    /// The OUTPUT block — MAIN dest · the 8×3 CHOP grid · ALT dest — CENTRED at the emitter section's width so it
-    /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). MAIN dest is live (edits cell.buses); the
-    /// chop grid + alt dest persist but their routing ENGINE is a separate increment.
-    @ViewBuilder private func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
-        let chop = cell.chopResolved
-        VStack(alignment: .leading, spacing: 8) {            // §6 left-aligned with the page grammar (was centred)
-            Text("MAIN DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: 6) { ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in   // §2 A–D toggles + channel tags
-                VStack(spacing: 3) {
-                    busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) }
-                    Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                }.frame(maxWidth: .infinity)
-            } }
-            VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice; rows are INDEPENDENT
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }   // TOP = MAIN dest
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }   // MIDDLE = MUTE
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }   // BOTTOM = ALT dest
-            }
-            Text("ALT DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
-        }
-        .frame(maxWidth: emitterWidth, alignment: .leading)
-    }
-    private func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
-            .frame(maxWidth: .infinity).frame(height: 42)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    @ViewBuilder private func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
-        let bit = UInt8(1) << UInt8(i)
-        let on: Bool = row == .main ? (chop.mainMask & bit != 0) : row == .alt ? (chop.altMask & bit != 0) : (chop.muteMask & bit != 0)
-        let hue: Color = row == .main ? mainDestHue : row == .alt ? Self.editHue : Verb.delete.hue
-        ZStack {
-            RoundedRectangle(cornerRadius: 4).fill(on ? hue.opacity(0.85) : Color.white.opacity(0.08))
-            if row == .mute {   // the MUTE row shows a speaker: unmuted when off, muted (slash) when on
-                Image(systemName: on ? "speaker.slash.fill" : "speaker.fill").font(.system(size: 11, weight: .heavy))
-                    .foregroundColor(on ? .black : .white.opacity(0.55))
-            }
-        }
-        .frame(maxWidth: .infinity).frame(height: 24)
-        .contentShape(Rectangle()).onTapGesture { tapChop(i, row) }
-    }
-    private func tapChop(_ i: Int, _ row: ChopRow) {   // each row is an INDEPENDENT per-slice toggle
-        let bit = UInt8(1) << UInt8(i)
-        editChop { c in
-            switch row {
-            case .main: c.mainMask ^= bit
-            case .alt:  c.altMask ^= bit
-            case .mute: c.muteMask ^= bit
-            }
-        }
-    }
-    private func toggleMainBus(_ b: Bus) {
-        editPointedCell { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
-    }
-    private func editChop(_ mutate: @escaping (inout Chop) -> Void) {
-        editPointedCell { var ch = $0.chopResolved; mutate(&ch); $0.chop = (ch == Chop() ? nil : ch) }
-    }
-    private func editName(_ id: String) -> String {
-        docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
-    }
-    // MARK: - §cell-edit E — the TRIGGERS accordion (Colour-side; edits the pointed cell's Colour `OnConfig`)
-
-    /// The Colour-side write path: triggers live on `Colour.on`, and `brush` already points at the pointed cell's
-    /// Colour (set in tapCell), so this mutates the pointed cell's triggers — every same-colour cell follows.
-    /// Reverting to all-defaults clears `.on` back to nil (clean docs). Undoable via `editBrushColour`.
-    private func editOn(_ mutate: @escaping (inout OnConfig) -> Void) {
-        editBrushColour { var c = $0.on ?? OnConfig(); mutate(&c); $0.on = (c == OnConfig() ? nil : c) }
-    }
-    /// The five ON rows, one-open-at-a-time; assigned rows show their summary, unassigned show a dim ＋ (reusing
-    /// the model's `*Summary` strings). Reads the brush Colour's resolved `OnConfig`.
-    // TRIGGERS, flat (user 2026-08-01): TAP · HOLD · ARRIVE editors shown inline, no accordion. LEAVE + SCENE
-    // dropped this version; each picker offers only the engine-WIRED actions.
-    @ViewBuilder private func triggersInline(_ cell: Cell) -> some View {
-        let on = brushColour?.onResolved ?? OnConfig()
-        VStack(alignment: .leading, spacing: 10) {
-            trigLabel("TAP");    tapEditor(on)
-            trigLabel("HOLD");   holdEditor(on)
-            trigLabel("ARRIVE"); arriveEditor(on)
-        }
-    }
-    private func trigLabel(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-    }
-    // ---- per-section editors. Each picker offers ONLY the engine-WIRED actions (the inert placeholders — TAP
-    //      fill/replay · HOLD freeze/slice-cycle/morph-scrub · ARRIVE dice — are hidden this version; the enum
-    //      cases stay in the model, append-only, for the future TOUCH-box design pass). ----
-    @ViewBuilder private func tapEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .alt, .mute, .solo], on.tap) { v in editOn { $0.tap = v } }
-            if on.tap != .none {
-                facetRow("WHEN") { trigSeg(OnTapWhen.allCases, on.tapWhen, label: { $0.rawValue }) { v in editOn { $0.tapWhen = v } } }
-                facetRow("FOR")  { trigSeg(OnTapFor.allCases, on.tapFor, label: { $0.rawValue }) { v in editOn { $0.tapFor = v } } }
-            }
-        }
-    }
-    @ViewBuilder private func holdEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .alt, .oct], on.hold) { v in editOn { $0.hold = v } }
-            // (REL SPRING|LATCH dropped — hold triggers are spring-only today; LATCH-persist is a future. SIZE
-            //  facet dropped with slice-cycle.)
-            if on.hold == .oct { facetRow("DIR") { trigSeg([true, false], on.octUp, label: { $0 ? "+" : "−" }) { v in editOn { $0.octUp = v } } } }
-        }
-    }
-    @ViewBuilder private func arriveEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .altAlternate, .morphDrift, .emitterRotate], on.arrive) { v in editOn { $0.arrive = v } }
-            if on.arrive != .none {
-                facetRow("EVERY") { trigStepper(on.arriveEvery, 1, 4) { v in editOn { $0.arriveEvery = v } } }
-                if on.arrive == .morphDrift {
-                    facetRow("DRIFT") { trigStepper(on.driftPct, 1, 100) { v in editOn { $0.driftPct = v } } }
-                    facetRow("MODE") { trigSeg(DriftMode.allCases, on.driftMode, label: { $0.rawValue }) { v in editOn { $0.driftMode = v } } }
-                }
-            }
-        }
-    }
-    // ---- small trigger controls ----
-    private func trigMenu<T: RawRepresentable & Hashable>(_ options: [T], _ current: T,
-                                                          _ pick: @escaping (T) -> Void) -> some View where T.RawValue == String {
-        Menu {
-            ForEach(options, id: \.self) { opt in Button(opt.rawValue) { pick(opt) } }
-        } label: {
-            HStack {
-                Text(current.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-        }
-    }
-    private func trigSeg<T: Equatable>(_ options: [T], _ sel: T, label: @escaping (T) -> String,
-                                       _ pick: @escaping (T) -> Void) -> some View {
-        HStack(spacing: 3) {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
-                let hot = opt == sel
-                Text(label(opt)).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                    .foregroundColor(hot ? .black : .white.opacity(0.6))
-                    .padding(.horizontal, 6).frame(height: 20)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(hot ? Self.editHue : Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { pick(opt) }
-            }
-        }
-    }
-    @ViewBuilder private func facetRow<V: View>(_ label: String, @ViewBuilder _ control: () -> V) -> some View {
-        HStack(spacing: 6) {
-            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 44, alignment: .leading)
-            control(); Spacer(minLength: 0)
-        }
-    }
-    private func trigStepper(_ value: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 8) {
-            Text("−").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(max(lo, value - 1)) }
-            Text("\(value)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white).frame(minWidth: 20)
-            Text("+").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
-        }
-    }
-
-    // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
-
-    /// The pointed cell's input source in words: a receiver (nil ⇒ unrouted). (Grid-chaining retired.)
-    private func inputSourceLabel(_ cell: Cell) -> String {
-        if let rcv = cell.inputReceiver { return "MIDI-IN · R\(rcv + 1)" }
-        return "NONE"                                        // null input (no receiver)
-    }
-    /// SOURCE = a value chip (tap = picker): NONE · MIDI-IN R1–R4. (Grid-chaining retired: FROM ROW removed.)
-    @ViewBuilder private func inputSourceChip(_ cell: Cell) -> some View {
-        Menu {
-            Button("NONE (unrouted)") { setEditSourceNone() }
-            ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } } }
-        } label: {
-            HStack {
-                Text(inputSourceLabel(cell)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-        }
-    }
-    private func setEditSource(_ mutate: @escaping (inout SceneState) -> Void) {
-        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
-        au.editScene(mutate); refreshFromDocument()
-    }
-    /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
-    /// The edit applies to every selected cell; with a single cell selected it's just that cell.
-    private func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
-        guard let au, !editSel.isEmpty else { return }
-        au.editCells(editSelTargets, mutate); refreshFromDocument()
-    }
-    private func setEditSourceNone() {
-        editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil }
-    }
-    /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
-    /// (−24…+24 st, already applied engine-wide via `setBrushTranspose`). OCTAVE = a ±12 convenience, SEMITONE =
-    /// ±1; both mutate the one `Colour.transpose`. Colour-side like the triggers, so same-colour cells follow.
-    @ViewBuilder private var inputShiftRow: some View {
-        let t = brushColour?.transpose ?? 0
-        facetRow("SHIFT") {
-            HStack(spacing: 5) {
-                stepPad("−12") { setBrushTranspose(max(-24, t - 12)) }
-                stepPad("−")   { setBrushTranspose(max(-24, t - 1)) }
-                Text(t == 0 ? "0 st" : "\(t > 0 ? "+" : "")\(t) st")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(t == 0 ? .white.opacity(0.5) : Self.editHue)
-                    .frame(minWidth: 42)
-                stepPad("+")   { setBrushTranspose(min(24, t + 1)) }
-                stepPad("+12") { setBrushTranspose(min(24, t + 12)) }
-            }
-        }
-    }
-    private func stepPad(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-            .frame(minWidth: 22, minHeight: 20).padding(.horizontal, 3)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
     /// CHORD SPLIT (D) — a per-cell field (not Colour-side): ALL · TOP n · BOTTOM n · KEY RANGE (split + side).
     // §6d TWO FLOWS — the COLOUR flow (the treatment axis): COLOUR → ALT → PROCESSOR SELECTOR → SETTINGS.
     // LANDSCAPE stacks it top→bottom in the right column (this VStack); PORTRAIT lays it out via
@@ -1615,7 +990,7 @@ struct DiagView: View {
     // VISUALIZATION tenant (design item 2): the top-right flank — the picture IS the button. A compact live
     // FLOW thumbnail (intensity OFF/SUBTLE/SHOWCASE); TAP = open/close full FLOW, LONG-PRESS = cycle the view.
     // The header FLOW button retired into this. In DEBUG the slot flips to the DIAG face.
-    private var vizView: some View {
+    var vizView: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text(flowVariation > 0 ? FlowView.names[min(flowVariation, FlowView.names.count - 1)] : "FLOW")
@@ -1637,14 +1012,14 @@ struct DiagView: View {
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
-    @ViewBuilder private var vizContent: some View {
+    @ViewBuilder var vizContent: some View {
         #if DEBUG
         if vizShowDiag { diagBox } else { vizPicture }
         #else
         vizPicture
         #endif
     }
-    @ViewBuilder private var vizPicture: some View {
+    @ViewBuilder var vizPicture: some View {
         if vizIntensity == 0 {                       // OFF: a static door, still tappable
             ZStack {
                 RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.04))
@@ -1658,7 +1033,7 @@ struct DiagView: View {
                 .allowsHitTesting(false)
         }
     }
-    private func vizChip(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
+    func vizChip(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 6.5, weight: .heavy, design: .monospaced))
             .foregroundColor(lit ? .black : .white.opacity(0.5))
             .padding(.horizontal, 4).padding(.vertical, 1)
@@ -1668,21 +1043,21 @@ struct DiagView: View {
 
     // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
     // the (now slimmed) header.
-    private var controlsView: some View {
+    var controlsView: some View {
         ControlsView(stepIndex: stepIndex, swing: swing,
                      onStep: { au?.setStepRateIndex($0); refreshTiming() },
                      onSwing: { au?.setSwing($0); refreshTiming() })
     }
 
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
-    private var masterView: some View {
+    var masterView: some View {
         MasterView(mute: masterMute, key: masterKey,
                    peak: emitPeak.max() ?? 0, peakAt: emitPeakAt.max() ?? .distantPast,
                    marks: Array(emitMarks.flatMap { $0 }.suffix(8)), holdLatch: holdLatch,
                    onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
-    private var emittersBox: some View {
+    var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
                     sounding: emitHeld, releaseMarks: emitRelease,
@@ -1701,7 +1076,7 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    @ViewBuilder private var receiversBox: some View {
+    @ViewBuilder var receiversBox: some View {
         ReceiversView(receivers: receivers, peak: receiverPeak, peakAt: receiverPeakAt,
                       heldVels: recvHeld, releaseMarks: recvRelease, thruReceiver: thruReceiver,
                       onToggleMute: toggleReceiverMute, onSetThru: setThru,
@@ -1717,7 +1092,7 @@ struct DiagView: View {
     }
 
     // The dev diagnostics (a8 stuck-note monitor) as a compact VERTICAL box — sits to the RIGHT of RECEIVERS.
-    private var diagBox: some View {
+    var diagBox: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("DIAG").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
             Text("VOICES \(d.activeVoiceCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
@@ -1739,7 +1114,7 @@ struct DiagView: View {
     // full width (2026-07-27 layout); LANDSCAPE keeps them side by side (the width exists).
     // MIXED-SET law: a SELECT set spanning >1 distinct Colour has no honest Colour-level edit, so the
     // PROCESSOR panels dim to "MIXED" (cell-level edits still apply). Single-Colour (or empty→brush) = normal.
-    private var selectionMixed: Bool {
+    var selectionMixed: Bool {
         Set(selection.compactMap { scene.cells[$0.col][$0.row]?.colourID }).count > 1
     }
 
@@ -1751,7 +1126,7 @@ struct DiagView: View {
 
     // §2 THE ARRANGEMENT BAR (extracted → ArrangementBar.swift). The VC keeps the poll + the grid's scene/
     // colours: it feeds the bar the polled sceneEmpty/activeSceneIdx and refreshes on `onSceneOpDone`.
-    private var arrangementBar: some View {
+    var arrangementBar: some View {
         ArrangementBar(au: au, d: d, stepBeats: stepBeats,
                        sceneEmpty: sceneEmpty, activeSceneIdx: activeSceneIdx,
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
@@ -1761,62 +1136,44 @@ struct DiagView: View {
                        onUndo: undo, onRedo: redo)
     }
     // §3 PRESETS wiring
-    private func openPresets() {
+    func openPresets() {
         presetList = au?.listPresets() ?? []
         currentPreset = au?.uiCurrentPreset() ?? ""
         showPresets = true
     }
-    private func savePreset(_ name: String) {
+    func savePreset(_ name: String) {
         au?.savePreset(named: name)
         presetList = au?.listPresets() ?? []
         currentPreset = au?.uiCurrentPreset() ?? ""
     }
-    private func loadPreset(_ name: String) {
+    func loadPreset(_ name: String) {
         au?.loadPreset(named: name)
         refreshFromDocument()
         receivers = au?.uiReceivers() ?? receivers
         currentPreset = au?.uiCurrentPreset() ?? ""
         showPresets = false
     }
-    private func loadFactoryPreset(_ name: String) {        // §3 read-only DEFAULT / curriculum
+    func loadFactoryPreset(_ name: String) {        // §3 read-only DEFAULT / curriculum
         au?.loadFactoryPreset(named: name)
         refreshFromDocument()
         receivers = au?.uiReceivers() ?? receivers
         currentPreset = au?.uiCurrentPreset() ?? ""
         showPresets = false
     }
-    private func deletePreset(_ name: String) {
+    func deletePreset(_ name: String) {
         au?.deletePreset(named: name)
         presetList = au?.listPresets() ?? []
         currentPreset = au?.uiCurrentPreset() ?? ""
     }
 
-    // CELL MACHINE stage-4 — the CELL LIBRARY: save the selected cell, browse, stamp saved cells.
-    private func openCellLibrary() { cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
-    private func saveCellNamed(_ name: String) {
-        au?.saveCellToLibrary(col: selCol, row: selRow, name: name)
-        cellLibraryList = au?.listLibraryCells() ?? []
-    }
-    private func deleteLibraryCellNamed(_ name: String) {
-        au?.deleteLibraryCell(name: name); cellLibraryList = au?.listLibraryCells() ?? []
-    }
-    // LIBRARY · APPLY — replace the CHAIN of the cells currently being edited with the library cell's chain.
-    private func applyLibraryChain(_ cell: Cell?) {
-        guard let cell, !editSel.isEmpty else { return }
-        let chain = cell.processors ?? []          // the saved cell's materialised chain (empty = passthrough)
-        au?.editCells(editSelTargets) { $0.processors = chain }
-        refreshFromDocument(); showCellLibrary = false
-    }
-    private func stampFromLibrary(_ name: String) { applyLibraryChain(au?.loadLibraryCell(name: name)) }
-    private func stampFromFactory(_ name: String) { applyLibraryChain(au?.factoryLibraryCell(name: name)) }
 
     // §5 THE COG PAGE → CogPage.swift (the full MIDI I/O rig config: input cable/channel/latch/MPE + emitter
     //  channel, live activity + MPE-detect indicators). `showSettings` gates it; the ⚙ in the bar opens it.
-    private var aboutLine: String {
+    var aboutLine: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         return "8×8 STATE · MidiSpark engine · v\(v)"
     }
-    private func refreshScenes() {
+    func refreshScenes() {
         guard let au else { return }
         let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }
         let a = au.uiActiveScene(); if a != activeSceneIdx { activeSceneIdx = a }
@@ -1826,7 +1183,7 @@ struct DiagView: View {
     // Dev-only: the canned TestSessions loader (portrait scroll; not part of the release strip).
     // a8 stuck-note monitor (dev): the open-voices dump + the assert-on-silence self-heal count. PANICS > 0
     // means a stuck note was caught and force-cleared in the provably-silent state — a latent bug to chase.
-    private var stuckNoteMonitor: some View {
+    var stuckNoteMonitor: some View {
         let panicked = d.panics > 0
         return HStack(spacing: 10) {
             Text("VOICES \(d.activeVoiceCount)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
@@ -1842,7 +1199,7 @@ struct DiagView: View {
 
     // Dev-build only: the hidden overlay revealed by a long-press on the logotype — the canned T-session
     // loader + the stuck-note monitor, for device passes. Tap the scrim (or ✕) to dismiss. Never in release.
-    private var devLoaderOverlay: some View {
+    var devLoaderOverlay: some View {
         ZStack {
             Color.black.opacity(0.72).ignoresSafeArea().onTapGesture { showDevLoader = false }
             VStack(alignment: .leading, spacing: 12) {
@@ -1862,7 +1219,7 @@ struct DiagView: View {
         }
     }
 
-    private var devLoader: some View {
+    var devLoader: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("TEST SESSIONS (dev)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
             ScrollView(.horizontal, showsIndicators: false) {

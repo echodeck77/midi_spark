@@ -28,6 +28,7 @@
 		7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BA15AAFC801CACFECA4085 /* MigrationTests.swift */; };
 		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		8418D719517A4A7F501460A1 /* SceneFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */; };
+		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
@@ -99,6 +100,7 @@
 		91BA15AAFC801CACFECA4085 /* MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationTests.swift; sourceTree = "<group>"; };
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
@@ -167,6 +169,7 @@
 				D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
 				88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */,
+				AF2C4528E7A184FABB7EF270 /* EditPage.swift */,
 				2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */,
 				52D6A2BAD52CA71E5145C36A /* FlowView.swift */,
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
@@ -322,6 +325,7 @@
 				E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
 				8CC40A50AE903C00870E629A /* Diag.swift in Sources */,
+				85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */,
 				5C648CAB6448DD80453069B0 /* Emission.swift in Sources */,
 				EBC5332C1664AA1E31A065D5 /* FlowView.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
