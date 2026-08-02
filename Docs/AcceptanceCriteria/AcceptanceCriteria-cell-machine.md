@@ -97,6 +97,14 @@ grid-chaining. Where this conflicts with the older §5 cell-editor spec, this wi
 ## Owed (not yet built)
 - A TRIGGERS section on the EDIT page (tap/hold/arrive) + the LOOP/TEST pinned
   strip; SAVE-TO-LIBRARY + the full breadcrumb beside DONE.
-- Audition/preview previews the Colour A face, not the resolved chain (C).
+- Audition now previews the cell's RESOLVED HEAD (override/template-aware, no
+  longer the raw Colour A face); a full multi-slot serial preview (the tail over
+  the composed chain) is still owed.
+- Cell/colour NAME editing on the EDIT page (read-only label today).
 - Twin-count header sits in CHAIN (not IDENTITY); chip drag-to-scrub; the DIN
   glyph is an SF approximation; DELETE targets the pointed cell only (by design).
+
+## Done since ratification
+- **APPLY TO…** (C5) is wired: a foot Menu (ALL ‹colour› / THIS ROW / THIS
+  COLUMN) stamps the pointed cell's full config onto the scope → targets become
+  twins (`EditScope.row`/`.column` + `AU.applyCellToScope`).

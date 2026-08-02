@@ -1113,7 +1113,7 @@ struct DiagView: View {
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
                         sectionHeader("CHAIN");          chainStack(cell, boxWidth: min(320, size.width * 0.5))
                         sectionHeader("TO · SYNTHS");    outputSection(cell, emitterWidth: min(320, inspectorW))
-                        deleteFootButton()                            // §3 DELETE demoted to the foot (whisper until touched)
+                        footUtilities(cell)                           // §3/§C5 APPLY TO… (deliberate batch) + DELETE, at the foot
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
             } else {                                                  // §1 the empty state = an invitation
@@ -1304,12 +1304,27 @@ struct DiagView: View {
         brush = id; refreshFromDocument()
     }
     // §3 DELETE demoted — a compact red text button at the page foot (pointed-cell only, per W1).
-    private func deleteFootButton() -> some View {
-        Button { deleteEditedCell() } label: {
-            Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Verb.delete.hue)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 5).stroke(Verb.delete.hue.opacity(0.6), lineWidth: 1))
-        }.buttonStyle(.plain).padding(.top, 8)
+    // §C5/§3 — the page foot: APPLY TO… (the deliberate broader push; twin editing is automatic, so this is for
+    // the rest) + DELETE (whisper until touched). APPLY TO… stamps THIS cell's full config onto the scope → the
+    // targets become twins and thereafter edit together.
+    @ViewBuilder private func footUtilities(_ cell: Cell) -> some View {
+        HStack(spacing: 10) {
+            Menu {
+                Button("ALL \(editName(cell.colourID))") { au?.applyCellToScope(col: selCol, row: selRow, scope: .allColour); refreshFromDocument() }
+                Button("THIS ROW")    { au?.applyCellToScope(col: selCol, row: selRow, scope: .row); refreshFromDocument() }
+                Button("THIS COLUMN") { au?.applyCellToScope(col: selCol, row: selRow, scope: .column); refreshFromDocument() }
+            } label: {
+                Text("APPLY TO…").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 5).stroke(Self.editHue.opacity(0.5), lineWidth: 1))
+            }
+            Spacer(minLength: 0)
+            Button { deleteEditedCell() } label: {
+                Text("DELETE CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Verb.delete.hue)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 5).stroke(Verb.delete.hue.opacity(0.6), lineWidth: 1))
+            }.buttonStyle(.plain)
+        }.padding(.top, 8)
     }
     private func utilBtn(_ label: String, _ fill: Color, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(fill == Verb.delete.hue ? .black : .white.opacity(0.9))

@@ -108,6 +108,23 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
     func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }
     func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
+
+    /// APPLY TO… — stamp the pointed cell's FULL config (colour + chain + input + output + source-shaping) onto
+    /// every OCCUPIED cell in `scope` (all ‹colour› / row / column), in ONE undoable step. The targets become
+    /// TWINS of the source, so they then edit together. Perform state (alt/muted) is not copied.
+    func applyCellToScope(col: Int, row: Int, scope: SceneState.EditScope) {
+        guard let src = document.scenes[document.activeSceneResolved].cells[col][row] else { return }
+        editScene { s in
+            for key in s.editScopeTargets(col: col, row: row, scope: scope) {
+                let c = key / 8, r = key % 8
+                guard var dst = s.cells[c][r] else { continue }
+                dst.colourID = src.colourID; dst.processors = src.processors
+                dst.inputReceiver = src.inputReceiver; dst.inputRow = src.inputRow; dst.buses = src.buses
+                dst.chordSplit = src.chordSplit; dst.velWindow = src.velWindow; dst.chop = src.chop
+                s.cells[c][r] = dst
+            }
+        }
+    }
     /// STAMP a saved cell onto (col,row) — writes its colour + chain + source-shaping, routing left blank
     /// (per-placement), overwriting whatever is there. Undoable.
     func stampLibraryCell(col: Int, row: Int, _ saved: Cell) {

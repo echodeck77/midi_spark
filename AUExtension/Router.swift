@@ -1534,6 +1534,10 @@ final class Router {
         guard pool.count > 0 else { return }          // no held notes → silence (soundcheck)
         let ci = Int(cell.colourIndex)
         let colour = box.colours[ci]
+        // CELL MACHINE: audition previews the cell's RESOLVED HEAD treatment (override/template-aware), not the raw
+        // Colour A face — `treat.a = cell.proc`, so effective*(treat) reads the head. (Multi-slot chains preview the
+        // HEAD slot; a full serial preview of the tail is a follow-up.)
+        var treat = colour; treat.a = cell.proc
 
         let beatsPerSample = tempo / 60.0 / sampleRate
         let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
@@ -1542,23 +1546,23 @@ final class Router {
         let t = 0.0   // morph removed
         let transpose = colourTranspose(ci, colour)
 
-        switch effectiveType(colour, t: t) {
+        switch effectiveType(treat, t: t) {
         case .arp:
-            var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
-            let gate = effectiveGate(colour, t: t)
-            let octaves = effectiveOctaves(colour, t: t)
+            var arpBeats = effectiveRateBeats(treat, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(treat, t: t)
+            let octaves = effectiveOctaves(treat, t: t)
             auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let base = arpPickSource(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
-                                         pattern: colour.a.patternIndex, pool: pool, for: cell)
+                                         pattern: treat.a.patternIndex, pool: pool, for: cell)
                 guard base >= 0 else { return }
                 let n = base + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
                           windowEnd: windowEnd, out: out, diag: &diag)
             }
         case .ratchet:
-            let repeats = effectiveRepeats(colour, t: t)
-            let ramp = effectiveRamp(colour, t: t)
+            let repeats = effectiveRepeats(treat, t: t)
+            let ramp = effectiveRamp(treat, t: t)
             let sub = S / Double(max(1, repeats))
             auditionTicks(sub: sub, gateFraction: 0.6, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
@@ -1575,12 +1579,12 @@ final class Router {
         case .strum:
             // STRUM: roll the held chord in over `spread` beats from the hold (its own onset per note),
             // then sustain — the audition clock drives the roll; reconcile tracks live key changes.
-            auditionStrum(cell: cell, colour: colour, pool: pool, transpose: transpose, t: t,
+            auditionStrum(cell: cell, colour: treat, pool: pool, transpose: transpose, t: t,
                           auditionBeat: auditionBeat, windowEnd: windowEnd, out: out, diag: &diag)
         default:
             // chord-hold types (passgate all-open / chance / harmonize): sustain the treated chord,
             // reconciled to the live held source each window (v2).
-            auditionChordHold(cell: cell, colour: colour, pool: pool, transpose: transpose, t: t,
+            auditionChordHold(cell: cell, colour: treat, pool: pool, transpose: transpose, t: t,
                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
     }
