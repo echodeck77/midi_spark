@@ -445,7 +445,7 @@ struct PluginState: Codable, Equatable {
 
     // MARK: - MULTI-SCENE (2026-07-27) — the scene strip switches activeScene within one document
 
-    static let maxScenes = 8           // the strip's fixed slot count (8 — leaves the header room for the preset selector)
+    static let maxScenes = 16          // the strip's fixed slot count (16 — the scene row sits on its own line below the header)
 
     /// The active scene index, always in-bounds (clamped; falls back to 0 if the doc is odd). Never crashes.
     var activeSceneResolved: Int { scenes.isEmpty ? 0 : max(0, min(scenes.count - 1, activeScene)) }

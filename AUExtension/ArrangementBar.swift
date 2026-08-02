@@ -43,18 +43,21 @@ struct ArrangementBar: View {
     private let sceneStripSpace = "sceneStripRow"     // one name for the chip-row coordinate space + its drag gesture
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
-                .foregroundColor(.white.opacity(0.85)).fixedSize()
-                .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
-            presetButton                                                       // §3 PRESETS: the selector, right of the logo
-            undoRedo                                                            // /btw ②: UNDO/REDO to the right of the preset selector
-            sceneChipRow                                                        // THE CHIPS — flex to fill; never yield
-            if d.playing {
-                Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
+        VStack(spacing: 6) {                                 // the MAIN HEADER, then the SCENE row on its own line below
+            HStack(alignment: .center, spacing: 8) {
+                Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
+                    .foregroundColor(.white.opacity(0.85)).fixedSize()
+                    .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
+                presetButton                                                       // §3 PRESETS: the selector, right of the logo
+                undoRedo                                                            // /btw ②: UNDO/REDO to the right of the preset selector
+                Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
+                if d.playing {
+                    Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
+                        .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
+                }
+                cogOrCan                                                           // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
-            cogOrCan                                                            // ⚙ ⇄ 🗑 (the can in place during a drag)
+            sceneChipRow                                                           // THE 16 SCENE CHIPS — full-width row below the header
         }
         .offset(x: sceneShakeX)                              // shake when the active scene refuses the trash
         .background(sceneArmWatcher)                         // S2c: tight commit at the pass boundary (~1 render window)

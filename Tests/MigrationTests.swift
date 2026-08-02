@@ -446,10 +446,10 @@ final class MigrationTests: XCTestCase {
         var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.scenes[0].cells[0][0] = Cell(colourID: "gold")
         d.padScenes()
-        XCTAssertEqual(d.scenes.count, 8)
+        XCTAssertEqual(d.scenes.count, PluginState.maxScenes)
         XCTAssertFalse(d.scenes[0].isEmpty, "slot 0 preserved")
-        XCTAssertTrue(d.scenes[7].isEmpty, "padded slots are empty +")
-        d.padScenes(); XCTAssertEqual(d.scenes.count, 8, "idempotent — never grows past 8")
+        XCTAssertTrue(d.scenes[PluginState.maxScenes - 1].isEmpty, "padded slots are empty +")
+        d.padScenes(); XCTAssertEqual(d.scenes.count, PluginState.maxScenes, "idempotent — never grows past the strip size")
     }
 
     func testSwitchSceneOnlyToNonEmpty() {
@@ -574,7 +574,7 @@ final class MigrationTests: XCTestCase {
     func testMigrationPadsScenesToEight() {
         var d = doc { $0.cells[0][0] = Cell(colourID: "gold") }   // v2, length-1
         d.migrateLegacyRoutingIfNeeded()
-        XCTAssertEqual(d.scenes.count, 8, "old length-1 docs pad to the 8-slot strip")
+        XCTAssertEqual(d.scenes.count, PluginState.maxScenes, "old length-1 docs pad to the scene-strip size")
         XCTAssertFalse(d.scenes[0].isEmpty, "the original scene stays in slot 0")
     }
 

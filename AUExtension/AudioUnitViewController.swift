@@ -145,6 +145,7 @@ struct DiagView: View {
     @State private var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State private var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State private var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
+    @State private var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
     @State private var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State private var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State private var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -242,6 +243,10 @@ struct DiagView: View {
             }
             syncAnchor()
             return
+        }
+        if muteArmed {                                       // PERFORM · MUTE mode: a tap toggles the cell's mute
+            guard scene.cells[col][row] != nil else { return }
+            au?.editScene { $0.cells[col][row]?.muted.toggle() }; refreshFromDocument(); return
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
@@ -466,18 +471,20 @@ struct DiagView: View {
     // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
     private var verbCluster: some View {
         VStack(spacing: 6) {
-            if let v = activeVerb {
-                Text(verbHint(v)).font(.system(size: 7, weight: .heavy, design: .monospaced))
-                    .foregroundColor(v.hue).lineLimit(2).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            verbButton(.place)                             // PLACE — top, full width
-            HStack(spacing: 6) { verbButton(.delete); verbButton(.select) }
-            HStack(spacing: 6) { verbButton(.copy); verbButton(.paste) }   // /btw ①: COPY · PASTE (MOVE left the cluster)
-            editVerbButton()                               // §cell-edit A1: the 6th control — a TOGGLE, set apart from the spring verbs
+            // HOLD (moved from the controls panel — the §5c sustain latch) · MUTE (arm → tap cells to mute) ·
+            // SELECT (to be implemented) · EDIT (the toggle to the cell Edit page, kept set apart).
+            roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
+                .contentShape(Rectangle()).onTapGesture { toggleHold() }
+            roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
+                .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
+            roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
+                .opacity(0.4).allowsHitTesting(false)
+            editVerbButton()                               // §cell-edit A1: the EDIT toggle — kept, set apart
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+    private let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
     private func verbHint(_ v: Verb) -> String {
         switch v {
         case .place:  return "PLACE \(brush.uppercased()) — tap empties"
@@ -803,26 +810,13 @@ struct DiagView: View {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 if editArmed {
                     editSpikePage(geo.size)   // feat/EditPageSpike: alt grid-setup surface (grid on top + inspector)
-                } else if landscape {
-                    // §6d TWO FLOWS: the layout IS the signal path — RECEIVERS band above → the (smaller) GRID
-                    // → EMITTERS band below, grid-aligned, one vertical anatomy. The right column is the COLOUR
-                    // flow (COLOUR→ALT→SELECTOR→SETTINGS). Cells shrink so the two bands flank the grid.
-                    VStack(spacing: 8) {
-                        arrangementBar                               // §2: LOGO · scene chips · ⚙ (header + strip merged)
-                        HStack(alignment: .top, spacing: 10) {
-                            signalColumn(geo.size.width)             // RECEIVERS → GRID → EMITTERS (the signal flow)
-                            ScrollView(.vertical, showsIndicators: false) { identityColumn }.frame(width: 320)
-                        }
-                    }
-                    .padding(12)
                 } else {
-                    // §6d TWO FLOWS (portrait): the same signal-flow anatomy top-to-bottom — RECEIVERS above →
-                    // (smaller) GRID → EMITTERS below — then the COLOUR flow (COLOUR/ALT · SELECTOR/SETTINGS,
-                    // 2 columns), scene strip, dev loader. The colour band is sized for the inline SETTINGS panel.
+                    // §6d ONE FLOW: the layout IS the signal path — RECEIVERS band above → the GRID → EMITTERS band
+                    // below, grid-aligned. The COLOUR flow (palette + processor desk) is RETIRED — colour + chains
+                    // are edited on the EDIT page now; the signal flow fills the width. Landscape/portrait identical.
                     VStack(spacing: 8) {
-                        arrangementBar                         // §2: LOGO · scene chips · ⚙ (header + strip merged)
+                        arrangementBar                         // §2: LOGO · undo/redo · ⚙ header, then the 16-scene row below
                         signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
-                        colourFlowBand(geo.size.width - 24, 300)   // the treatment axis (24 = the .padding(12) both sides)
                     }
                     .padding(12)
                 }
@@ -1705,36 +1699,6 @@ struct DiagView: View {
     // LANDSCAPE stacks it top→bottom in the right column (this VStack); PORTRAIT lays it out via
     // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
     // below the grid), not here.
-    private var identityColumn: some View {
-        // CELL MACHINE stage-3: the shared-Colour processor desk is RETIRED — processors are edited in EDIT (the
-        // CHAIN editor, per-cell or via the ALL-<colour> template scope). Only the colour palette/identity stays.
-        VStack(spacing: 8) {
-            colourBox
-            Text("Edit processors in EDIT — per cell, or ALL <colour> (shared template).")
-                .font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-
-    // delta item 8 (portrait): the COLOUR flow — the treatment axis, separate from the signal flow (whose
-    // RECEIVERS/EMITTERS bands flank the grid above). The two PROCESSOR PANELS (procA | procB) sit here; each
-    // is a fixed frame sized for the largest field set, so truncation dies by geometry.
-    private func colourFlowBand(_ width: CGFloat, _ height: CGFloat) -> some View {
-        let gap: CGFloat = 8
-        let avail = max(0, width - gap)
-        // PORTRAIT (user rev 2026-07-27): COLOUR · PROCESSOR A · PROCESSOR B all on ONE ROW (the wide-short band),
-        // palette on the left, the two panels side by side taking the rest.
-        return HStack(alignment: .top, spacing: gap) {
-            colourBox.frame(width: min(160, avail * 0.28))
-            // CELL MACHINE stage-3: processor desk retired — processors are edited in EDIT (chain editor).
-            Text("Edit processors in EDIT — per cell, or ALL <colour> (shared template).")
-                .font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: height)
-    }
-
     // VISUALIZATION tenant (design item 2): the top-right flank — the picture IS the button. A compact live
     // FLOW thumbnail (intensity OFF/SUBTLE/SHOWCASE); TAP = open/close full FLOW, LONG-PRESS = cycle the view.
     // The header FLOW button retired into this. In DEBUG the slot flips to the DIAG face.
@@ -1792,10 +1756,9 @@ struct DiagView: View {
     // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
     // the (now slimmed) header.
     private var controlsView: some View {
-        ControlsView(stepIndex: stepIndex, swing: swing, holdLatch: holdLatch,
+        ControlsView(stepIndex: stepIndex, swing: swing,
                      onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                     onSwing: { au?.setSwing($0); refreshTiming() },
-                     onToggleHold: toggleHold)
+                     onSwing: { au?.setSwing($0); refreshTiming() })
     }
 
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
@@ -1838,41 +1801,6 @@ struct DiagView: View {
                       onRouteIn: routeInReceiver)
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-
-    private var colourBox: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("COLOUR").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                if let c = colourColor(brush) { RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12) }
-                TextField("", text: $nameDraft, prompt: Text(brushColour?.type.rawValue ?? "NAME").foregroundColor(.white.opacity(0.3)))   // C1 name editor
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    .onSubmit { commitBrushName() }.frame(maxWidth: 90)
-                Spacer(minLength: 4)
-                let census = au?.uiColourCensus()[brush] ?? 0    // D3: census protection
-                if census > 0 {
-                    Text("\(census)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                } else if brushColour?.isDefined == true {
-                    Button { deleteBrushColour() } label: {
-                        Image(systemName: "trash").font(.system(size: 9)).foregroundColor(.white.opacity(0.5))
-                    }.buttonStyle(.plain)
-                }
-            }
-            .onAppear { syncNameDraft() }
-            .onChange(of: brush) { _ in syncNameDraft() }
-            PaletteView(brush: brush, scene: scene, playColumn: d.effColumn, playing: d.playing,
-                        beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                        onPick: { id in                          // /btw ④ PLACE-hold: retro-repaint; SELECT: recolour the set; else set brush
-                            if activeVerb == .place { repaintHoldToBrush(id) }
-                            else if !selection.isEmpty { recolorSelection(id) }
-                            else { pickPalette(id) }
-                        },
-                        colours: docColours,                     // D1: defined chips + "+" slots
-                        onSlotTap: birthColour)                  // D2: "+" slot → type picker births a Colour
-        }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
     // A neutral placeholder box (reserved space for a future control) — flanks the bands.
