@@ -72,4 +72,20 @@ final class PresetStoreTests: XCTestCase {
         XCTAssertTrue(s.buses.isEmpty, "output emitters stripped")
         XCTAssertFalse(s.alt); XCTAssertFalse(s.muted)   // perform state defaulted
     }
+
+    // CELL MACHINE stage-4 — FACTORY cells: a non-empty read-only starter set, each a valid "machine minus routing".
+    func testFactoryLibraryCellsAreValidMachinesMinusRouting() {
+        let factory = CellLibraryStore.factory()
+        XCTAssertGreaterThanOrEqual(factory.count, 3, "there are factory starter cells")
+        for (name, cell) in factory {
+            XCTAssertFalse(name.isEmpty)
+            XCTAssertFalse(cell.processors?.isEmpty ?? true, "\(name) carries a non-empty chain")
+            XCTAssertTrue(cell.buses.isEmpty, "\(name) has no output (machine minus routing)")
+            XCTAssertNil(cell.inputRow); XCTAssertNil(cell.inputReceiver, "\(name) has no input routing")
+            XCTAssertNotNil(colourIDs.firstIndex(of: cell.colourID), "\(name)'s colour is canonical")
+        }
+        let bloom = factory.first { $0.name == "Bloom" }!.cell   // round-trips like any saved cell
+        let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(bloom))
+        XCTAssertEqual(rt.processors?.count, 2, "Bloom = harmonize→arp")
+    }
 }

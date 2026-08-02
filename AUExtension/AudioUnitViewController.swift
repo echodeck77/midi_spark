@@ -767,8 +767,9 @@ struct DiagView: View {
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
                 if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser
-                    CellBrowser(cells: cellLibraryList, canSave: editingCell != nil,
-                                onSave: saveCellNamed, onStamp: stampFromLibrary,
+                    CellBrowser(cells: cellLibraryList, factory: au?.factoryLibraryCells().map { $0.name } ?? [],
+                                canSave: editingCell != nil,
+                                onSave: saveCellNamed, onStamp: stampFromLibrary, onStampFactory: stampFromFactory,
                                 onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false })
                 }
                 if pendingLibraryCell != nil {          // CELL MACHINE stage-4: STAMP mode banner
@@ -1893,6 +1894,10 @@ struct DiagView: View {
     }
     private func stampFromLibrary(_ name: String) {   // arm the stamp mode with the loaded cell
         guard let c = au?.loadLibraryCell(name: name) else { return }
+        pendingLibraryCell = c; pendingLibraryName = name; showCellLibrary = false
+    }
+    private func stampFromFactory(_ name: String) {   // arm the stamp mode with a read-only factory cell
+        guard let c = au?.factoryLibraryCell(name: name) else { return }
         pendingLibraryCell = c; pendingLibraryName = name; showCellLibrary = false
     }
     private func endStamp() { pendingLibraryCell = nil; pendingLibraryName = "" }

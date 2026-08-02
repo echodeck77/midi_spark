@@ -120,9 +120,11 @@ struct PresetBrowser: View {
 /// cell under a name, STAMP a saved cell (arms the stamp mode), DELETE. Same overlay look as PRESETS.
 struct CellBrowser: View {
     let cells: [String]
+    var factory: [String] = []                  // read-only starter cells (STAMP only)
     var canSave: Bool = false
     let onSave: (String) -> Void
     let onStamp: (String) -> Void
+    var onStampFactory: (String) -> Void = { _ in }
     let onDelete: (String) -> Void
     let onClose: () -> Void
 
@@ -159,11 +161,11 @@ struct CellBrowser: View {
                 }.padding(.bottom, 12)
                 Divider().overlay(ink.opacity(0.12)).padding(.bottom, 8)
 
-                if cells.isEmpty {
-                    Text("no saved cells yet — configure a cell, then SAVE").font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.vertical, 12)
-                } else {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 4) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if cells.isEmpty {
+                            Text("no saved cells yet — configure a cell, then SAVE").font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.vertical, 8)
+                        } else {
                             ForEach(cells, id: \.self) { name in
                                 HStack(spacing: 8) {
                                     Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.9))
@@ -182,6 +184,21 @@ struct CellBrowser: View {
                                 }
                                 .padding(.horizontal, 10).padding(.vertical, 7)
                                 .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.05)))
+                            }
+                        }
+                        if !factory.isEmpty {   // read-only starter cells — STAMP only
+                            Text("FACTORY").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.top, 10).padding(.leading, 2)
+                            ForEach(factory, id: \.self) { name in
+                                HStack(spacing: 8) {
+                                    Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.8))
+                                    Spacer()
+                                    Text("STAMP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                                        .padding(.horizontal, 10).padding(.vertical, 5)
+                                        .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
+                                        .contentShape(Rectangle()).onTapGesture { onStampFactory(name) }
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 7)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.03)))
                             }
                         }
                     }

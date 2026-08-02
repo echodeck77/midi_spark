@@ -115,6 +115,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func listLibraryCells() -> [String] { CellLibraryStore.list() }
     func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
+    func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }
+    func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
     /// STAMP a saved cell onto (col,row) — writes its colour + chain + source-shaping, routing left blank
     /// (per-placement), overwriting whatever is there. Undoable.
     func stampLibraryCell(col: Int, row: Int, _ saved: Cell) {

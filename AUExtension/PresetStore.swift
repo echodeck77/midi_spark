@@ -96,4 +96,20 @@ enum CellLibraryStore {
             .map { $0.deletingPathExtension().lastPathComponent }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
+    /// A small read-only FACTORY set so the library isn't empty first-run. Each is "machine minus routing"
+    /// (a chain + colour, no routing) — the user STAMPs it and wires input/output. Built in code (no bundle).
+    static func factory() -> [(name: String, cell: Cell)] {
+        func slot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
+            var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
+        }
+        func cell(_ colourID: String, _ slots: [ProcessorSlot]) -> Cell {
+            var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; return c
+        }
+        return [
+            ("Bloom",   cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 0] }, slot(.arp)])),
+            ("Stutter", cell("violet",  [slot(.passgate) { $0.passes = [true, true, true, true] }, slot(.ratchet) { $0.count = 4 }])),
+            ("Cascade", cell("magenta", [slot(.arp) { $0.octaves = 2 }, slot(.strum)])),
+        ]
+    }
 }
