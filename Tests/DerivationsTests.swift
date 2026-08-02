@@ -1160,4 +1160,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(pts.count, 141, "segments + 1 points")
         XCTAssertTrue(pts.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "unit space [−1, 1]")
     }
+    // TWO-SCALE: the reduced stroke (A) + mini-waveform (C) — both derived, both unit-space, both twin-shared.
+    func testOrbitInitialStrokeIsHalfPeriodUnitSpace() {
+        let f = orbitFigure(orbitHash(orbitCell()))
+        let pts = orbitInitialPoints(a: f.a, b: f.b, phi: f.phi, squish: f.squish, points: 6)
+        XCTAssertEqual(pts.count, 6)
+        XCTAssertTrue(pts.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "unit space")
+        // same hash ⇒ same initial (twins share the reduction)
+        let g = orbitFigure(orbitHash(orbitCell()))
+        XCTAssertEqual(pts.map { $0.x }, orbitInitialPoints(a: g.a, b: g.b, phi: g.phi, squish: g.squish, points: 6).map { $0.x })
+    }
+    func testOrbitWaveformNormalised() {
+        let w = orbitWaveform(orbitHash(orbitCell()), samples: 48)
+        XCTAssertEqual(w.count, 49, "samples + 1")
+        XCTAssertTrue(w.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "x span + normalised y in [−1, 1]")
+        XCTAssertEqual(orbitWaveform(12345), orbitWaveform(12345), "deterministic per hash")
+    }
 }

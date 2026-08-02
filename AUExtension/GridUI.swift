@@ -58,6 +58,83 @@ struct OrbitShape: Shape {
 /// The orbit's rest ink — heavier stroke, calmer alpha reads "drawn" not "scratchy" (design feedback, stage 1).
 let orbitInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.38)
 
+/// Map a unit point (x,y ∈ [−1,1]) into `rect` with a proportional inset.
+private func orbitMap(_ p: SIMD2<Double>, in rect: CGRect, inset: CGFloat) -> CGPoint {
+    let rx = (rect.width - 2 * inset) / 2, ry = (rect.height - 2 * inset) / 2
+    return CGPoint(x: rect.midX + CGFloat(p.x) * rx, y: rect.midY + CGFloat(p.y) * ry)
+}
+/// A Catmull-Rom smoothed OPEN path through `pts` (as cubic Béziers) — the calligraphic "initial".
+private func smoothedOpenPath(_ pts: [CGPoint]) -> Path {
+    var path = Path()
+    guard pts.count > 1 else { return path }
+    path.move(to: pts[0])
+    for i in 0..<pts.count - 1 {
+        let p0 = pts[max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[min(pts.count - 1, i + 2)]
+        let c1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
+        let c2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
+        path.addCurve(to: p2, control1: c1, control2: c2)
+    }
+    return path
+}
+
+/// A — THE REDUCED STROKE (cell scale): the orbit's half-period as one smoothed open gesture. Glides via animatableData.
+struct OrbitInitialShape: Shape {
+    var a: Double, b: Double, phi: Double, squish: Double
+    var points: Int = 6
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
+        get { AnimatablePair(AnimatablePair(a, b), AnimatablePair(phi, squish)) }
+        set { a = newValue.first.first; b = newValue.first.second; phi = newValue.second.first; squish = newValue.second.second }
+    }
+    init(hash: UInt32, points: Int = 6) { let f = orbitFigure(hash); a = f.a; b = f.b; phi = f.phi; squish = f.squish; self.points = points }
+    func path(in rect: CGRect) -> Path {
+        let inset = min(rect.width, rect.height) * 0.12
+        let pts = orbitInitialPoints(a: a, b: b, phi: phi, squish: squish, points: points).map { orbitMap($0, in: rect, inset: inset) }
+        return smoothedOpenPath(pts)
+    }
+}
+/// C — THE MINI-WAVEFORM (cell scale): one period of a hash-derived 3-harmonic mix, as a polyline.
+struct WaveformShape: Shape {
+    let hash: UInt32
+    var samples: Int = 48
+    func path(in rect: CGRect) -> Path {
+        let inset = min(rect.width, rect.height) * 0.12
+        let pts = orbitWaveform(hash, samples: samples).map { orbitMap($0, in: rect, inset: inset) }
+        var path = Path()
+        guard pts.count > 1 else { return path }
+        path.move(to: pts[0]); for p in pts.dropFirst() { path.addLine(to: p) }
+        return path
+    }
+}
+
+/// THE ORBIT HARNESS (stage-1 feedback) — the 3-way bake-off at REAL cell size: A the reduced INITIAL ·
+/// B the full ORBIT · C the mini-WAVE, over 8 sample hashes. The user picks the body that stays distinct at a
+/// glance; the winner freezes. Dev-only (opened from the dev loader).
+struct OrbitHarness: View {
+    private let side: CGFloat = 42
+    private let hashes: [UInt32] = [0x1A2B3C4D, 0x009F1E22, 0x7788AA33, 0x33CC9911, 0x00ABCDEF, 0x24681012, 0xFEDCBA98, 0x55500077]
+    private let fill = Color(hex: 0xFFC53D)   // a sample cell hue
+    private let ink = StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ORBIT HARNESS · A INITIAL · B ORBIT · C WAVE — pick the body that stays distinct at a glance")
+                .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            HStack(alignment: .top, spacing: 14) {
+                col("A") { AnyView(OrbitInitialShape(hash: $0).stroke(orbitInk, style: ink)) }
+                col("B") { AnyView(OrbitShape(hash: $0).stroke(orbitInk, style: ink).aspectRatio(1, contentMode: .fit)) }
+                col("C") { AnyView(WaveformShape(hash: $0).stroke(orbitInk, style: ink)) }
+            }
+        }
+    }
+    private func col(_ label: String, _ body: @escaping (UInt32) -> AnyView) -> some View {
+        VStack(spacing: 5) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+            ForEach(hashes, id: \.self) { h in
+                ZStack { RoundedRectangle(cornerRadius: 6).fill(fill); body(h).padding(3) }.frame(width: side, height: side)
+            }
+        }
+    }
+}
+
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
 let colourHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
@@ -304,11 +381,10 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                // THE ORBIT (which) — the derived figure replaces the emblem + digest; bus dots (where) stay below.
-                // The figure needs a near-SQUARE stage (lissajous collapse into one braid when stretched) — fit a
-                // centred square sized by the usable height; the cell's extra width stays clean margin (feedback §1).
+                // THE SIGNATURE (which) — TWO-SCALE: cells wear the REDUCED open stroke (the "initial", legible at
+                // ~30px); the Edit page carries the full orbit. Same hash → both. Bus dots (where) stay below.
                 VStack(spacing: 0) {
-                    OrbitShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    OrbitInitialShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                         .aspectRatio(1, contentMode: .fit).frame(maxWidth: .infinity, maxHeight: .infinity)
                     busDots(cell, firing: inActiveCol)
                 }

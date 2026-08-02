@@ -26,6 +26,20 @@ cached path (×64 grid stays cheap by construction).
 orbit in a CENTRED SQUARE sized by the cell's usable HEIGHT; the cell's extra width stays clean
 margin (the dots keep their row). Stretching to the cell collapses every ratio into one braid.
 
+## B6 — TWO-SCALE SIGNATURE (stage-1 feedback: a lissajous needs SIZE)
+At ~30px a closed multi-crossing figure knots up and all knots read alike. So SPLIT the scales — one
+identity, two renderings:
+- **EDIT PAGE** keeps the FULL orbit (§B4) — big, morphing, legible.
+- **CELLS** wear the REDUCED **INITIAL**: the same curve over HALF a period (t ∈ [0, π], ~6 control
+  points) as ONE smoothed OPEN stroke (Catmull-Rom), ~2.4pt round caps/joins, ≤2 self-crossings. Each
+  (ratio, φ, squish) yields a distinct simple gesture (rising S / falling hook / shallow double-wave),
+  legible small because it's open + sparse. Twins share the reduction. The comet travels the drawn
+  stroke end-to-end per note (ping-pong).
+- **THE BODY IS CHOSEN BY EYE**: a dev HARNESS bakes off A the INITIAL · B the full ORBIT · C a
+  mini-WAVEFORM (hash → one period of a 3-harmonic mix) over 8 sample hashes at real cell size (open
+  the dev loader). The user picks the body that stays distinct; the winner FREEZES here as identity.
+  Current interim default for cells: **A (the reduced initial)**.
+
 ## C — THE FACE GRAMMAR (cell-machine era)
 **C1.** Occupied cell face = **hue block (whose) · THE ORBIT (which) · bus dots (where)**.
 **C2.** The type emblem AND the digest text RETIRE from the cell face.

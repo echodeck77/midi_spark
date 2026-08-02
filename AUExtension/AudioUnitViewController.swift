@@ -1211,6 +1211,7 @@ struct DiagView: View {
                 }
                 devLoader
                 stuckNoteMonitor
+                ScrollView(.vertical, showsIndicators: false) { OrbitHarness() }.frame(maxHeight: 300)   // ORBIT bake-off
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.14)))
