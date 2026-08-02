@@ -358,12 +358,19 @@ extension DiagView {
         let gap: CGFloat = 5
         let box = s2 * 4 + gap * 3                          // the 4×4 grid's footprint = the chosen box's size
         HStack(alignment: .center, spacing: 14) {
-            // The chosen-colour box hosts the LARGE ORBIT (the cell's derived signature); it GLIDES over ~400ms
-            // when the config (hence the hash) changes — shaping the machine watches its figure re-tune.
+            // The chosen-colour box hosts the LARGE SEAL (the cell's derived signature, §4): light ink on the plate,
+            // the nine lattice dots VISIBLE. A config change (hence a new hash) CROSSFADES the seal (~250ms). (The
+            // arc-length re-route glide of §4 is deferred polish — the crossfade stands in.)
             RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray).frame(width: box, height: box)
-                .overlay(OrbitShape(hash: orbitHash(cell), segments: 200).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round)).padding(6))
+                .overlay(
+                    Canvas { ctx, size in
+                        drawSeal(sealGeometry(sealHash(cell)), into: ctx, size: size, padFraction: 0.18,
+                                 stroke: 3.4, ink: sealInkLarge, showLattice: true, latticeInk: sealInkLarge.opacity(0.22))
+                    }
+                    .padding(6).id(sealHash(cell)).transition(.opacity)
+                )
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
-                .animation(.linear(duration: 0.4), value: orbitHash(cell))
+                .animation(.easeInOut(duration: 0.25), value: sealHash(cell))
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(s2), spacing: gap), count: 4), spacing: gap) {
                 ForEach(colourIDs, id: \.self) { id in
                     let on = cell.colourID == id

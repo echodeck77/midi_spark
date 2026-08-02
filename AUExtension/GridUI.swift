@@ -30,67 +30,80 @@ extension Color {
     }
 }
 
-// MARK: - THE ORBIT (derived cell face) — a lissajous figure; a re-tune GLIDES via animatableData.
-// Derivation is pure (Derivations.orbitHash/orbitFigure/orbitPoints); this maps unit points → the rect.
-struct OrbitShape: Shape {
-    var a: Double, b: Double, phi: Double, squish: Double
-    var segments: Int = 140
-    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
-        get { AnimatablePair(AnimatablePair(a, b), AnimatablePair(phi, squish)) }
-        set { a = newValue.first.first; b = newValue.first.second; phi = newValue.second.first; squish = newValue.second.second }
-    }
-    init(hash: UInt32, segments: Int = 140) {
-        let f = orbitFigure(hash); a = f.a; b = f.b; phi = f.phi; squish = f.squish; self.segments = segments
-    }
-    func path(in rect: CGRect) -> Path {
-        let pts = orbitPoints(a: a, b: b, phi: phi, squish: squish, segments: segments)
-        guard pts.count > 1 else { return Path() }
-        let inset = min(rect.width, rect.height) * 0.10
-        let rx = (rect.width - 2 * inset) / 2, ry = (rect.height - 2 * inset) / 2
-        var path = Path()
-        for (i, p) in pts.enumerated() {
-            let pt = CGPoint(x: rect.midX + CGFloat(p.x) * rx, y: rect.midY + CGFloat(p.y) * ry)
-            if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
-        }
-        return path
-    }
-}
-/// The orbit's rest ink — heavier stroke, calmer alpha reads "drawn" not "scratchy" (design feedback, stage 1).
-let orbitInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.38)
+// MARK: - THE SEAL (derived cell face) — a 3×3-lattice route glyph. Geometry is pure (Derivations.sealHash/
+// sealGeometry); this layer maps lattice nodes → the rect and draws the wire (arc/mitre corners), the coil,
+// and the terminals (start dot + arrowhead). Same config ⇒ same seal (badge + edit page). Design INSTRUCTIONS §2–4.
 
-/// Map a unit point (x,y ∈ [−1,1]) into `rect` with a proportional inset.
-private func orbitMap(_ p: SIMD2<Double>, in rect: CGRect, inset: CGFloat) -> CGPoint {
-    let rx = (rect.width - 2 * inset) / 2, ry = (rect.height - 2 * inset) / 2
-    return CGPoint(x: rect.midX + CGFloat(p.x) * rx, y: rect.midY + CGFloat(p.y) * ry)
-}
-/// A Catmull-Rom smoothed OPEN path through `pts` (as cubic Béziers) — the calligraphic "initial".
-private func smoothedOpenPath(_ pts: [CGPoint]) -> Path {
-    var path = Path()
-    guard pts.count > 1 else { return path }
-    path.move(to: pts[0])
-    for i in 0..<pts.count - 1 {
-        let p0 = pts[max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[min(pts.count - 1, i + 2)]
-        let c1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
-        let c2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
-        path.addCurve(to: p2, control1: c1, control2: c2)
-    }
-    return path
+/// The seal's rest ink at CELL scale — near-black, firm (design §3).
+let sealInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255, opacity: 0.8)
+/// The seal's ink at EDIT scale — light on the panel plate (design §4).
+let sealInkLarge = Color(.sRGB, red: 236.0 / 255, green: 234.0 / 255, blue: 223.0 / 255, opacity: 0.9)
+
+/// Map a lattice node (x,y ∈ 0…2) into a square drawn centred in `size`, at `pitch` per lattice unit.
+private func sealMap(_ n: SIMD2<Double>, side: CGFloat, origin: CGPoint, pad: CGFloat, pitch: CGFloat) -> CGPoint {
+    CGPoint(x: origin.x + pad + CGFloat(n.x) * pitch, y: origin.y + pad + CGFloat(n.y) * pitch)
 }
 
-/// A — THE REDUCED STROKE (cell scale): the orbit's half-period as one smoothed open gesture. Glides via animatableData.
-struct OrbitInitialShape: Shape {
-    var a: Double, b: Double, phi: Double, squish: Double
-    var points: Int = 6
-    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
-        get { AnimatablePair(AnimatablePair(a, b), AnimatablePair(phi, squish)) }
-        set { a = newValue.first.first; b = newValue.first.second; phi = newValue.second.first; squish = newValue.second.second }
+/// The seal's node points inside `size` (arc-length source for the comet + the drawn wire). Centred square,
+/// padding `padFraction` of the side; pitch = half the drawable span (the lattice is 0…2 = two pitches).
+func sealNodePoints(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> [CGPoint] {
+    let side = min(size.width, size.height)
+    let pad = side * padFraction
+    let pitch = (side - 2 * pad) / 2
+    let origin = CGPoint(x: (size.width - side) / 2, y: (size.height - side) / 2)
+    return geo.nodes.map { sealMap($0, side: side, origin: origin, pad: pad, pitch: pitch) }
+}
+
+/// Draw the seal into a GraphicsContext (design §2): the WIRE (quarter-arc iff flagged, else sharp mitre),
+/// an optional COIL astride its node, and the filled TERMINALS (start dot + end arrowhead). `showLattice`
+/// adds the nine faint lattice dots (edit page, §4). Pure of state — draws the same seal for the same geo.
+func drawSeal(_ geo: SealGeometry, into ctx: GraphicsContext, size: CGSize, padFraction: CGFloat,
+              stroke: CGFloat, ink: Color, showLattice: Bool = false, latticeInk: Color = .clear) {
+    let side = min(size.width, size.height)
+    let pad = side * padFraction
+    let pitch = (side - 2 * pad) / 2
+    let origin = CGPoint(x: (size.width - side) / 2, y: (size.height - side) / 2)
+    let pts = sealNodePoints(geo, size: size, padFraction: padFraction)
+    guard pts.count > 1 else { return }
+
+    if showLattice {                                    // §4: nine 1.6pt lattice dots at low alpha
+        for gx in 0..<3 { for gy in 0..<3 {
+            let c = sealMap(SIMD2(Double(gx), Double(gy)), side: side, origin: origin, pad: pad, pitch: pitch)
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 0.8, y: c.y - 0.8, width: 1.6, height: 1.6)), with: .color(latticeInk))
+        } }
     }
-    init(hash: UInt32, points: Int = 6) { let f = orbitFigure(hash); a = f.a; b = f.b; phi = f.phi; squish = f.squish; self.points = points }
-    func path(in rect: CGRect) -> Path {
-        let inset = min(rect.width, rect.height) * 0.12
-        let pts = orbitInitialPoints(a: a, b: b, phi: phi, squish: squish, points: points).map { orbitMap($0, in: rect, inset: inset) }
-        return smoothedOpenPath(pts)
+
+    // the WIRE — quarter-arc (radius 0.45·pitch) at flagged interior nodes, else a sharp mitre
+    var wire = Path()
+    wire.move(to: pts[0])
+    let radius = 0.45 * pitch
+    for i in 1..<(pts.count - 1) {
+        if geo.arcAtNode[i] { wire.addArc(tangent1End: pts[i], tangent2End: pts[i + 1], radius: radius) }
+        else { wire.addLine(to: pts[i]) }
     }
+    wire.addLine(to: pts[pts.count - 1])
+    ctx.stroke(wire, with: .color(ink), style: StrokeStyle(lineWidth: stroke, lineCap: .round, lineJoin: .round))
+
+    // the COIL — one open 300° circle (§2), radius 2.1·stroke, astride the coil node
+    if geo.coilNode >= 1 && geo.coilNode < pts.count {
+        var coil = Path()
+        coil.addArc(center: pts[geo.coilNode], radius: 2.1 * stroke,
+                    startAngle: .radians(0.6), endAngle: .radians(0.6 + 1.66 * .pi), clockwise: false)
+        ctx.stroke(coil, with: .color(ink), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+    }
+
+    // TERMINALS — filled start dot (r 1.15·stroke) + end arrowhead (len 2.5·stroke, ±2.5-rad wings), §2
+    let dotR = 1.15 * stroke
+    ctx.fill(Path(ellipseIn: CGRect(x: pts[0].x - dotR, y: pts[0].y - dotR, width: dotR * 2, height: dotR * 2)), with: .color(ink))
+    let end = pts[pts.count - 1], prev = pts[pts.count - 2]
+    let ang = atan2(end.y - prev.y, end.x - prev.x)
+    let aLen = 2.5 * stroke, wing = 2.5
+    var head = Path()
+    head.move(to: end)
+    head.addLine(to: CGPoint(x: end.x + aLen * cos(ang + wing), y: end.y + aLen * sin(ang + wing)))
+    head.addLine(to: CGPoint(x: end.x + aLen * cos(ang - wing), y: end.y + aLen * sin(ang - wing)))
+    head.closeSubpath()
+    ctx.fill(head, with: .color(ink))
 }
 
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
@@ -341,17 +354,25 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                // THE SIGNATURE (which) — TWO-SCALE: cells wear the REDUCED open stroke (the "initial", legible at
-                // ~30px); the Edit page carries the full orbit. Same hash → both. Bus dots (where) stay below.
-                // A COMET travels the stroke while the cell fires MIDI (D).
-                VStack(spacing: 0) {
-                    ZStack {
-                        OrbitInitialShape(hash: orbitHash(cell)).stroke(orbitInk, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                        orbitComet(cell, col * 8 + row)
+                // THE SEAL (which) — §3: a LEFT-set engraved square BADGE carries the derived seal; the bus dots
+                // (where) move to the bottom-RIGHT and the right region stays clear (future name). A COMET runs the
+                // wire while the cell fires MIDI (§5). The SAME seal appears on the Edit page (larger, lattice shown).
+                let geo = sealGeometry(sealHash(cell))
+                ZStack(alignment: .bottomTrailing) {
+                    HStack(spacing: 0) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))               // engraved plate
+                            RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                            Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.18, stroke: 2.4, ink: sealInk) }
+                            sealComet(geo, col * 8 + row)
+                        }
+                        .aspectRatio(1, contentMode: .fit)                                                   // square by height, left-set
+                        Spacer(minLength: 0)                                                                 // right region clear
                     }
-                    .aspectRatio(1, contentMode: .fit).frame(maxWidth: .infinity, maxHeight: .infinity)
                     busDots(cell, firing: inActiveCol)
                 }
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
                 Image(systemName: "plus").font(.system(size: 18, weight: .heavy)).foregroundColor(.white.opacity(0.22))
             }   // §quieting (2026-08-02): otherwise an empty cell is NEAR-SILENT — bare faint rect
@@ -533,7 +554,7 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    // ④ BUS DOTS — four small dots at the foot (A–D); lit = that emitter enabled, white = firing this column.
+    // ④ BUS DOTS — four small dots at the bottom-RIGHT (§3; A–D); lit = that emitter enabled, white = firing this column.
     private func busDots(_ cell: Cell, firing: Bool) -> some View {
         HStack(spacing: 4) {
             ForEach(Bus.allCases, id: \.self) { b in
@@ -543,33 +564,39 @@ struct GridView: View {
                     .frame(width: 5, height: 5)
             }
         }
-        .frame(maxWidth: .infinity).padding(.bottom, 3)
+        .padding([.trailing, .bottom], 3)
     }
 
-    // THE ORBIT COMET (§D) — a single traveller runs the drawn stroke while the cell fires MIDI, then dies ~1s
-    // after the last note. Ping-pong along the initial; trail ∝ velocity; a strike GLOW brightens the stroke,
-    // decaying ~450ms. Driven by the per-cell hit feed (col*8+row); frozen when the view is hidden.
-    @ViewBuilder private func orbitComet(_ cell: Cell, _ idx: Int) -> some View {
+    // THE SEAL COMET (§5) — a single spark runs the wire START→ARROW while the cell fires MIDI, then dies ~1s
+    // after the last note. Trail ∝ velocity; a strike GLOW brightens the whole seal, decaying ~450ms. Driven by
+    // the per-cell hit feed (col*8+row); frozen when the view is hidden. (Coil-node slowdown = deferred §5 polish.)
+    @ViewBuilder private func sealComet(_ geo: SealGeometry, _ idx: Int) -> some View {
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
-        let fig = orbitFigure(orbitHash(cell))
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
                 let age = tl.date.timeIntervalSince(hitAt)
-                guard age >= 0, age < 1.1 else { return }                       // the comet lives ~1.1s after the strike
-                let inset = min(size.width, size.height) * 0.12
-                let dense = orbitInitialPoints(a: fig.a, b: fig.b, phi: fig.phi, squish: fig.squish, points: 40)
-                    .map { orbitMap($0, in: CGRect(origin: .zero, size: size), inset: inset) }
-                guard dense.count > 1 else { return }
-                let life = max(0.0, 1 - age / 1.1)                              // the comet fades over its life
-                let glow = max(0.0, 1 - age / 0.45)                            // the strike glow decays ~450ms
-                if glow > 0 {                                                   // §D2: the stroke brightens on strike
-                    var p = Path(); p.move(to: dense[0]); for pt in dense.dropFirst() { p.addLine(to: pt) }
-                    ctx.stroke(p, with: .color(.white.opacity(0.35 * glow)), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                guard age >= 0, age < 1.1 else { return }                       // the spark lives ~1.1s after the strike
+                let pts = sealNodePoints(geo, size: size, padFraction: 0.18)
+                guard pts.count > 1 else { return }
+                var dense: [CGPoint] = []                                       // arc-length samples along the node polyline
+                let per = 10
+                for i in 0..<(pts.count - 1) {
+                    let a = pts[i], b = pts[i + 1]
+                    for s in 0..<per {
+                        let t = Double(s) / Double(per)
+                        dense.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                    }
                 }
-                let f = (age * 0.9 * 2).truncatingRemainder(dividingBy: 2)      // ping-pong 0→1→0 at ~0.9 cyc/s
-                let head = Int((f < 1 ? f : 2 - f) * Double(dense.count - 1))
-                let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§D2)
+                dense.append(pts[pts.count - 1])
+                guard dense.count > 1 else { return }
+                let life = max(0.0, 1 - age / 1.1)                             // the spark fades over its life
+                let glow = max(0.0, 1 - age / 0.45)                            // the strike glow decays ~450ms
+                if glow > 0 {                                                   // §5: the wire brightens on strike
+                    drawSeal(geo, into: ctx, size: size, padFraction: 0.18, stroke: 2.4, ink: .white.opacity(0.35 * glow))
+                }
+                let head = min(dense.count - 1, Int(age * 0.9 * Double(dense.count - 1)))   // START→ARROW at ~0.9 lengths/s
+                let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§5)
                 for k in 0..<trailLen {
                     let i = head - k
                     guard i >= 0, i < dense.count else { continue }

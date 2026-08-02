@@ -157,8 +157,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ THE ORBIT — the derived cell face (2026-08-02, on `main`; 379 green, iOS builds; DEVICE pass owed for the
-  comet). Spec of record: `Docs/AcceptanceCriteria/AcceptanceCriteria-orbit-face.md`. Plan:
+- **▶ THE SEAL — the derived cell face, SUPERSEDES THE ORBIT (2026-08-02, on `main` PENDING COMMIT; 379 green,
+  iOS builds; DEVICE pass owed). Spec of record: `Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md`
+  (renamed from -orbit-face). Design ferry `INSTRUCTIONS-implement-the-seal.md` RETIRED the lissajous ORBIT
+  (ratio table gone) for THE SEAL — a maze/route glyph on a 3×3 lattice, generated from the SAME behavioural-
+  config hash (§A unchanged; `orbitHash`→`sealHash`). Grammar: hue (whose) · THE SEAL (which) · bus dots (where).
+  Applied in ALL THREE places (user: "same icon in all three places"): the perform grid cell, the edit-page
+  mini-grid cell (both via `GridView.cellView`), and the edit-page IDENTITY plate — one `sealGeometry(sealHash)`,
+  so twins visibly share it. PURE CORE (`Derivations.swift`): `SealRNG` (mulberry32 seeded by the hash) +
+  `sealGeometry(hash) -> SealGeometry{nodes,arcAtNode,coilNode}` per the mockup prose §2 (START on lattice → ≤4
+  orthogonal moves, no backtrack/OOB, ≤8 tries → corner-arc bits from one hash word → ≤1 coil iff hash%4==0).
+  RENDERER (`GridUI.drawSeal`/`sealNodePoints`): the WIRE (quarter-arc/mitre corners) + optional COIL + filled
+  TERMINALS (start dot + arrowhead). Cell BADGE (§C): a LEFT-set engraved rounded-square plate (14% black + 10%
+  hairline), seal ink `rgba(12,12,16,0.8)` 2.4pt, NO lattice; bus dots moved to bottom-RIGHT. EDIT plate (§E1):
+  large, ink `rgba(236,234,223,0.9)` 3.4pt, lattice VISIBLE, ~250ms opacity crossfade on hash change. COMET
+  (`sealComet`, §D): the existing per-cell strike feed drives a spark START→ARROW, trail ∝ vel, strike glow
+  ~450ms, dies ~1.1s. Tests: 6 seal (hash stable/config-sensitive/excludes colour+mute/bus-order-invariant;
+  geometry deterministic+twin-shared, obeys lattice grammar, coil only when hash%4==0). ⚠ The mockup HTML
+  `seal-glyph-mockup.html` was NOT shipped in the inbox — ported from the prose §2 with a faithful mulberry32;
+  exact PRNG/proportions may differ from the reference (grammar is fixed) — flagged in the ferry reply. DEFERRED
+  (§5/§E polish): coil-node spark slowdown; the 64-point arc-length re-route glide; the edit-page audition comet.
+  Prior ORBIT figure/comet history (retired) is in the bullet below + git (`31b893f`…`a7c30b2`).**
+- **▶ THE ORBIT — RETIRED (superseded by THE SEAL above). The derived cell face (2026-08-02; 379 green, iOS builds).
+  Historical. Was: a lissajous figure DERIVED from the cell's behavioural config. Plan:
   `~/.claude/plans/resilient-imagining-truffle.md`. Replaces the type emblem + digest text on the cell face with
   a lissajous figure DERIVED from the cell's BEHAVIOURAL config (twin-equality fields MINUS colourID) — so config-
   twins VISIBLY share one figure ("the orbit cannot be dressed"). Grammar: hue block (whose) · orbit (which) ·

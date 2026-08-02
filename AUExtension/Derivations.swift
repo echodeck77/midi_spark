@@ -788,72 +788,95 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     }
 }
 
-// MARK: - THE ORBIT (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-orbit-face.md
+// MARK: - THE SEAL (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md
+// A maze/route glyph on a 3×3 lattice, generated from the behavioural-config hash. Same config ⇒ same seal
+// everywhere (document-visible truth); config-twins share it. REPLACES the retired ORBIT (lissajous, ratio
+// table). Generation follows the design mockup (INSTRUCTIONS-implement-the-seal §2), ported from its prose
+// spec (the mockup HTML wasn't shipped, so the exact PRNG is a faithful mulberry32 — the grammar is the same).
 
 /// The BEHAVIOURAL config of a cell, normalised for stable hashing: the SAME fields that define TWINS
-/// (Models.editScopeTargets `.twins`) MINUS colourID — colour is the hue block, not the figure. Sets are
+/// (Models.editScopeTargets `.twins`) MINUS colourID — colour is the hue block, not the seal. Sets are
 /// sorted (unordered → canonical); chop keeps its raw nil vs value (matching the twin predicate exactly, so
-/// twins share a figure). Triggers live on Colour, not Cell → excluded until they re-host. Codable → bytes.
-private struct OrbitChopKey: Encodable { let m: UInt8; let a: UInt8; let mu: UInt8; let alt: [UInt8] }
-private struct OrbitKey: Encodable {
+/// twins share a seal). Triggers live on Colour, not Cell → excluded until they re-host. Codable → bytes.
+private struct SealChopKey: Encodable { let m: UInt8; let a: UInt8; let mu: UInt8; let alt: [UInt8] }
+private struct SealKey: Encodable {
     let p: [ProcessorSlot]?    // the chain (slots + params + per-slot bypass)
     let ir: Int?               // input receiver
     let irow: Int?             // input row (inert now; kept for twin-parity)
     let b: [UInt8]             // output emitters (sorted bus cables)
     let cs: ChordSplit?        // source-shaping: chord split
     let vw: VelWindow?         // source-shaping: velocity window
-    let ch: OrbitChopKey?      // output chop (nil when the cell has no chop, per twin equality)
+    let ch: SealChopKey?       // output chop (nil when the cell has no chop, per twin equality)
 }
 /// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
-/// device (document-visible truth); config-twins (regardless of colour) share it. Pure/testable.
-func orbitHash(_ cell: Cell) -> UInt32 {
-    let chopKey = cell.chop.map { OrbitChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
-    let key = OrbitKey(p: cell.processors, ir: cell.inputReceiver, irow: cell.inputRow,
-                       b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
+/// device (document-visible truth); config-twins (regardless of colour) share it. Pure/testable. §1 contract.
+func sealHash(_ cell: Cell) -> UInt32 {
+    let chopKey = cell.chop.map { SealChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
+    let key = SealKey(p: cell.processors, ir: cell.inputReceiver, irow: cell.inputRow,
+                      b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
     let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
     guard let data = try? enc.encode(key) else { return 0 }
     var h: UInt32 = 2166136261                                   // FNV-1a offset basis
     for byte in data { h = (h ^ UInt32(byte)) &* 16777619 }      // ×FNV prime, wrapping
     return h
 }
-/// Three draws from the hash → the lissajous parameters: RATIO (a,b) from a fixed table, PHASE φ, vertical
-/// SQUISH. Pure/testable. `p(t) = (sin(a·t+φ), squish·sin(b·t))`, t ∈ [0, 2π].
-func orbitFigure(_ hash: UInt32) -> (a: Double, b: Double, phi: Double, squish: Double) {
-    // LOW-ORDER ratios only — high orders (5:6, 2:5, 3:7) read as wool at cell size (design feedback, orbit stage 1).
-    // This table is IDENTITY (twins share it); frozen. Variation also comes from φ (628 values) + squish (32).
-    let ratios: [(Double, Double)] = [(1, 2), (2, 3), (3, 4), (3, 5), (4, 5)]
-    let (a, b) = ratios[Int(hash % UInt32(ratios.count))]
-    let phi = Double((hash >> 8) % 628) / 100.0                  // 0 … ~2π
-    let squish = 0.62 + Double((hash >> 20) % 32) / 100.0        // 0.62 … 0.93
-    return (a, b, phi, squish)
-}
-/// Sample the figure into `segments+1` UNIT-space points (x,y ∈ [−1, 1]); the SwiftUI layer maps to the cell
-/// rect. Pure (Foundation `simd`). This is the FULL orbit (edit-page scale, harness body B).
-func orbitPoints(a: Double, b: Double, phi: Double, squish: Double, segments: Int) -> [SIMD2<Double>] {
-    guard segments > 0 else { return [] }
-    var pts: [SIMD2<Double>] = []; pts.reserveCapacity(segments + 1)
-    for i in 0...segments {
-        let t = 2.0 * Double.pi * Double(i) / Double(segments)
-        pts.append(SIMD2(sin(a * t + phi), squish * sin(b * t)))
+
+/// The seal's step PRNG — a mulberry32 seeded by the config hash (the mockup's `rnd`). Every seal decision
+/// (start · route dirs · corner bits · coil node) is a successive draw, so the seal is reproducible from the hash.
+private struct SealRNG {
+    var s: UInt32
+    mutating func next() -> UInt32 {
+        s = s &+ 0x6D2B_79F5
+        var z = s
+        z = (z ^ (z >> 15)) &* (z | 1)
+        z ^= z &+ ((z ^ (z >> 7)) &* (z | 61))
+        return z ^ (z >> 14)
     }
-    return pts
+    mutating func next(mod m: Int) -> Int { Int(next() % UInt32(max(1, m))) }
 }
 
-// TWO-SCALE SIGNATURE (stage-1 feedback): the full orbit is right at EDIT scale but knots up at ~30px cell
-// scale. So cells wear a REDUCED open gesture derived from the SAME curve (harness body A), or a MINI-WAVEFORM
-// (body C). The harness bakes A/B/C off at cell size on device; the winner freezes.
+/// The seal's geometry in LATTICE space (nodes on a 3×3 grid, x/y ∈ {0,1,2}). The SwiftUI layer maps it into a
+/// rect (pitch = half the drawable side) and draws the wire (quarter-arc or sharp mitre per corner), an optional
+/// coil, and the terminals (filled start dot + end arrowhead). Pure/testable; twins share it.
+struct SealGeometry: Equatable {
+    var nodes: [SIMD2<Double>]     // route nodes, lattice coords 0…2 (≥2 by construction)
+    var arcAtNode: [Bool]          // per node: true = QUARTER-ARC corner, false = sharp mitre (ends always false)
+    var coilNode: Int              // index of the node the coil straddles, or −1 for no coil (≤1 coil, ever)
+}
 
-/// A — THE REDUCED STROKE: the orbit's curve over HALF a period (t ∈ [0, π]) at ~`points` control points — one
-/// OPEN gesture (a rising S / falling hook / shallow double-wave), legible small because it's open + sparse.
-/// The SwiftUI layer smooths it (Catmull-Rom). Twins share it (same hash → same initial). Pure.
-func orbitInitialPoints(a: Double, b: Double, phi: Double, squish: Double, points: Int = 6) -> [SIMD2<Double>] {
-    let n = max(2, points)
-    var pts: [SIMD2<Double>] = []; pts.reserveCapacity(n)
-    for i in 0..<n {
-        let t = Double.pi * Double(i) / Double(n - 1)                 // t ∈ [0, π] — half a period
-        pts.append(SIMD2(sin(a * t + phi), squish * sin(b * t)))
+/// Generate the seal from the config hash (INSTRUCTIONS §2): START on the lattice, take ≤4 orthogonal MOVES
+/// (reject immediate backtrack `dir==last^1` + out-of-bounds, ≤8 tries each), flag CORNERS from one hash word,
+/// and add at most one COIL (iff hash%4==0) astride a mid-route node. Pure — same hash ⇒ identical geometry.
+func sealGeometry(_ hash: UInt32) -> SealGeometry {
+    var rng = SealRNG(s: hash)
+    let dx = [1, -1, 0, 0], dy = [0, 0, 1, -1]      // dir 0/1 = ±x, 2/3 = ±y → opposite = dir^1 (backtrack test)
+    var x = rng.next(mod: 3), y = rng.next(mod: 3)
+    var nodes = [SIMD2(Double(x), Double(y))]
+    var lastDir = -1
+    for _ in 0..<4 {                                 // ≤4 moves → ≤5 nodes
+        var moved = false
+        for _ in 0..<8 {                             // ≤8 rejection tries per move
+            let dir = rng.next(mod: 4)
+            if dir == (lastDir ^ 1) { continue }     // reject immediate backtrack
+            let nx = x + dx[dir], ny = y + dy[dir]
+            if nx < 0 || nx > 2 || ny < 0 || ny > 2 { continue }   // reject out-of-bounds
+            x = nx; y = ny; lastDir = dir
+            nodes.append(SIMD2(Double(x), Double(y)))
+            moved = true
+            break
+        }
+        if !moved { break }                          // boxed in → stop routing early
     }
-    return pts
+    let round = rng.next()                           // one hash word governs every corner
+    var arc = [Bool](repeating: false, count: nodes.count)
+    if nodes.count > 2 {
+        for i in 1..<(nodes.count - 1) { arc[i] = (round >> UInt32(i)) & 1 == 1 }   // interior node i: arc iff bit set
+    }
+    var coilNode = -1
+    if hash % 4 == 0 && nodes.count > 2 {            // at most one coil, on a mid-route node (index 1…len-2)
+        coilNode = 1 + rng.next(mod: nodes.count - 2)
+    }
+    return SealGeometry(nodes: nodes, arcAtNode: arc, coilNode: coilNode)
 }
 
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour

@@ -1113,61 +1113,67 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(c["gold"], 2); XCTAssertEqual(c["cyan"], 1); XCTAssertNil(c["teal"], "unpainted ⇒ absent (census 0)")
     }
 
-    // MARK: - THE ORBIT (derived cell face)
+    // MARK: - THE SEAL (derived cell face)
 
-    private func orbitCell() -> Cell {
+    private func sealCell() -> Cell {
         var c = Cell(colourID: "gold", buses: [.a, .b]); c.inputReceiver = 1
         c.processors = [ProcessorSlot(type: .harmonize), { var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]
         c.chop = Chop(mainMask: 0xFF, altMask: 0b0000_0100, muteMask: 0, altDest: [.c])
         return c
     }
-    func testOrbitHashIsStableAndConfigSensitive() {
-        let a = orbitCell()
-        XCTAssertEqual(orbitHash(a), orbitHash(orbitCell()), "same config ⇒ same hash (document-visible truth)")
+    func testSealHashIsStableAndConfigSensitive() {
+        let a = sealCell()
+        XCTAssertEqual(sealHash(a), sealHash(sealCell()), "same config ⇒ same hash (document-visible truth)")
         var chainChanged = a; chainChanged.processors?[0].params.harmIntervals = [7, 0, 0]
-        XCTAssertNotEqual(orbitHash(a), orbitHash(chainChanged), "a chain-param change ⇒ different figure")
+        XCTAssertNotEqual(sealHash(a), sealHash(chainChanged), "a chain-param change ⇒ different seal")
         var inputChanged = a; inputChanged.inputReceiver = 2
-        XCTAssertNotEqual(orbitHash(a), orbitHash(inputChanged), "an input change ⇒ different figure")
+        XCTAssertNotEqual(sealHash(a), sealHash(inputChanged), "an input change ⇒ different seal")
         var outputChanged = a; outputChanged.buses = [.a]
-        XCTAssertNotEqual(orbitHash(a), orbitHash(outputChanged), "an emitter change ⇒ different figure")
+        XCTAssertNotEqual(sealHash(a), sealHash(outputChanged), "an emitter change ⇒ different seal")
         var chopChanged = a; chopChanged.chop?.muteMask = 0b0001_0000
-        XCTAssertNotEqual(orbitHash(a), orbitHash(chopChanged), "a chop-mask change ⇒ different figure")
+        XCTAssertNotEqual(sealHash(a), sealHash(chopChanged), "a chop-mask change ⇒ different seal")
     }
-    func testOrbitHashExcludesColourNameMutePosition() {
-        let a = orbitCell()
+    func testSealHashExcludesColourNameMutePosition() {
+        let a = sealCell()
         var recoloured = a; recoloured.colourID = "cyan"
-        XCTAssertEqual(orbitHash(a), orbitHash(recoloured), "colour is the hue block, NOT the figure — same orbit")
+        XCTAssertEqual(sealHash(a), sealHash(recoloured), "colour is the hue block, NOT the seal — same seal")
         var muted = a; muted.muted = true; muted.alt = true; muted.bypassed = true   // transient perform state
-        XCTAssertEqual(orbitHash(a), orbitHash(muted), "mute/alt/bypassed are chrome — a muted twin still twins")
+        XCTAssertEqual(sealHash(a), sealHash(muted), "mute/alt/bypassed are chrome — a muted twin still twins")
     }
-    func testOrbitHashBusOrderInvariant() {
+    func testSealHashBusOrderInvariant() {
         var a = Cell(colourID: "gold", buses: [.a, .c]); a.processors = []
         var b = Cell(colourID: "cyan", buses: [.c, .a]); b.processors = []   // same set, different colour + order
-        XCTAssertEqual(orbitHash(a), orbitHash(b), "the emitter SET is unordered — config-twins share the figure")
+        XCTAssertEqual(sealHash(a), sealHash(b), "the emitter SET is unordered — config-twins share the seal")
     }
-    func testOrbitFigureRatiosCoverTheTable() {
-        let seen = Set((0..<64).map { h -> String in let f = orbitFigure(UInt32(h)); return "\(f.a):\(f.b)" })
-        XCTAssertEqual(seen.count, 5, "all 5 low-order ratios are reachable")
-        for h in [UInt32(0), 999, 123456] {
-            let f = orbitFigure(h)
-            XCTAssertTrue(f.squish >= 0.62 && f.squish <= 0.94, "squish in range")
-            XCTAssertTrue(f.phi >= 0 && f.phi < 6.28, "phase in [0, 2π)")
+    // GEOMETRY: same hash ⇒ identical geometry (twins share the seal); the route obeys the §2 grammar.
+    func testSealGeometryIsDeterministicAndTwinShared() {
+        let h = sealHash(sealCell())
+        XCTAssertEqual(sealGeometry(h), sealGeometry(h), "same hash ⇒ identical seal")
+        XCTAssertEqual(sealGeometry(sealHash(sealCell())), sealGeometry(h), "recomputed config ⇒ identical seal")
+    }
+    func testSealGeometryObeysLatticeGrammar() {
+        for raw in stride(from: UInt32(0), to: 4096, by: 7) {
+            let g = sealGeometry(raw)
+            XCTAssertGreaterThanOrEqual(g.nodes.count, 2, "at least a start + one move")
+            XCTAssertLessThanOrEqual(g.nodes.count, 5, "≤4 moves ⇒ ≤5 nodes")
+            XCTAssertEqual(g.arcAtNode.count, g.nodes.count, "one corner flag per node")
+            XCTAssertFalse(g.arcAtNode.first ?? true, "the start terminal is never a corner")
+            XCTAssertFalse(g.arcAtNode.last ?? true, "the end terminal is never a corner")
+            for n in g.nodes {   // every node on the 3×3 lattice
+                XCTAssertTrue(n.x >= 0 && n.x <= 2 && n.y >= 0 && n.y <= 2, "node in bounds")
+            }
+            for i in 1..<g.nodes.count {   // orthogonal unit steps only, no immediate backtrack
+                let d = g.nodes[i] - g.nodes[i - 1]
+                XCTAssertEqual(abs(d.x) + abs(d.y), 1, "each move is one orthogonal step")
+                if i >= 2 { XCTAssertFalse(d == -(g.nodes[i - 1] - g.nodes[i - 2]), "no immediate backtrack") }
+            }
+            if g.coilNode >= 0 { XCTAssertTrue(g.coilNode >= 1 && g.coilNode <= g.nodes.count - 2, "coil straddles a mid node") }
         }
     }
-    func testOrbitPointsSampleUnitSpace() {
-        let f = orbitFigure(orbitHash(orbitCell()))
-        let pts = orbitPoints(a: f.a, b: f.b, phi: f.phi, squish: f.squish, segments: 140)
-        XCTAssertEqual(pts.count, 141, "segments + 1 points")
-        XCTAssertTrue(pts.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "unit space [−1, 1]")
-    }
-    // TWO-SCALE: cells wear the REDUCED open stroke (the "initial") — derived, unit-space, twin-shared.
-    func testOrbitInitialStrokeIsHalfPeriodUnitSpace() {
-        let f = orbitFigure(orbitHash(orbitCell()))
-        let pts = orbitInitialPoints(a: f.a, b: f.b, phi: f.phi, squish: f.squish, points: 6)
-        XCTAssertEqual(pts.count, 6)
-        XCTAssertTrue(pts.allSatisfy { abs($0.x) <= 1.0001 && abs($0.y) <= 1.0001 }, "unit space")
-        // same hash ⇒ same initial (twins share the reduction)
-        let g = orbitFigure(orbitHash(orbitCell()))
-        XCTAssertEqual(pts.map { $0.x }, orbitInitialPoints(a: g.a, b: g.b, phi: g.phi, squish: g.squish, points: 6).map { $0.x })
+    func testSealCoilOnlyWhenHashDivisibleByFour() {
+        // The coil gate is hash % 4 == 0 (and needs interior nodes) — no coil otherwise.
+        for raw in stride(from: UInt32(1), to: 400, by: 1) where raw % 4 != 0 {
+            XCTAssertEqual(sealGeometry(raw).coilNode, -1, "hash%4≠0 ⇒ never a coil")
+        }
     }
 }
