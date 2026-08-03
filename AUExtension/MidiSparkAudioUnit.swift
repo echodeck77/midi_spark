@@ -196,7 +196,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollCellSounding() -> UInt64 { kernel.pollCellSounding() }   // SEAL comet: per-cell sounding gate (note-on/off)
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
-    func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes
+    func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
+    func pollReceiverLiveHeld() -> [Bool] { kernel.pollReceiverLiveHeld() }      // the header dot: a LIVE accepted note is held now
     func pollEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterSounding() }   // §strips-done: currently-sounding per emitter (cargo-tinted)
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).

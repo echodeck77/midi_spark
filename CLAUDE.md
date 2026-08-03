@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RECEIVER STRIP polish — 6 tweaks (2026-08-03, on `main`; 405 green, iOS builds; DEVICE pass owed). (1) BYPASS
+  toggle moved into the header where the THRU pip was (pip retired; `thruReceiver`/`onSetThru` stay wired but
+  unsurfaced). (2) `midiNoteName` now non-negative octaves (note 0 = C0 … G10) — no more "-1"; ASSUMPTION: 0-based
+  (the note that read "D-1" now reads "D0", not literally "D1" — flagged to user). (3)(4) LIVE·SOLO moved from the
+  foot to below the OCT nudges in performFeatures (right of the slider); the foot row is gone. Colours now match the
+  EMITTERS: LIVE = cyan, SOLO = amber. (5) The slider meter shows LATCH velocities when a receiver is armed —
+  `Kernel.updateReceiverSounding` reads `latchedPools[i]` (OMNI, already filtered) when `latchArmMask` bit set, else
+  the live pool. (6) The velocity fader is now FIXED (no spring-back): the slider `onEnded` keeps the value; the
+  engine override already persists. Plus: the header hue DOT lights from LIVE accepted input (never the latch) — new
+  `Kernel.recvLiveHeld` (channel+cable+RANGE) → `pollReceiverLiveHeld` → AU → VC `recvLiveHeld` → ReceiversView
+  `liveHeld`. v1 notes: fixed-vel is session-only (not doc-persisted); a muted/disabled door's dot is off (shares the
+  admission filter).**
 - **▶ BYPASS — per-door direct injection to emitters (2026-08-03, on `main`; 405 green, iOS builds; DEVICE pass
   owed). Redesign §1 strip toggle + §2 cog A–D destinations — the LAST redesign feature. A bypassed door skips the
   grid and its shaped, in-range held notes sound DIRECTLY on its destination emitters (a live monitor — works

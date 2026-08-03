@@ -677,7 +677,8 @@ struct ReceiversView: View {
     var peakAt: [Date] = Array(repeating: .distantPast, count: 4)
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
     var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
-    var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
+    var liveHeld: [Bool] = [false, false, false, false] // header dot: a LIVE (never latch) accepted note is held per receiver
+    var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source) — retired from the header (bypass took its place)
     let onToggleMute: (Int) -> Void
     var onToggleEnable: (Int) -> Void = { _ in }        // INPUT ENABLE: the header toggles the door's listening
     var onSetThru: (Int) -> Void = { _ in }             // THRU pip radio
@@ -724,19 +725,15 @@ struct ReceiversView: View {
     // The strip: header (hue dot + R-label + THRU pip) · control region (SLIDER | features, faces swap) ·
     // foot (MUTE · SOLO). A soloed receiver GLOWs; when a solo set exists, excluded strips dim.
     private func strip(_ i: Int) -> some View {
-        let rec = r(i), muted = rec.muted, isThru = thruReceiver == i
+        let rec = r(i), muted = rec.muted
         let soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         return VStack(spacing: 3) {
-            header(i, isThru: isThru)
+            header(i)
             HStack(alignment: .top, spacing: 3) {
-                slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + momentary velocity override — grows tall
-                performFeatures(i)                          // single-face forever: config moved to the cog page
+                slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + FIXED velocity override — grows tall
+                performFeatures(i)                          // LATCH+KEYS/CHORD · OCT · LIVE·SOLO (moved here, right of the slider)
             }
             .frame(minHeight: Self.controlHeight, maxHeight: .infinity)  // SPACE-FILL: control region spends the band's height
-            HStack(spacing: 3) {                                // foot: MUTE · SOLO
-                footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: hues[i], dim: muted) { onToggleMute(i) }
-                footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
-            }
         }
         .padding(4).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: strip fills the band height
         .background(RoundedRectangle(cornerRadius: 6)
@@ -747,19 +744,22 @@ struct ReceiversView: View {
         .overlay { if wiring { routeInFace(i) } }           // ROUTE IN session face on top
     }
 
-    // The strip HEADER doubles as the INPUT ENABLE toggle (2026-08-03): it summarises the door's CHANNEL (and,
-    // once §2 RANGE ships, the key window) and tapping it OPENS/CLOSES the door to incoming notes. DISABLED = the
-    // door stops LISTENING (dark pill, channel struck) — an armed latch keeps FEEDING its frozen chord to the grid
-    // ("close the door, keep the room"); the FOOT's LIVE/MUTE is the separate grid-FEED gate. The THRU pip keeps
-    // its own tap on the right, outside the toggle's hit area.
-    private func header(_ i: Int, isThru: Bool) -> some View {
-        let rec = r(i), listening = rec.inputEnabledResolved, muted = rec.muted
+    // The strip HEADER doubles as the INPUT ENABLE toggle (2026-08-03): it summarises the door's CHANNEL + key RANGE
+    // (when narrowed) and tapping it OPENS/CLOSES the door to incoming notes. DISABLED = the door stops LISTENING
+    // (dark pill, channel struck) — an armed latch keeps FEEDING its frozen chord to the grid ("close the door, keep
+    // the room"). The small hue DOT lights whenever a LIVE accepted note is held (never the latch). BYPASS sits on
+    // the right (it replaced the THRU pip), with its own tap outside the enable toggle's hit area.
+    private func header(_ i: Int) -> some View {
+        let rec = r(i), listening = rec.inputEnabledResolved
+        let lit = i < liveHeld.count && liveHeld[i]   // LIVE input activity (not latch)
         // Summary = channel + (the key RANGE when it's been narrowed) — the door's sign. (§2 range chips live in the cog.)
         let chLabel = (rec.channel == 0 ? "OMNI" : "CH\(rec.channel)")
                     + (rec.rangeIsFull ? "" : " \(midiNoteName(rec.rangeLoResolved))–\(midiNoteName(rec.rangeHiResolved))")
         return HStack(spacing: 3) {
             HStack(spacing: 4) {
-                Circle().fill(listening ? hues[i] : hues[i].opacity(0.28)).frame(width: 7, height: 7)
+                Circle().fill(lit ? hues[i] : hues[i].opacity(listening ? 0.28 : 0.18))   // LIT while a live accepted note is held
+                    .frame(width: 7, height: 7)
+                    .overlay(Circle().stroke(hues[i].opacity(lit ? 0.9 : 0), lineWidth: 1))
                 Text(["A", "B", "C", "D"][i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(listening ? .white.opacity(0.9) : .white.opacity(0.3))
                 Text(chLabel).font(.system(size: 8, weight: .heavy, design: .monospaced))
@@ -773,7 +773,7 @@ struct ReceiversView: View {
             .contentShape(Rectangle())
             .onTapGesture { onToggleEnable(i) }
             Spacer(minLength: 0)
-            thruPip(i, isThru: isThru, muted: muted)
+            bypassToggle(i)   // BYPASS — replaced the THRU pip (user 2026-08-03)
         }
     }
 
@@ -797,22 +797,15 @@ struct ReceiversView: View {
 
     private let soloHue = Color(red: 0.98, green: 0.72, blue: 0.12)
 
-    // THRU pip — a radio dot across the strips: exactly one lit; tap moves passthrough here. Dim on a muted strip.
-    private func thruPip(_ i: Int, isThru: Bool, muted: Bool) -> some View {
-        HStack(spacing: 2) {
-            if isThru { Text("THRU").font(.system(size: 6, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(muted ? 0.3 : 0.6)) }
-            Circle().fill(isThru ? (muted ? Color.white.opacity(0.3) : hues[i]) : .clear)
-                .frame(width: 9, height: 9)
-                .overlay(Circle().stroke(.white.opacity(isThru ? 0 : 0.35), lineWidth: 1))
-        }
-        .contentShape(Rectangle()).onTapGesture { onSetThru(i) }
-    }
+    // (THRU pip retired 2026-08-03 — BYPASS replaced it in the header; `thruReceiver`/`onSetThru` stay wired but
+    // the strip no longer surfaces the passthrough radio.)
 
-    // EDIT face — the CABLE (ANY · 1–4) + CHANNEL (OMNI · 1–16) steppers (metering stays in the slider).
-    // PERFORM face — the LATCH ARM (the performance control, prominent + inviting) over the OCT−/OCT+ nudges
-    // (utility, quiet) + the deviation readout. LATCH+ = the receiver's ADD mode (set in the cog's CHORD|ADD).
+    // PERFORM features (right of the slider): the LATCH + KEYS/CHORD cluster, the OCT−/OCT+ nudges + deviation
+    // readout, and LIVE·SOLO (moved here from the foot). Single-face forever — channel/range config lives in the cog.
     private func performFeatures(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
+        let muted = r(i).muted, soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
+        let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
         return VStack(spacing: 3) {
             latchRow(i)              // LATCH (left) + KEYS/CHORD (right) — one related cluster
             HStack(spacing: 2) {
@@ -822,23 +815,26 @@ struct ReceiversView: View {
             Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
                 .font(.system(size: 7, weight: .heavy, design: .monospaced))
                 .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
-            bypassToggle(i)          // BYPASS: small — the door injects straight to emitters, skipping the grid (dests in the cog)
+            HStack(spacing: 3) {     // LIVE · SOLO — moved here below OCT (user 2026-08-03); the EMITTER colours (LIVE cyan · SOLO amber)
+                footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: cyan, dim: muted) { onToggleMute(i) }
+                footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
+            }
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
     }
 
-    // BYPASS toggle (§1) — small, per the sizing law. Lit = this door skips the grid and injects straight to its
-    // destination emitters (chosen in the cog). A cyan hue distinguishes it from the amber LATCH family.
+    // BYPASS toggle (§1) — compact, in the header where the THRU pip used to be. Lit = this door skips the grid and
+    // injects straight to its destination emitters (chosen in the cog). Cyan, to distinguish it from the amber LATCH.
     private func bypassToggle(_ i: Int) -> some View {
         let on = bit(bypassMask, i)
         let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-        return HStack(spacing: 3) {
+        return HStack(spacing: 2) {
             Image(systemName: on ? "arrow.turn.down.right" : "arrow.right").font(.system(size: 7, weight: .heavy))
-            Text("BYPASS").font(.system(size: 7, weight: .heavy, design: .monospaced))
+            Text("BYP").font(.system(size: 7, weight: .heavy, design: .monospaced))
         }
         .foregroundColor(on ? .black : cyan.opacity(0.85))
-        .frame(maxWidth: .infinity).frame(height: 14)
-        .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.85) : Color.white.opacity(0.07)))
+        .padding(.horizontal, 4).frame(height: 15)
+        .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.9) : Color.white.opacity(0.07)))
         .overlay(RoundedRectangle(cornerRadius: 3).stroke(cyan.opacity(on ? 0 : 0.4), lineWidth: 1))
         .contentShape(Rectangle()).onTapGesture { onToggleBypass(i) }
     }
@@ -902,9 +898,9 @@ struct ReceiversView: View {
     }
 
 
-    // The SLIDER — the emitter fader's INPUT twin. Idle: the live input meter. Touched: a momentary-absolute
-    // velocity override (drag = whisper/slam the receiver's subscribers), released → springs home (unless HOLD
-    // latches). A bright set-point line marks the forced value while touched.
+    // The SLIDER — the emitter fader's INPUT twin. Idle: the live input meter (held-note ticks — LATCH velocities
+    // when armed). Touched: a FIXED absolute velocity override (drag = whisper/slam the receiver's subscribers) that
+    // HOLDS where it's left (no spring-back). A glow marks the forced value while set.
     private func slider(_ i: Int) -> some View {
         let touched = (i < faderVel.count ? faderVel[i] : nil) != nil
         return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
@@ -930,8 +926,8 @@ struct ReceiversView: View {
                     let val = max(1, Int(frac * 127))
                     if i < faderVel.count { faderVel[i] = val }; onVelOverride(i, val)
                 }.onEnded { _ in
-                    if holdLatch { return }                 // §5c: HOLD keeps the value; release drops it
-                    if i < faderVel.count { faderVel[i] = nil }; onVelOverride(i, nil)
+                    // FIXED position (user 2026-08-03): the fader HOLDS where it's left — no spring-back. The forced
+                    // velocity persists (the engine keeps the override until it's moved again). Untouched = no override.
                 })
             }
         }

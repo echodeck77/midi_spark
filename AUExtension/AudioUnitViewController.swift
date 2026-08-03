@@ -163,6 +163,7 @@ struct DiagView: View {
     @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
+    @State var recvLiveHeld: [Bool] = [false, false, false, false]   // header dot: a LIVE (never latch) accepted note is held per receiver
     @State var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
     @State var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
     @State var emitRelease: [[VelMark]] = [[], [], [], []]    // §strips-done: marks FADING (~250ms) as sounding notes release
@@ -863,6 +864,8 @@ struct DiagView: View {
             }
             if rel != recvRelease { recvRelease = rel }
             if held != recvHeld { recvHeld = held }
+            let live = au.pollReceiverLiveHeld()                       // header dot: LIVE (not latch) accepted-note-held per receiver
+            if live != recvLiveHeld { recvLiveHeld = live }
             // §strips-done: the EMITTER twin — notes currently sounding per emitter (steady, cargo-tinted) + a
             // fade on release. Same multiset-diff as the receiver above, keyed on (velocity, source colour).
             let esnd = au.pollEmitterSounding()
@@ -1148,7 +1151,7 @@ struct DiagView: View {
 
     @ViewBuilder var receiversBox: some View {
         ReceiversView(receivers: receivers, peak: receiverPeak, peakAt: receiverPeakAt,
-                      heldVels: recvHeld, releaseMarks: recvRelease, thruReceiver: thruReceiver,
+                      heldVels: recvHeld, releaseMarks: recvRelease, liveHeld: recvLiveHeld, thruReceiver: thruReceiver,
                       onToggleMute: toggleReceiverMute, onToggleEnable: toggleReceiverEnabled, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,

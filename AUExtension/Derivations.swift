@@ -213,11 +213,12 @@ final class NotePool {
     }
 }
 
-/// MIDI note number → name (C4 = 60 convention): pitch class + octave, note 0 = C-1. Shared by the cog RANGE
-/// chips, the strip header's range summary, and tests — one source so the naming can't drift.
+/// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range
+/// display never shows a "-1" octave (user 2026-08-03). Shared by the cog RANGE chips, the strip header's range
+/// summary, and tests — one source so the naming can't drift.
 func midiNoteName(_ n: UInt8) -> String {
     let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-    return "\(names[Int(n) % 12])\(Int(n) / 12 - 1)"
+    return "\(names[Int(n) % 12])\(Int(n) / 12)"
 }
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)
