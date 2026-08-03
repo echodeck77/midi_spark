@@ -13,10 +13,12 @@ truth: same config ⇒ same seal on every device, forever. Twins share one cache
 **A2. Stable 32-bit hash.** Serialize the included config stably (JSONEncoder `.sortedKeys`) → 32-bit
 FNV-1a (offset 2166136261, prime 16777619). Twins share one hash ⇒ share one seal. (`Derivations.sealHash`.)
 
-## B — HASH → SEAL (the generation; reference = seal-glyph-mockup.html)
+## B — HASH → SEAL (the generation — THIS is canon)
 Via a **mulberry32 step PRNG** seeded by the hash (`SealRNG`) — every decision is a successive draw, so
-the seal is reproducible from the hash. (The mockup HTML wasn't shipped to Code; the generation is ported
-from the prose below. If the mockup's exact PRNG/proportions differ, reconcile — the GRAMMAR is fixed.)
+the seal is reproducible from the hash. (The original `seal-glyph-mockup.html` never travelled and its
+geometry was superseded by the device amendments below; per the design side it is HISTORICAL — the shipped
+mulberry32 + amended geometry here ARE the frozen identity. The requirement was only ever INTERNAL
+determinism: same config = same seal within the app, every device, forever.)
 **B1. START — edge-biased (USER CHANGE, deviates from the mockup's `x=rnd()%3`).** Start on a LEFT/RIGHT
 edge column (`x ∈ {0,2}`), `y = rnd()%3`. Then a FORCED first move horizontally inward. This guarantees the
 route spans across the lattice so the seal uses the full LENGTH instead of hugging one side.
@@ -84,4 +86,4 @@ edit-page seal matching the cells (§E1). Comet `sealComet` (§D): free-run posi
 GATE (`Router.snapshotCellSounding`/`cellSoundingMask` → `Kernel`/`AU.pollCellSounding` → VC edge-detect →
 GridView), so the spark travels for exactly the held duration. Tests: 6 seal (Derivations) + 2 comet feed
 (RouterTests: strike + sounding-gate). DEFERRED: the coil-node slowdown (D2), the 64-point re-route glide
-(E2), the edit-page audition comet (E3), and reconciliation with the mockup's exact PRNG/proportions.
+(E2), and the edit-page audition comet (E3). (Mockup reconciliation is CLOSED — this build is canon.)
