@@ -35,7 +35,7 @@ struct CogPage: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         section("MIDI INPUT")
-                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · MPE. (Latch KEYS|CHORD lives on the strip.)")
+                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · range · MPE. (Latch KEYS|CHORD lives on the strip.)")
                             .font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             .fixedSize(horizontal: false, vertical: true)
                         ForEach(0..<4, id: \.self) { inputRow($0) }
@@ -78,7 +78,8 @@ struct CogPage: View {
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
 
     // MARK: INPUT — ONE line per door (COG SIMPLIFICATION 2026-08-03): hue·label · IN/MPE dots · CH chip
-    // (OMNI default) · MPE toggle. Cables are RETIRED and the LATCH mode (KEYS|CHORD) moved to the strip (§2).
+    // (OMNI default) · RANGE chips (§2, note window, default ALL) · MPE toggle. Cables are RETIRED and the LATCH
+    // mode (KEYS|CHORD) moved to the strip (§2).
 
     private func inputRow(_ i: Int) -> some View {
         let r = i < receivers.count ? receivers[i] : Receiver()
@@ -90,6 +91,7 @@ struct CogPage: View {
             Spacer(minLength: 8)
             channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }   // CH chip — OMNI default, the one optional decision
             // (LATCH CHORD|ADD chip REMOVED 2026-08-03 — the mode is now KEYS|CHORD on the STRIP, per redesign §2.)
+            labeled("RANGE") { rangeChips(lo: r.rangeLoResolved, hi: r.rangeHiResolved) { lo, hi in au?.setReceiverRange(i, lo: lo, hi: hi); onChanged() } }   // §2 note window (default ALL)
             labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
         }
     }
@@ -142,6 +144,34 @@ struct CogPage: View {
     }
     // (CABLE toggles retired 2026-08-03 — cables are router-admin the host owns; the plugin always hears all cables.)
     // (LATCH CHORD|ADD segments removed 2026-08-03 — the mode is now KEYS|CHORD on the strip, per redesign §2.)
+
+    // RANGE (§2): the door's note WINDOW — two note chips (lo – hi), default ALL. Each chip is a menu of octave
+    // submenus + a MIN/MAX (all) reset. The door admits only notes in [lo, hi], upstream of the latch.
+    private func rangeChips(lo: UInt8, hi: UInt8, _ set: @escaping (Int, Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            noteMenu(current: lo, isLo: true) { set(Int($0), Int(hi)) }
+            Text("–").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+            noteMenu(current: hi, isLo: false) { set(Int(lo), Int($0)) }
+        }
+    }
+    private func noteMenu(current: UInt8, isLo: Bool, _ set: @escaping (UInt8) -> Void) -> some View {
+        Menu {
+            Button(isLo ? "MIN (all below)" : "MAX (all above)") { set(isLo ? 0 : 127) }
+            ForEach(0..<11, id: \.self) { oct in                    // octave submenus: index 0…10 ⇒ octave −1…9
+                Menu("Oct \(oct - 1)") {
+                    ForEach(0..<12, id: \.self) { pc in
+                        let n = oct * 12 + pc
+                        if n <= 127 { Button(midiNoteName(UInt8(n))) { set(UInt8(n)) } }
+                    }
+                }
+            }
+        } label: {
+            Text(midiNoteName(current))
+                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cyan)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
+        }
+    }
     private func mpeToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Text(on ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : ink.opacity(0.45))

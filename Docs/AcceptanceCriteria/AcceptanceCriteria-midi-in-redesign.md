@@ -30,7 +30,10 @@ features below assume a working latch underneath.
 
 ## 2. THE COG (per-door line gains/loses)
 - **GAINS: RANGE** — bottom note + top note (two small note chips), default ALL. The door admits only notes in
-  range (the lens gains a window; UPSTREAM of latch and everything else).
+  range (the lens gains a window; UPSTREAM of latch and everything else). **BUILT 2026-08-03:** `Receiver.rangeLo/Hi`
+  (persisted); applied to the grid feed (holds/strum/ratchet/arps, incl. a range-aware AS-PLAYED reader) AND the
+  latch capture (frozen pool gated = upstream of latch). Cog chips = two note menus (octave submenus + MIN/MAX);
+  the strip header appends the range to its channel summary when narrowed.
 - **GAINS: BYPASS DESTINATIONS** — a per-door multiselect (A–D), default all — where §1's BYPASS routes.
 - **LOSES: the latch-type chip** — the mode now lives on the strip as KEYS | CHORD. Remove from the cog. **DONE
   2026-08-03** (CHORD|ADD chip + `latchSeg`/`seg` removed; doc lines updated).

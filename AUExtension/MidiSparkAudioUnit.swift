@@ -210,7 +210,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
     // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
-    func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // TWO LATCH MODES
+    func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
+    // RANGE (§2): the door's note window. Clamps to 0…127 and keeps lo ≤ hi so the window is never inverted.
+    func setReceiverRange(_ i: Int, lo: Int, hi: Int) {
+        let l = max(0, min(127, lo)), h = max(0, min(127, hi))
+        editReceiver(i) { $0.rangeLo = min(l, h); $0.rangeHi = max(l, h) }
+    }
     // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
     // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).
     func setReceiverMpeMerge(_ i: Int, _ on: Bool) { editReceiver(i) { $0.mpeMerge = on } }

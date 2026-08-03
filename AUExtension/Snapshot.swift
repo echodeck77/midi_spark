@@ -45,6 +45,8 @@ struct SnapCell {
     var chordSplit = ChordSplit()   // §cell-edit D: which held source notes this cell takes (ALL default); render reads via srcCount/srcAscending(for:)
     var velFloor: UInt8 = 1         // §cell-edit D VELOCITY WINDOW: admit source notes with velocity in [floor, ceil]
     var velCeil: UInt8 = 127        // (1…127 default = admit all); applied in srcCount/srcAscending(for:) before the split
+    var inputRangeLo: UInt8 = 0     // RANGE (§2): the receiver's note WINDOW — admit source notes with note ∈ [lo, hi]
+    var inputRangeHi: UInt8 = 127   // (0…127 default = admit all); applied in srcCount/srcAscending(for:) with the vel window
     var chopMain: UInt8 = 0xFF       // §cell-edit F: per-slice → the cell's own emitters (bit i = slice i)
     var chopAlt: UInt8 = 0           // §cell-edit F: per-slice → ALSO the shared ALT destination
     var chopMute: UInt8 = 0          // §cell-edit F: per-slice → silenced (overrides)
@@ -111,6 +113,8 @@ final class SnapshotBox {
     let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
     let latchAddMask: UInt8          // TWO LATCH MODES: bit i = receiver i latches in ADD (toggle) mode; 0 = CHORD
     let receiverDisabledMask: UInt8  // INPUT ENABLE: bit i = receiver i is DISABLED (not listening) — its frozen latch still feeds the grid, but no new live notes reach its cells
+    let receiverRangeLo: [UInt8]     // RANGE (§2): the 4 receivers' note-window low bound (0…127) — for the latch capture (upstream of latch)
+    let receiverRangeHi: [UInt8]     // RANGE (§2): the 4 receivers' note-window high bound (0…127)
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -120,7 +124,8 @@ final class SnapshotBox {
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
-         receiverDisabledMask: UInt8 = 0) {
+         receiverDisabledMask: UInt8 = 0,
+         receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127]) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -142,6 +147,8 @@ final class SnapshotBox {
         self.receiverCables = receiverCables
         self.latchAddMask = latchAddMask
         self.receiverDisabledMask = receiverDisabledMask
+        self.receiverRangeLo = receiverRangeLo
+        self.receiverRangeHi = receiverRangeHi
     }
 }
 

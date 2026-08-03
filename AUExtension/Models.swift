@@ -322,6 +322,16 @@ struct Receiver: Codable, Equatable {
     var inputEnabled: Bool? = nil
     /// The listen state, nil-safe: missing ⇒ enabled (listening). Non-persisting read helper.
     var inputEnabledResolved: Bool { inputEnabled ?? true }
+    // RANGE (2026-08-03, redesign §2): the door's note WINDOW — it admits only notes with lo ≤ note ≤ hi. UPSTREAM
+    // of the latch and the grid feed (a note outside the window is as if unplayed, for this door). Optional so old
+    // docs decode nil ⇒ ALL (0…127). Persisted rig config. `rangeLo`/`rangeHi` are MIDI note numbers (0…127).
+    var rangeLo: Int? = nil
+    var rangeHi: Int? = nil
+    /// The note window, nil-safe + clamped: missing ⇒ full range. Non-persisting read helpers.
+    var rangeLoResolved: UInt8 { UInt8(max(0, min(127, rangeLo ?? 0))) }
+    var rangeHiResolved: UInt8 { UInt8(max(0, min(127, rangeHi ?? 127))) }
+    /// True when the door admits every note (the fast path skips the window check).
+    var rangeIsFull: Bool { rangeLoResolved <= 0 && rangeHiResolved >= 127 }
     // §item 11 INPUT CABLES (amendment 2026-07-26): the input cable(s) this receiver reads, as a BITMASK
     // (bit i = cable i+1; cables 1–4). Optional so pre-cable docs decode as nil ⇒ ANY (all cables) — a
     // migration no-op. The v1 stepper writes ANY or a single bit; the bitmask reserves subset-multi later.

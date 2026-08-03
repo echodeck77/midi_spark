@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RANGE — per-door note window (2026-08-03, on `main`; 400 green, iOS builds; DEVICE pass owed). Redesign §2
+  cog GAIN. A receiver admits only notes with lo ≤ note ≤ hi (default ALL), UPSTREAM of the latch + grid feed.
+  Model: `Receiver.rangeLo/rangeHi: Int?` (nil ⇒ 0/127) + `rangeLoResolved`/`rangeHiResolved`/`rangeIsFull`. The
+  window rides two ways: (1) per-cell `SnapCell.inputRangeLo/Hi` (from the cell's receiver) → the grid feed's source
+  readers apply it — `srcCountFiltered`/`srcAscendingFiltered` (holds/strum/ratchet, alongside the vel window) AND
+  `arpPickSource(for:)` (arps: RANGE only, vel intentionally still not applied to arps — added a range-aware
+  `srcPlayed` so AS-PLAYED keeps press order); (2) `box.receiverRangeLo/Hi` → the Kernel's `captureFiltered`/
+  `latchAddStep` (range gated the frozen pool = upstream of latch). Cog: RANGE chips (two note menus, octave
+  submenus + MIN/MAX reset) on the input row via `midiNoteName` (shared, C4=60). Strip header now appends the range
+  to its summary when narrowed (honors the earlier 'summarize channel + key range' ask). Tests:
+  `testReceiverRangeFiltersSourceNotes` (robust to arp octave-span), `testReceiverRangeResolvesOntoCellAndBox`,
+  `testLatchCaptureExcludesOutOfRangeNotes`. Chosen over BYPASS first (user call) — bypass's 'post-shaping' wants
+  range in the stream. NEXT: BYPASS (§1 strip toggle + §2 cog A–D dests; Kernel direct-injection, device-verified).**
 - **▶ STRIP LATCH — BIG LATCH + KEYS|CHORD on the strip (2026-08-03, on `main`; 397 green, iOS builds; DEVICE pass
   owed). Redesign §1 (sizing law + mode-to-strip) + §2 (latch chip leaves the cog) + §3 (KEYS default). The strip
   LATCH arm is now the BIG headline (40pt, lock glyph + "LATCH"; everything else on the strip stays small). The

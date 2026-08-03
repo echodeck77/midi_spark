@@ -752,7 +752,9 @@ struct ReceiversView: View {
     // its own tap on the right, outside the toggle's hit area.
     private func header(_ i: Int, isThru: Bool) -> some View {
         let rec = r(i), listening = rec.inputEnabledResolved, muted = rec.muted
-        let chLabel = rec.channel == 0 ? "OMNI" : "CH\(rec.channel)"
+        // Summary = channel + (the key RANGE when it's been narrowed) — the door's sign. (§2 range chips live in the cog.)
+        let chLabel = (rec.channel == 0 ? "OMNI" : "CH\(rec.channel)")
+                    + (rec.rangeIsFull ? "" : " \(midiNoteName(rec.rangeLoResolved))–\(midiNoteName(rec.rangeHiResolved))")
         return HStack(spacing: 3) {
             HStack(spacing: 4) {
                 Circle().fill(listening ? hues[i] : hues[i].opacity(0.28)).frame(width: 7, height: 7)
@@ -761,6 +763,7 @@ struct ReceiversView: View {
                 Text(chLabel).font(.system(size: 8, weight: .heavy, design: .monospaced))
                     .foregroundColor(listening ? .white.opacity(0.72) : .white.opacity(0.3))
                     .strikethrough(!listening, color: .white.opacity(0.35))
+                    .lineLimit(1).minimumScaleFactor(0.6)   // the range suffix shrinks to fit the narrow strip
             }
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: 4).fill(listening ? hues[i].opacity(0.2) : Color.white.opacity(0.03)))

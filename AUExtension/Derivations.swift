@@ -109,37 +109,52 @@ final class NotePool {
         }
         return 255
     }
+    // RANGE (§2): press-order read within a note window — the AS-PLAYED arp variant (press order preserved).
+    func srcPlayed(_ k: Int, filter: UInt8, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
+        var seen = 0
+        for i in 0..<playedCount where matches(order[i], filter, cableMask) {
+            let note = order[i]; guard note >= noteLo && note <= noteHi else { continue }
+            if seen == k { return note }; seen += 1
+        }
+        return 255
+    }
 
     // §item 11: convenience readers — pull BOTH filter fields (channel + cable) off a SnapCell in one
     // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
     // pairing. The base filter-taking methods stay for the preview/audition paths (which force a filter).
-    // §cell-edit D velocity-aware base — channel/cable filter AND velocity ∈ [velLo, velHi]. Only reached when a
-    // cell's window is narrower than full range (the full-range path keeps the original fast readers above).
-    func srcCount(filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8) -> Int {
+    // §cell-edit D velocity-aware base + RANGE (§2) note window — channel/cable filter AND velocity ∈ [velLo, velHi]
+    // AND note ∈ [noteLo, noteHi]. Only reached when a cell's vel window OR its receiver's note window is narrower
+    // than full (the full-both path keeps the original fast readers above).
+    func srcCount(filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8, noteLo: UInt8, noteHi: UInt8) -> Int {
         var n = 0
         for i in 0..<count where matches(sorted[i], filter, cableMask) {
-            let v = vel[Int(sorted[i])]; if v >= velLo && v <= velHi { n += 1 }
+            let note = sorted[i]; guard note >= noteLo && note <= noteHi else { continue }
+            let v = vel[Int(note)]; if v >= velLo && v <= velHi { n += 1 }
         }
         return n
     }
-    func srcAscending(_ k: Int, filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8) -> UInt8 {
+    func srcAscending(_ k: Int, filter: UInt8, cableMask: Int, velLo: UInt8, velHi: UInt8, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
         var seen = 0
         for i in 0..<count where matches(sorted[i], filter, cableMask) {
-            let v = vel[Int(sorted[i])]; guard v >= velLo && v <= velHi else { continue }
-            if seen == k { return sorted[i] }; seen += 1
+            let note = sorted[i]; guard note >= noteLo && note <= noteHi else { continue }
+            let v = vel[Int(note)]; guard v >= velLo && v <= velHi else { continue }
+            if seen == k { return note }; seen += 1
         }
         return 255
     }
-    // §cell-edit D: the cell's admitted source = channel/cable + VELOCITY WINDOW (full range → the fast readers).
+    // The cell's admitted source = channel/cable + VELOCITY WINDOW (§cell-edit D) + RANGE note window (§2). Both
+    // full → the fast readers; either narrower → the combined reader.
     private func srcCountFiltered(_ cell: SnapCell) -> Int {
-        (cell.velFloor <= 1 && cell.velCeil >= 127)
+        (cell.velFloor <= 1 && cell.velCeil >= 127 && cell.inputRangeLo <= 0 && cell.inputRangeHi >= 127)
             ? srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
-            : srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask), velLo: cell.velFloor, velHi: cell.velCeil)
+            : srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+                       velLo: cell.velFloor, velHi: cell.velCeil, noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)
     }
     private func srcAscendingFiltered(_ k: Int, _ cell: SnapCell) -> UInt8 {
-        (cell.velFloor <= 1 && cell.velCeil >= 127)
+        (cell.velFloor <= 1 && cell.velCeil >= 127 && cell.inputRangeLo <= 0 && cell.inputRangeHi >= 127)
             ? srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
-            : srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask), velLo: cell.velFloor, velHi: cell.velCeil)
+            : srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+                           velLo: cell.velFloor, velHi: cell.velCeil, noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)
     }
     // Full per-cell source read: velocity window (admission), THEN the chord split (a window on that list).
     func srcCount(for cell: SnapCell) -> Int {
@@ -165,11 +180,11 @@ final class NotePool {
     /// receiver strip LATCH: FREEZE — replace this pool's contents with the notes of `src` passing
     /// (filter, cableMask), preserving each note's velocity/channel/cable so a subscriber's own filter is a
     /// no-op pass-through on the frozen chord. Allocation-free (fixed arrays); safe on the render thread.
-    func captureFiltered(from src: NotePool, filter: UInt8, cableMask: Int) {
+    func captureFiltered(from src: NotePool, filter: UInt8, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) {
         reset()
         for i in 0..<src.count {
             let note = src.sorted[i]
-            if src.matches(note, filter, cableMask) {
+            if note >= noteLo && note <= noteHi && src.matches(note, filter, cableMask) {   // RANGE (§2) upstream of latch
                 noteOn(note, velocity: src.vel[Int(note)], channel: src.chan[Int(note)], cable: src.cbl[Int(note)])
             }
         }
@@ -182,10 +197,10 @@ final class NotePool {
     /// cable preserved, so a subscriber's own filter is a no-op pass-through, exactly like `captureFiltered`).
     /// `prevHeld` (128 flags, caller-owned + preallocated) carries the held state across renders for rising-edge
     /// detection. Allocation-free (fixed 0…127 sweep); safe on the render thread.
-    func latchAddStep(from live: NotePool, filter: UInt8, cableMask: Int, prevHeld: inout [Bool]) {
+    func latchAddStep(from live: NotePool, filter: UInt8, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127, prevHeld: inout [Bool]) {
         for n in 0..<128 {
             let note = UInt8(n)
-            let held = live.vel[n] != 0 && live.matches(note, filter, cableMask)
+            let held = live.vel[n] != 0 && note >= noteLo && note <= noteHi && live.matches(note, filter, cableMask)   // RANGE (§2) upstream of latch
             if held && !prevHeld[n] {                       // rising edge → toggle membership
                 if vel[n] != 0 { noteOff(note) }            // already in the frozen pool → leave
                 else { noteOn(note, velocity: live.vel[n], channel: live.chan[n], cable: live.cbl[n]) }   // → join
@@ -194,6 +209,13 @@ final class NotePool {
         }
         rebuildSorted()
     }
+}
+
+/// MIDI note number → name (C4 = 60 convention): pitch class + octave, note 0 = C-1. Shared by the cog RANGE
+/// chips, the strip header's range summary, and tests — one source so the naming can't drift.
+func midiNoteName(_ n: UInt8) -> String {
+    let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    return "\(names[Int(n) % 12])\(Int(n) / 12 - 1)"
 }
 
 // MARK: - Swing warp (§4 v2.3): real beat ⇄ musical beat, identity at 50 (a = 1)
@@ -400,8 +422,12 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 /// never reset the index. Returns -1 for an empty (filtered) pool. No channel is returned — past the
 /// input filter notes carry no channel (delta §7); emission stamps the bus channel.
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
-                   pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111) -> Int {
-    let count = pool.srcCount(filter: filter, cableMask: cableMask)
+                   pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
+                   noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> Int {
+    // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
+    let fullRange = noteLo <= 0 && noteHi >= 127
+    let count = fullRange ? pool.srcCount(filter: filter, cableMask: cableMask)
+                          : pool.srcCount(filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
     guard count > 0 else { return -1 }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
@@ -429,9 +455,15 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         pos = asc   // ascending through the press sequence (below), not the sorted set
     }
 
-    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered.
-    let note = (pat == .asPlayed) ? Int(pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask))
-                                  : Int(pool.srcAscending(pos % count, filter: filter, cableMask: cableMask))
+    // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered (+ RANGE window).
+    let note: Int
+    if pat == .asPlayed {
+        note = Int(fullRange ? pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask)
+                             : pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi))
+    } else {
+        note = Int(fullRange ? pool.srcAscending(pos % count, filter: filter, cableMask: cableMask)
+                             : pool.srcAscending(pos % count, filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
+    }
     return note + 12 * (pos / count)
 }
 
@@ -440,7 +472,8 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// explicit-`filter:` form (they force a source, not the cell's).
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> Int {
     arpPickSource(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-                  pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
+                  pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+                  noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)   // RANGE (§2)
 }
 
 // MARK: - Processor dispatch (§3/§4)

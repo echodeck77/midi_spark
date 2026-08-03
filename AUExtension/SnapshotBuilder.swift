@@ -78,6 +78,8 @@ enum SnapshotBuilder {
                     sc.inputChannel = recs[ri].muted ? Snap.mutedSourceFilter
                                                      : UInt8(max(0, min(16, recs[ri].channel)))
                     sc.inputCableMask = 0b1111   // COG SIMPLIFICATION (2026-08-03): always accept ALL input cables (union) — cables retired from the UI
+                    sc.inputRangeLo = recs[ri].rangeLoResolved   // RANGE (§2): the door's note window, admitted before the split/vel window
+                    sc.inputRangeHi = recs[ri].rangeHiResolved
                 } else {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
                 }
@@ -134,6 +136,10 @@ enum SnapshotBuilder {
         // INPUT ENABLE: bit i = receiver i is NOT listening (door closed) — the Router blocks its cells' LIVE read.
         var receiverDisabledMask: UInt8 = 0
         for (i, r) in doc.receiversResolved.enumerated() where i < 4 && !r.inputEnabledResolved { receiverDisabledMask |= 1 << UInt8(i) }
+        // RANGE (§2): the 4 receivers' note windows, for the latch capture (upstream of latch — the grid feed reads
+        // the per-cell window resolved above).
+        let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
+        let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -155,7 +161,9 @@ enum SnapshotBuilder {
                            receiverChannels: recvCh,
                            receiverCables: recvCable,
                            latchAddMask: latchAddMask,
-                           receiverDisabledMask: receiverDisabledMask)
+                           receiverDisabledMask: receiverDisabledMask,
+                           receiverRangeLo: receiverRangeLo,
+                           receiverRangeHi: receiverRangeHi)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

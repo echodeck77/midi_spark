@@ -143,13 +143,16 @@ final class Kernel {
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
             }
             guard isArmed else { continue }
+            let rLo = receiverRangeLo[i], rHi = receiverRangeHi[i]   // RANGE (§2): the latch admits only in-window notes
             if latchAddMask & bit != 0 {
-                // ADD: note-toggle accumulation — each new note-on flips its membership in the frozen pool.
+                // KEYS (was ADD): note-toggle accumulation — each new note-on flips its membership in the frozen pool.
                 latchedPools[i].latchAddStep(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
-                                             prevHeld: &latchPrevHeld[i])
-            } else if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i])) > 0 {
+                                             noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
+            } else if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                                    velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0 {
                 // CHORD: detect-and-replace while fingers are down; freeze the last chord when they lift.
-                latchedPools[i].captureFiltered(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]))
+                latchedPools[i].captureFiltered(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                                                noteLo: rLo, noteHi: rHi)
             }
         }
         prevLatchArmMask = latchArmMask
@@ -207,6 +210,8 @@ final class Kernel {
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
     private var receiverChannels: [UInt8] = [0, 0, 0, 0]
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
+    private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]                       // RANGE (§2): note window for the latch capture (upstream of latch)
+    private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
@@ -268,6 +273,8 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
+        receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
+        receiverRangeHi = box.receiverRangeHi
         latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode
         thruReceiver = min(3, max(0, Int(box.thruReceiver)))   // receiver strip: which receiver passthrough follows
         diag.renderCount &+= 1

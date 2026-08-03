@@ -1754,6 +1754,50 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(b.receiverDisabledMask & 0b0010, 0, "the enabled neighbour is not flagged disabled")
     }
 
+    // RANGE (§2): a door admits only SOURCE notes in its window. Robust to the arp's own octave-spanning — adding
+    // out-of-window notes to the pool must change NOTHING, because they never enter the cell's source list.
+    func testReceiverRangeFiltersSourceNotes() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.rangeLo = 60; r1.rangeHi = 72   // window C4…C5
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let inWindow = NotePool(); for n: UInt8 in [60, 72] { inWindow.noteOn(n, velocity: 100, channel: 0, cable: 1) }
+        let withOutliers = NotePool(); for n: UInt8 in [48, 60, 72, 84] { withOutliers.noteOn(n, velocity: 100, channel: 0, cable: 1) }
+        let e1 = RecordingEmitter(); run(b, inWindow, beats: 16, into: e1)
+        let e2 = RecordingEmitter(); run(b, withOutliers, beats: 16, into: e2)
+        XCTAssertFalse(e1.ons.isEmpty, "the in-window notes do sound")
+        XCTAssertEqual(Set(e1.ons.map { $0.note }), Set(e2.ons.map { $0.note }),
+                       "the out-of-window source notes add nothing — RANGE filters them before the cell reads")
+    }
+
+    // RANGE resolves onto the cell (grid feed) AND the box (latch capture, upstream of latch).
+    func testReceiverRangeResolvesOntoCellAndBox() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.rangeLo = 36; r1.rangeHi = 96
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.cells[0].inputRangeLo, 36); XCTAssertEqual(b.cells[0].inputRangeHi, 96)
+        XCTAssertEqual(b.receiverRangeLo[0], 36, "the box carries the window for the latch capture")
+        XCTAssertEqual(b.receiverRangeHi[0], 96)
+        XCTAssertEqual(b.receiverRangeLo[1], 0); XCTAssertEqual(b.receiverRangeHi[1], 127, "a default door is full-range")
+    }
+
+    // RANGE is UPSTREAM of the latch: captureFiltered admits only in-window notes into the frozen pool.
+    func testLatchCaptureExcludesOutOfRangeNotes() {
+        let live = NotePool()
+        for n: UInt8 in [48, 60, 72, 84] { live.noteOn(n, velocity: 100, channel: 0, cable: 1) }
+        live.rebuildSorted()
+        let frozen = NotePool()
+        frozen.captureFiltered(from: live, filter: 0, cableMask: 0b1111, noteLo: 60, noteHi: 72)   // window C4…C5
+        XCTAssertEqual(frozen.srcCount(filter: 0), 2, "only the two in-window notes latch")
+        let latched = Set((0..<frozen.srcCount(filter: 0)).map { frozen.srcAscending($0, filter: 0) })
+        XCTAssertEqual(latched, [60, 72], "48 and 84 were excluded upstream — never entered the frozen pool")
+    }
+
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()
