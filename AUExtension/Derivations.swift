@@ -81,6 +81,8 @@ final class NotePool {
     }
 
     /// Count of held notes passing the filter.
+    /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
+    func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
     func srcCount(filter: UInt8, cableMask: Int = 0b1111) -> Int {
         if filter == 0 && cableMask == 0b1111 { return count }
         var n = 0

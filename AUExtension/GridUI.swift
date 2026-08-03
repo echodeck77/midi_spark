@@ -689,6 +689,8 @@ struct ReceiversView: View {
     var onToggleLatch: (Int) -> Void = { _ in }
     var latchAddMask: UInt8 = 0                          // KEYS|CHORD: bit i = receiver i latches in KEYS (per-note toggle) mode; clear = CHORD
     var onSetLatchKeys: (Int, Bool) -> Void = { _, _ in }   // KEYS|CHORD toggle on the strip (true = KEYS)
+    var bypassMask: UInt8 = 0                            // BYPASS: bit i = receiver i injects straight to emitters
+    var onToggleBypass: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
@@ -820,8 +822,25 @@ struct ReceiversView: View {
             Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
                 .font(.system(size: 7, weight: .heavy, design: .monospaced))
                 .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
+            bypassToggle(i)          // BYPASS: small — the door injects straight to emitters, skipping the grid (dests in the cog)
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
+    }
+
+    // BYPASS toggle (§1) — small, per the sizing law. Lit = this door skips the grid and injects straight to its
+    // destination emitters (chosen in the cog). A cyan hue distinguishes it from the amber LATCH family.
+    private func bypassToggle(_ i: Int) -> some View {
+        let on = bit(bypassMask, i)
+        let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+        return HStack(spacing: 3) {
+            Image(systemName: on ? "arrow.turn.down.right" : "arrow.right").font(.system(size: 7, weight: .heavy))
+            Text("BYPASS").font(.system(size: 7, weight: .heavy, design: .monospaced))
+        }
+        .foregroundColor(on ? .black : cyan.opacity(0.85))
+        .frame(maxWidth: .infinity).frame(height: 14)
+        .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.85) : Color.white.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 3).stroke(cyan.opacity(on ? 0 : 0.4), lineWidth: 1))
+        .contentShape(Rectangle()).onTapGesture { onToggleBypass(i) }
     }
 
     // LATCH + KEYS|CHORD as ONE related cluster (user 2026-08-03): the LATCH button on the LEFT (padlock latched to

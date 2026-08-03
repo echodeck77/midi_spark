@@ -620,6 +620,7 @@ struct DiagView: View {
     func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
     func toggleReceiverEnabled(_ i: Int) { au?.toggleReceiverEnabled(i); receivers = au?.uiReceivers() ?? receivers }
     func setReceiverLatchKeys(_ i: Int, _ keys: Bool) { au?.setReceiverLatchAdd(i, keys); receivers = au?.uiReceivers() ?? receivers }   // KEYS|CHORD on the strip
+    func toggleReceiverBypass(_ i: Int) { au?.toggleReceiverBypass(i); receivers = au?.uiReceivers() ?? receivers }   // BYPASS toggle on the strip
     func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
@@ -1153,6 +1154,8 @@ struct DiagView: View {
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
                       latchAddMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.latchAddResolved ? $0 | UInt8(1 << $1.offset) : $0 },
                       onSetLatchKeys: setReceiverLatchKeys,
+                      bypassMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.bypassResolved ? $0 | UInt8(1 << $1.offset) : $0 },
+                      onToggleBypass: toggleReceiverBypass,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch,
                       wiring: !routeFoci.isEmpty, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face

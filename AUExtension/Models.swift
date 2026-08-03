@@ -332,6 +332,15 @@ struct Receiver: Codable, Equatable {
     var rangeHiResolved: UInt8 { UInt8(max(0, min(127, rangeHi ?? 127))) }
     /// True when the door admits every note (the fast path skips the window check).
     var rangeIsFull: Bool { rangeLoResolved <= 0 && rangeHiResolved >= 127 }
+    // BYPASS (2026-08-03, redesign §1/§2): when on, this door's shaped, in-range held notes sound DIRECTLY on its
+    // destination emitters (A–D), skipping the grid — a live monitor path (works stopped too). A DIRECT injection:
+    // no emitter roles (claim/flatten/alt). `bypassDest` is the A–D emitter bitmask (bit i = emitter i). Optional so
+    // old docs decode nil ⇒ off / all dests. Persisted rig config.
+    var bypass: Bool? = nil
+    var bypassDest: Int? = nil
+    var bypassResolved: Bool { bypass ?? false }
+    /// The destination emitter mask, nil-safe: missing ⇒ ALL four (A–D). Non-persisting read helper.
+    var bypassDestResolved: UInt8 { UInt8((bypassDest ?? 0b1111) & 0b1111) }
     // §item 11 INPUT CABLES (amendment 2026-07-26): the input cable(s) this receiver reads, as a BITMASK
     // (bit i = cable i+1; cables 1–4). Optional so pre-cable docs decode as nil ⇒ ANY (all cables) — a
     // migration no-op. The v1 stepper writes ANY or a single bit; the bitmask reserves subset-multi later.

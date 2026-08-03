@@ -157,6 +157,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ BYPASS — per-door direct injection to emitters (2026-08-03, on `main`; 405 green, iOS builds; DEVICE pass
+  owed). Redesign §1 strip toggle + §2 cog A–D destinations — the LAST redesign feature. A bypassed door skips the
+  grid and its shaped, in-range held notes sound DIRECTLY on its destination emitters (a live monitor — works
+  stopped). Model: `Receiver.bypass: Bool?` + `bypassDest: Int?` (A–D mask, nil ⇒ all) → `box.receiverBypassMask` +
+  `receiverBypassDest`. Built ROUTER-side (testable via the MIDIEmitter double — a Kernel passthrough would NOT be):
+  `effectivePool` returns emptyPool for a bypassed door's cells (grid diverted); `reconcileBypass` runs every render
+  BEFORE the stopped/playing split (so it monitors while stopped), diffing each door's desired (note × dest) set and
+  opening/closing via `openVoice`/`closeVoice` (reuses refcount + dual-cable + panic-safety). Bypass voices are
+  IMMORTAL + tagged `Voice.bypassRecv ≥ 0`; `allNotesOff` gained `includeBypass` (default FALSE so transport/latch/
+  scene edges leave them; PANIC passes true), and the grid's `holdCandidate` reconcile skips them. v1 SCOPE (flagged):
+  applies RANGE + channel/cable admission (a MUTED/DISABLED door's bypass goes quiet — shares receiverChannels);
+  octave/velocity shaping DEFERRED (output note = source note, so on/off balance by note). UI: strip BYPASS toggle
+  (cyan, in performFeatures); cog A–D dest chips (dim until bypass armed). Tests: diversion, inject-to-dest (cable+ch),
+  release-off, range, transport-stop-persistence. §3 defaults all hold via nil-resolvers (KEYS·OMNI·RANGE all·
+  ENABLED·BYPASS off/dests all·LATCH off). REDESIGN COMPLETE pending device pass + SELECT verb ruling.**
 - **▶ RANGE — per-door note window (2026-08-03, on `main`; 400 green, iOS builds; DEVICE pass owed). Redesign §2
   cog GAIN. A receiver admits only notes with lo ≤ note ≤ hi (default ALL), UPSTREAM of the latch + grid feed.
   Model: `Receiver.rangeLo/rangeHi: Int?` (nil ⇒ 0/127) + `rangeLoResolved`/`rangeHiResolved`/`rangeIsFull`. The

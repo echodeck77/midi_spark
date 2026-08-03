@@ -1798,6 +1798,72 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(latched, [60, 72], "48 and 84 were excluded upstream — never entered the frozen pool")
     }
 
+    // BYPASS (§1/§2) — a bypassed door skips the grid and injects straight to its dest emitters.
+    private func bypassBox(dest: Int, rangeLo: Int? = nil, rangeHi: Int? = nil,
+                           cell: Bool = false) -> SnapshotBox {
+        var s = SceneState.empty()
+        if cell { s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+        var r1 = Receiver(name: "1"); r1.bypass = true; r1.bypassDest = dest; r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        return SnapshotBuilder.build(from: st)
+    }
+    private func stepWindow(_ router: Router, _ box: SnapshotBox, _ pool: NotePool, playing: Bool,
+                            beat: Double, out: RecordingEmitter) {
+        var diag = KernelDiag()
+        router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: 120, sampleRate: 48_000,
+                       timestampSample: beat * 24_000, frameCount: 512, out: out, diag: &diag)
+    }
+
+    // A bypassed door's GRID cells fall silent — its stream skipped the grid (here with no dests, so nothing sounds).
+    func testBypassDivertsItsGridCellsToSilence() {
+        let b = bypassBox(dest: 0, cell: true)   // bypassed, NO destinations → total silence (isolates the diversion)
+        let e = RecordingEmitter()
+        run(b, chord([60, 64]), beats: 8, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "a bypassed door's grid cells are silent (the stream left the grid)")
+    }
+
+    // Bypass injects a held note on its destination emitter's cable (+ the ALL cable) with that emitter's channel.
+    func testBypassInjectsHeldNotesToDestEmitters() {
+        let b = bypassBox(dest: 0b0001)   // → emitter A: cable 1, channel 0 (busChannels[0] = 1 → wire 0)
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 && $0.chan == 0 }, "injects on dest emitter A")
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "and on the ALL cable")
+        XCTAssertFalse(e.ons.contains { $0.cable == 2 || $0.cable == 3 || $0.cable == 4 }, "not on unselected emitters")
+    }
+
+    // Releasing the key emits the bypass note-off — no stuck note.
+    func testBypassReleaseEmitsNoteOff() {
+        let b = bypassBox(dest: 0b0001)
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press
+        stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)    // release
+        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "release emits the bypass note-off")
+        assertNothingLeftSounding(e)
+    }
+
+    // Bypass admits only in-range notes (the door's RANGE window applies to the injected stream too).
+    func testBypassRespectsRange() {
+        let b = bypassBox(dest: 0b0001, rangeLo: 62, rangeHi: 127)
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60, 64]), playing: true, beat: 0, out: e)
+        XCTAssertFalse(e.ons.contains { $0.note == 60 }, "60 is below the window — not injected")
+        XCTAssertTrue(e.ons.contains { $0.note == 64 && $0.cable == 1 }, "64 is in-window — injected")
+    }
+
+    // Bypass is a LIVE MONITOR: it survives a transport stop (the transport edge doesn't release it); only the key
+    // lifting (or panic) closes it.
+    func testBypassPersistsAcrossTransportStop() {
+        let b = bypassBox(dest: 0b0001)
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)      // press (playing)
+        stepWindow(router, b, chord([60]), playing: false, beat: 0.25, out: e)  // transport STOP, key still down
+        XCTAssertEqual(e.offs.filter { $0.note == 60 && $0.cable == 1 }.count, 0, "bypass survives the stop — no release")
+        stepWindow(router, b, NotePool(), playing: false, beat: 0.5, out: e)    // release while stopped
+        XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "released while stopped → off")
+    }
+
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()

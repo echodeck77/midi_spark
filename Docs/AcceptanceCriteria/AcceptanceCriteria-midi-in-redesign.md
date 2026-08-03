@@ -25,7 +25,12 @@ features below assume a working latch underneath.
   notes"; FOOT LIVE/SOLO = "does the receiver pass notes into the grid."
 - **BYPASS** — small toggle: the door's stream (post its shaping — octave, velocity, range) routes DIRECTLY to
   emitters, skipping the grid. Destination = the door's bypass mask (cog §2), default ALL four. PIN: v1 bypass is a
-  direct injection (no role gating — the word is "directly"); flag if role interplay is ever wanted.
+  direct injection (no role gating — the word is "directly"); flag if role interplay is ever wanted. **BUILT
+  2026-08-03 (Router-side, testable):** `Receiver.bypass`/`bypassDest`; `effectivePool` diverts the grid cells;
+  `reconcileBypass` injects held in-range notes to the dest emitters (own + ALL cable, emitter's stamp channel) as
+  immortal tagged voices — a live monitor that survives transport stop; PANIC flushes it. **v1 FLAGS:** octave +
+  velocity SHAPING deferred (output note = source note); a MUTED/DISABLED door's bypass goes quiet too (shares the
+  admission filter). No emitter roles (per the PIN).
 - Existing tenants (OCT±, fader, LIVE·SOLO, THRU pip) stay, sized small per the law.
 
 ## 2. THE COG (per-door line gains/loses)
@@ -34,7 +39,8 @@ features below assume a working latch underneath.
   (persisted); applied to the grid feed (holds/strum/ratchet/arps, incl. a range-aware AS-PLAYED reader) AND the
   latch capture (frozen pool gated = upstream of latch). Cog chips = two note menus (octave submenus + MIN/MAX);
   the strip header appends the range to its channel summary when narrowed.
-- **GAINS: BYPASS DESTINATIONS** — a per-door multiselect (A–D), default all — where §1's BYPASS routes.
+- **GAINS: BYPASS DESTINATIONS** — a per-door multiselect (A–D), default all — where §1's BYPASS routes. **DONE
+  2026-08-03** (A–D dest chips on the input row, dim until BYPASS is armed on the strip).
 - **LOSES: the latch-type chip** — the mode now lives on the strip as KEYS | CHORD. Remove from the cog. **DONE
   2026-08-03** (CHORD|ADD chip + `latchSeg`/`seg` removed; doc lines updated).
 - With cables retired (prior instruction), the cog line reads: **hue·label · CH chip · RANGE chips · BYPASS dests · MPE.**

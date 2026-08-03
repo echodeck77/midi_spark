@@ -92,6 +92,7 @@ struct CogPage: View {
             channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }   // CH chip — OMNI default, the one optional decision
             // (LATCH CHORD|ADD chip REMOVED 2026-08-03 — the mode is now KEYS|CHORD on the STRIP, per redesign §2.)
             labeled("RANGE") { rangeChips(lo: r.rangeLoResolved, hi: r.rangeHiResolved) { lo, hi in au?.setReceiverRange(i, lo: lo, hi: hi); onChanged() } }   // §2 note window (default ALL)
+            labeled("BYP→") { bypassDestChips(mask: r.bypassDestResolved, active: r.bypassResolved) { d in au?.setReceiverBypassDest(i, Int(r.bypassDestResolved ^ (1 << UInt8(d)))); onChanged() } }   // §2 bypass destinations (default ALL)
             labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
         }
     }
@@ -170,6 +171,20 @@ struct CogPage: View {
                 .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cyan)
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
+        }
+    }
+    // BYPASS DESTINATIONS (§2): a per-door A–D multiselect — where the strip's BYPASS injects. Default ALL. Dimmed
+    // when the door isn't bypassed (a hint that they only bite once BYPASS is armed on the strip).
+    private func bypassDestChips(mask: UInt8, active: Bool, _ toggle: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            ForEach(0..<4, id: \.self) { d in
+                let on = mask & (1 << UInt8(d)) != 0
+                Text(["A", "B", "C", "D"][d]).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : ink.opacity(active ? 0.5 : 0.3))
+                    .frame(width: 15, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber.opacity(active ? 1 : 0.45) : ink.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { toggle(d) }
+            }
         }
     }
     private func mpeToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {

@@ -53,6 +53,8 @@ final class Router {
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
         var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*8+row), for the per-cell
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
+        var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
+                                     // reconcileBypass) — the grid's continuity + transport flushes leave it alone.
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -245,6 +247,16 @@ final class Router {
     private var latchedPools: [NotePool] = []
     private var receiverDisabledMask: UInt8 = 0            // INPUT ENABLE: bit i = receiver i not listening (door closed)
     private let emptyPool: NotePool = { let p = NotePool(); p.rebuildSorted(); return p }()   // a disabled door's cells read this
+    // BYPASS (§1/§2): this render's per-receiver admission (channel/cable/range, mute+disable already folded into
+    // receiverChannels) + which doors bypass + their destination emitter masks. Read from the box each render.
+    private var receiverChannels: [UInt8] = [0, 0, 0, 0]
+    private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
+    private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]
+    private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
+    private var receiverBypassMask: UInt8 = 0
+    private var receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
+    private var bypassDesired = [Bool](repeating: false, count: 128)   // scratch: desired source notes this render
+    private var bypassScratch = [UInt8](repeating: 0, count: 128)      // scratch: the desired notes, read once
     /// The pool a cell reads: its receiver's frozen LATCH pool when armed (which STILL feeds while the door is
     /// disabled — the point of "close the door, keep the room"); else, if the door is DISABLED (not listening),
     /// nothing; else the live pool. A row-fed cell (recv −1) always reads live (its root's latch reaches it via
@@ -252,10 +264,62 @@ final class Router {
     private func effectivePool(for cell: SnapCell, live: NotePool) -> NotePool {
         let r = cell.resolvedReceiver
         if r >= 0 {
+            if receiverBypassMask & (1 << UInt8(r)) != 0 { return emptyPool }   // BYPASS: the door skips the grid (its stream injects to emitters instead)
             if latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
             if receiverDisabledMask & (1 << UInt8(r)) != 0 { return emptyPool }   // not armed + not listening → silent
         }
         return live
+    }
+
+    /// BYPASS (§1/§2): a bypassed door's shaped, in-range held notes sound DIRECTLY on its destination emitters,
+    /// skipping the grid. Runs every render (stopped + playing — a live monitor). Reuses openVoice/closeVoice so
+    /// the refcount + dual-cable (own + All) + panic-safety all apply; the voices are IMMORTAL and tagged
+    /// (bypassRecv ≥ 0) so the grid's continuity/transport flushes leave them be. DIRECT injection: no emitter
+    /// roles. v1 applies RANGE + channel/cable admission (a muted/disabled door goes quiet — same filter);
+    /// octave/velocity SHAPING is deferred (the output note = the source note, so on/off balance by note).
+    private func reconcileBypass(pool: NotePool, atSample sample: Int64, out: MIDIEmitter?) {
+        guard receiverBypassMask != 0 || anyBypassVoiceActive() else { return }   // fast path: nothing bypassed & none to close
+        let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // bypass voices carry no grid identity / SEAL
+        defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+        for r in 0..<4 {
+            let bypassed = receiverBypassMask & (1 << UInt8(r)) != 0
+            let destMask = bypassed ? receiverBypassDest[r] : 0
+            let filter = receiverChannels[r], cable = Int(receiverCables[r])
+            let lo = receiverRangeLo[r], hi = receiverRangeHi[r]
+            let cnt = destMask == 0 ? 0 : pool.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
+            for k in 0..<cnt {
+                let n = pool.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
+                bypassScratch[k] = n; bypassDesired[Int(n)] = true
+            }
+            // CLOSE: this door's bypass voices whose note is released OR whose dest bus is no longer selected.
+            for i in voices.indices where voices[i].active && voices[i].bypassRecv == Int8(r) {
+                if !(bypassDesired[Int(voices[i].note)] && (destMask & (1 << voices[i].bus)) != 0) {
+                    closeVoice(i, atSample: sample, out: out)
+                }
+            }
+            // OPEN: each desired (note × dest emitter) not already sounding — on its own cable + the All copy.
+            if destMask != 0 {
+                for k in 0..<cnt {
+                    let note = bypassScratch[k]
+                    let vel = max(1, pool.heldVelocity(note))
+                    for d in 0..<4 where (destMask & (1 << UInt8(d))) != 0 && !bypassVoiceExists(recv: r, note: note, bus: UInt8(d)) {
+                        let ch = (busChannels[d] &- 1) & 15
+                        _ = openVoice(note: note, chan: ch, cable: UInt8(d + 1), bus: UInt8(d), onSample: sample, offSample: .max, velocity: vel, out: out, bypassRecv: Int8(r))
+                        _ = openVoice(note: note, chan: ch, cable: 0,            bus: UInt8(d), onSample: sample, offSample: .max, velocity: vel, out: out, bypassRecv: Int8(r))
+                    }
+                }
+            }
+            for k in 0..<cnt { bypassDesired[Int(bypassScratch[k])] = false }   // clear the scratch for the next door
+        }
+    }
+    private func anyBypassVoiceActive() -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].bypassRecv >= 0 { return true }
+        return false
+    }
+    private func bypassVoiceExists(recv: Int, note: UInt8, bus: UInt8) -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].bypassRecv == Int8(recv) && voices[i].note == note && voices[i].bus == bus { return true }
+        return false
     }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
@@ -340,7 +404,8 @@ final class Router {
     @discardableResult
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
-                           velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false) -> Int {
+                           velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false,
+                           bypassRecv: Int8 = -1) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
         // than emit an on we can't schedule an off for — an untrackable note would hang. At 128-voice
@@ -369,6 +434,7 @@ final class Router {
         voices[slot].alt = currentAlt
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < 64) ? Int8(currentCellIndex) : -1   // SEAL sounding gate
+        voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
         return slot
     }
 
@@ -489,9 +555,13 @@ final class Router {
         }
     }
 
-    /// Close every sounding voice at one sample time (transport edge, column transition, reset).
-    func allNotesOff(atSample time: Int64, out: MIDIEmitter?) {
-        for i in voices.indices where voices[i].active { closeVoice(i, atSample: time, out: out) }
+    /// Close every sounding voice at one sample time (transport edge, column transition, reset). BYPASS voices
+    /// PERSIST by default (a live monitor survives transport/latch/scene edges — reconcileBypass owns their
+    /// lifecycle); only a hard PANIC passes `includeBypass: true` to flush them too.
+    func allNotesOff(atSample time: Int64, out: MIDIEmitter?, includeBypass: Bool = false) {
+        for i in voices.indices where voices[i].active && (includeBypass || voices[i].bypassRecv < 0) {
+            closeVoice(i, atSample: time, out: out)
+        }
     }
 
     /// §2 CONTINUITY: the column-transition close, minus the legato drones. Truncates every voice at the
@@ -770,7 +840,7 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max }
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 }   // BYPASS voices are immortal but NOT grid holds — never adopt/close them here
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
@@ -941,6 +1011,9 @@ final class Router {
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
         self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
+        self.receiverChannels = box.receiverChannels; self.receiverCables = box.receiverCables   // BYPASS: per-receiver admission for the direct-injection pass
+        self.receiverRangeLo = box.receiverRangeLo; self.receiverRangeHi = box.receiverRangeHi
+        self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
@@ -997,7 +1070,7 @@ final class Router {
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
-            allNotesOff(atSample: renderSampleImmediate, out: out)
+            allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)   // the one hard flush — bypass included
             prevEffColumn = -1; altTurn = 0
             diag.panics &+= 1
         }
@@ -1017,6 +1090,11 @@ final class Router {
 
         pool.rebuildSorted()
         diag.poolCount = pool.count
+
+        // BYPASS (§1/§2): the live direct-injection monitor — runs BEFORE the stopped/playing split so a bypassed
+        // door sounds whether or not the transport rolls. (allNotesOff above skips bypass voices, so the edges don't
+        // disturb them; only PANIC flushes them, and the next reconcile re-opens whatever's still held.)
+        reconcileBypass(pool: pool, atSample: windowStart, out: out)
 
         // ---- PREVIEW / cell audition SOLO (Phase 2): the staged VIRTUAL cell renders ALONE. On the
         //      activation edge, flush every voice (entering = real cells go silent; leaving = they resume).

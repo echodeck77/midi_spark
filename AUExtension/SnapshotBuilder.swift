@@ -140,6 +140,10 @@ enum SnapshotBuilder {
         // the per-cell window resolved above).
         let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
         let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
+        // BYPASS (§1/§2): which doors inject straight to emitters + each door's destination emitter mask (A–D).
+        var receiverBypassMask: UInt8 = 0
+        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.bypassResolved { receiverBypassMask |= 1 << UInt8(i) }
+        let receiverBypassDest = doc.receiversResolved.map { $0.bypassDestResolved }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -163,7 +167,9 @@ enum SnapshotBuilder {
                            latchAddMask: latchAddMask,
                            receiverDisabledMask: receiverDisabledMask,
                            receiverRangeLo: receiverRangeLo,
-                           receiverRangeHi: receiverRangeHi)
+                           receiverRangeHi: receiverRangeHi,
+                           receiverBypassMask: receiverBypassMask,
+                           receiverBypassDest: receiverBypassDest)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
