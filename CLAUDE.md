@@ -157,6 +157,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE LADDER — exclusive-columns MODE + factory preset (2026-08-03, on `main`; 391 green, iOS builds; DEVICE
+  pass owed). Spec: `Docs/AcceptanceCriteria/AcceptanceCriteria-ladder.md`. Built in 4 increments (`c012d55` =
+  engine core; then AU+UI; then preset). PART 1 — MODE: while on, at most one cell "speaks" per column. Model:
+  `SceneState.activeRow: [Int?]?` (per-column rung, append-only) + `ladderActiveRow(col)` (committed rung if it
+  points at an occupied cell, else the TOPMOST occupied = gentle default) + `PluginState.ladderMode: Bool?`
+  (document-level, mirrors masterMute). Resolved ENTIRELY in the builder → `SnapCell.dormant`; the two Router
+  emit-guards (emitColumnHolds + tick loop) skip `cell.dormant` like `muted`, so the render thread stays
+  LADDER-unaware and the column-boundary ADOPTION law handles rung handovers unchanged. AU: uiLadderMode/
+  setLadderMode, ladderActiveRow, setActiveRow (a PERFORMANCE commit — `editScene(record:false)`, not undoable),
+  uiEffColumn. UI: a LADDER toggle in the verbs panel (teal-green); a perform tap TRADES the trigger/mute for a
+  rung ARM (`armLadderRung`) — playing → arm + BLINK, committed at the column's NEXT ENTRY via `onChange(of:
+  d.effColumn)`; stopped → switch now. Dormant rungs dim (0.28), armed rungs blink; un-committed arms drop on
+  stop. PART 2 — PRESET `PluginState.makeLadder()` ("THE LADDER" in the factory browser): full 8×8, each ROW one
+  machine (R1 STILL pass/legato → R8 STORM harm+arp+chance), stamped as 8 twins per column; 3 scenes = intensity
+  curves via `activeRow` over the SAME grid; colours light→dark; single emitter A; HARM = +12 octave only; LADDER
+  ships ON. Tests: `testLadderModeMakesColumnExclusive` (engine) + `testLadderPresetIsEightMachineLadder` (preset
+  structure + Codable round-trip of activeRow/ladderMode). KNOWN FOLLOW-UPS: the ON-HOLD trigger trade (only TAP
+  traded so far); a tighter column-entry commit than the 4 Hz poll if fast step rates need it; the preset's exact
+  colour ramp + scene curves are a tunable first pass.**
 - **▶ CRASH HARDENING — bounds-safe cell access (2026-08-03, on `main`; 389 green, iOS builds). User hit a crash
   changing the colour of a (multi-cell) selection; no exception captured. Root cause not confirmed, but the whole
   colour-edit path + several UI reads subscripted `scene.cells[col][row]` UNGUARDED on the upper bound — a trap if a

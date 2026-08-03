@@ -709,6 +709,58 @@ struct PluginState: Codable, Equatable {
         state.markDefinedFromUsage()                                // D1: sparse palette — only the arc's Colours are defined
         return state
     }
+
+    /// THE LADDER — the factory preset (Docs/AcceptanceCriteria-ladder.md §PART 2). Full 8×8: each ROW is ONE
+    /// machine, gentle (top) → storm (bottom), stamped as 8 twins across every column. LADDER mode ships ON, so at
+    /// most one rung speaks per column; the three SCENES are pre-painted intensity curves (the active rung per
+    /// column). Single emitter A · ch1 throughout (minimum rig). HARM appears ONLY as +12 octave doubling.
+    static func makeLadder() -> PluginState {
+        let hue = ["gold", "bronze", "orange", "vermilion", "wine", "purple", "violet", "indigo"]   // light → dark down the rows
+        func arp(_ pat: ArpPattern, _ rate: ArpRate, oct: Int, gate: Double, legato: Bool = false) -> ProcessorSlot {
+            var p = ColourParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
+            if legato { p.phase = .legato }
+            return ProcessorSlot(type: .arp, params: p)
+        }
+        func pass(gate: Double, legato: Bool) -> ProcessorSlot {
+            var p = ColourParams(); p.gate = gate; if legato { p.phase = .legato }
+            return ProcessorSlot(type: .passgate, params: p)
+        }
+        func harm12() -> ProcessorSlot { var p = ColourParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
+        func rtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
+        func chnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
+        // The 8 rungs, gentle → storm (spec §PART 2). Multi-slot chains obey the driver rule (in R7 the RTC drives).
+        let machines: [[ProcessorSlot]] = [
+            [pass(gate: 1.0, legato: true)],                                         // R1 STILL — the held-chord bed
+            [arp(.up, .r1_4, oct: 1, gate: 0.92, legato: true)],                     // R2 ROLL — the slow roll
+            [arp(.up, .r1_8, oct: 1, gate: 0.70)],                                   // R3 PULSE — the heartbeat
+            [arp(.upDown, .r1_8, oct: 2, gate: 0.65)],                               // R4 WEAVE — motion widens
+            [arp(.up, .r1_16, oct: 2, gate: 0.55)],                                  // R5 CLIMB — the ascent
+            [harm12(), arp(.up, .r1_16, oct: 3, gate: 0.50)],                        // R6 SHINE — octave-doubled bright climb
+            [arp(.up, .r1_16, oct: 2, gate: 0.45), rtc(4)],                          // R7 GATLING — RTC drives, the arp composes
+            [harm12(), arp(.random, .r1_32, oct: 4, gate: 0.30), chnc(0.55)],        // R8 STORM — maximal scatter, thinned to breathe
+        ]
+        func rung(_ row: Int) -> Cell {
+            var c = Cell(colourID: hue[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]; return c
+        }
+        // Full 8×8: row r = machine r, stamped across every column (twins). Identical in every scene; the scenes
+        // differ ONLY in `activeRow` (the intensity curve), so LADDER's exclusive columns paint the arc.
+        var grid = SceneState.empty()
+        for col in 0..<8 { for row in 0..<8 { grid.cells[col][row] = rung(row) } }
+        func scene(_ curve: [Int]) -> SceneState { var s = grid; s.activeRow = curve.map { Optional($0) }; return s }
+        let s1 = scene([0, 1, 0, 1, 0, 1, 0, 1])   // Scene 1 — gentle opening (R1–R2)
+        let s2 = scene([2, 2, 3, 3, 4, 4, 3, 3])   // Scene 2 — rising mid-curve (R3→R5)
+        let s3 = scene([7, 5, 6, 5, 7, 5, 6, 6])   // Scene 3 — the high rungs; R8 STORM (row 7) at the bar turnarounds (cols 0, 4)
+
+        let colours = colourIDs.map { Colour(colourID: $0, type: .arp) }             // hues only — each cell's chain overrides
+        var state = PluginState(colours: colours, scenes: [s1, s2, s3])
+        state.ladderMode = true                                     // LADDER ships ON in the preset
+        state.formatVersion = 4
+        state.synthesizeReceiversIfNeeded()                         // every rung is MIDI-IN on R1
+        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in (minimum rig; output is Emit A · ch1 by default)
+        state.padScenes()
+        state.markDefinedFromUsage()
+        return state
+    }
 }
 
 // MARK: - MODELESS EDIT scope (2026-07-27) — scope-after-target: THIS · ALL IDENTICAL · ALL <COLOUR>
