@@ -114,15 +114,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
     func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .passgate) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
     func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count, $0.count > 1 { $0.remove(at: slot) } } }
-    /// The materialised chain for the UI (read-back; never nil for a populated cell).
-    func uiCellChain(col: Int, row: Int) -> [ProcessorSlot] {
-        guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return [] }
-        return materializedChain(cell)
-    }
-    /// The count of the pointed cell's twins (incl. itself), for the "EDITING N IDENTICAL CELLS" header.
-    func twinCount(col: Int, row: Int) -> Int {
-        document.scenes[document.activeSceneResolved].editScopeTargets(col: col, row: row, scope: .twins).count
-    }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
     func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
         twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }
@@ -201,7 +192,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: per-receiver INPUT peak velocity + event count since the last poll (read-and-clear).
     func pollReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) { kernel.drainReceiverActivity() }
     func pollEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterMarks() }   // item 4 velocity marks
-    func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // ORBIT comet: per-cell peak strike velocity (col*8+row)
+    func pollCellStrikes() -> [UInt8] { kernel.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity (col*8+row)
     func pollCellSounding() -> UInt64 { kernel.pollCellSounding() }   // SEAL comet: per-cell sounding gate (note-on/off)
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
@@ -343,9 +334,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         mutate(&document.colours[index])
         scheduleRebuild()
     }
-
-    /// D3: painted-cell census per Colour (across all scenes) — drives the desk's delete protection.
-    func uiColourCensus() -> [String: Int] { colourCensus(document.scenes) }
 
     /// Switch a Colour's processor type, isolating transpose/morph per type (spec revision). The type
     /// change is a document edit; the restored transpose/morph are pushed to the AUParameter tree (with

@@ -144,7 +144,7 @@ struct DiagView: View {
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
-    // ORBIT comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
+    // SEAL comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: 64)
     @State var cellHitVel = [Double](repeating: 0, count: 64)
@@ -663,7 +663,6 @@ struct DiagView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let landscape = geo.size.width > geo.size.height       // aspect-driven breakpoint (delta §6)
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 if editArmed {
@@ -822,7 +821,7 @@ struct DiagView: View {
             if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
-            let strikes = au.pollCellStrikes()             // ORBIT comet: stamp a hit time + velocity per struck cell
+            let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel
                 for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0 }
@@ -907,7 +906,7 @@ struct DiagView: View {
                      selCol: selCol, selRow: selRow, onTap: tapCell,
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
                      laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
-                     cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
+                     cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border

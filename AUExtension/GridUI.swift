@@ -166,8 +166,8 @@ struct GridView: View {
     var flagNoDest: Bool = true                      // show the "no emitter" red-dashed border (a PERFORM routing hint; off on the setup grid)
     var animateSelection: Bool = false               // MODE ROW: the SELECTED cells wear a marching black/white dashed border (setup grid)
     var showAddPlus: Bool = false                    // MODE ROW · ADD/EDIT with a selection: empty cells show a faint "+" (tap to add)
-    var cellHitAt: [Date] = []                       // ORBIT comet: per-cell last-strike time (index col*8+row)
-    var cellHitVel: [Double] = []                    // ORBIT comet: per-cell last-strike velocity (0–1)
+    var cellHitAt: [Date] = []                       // SEAL comet: per-cell last-strike time (index col*8+row)
+    var cellHitVel: [Double] = []                    // SEAL comet: per-cell last-strike velocity (0–1)
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
@@ -1617,114 +1617,6 @@ struct ProcessorBox: View {
                 .contentShape(Rectangle()).onTapGesture { set(min(hi, v + 1)) }
             Spacer()
         }
-    }
-}
-
-/// The Colour brush palette — 16 chips in bank order; the active brush is ringed.
-struct PaletteView: View {
-    @Environment(\.animationsPaused) private var animPaused
-    let brush: String
-    var columns: Int = 4        // 4×4 in the desk (delta §6); callers may widen for a band
-    // delta §6b — COLOUR-chip ACTIVITY PLAYHEADS: a chip sweeps while its Colour works in the live
-    // column (mirrors the cell mutation-line condition + faint-when-only-bypassed). Orientation encodes
-    // the face: TOP→BOTTOM for main, LEFT→RIGHT for alt-only (main wins mixed). One-clock: the sweep is
-    // a pure function of the derived beat fraction (same TimelineView + liveBeat as the cell lines).
-    var scene: SceneState = .empty()
-    var playColumn: Int = -1
-    var playing: Bool = false
-    var beat: Double = 0
-    var tempo: Double = 120
-    var stepBeats: Double = 2
-    var swing: Int = 50
-    let onPick: (String) -> Void
-    var onChipDrag: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drag (id, global point)
-    var onChipDrop: ((String, CGPoint) -> Void)? = nil    // §5 palette-to-grid: chip drop (id, global point)
-    var onLongPress: ((String) -> Void)? = nil            // cell-edit staging: long-press → stage a cell of this Colour
-    var stagingID: String? = nil                          // cell-edit staging: the staged chip pulses + wears the moving outline
-    var colours: [Colour] = []                            // D1: to read isDefined + the name per slot (empty ⇒ all defined = today)
-    var onSlotTap: (String) -> Void = { _ in }            // D2: a "+" slot tapped → birth a Colour here
-
-    @State private var lastBeat: Double = 0
-    @State private var lastBeatAt = Date()
-    private func liveBeat(_ now: Date) -> Double { playing ? lastBeat + now.timeIntervalSince(lastBeatAt) * tempo / 60.0 : lastBeat }
-
-    /// Is this Colour working in the live column? → (faint = all working instances bypassed, alt = no
-    /// main instance i.e. alt-only). nil = not working. ONE sweep per Colour regardless of instance count.
-    private func activity(_ id: String) -> (faint: Bool, alt: Bool)? {
-        guard playing, playColumn >= 0, playColumn < scene.cells.count else { return nil }
-        var working = false, hasMain = false, hasBright = false
-        for r in 0..<8 where r < scene.cells[playColumn].count {
-            guard let c = scene.cells[playColumn][r], c.colourID == id, !c.muted else { continue }
-            working = true
-            if !c.alt { hasMain = true }
-            if !c.bypassed { hasBright = true }
-        }
-        return working ? (faint: !hasBright, alt: !hasMain) : nil
-    }
-
-    private func isDefinedID(_ id: String) -> Bool { colours.first { $0.colourID == id }?.isDefined ?? true }
-    private func nameFor(_ id: String) -> String { colours.first { $0.colourID == id }?.nameResolved ?? id.uppercased() }
-
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
-            ForEach(Array(colourIDs.enumerated()), id: \.offset) { i, id in
-                if isDefinedID(id) { chipView(i, id) } else { slotView(id) }   // D1: a DEFINED chip vs a "+" slot
-            }
-        }
-        .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
-    }
-
-    private func chipView(_ i: Int, _ id: String) -> some View {   // a defined Colour: hue + name
-        RoundedRectangle(cornerRadius: 3)
-            .fill(Color(hex: colourHexes[i]))
-            .frame(height: 22)
-            .overlay { Text(nameFor(id)).font(.system(size: 6, weight: .heavy, design: .monospaced))
-                .foregroundColor(.black.opacity(0.72)).lineLimit(1).minimumScaleFactor(0.55).padding(.horizontal, 2) }
-            .overlay { if let a = activity(id) { chipSweep(a) } }   // §6b activity playhead
-            .overlay { if stagingID == id { stagedPulse } }         // staging: pulse original↔black to draw the eye back
-            .overlay(RoundedRectangle(cornerRadius: 3)
-                .stroke(id == brush ? Color.white : Color.white.opacity(0.12), lineWidth: id == brush ? 2 : 0.5))
-            .marchingAnts(stagingID == id, color: Color(hex: colourHexes[i]), cornerRadius: 3)   // staging outline in the Colour's own hue
-            .contentShape(Rectangle())
-            .onTapGesture { onPick(id) }
-            .simultaneousGesture(DragGesture(minimumDistance: 16, coordinateSpace: .global)   // §5 palette-to-grid
-                .onChanged { v in onChipDrag?(id, v.location) }
-                .onEnded { v in onChipDrop?(id, v.location) })
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress?(id) })   // staging
-    }
-
-    private func slotView(_ id: String) -> some View {   // an undefined "+" slot — tap births a Colour here (D2)
-        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.05)).frame(height: 22)
-            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-            .overlay { Image(systemName: "plus").font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.4)) }
-            .contentShape(Rectangle())
-            .onTapGesture { onSlotTap(id) }
-    }
-
-    // Staging pulse — the staged chip breathes from its original colour to black (~0.85s) to pull the eye
-    // back to the long-press gesture. A black overlay whose opacity rides a cosine; pure UI.
-    private var stagedPulse: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-            let f = stagingPulseFraction(tl.date, period: 0.85)
-            RoundedRectangle(cornerRadius: 3).fill(Color.black).opacity(f * 0.85)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func chipSweep(_ a: (faint: Bool, alt: Bool)) -> some View {
-        GeometryReader { g in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
-                let f = CGFloat(columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing))
-                Rectangle()
-                    .fill(Color.white.opacity(a.faint ? 0.35 : 0.9))
-                    .shadow(color: a.faint ? .clear : Color.white.opacity(0.7), radius: a.faint ? 0 : 2)
-                    .frame(width: a.alt ? 2 : g.size.width, height: a.alt ? g.size.height : 2)
-                    .position(x: a.alt ? f * g.size.width : g.size.width / 2,      // alt: LEFT→RIGHT
-                              y: a.alt ? g.size.height / 2 : f * g.size.height)     // main: TOP→BOTTOM
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-        .allowsHitTesting(false)
     }
 }
 

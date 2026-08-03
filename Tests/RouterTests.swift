@@ -1193,7 +1193,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // ORBIT comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
+    // SEAL comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
     // silent cell records nothing. Drains read-and-clear.
     func testCellStrikeFeedRecordsFiringCell() {
         let cs = arpColours()

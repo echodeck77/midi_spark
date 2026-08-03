@@ -133,7 +133,7 @@ final class Router {
     private var soundCol = [[Int8]](repeating: [Int8](repeating: -1, count: 12), count: 4)
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
-    // THE ORBIT COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
+    // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
     private var cellStrike = [UInt8](repeating: 0, count: 64)
@@ -373,7 +373,7 @@ final class Router {
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
         return r
     }
-    /// ORBIT comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
+    /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
     /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
     func drainCellStrikes() -> [UInt8] {
         let r = cellStrike
@@ -704,7 +704,7 @@ final class Router {
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
-        if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // ORBIT comet: this cell struck
+        if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
             markVel[bus][markCount[bus]] = v; markCol[bus][markCount[bus]] = currentColourIndex
@@ -772,7 +772,7 @@ final class Router {
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
-            currentCellIndex = column * Snap.rows + r  // ORBIT comet: this cell's grid index
+            currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -1105,7 +1105,7 @@ final class Router {
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
-            currentCellIndex = effColumn * Snap.rows + r  // ORBIT comet: this cell's grid index (the sounding column)
+            currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited

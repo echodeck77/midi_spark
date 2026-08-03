@@ -200,7 +200,7 @@ final class Kernel {
     func drainEmitterMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainMarks() }   // item 4 velocity marks
     func drainWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { router.drainWithheld() }   // §6a the withheld tell
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { router.drainEmitterSounding() }   // §strips-done: hold-while-sounding
-    func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // ORBIT comet: per-cell peak strike velocity
+    func drainCellStrikes() -> [UInt8] { router.drainCellStrikes() }   // SEAL comet: per-cell peak strike velocity
     func pollCellSounding() -> UInt64 { router.currentCellSounding() }  // SEAL comet: per-cell sounding gate (note-on/off)
 
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the

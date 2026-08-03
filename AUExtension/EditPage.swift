@@ -194,7 +194,7 @@ extension DiagView {
                  laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  showAddPlus: editMode == .addEdit && !editSel.isEmpty,
-                 cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // ORBIT comet feed
+                 cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                  cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                  selection: [],
                  whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
@@ -473,105 +473,12 @@ extension DiagView {
     func editChop(_ mutate: @escaping (inout Chop) -> Void) {
         editPointedCell { var ch = $0.chopResolved; mutate(&ch); $0.chop = (ch == Chop() ? nil : ch) }
     }
-    func editName(_ id: String) -> String {
-        docColours.first { $0.colourID == id }?.nameResolved ?? id.uppercased()
-    }
-    // MARK: - §cell-edit E — the TRIGGERS accordion (Colour-side; edits the pointed cell's Colour `OnConfig`)
-
-    /// The Colour-side write path: triggers live on `Colour.on`, and `brush` already points at the pointed cell's
-    /// Colour (set in tapCell), so this mutates the pointed cell's triggers — every same-colour cell follows.
-    /// Reverting to all-defaults clears `.on` back to nil (clean docs). Undoable via `editBrushColour`.
-    func editOn(_ mutate: @escaping (inout OnConfig) -> Void) {
-        editBrushColour { var c = $0.on ?? OnConfig(); mutate(&c); $0.on = (c == OnConfig() ? nil : c) }
-    }
-    /// The five ON rows, one-open-at-a-time; assigned rows show their summary, unassigned show a dim ＋ (reusing
-    /// the model's `*Summary` strings). Reads the brush Colour's resolved `OnConfig`.
-    // TRIGGERS, flat (user 2026-08-01): TAP · HOLD · ARRIVE editors shown inline, no accordion. LEAVE + SCENE
-    // dropped this version; each picker offers only the engine-WIRED actions.
-    @ViewBuilder func triggersInline(_ cell: Cell) -> some View {
-        let on = brushColour?.onResolved ?? OnConfig()
-        VStack(alignment: .leading, spacing: 10) {
-            trigLabel("TAP");    tapEditor(on)
-            trigLabel("HOLD");   holdEditor(on)
-            trigLabel("ARRIVE"); arriveEditor(on)
-        }
-    }
-    func trigLabel(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-    }
-    // ---- per-section editors. Each picker offers ONLY the engine-WIRED actions (the inert placeholders — TAP
-    //      fill/replay · HOLD freeze/slice-cycle/morph-scrub · ARRIVE dice — are hidden this version; the enum
-    //      cases stay in the model, append-only, for the future TOUCH-box design pass). ----
-    @ViewBuilder func tapEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .alt, .mute, .solo], on.tap) { v in editOn { $0.tap = v } }
-            if on.tap != .none {
-                facetRow("WHEN") { trigSeg(OnTapWhen.allCases, on.tapWhen, label: { $0.rawValue }) { v in editOn { $0.tapWhen = v } } }
-                facetRow("FOR")  { trigSeg(OnTapFor.allCases, on.tapFor, label: { $0.rawValue }) { v in editOn { $0.tapFor = v } } }
-            }
-        }
-    }
-    @ViewBuilder func holdEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .alt, .oct], on.hold) { v in editOn { $0.hold = v } }
-            // (REL SPRING|LATCH dropped — hold triggers are spring-only today; LATCH-persist is a future. SIZE
-            //  facet dropped with slice-cycle.)
-            if on.hold == .oct { facetRow("DIR") { trigSeg([true, false], on.octUp, label: { $0 ? "+" : "−" }) { v in editOn { $0.octUp = v } } } }
-        }
-    }
-    @ViewBuilder func arriveEditor(_ on: OnConfig) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            trigMenu([.none, .altAlternate, .morphDrift, .emitterRotate], on.arrive) { v in editOn { $0.arrive = v } }
-            if on.arrive != .none {
-                facetRow("EVERY") { trigStepper(on.arriveEvery, 1, 4) { v in editOn { $0.arriveEvery = v } } }
-                if on.arrive == .morphDrift {
-                    facetRow("DRIFT") { trigStepper(on.driftPct, 1, 100) { v in editOn { $0.driftPct = v } } }
-                    facetRow("MODE") { trigSeg(DriftMode.allCases, on.driftMode, label: { $0.rawValue }) { v in editOn { $0.driftMode = v } } }
-                }
-            }
-        }
-    }
-    // ---- small trigger controls ----
-    func trigMenu<T: RawRepresentable & Hashable>(_ options: [T], _ current: T,
-                                                          _ pick: @escaping (T) -> Void) -> some View where T.RawValue == String {
-        Menu {
-            ForEach(options, id: \.self) { opt in Button(opt.rawValue) { pick(opt) } }
-        } label: {
-            HStack {
-                Text(current.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-        }
-    }
-    func trigSeg<T: Equatable>(_ options: [T], _ sel: T, label: @escaping (T) -> String,
-                                       _ pick: @escaping (T) -> Void) -> some View {
-        HStack(spacing: 3) {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
-                let hot = opt == sel
-                Text(label(opt)).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                    .foregroundColor(hot ? .black : .white.opacity(0.6))
-                    .padding(.horizontal, 6).frame(height: 20)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(hot ? Self.editHue : Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { pick(opt) }
-            }
-        }
-    }
+    /// A small labelled facet row (fixed-width label + a control) — used by `inputShiftRow`. (Was shared with the
+    /// TRIGGERS accordion editors, now retired — the ON model stays on `Colour`, its inline UI returns with TOUCH.)
     @ViewBuilder func facetRow<V: View>(_ label: String, @ViewBuilder _ control: () -> V) -> some View {
         HStack(spacing: 6) {
             Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 44, alignment: .leading)
             control(); Spacer(minLength: 0)
-        }
-    }
-    func trigStepper(_ value: Int, _ lo: Int, _ hi: Int, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 8) {
-            Text("−").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(max(lo, value - 1)) }
-            Text("\(value)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white).frame(minWidth: 20)
-            Text("+").font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.7)).frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08))).contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
         }
     }
 
@@ -581,25 +488,6 @@ extension DiagView {
     func inputSourceLabel(_ cell: Cell) -> String {
         if let rcv = cell.inputReceiver { return "MIDI-IN · R\(rcv + 1)" }
         return "NONE"                                        // null input (no receiver)
-    }
-    /// SOURCE = a value chip (tap = picker): NONE · MIDI-IN R1–R4. (Grid-chaining retired: FROM ROW removed.)
-    @ViewBuilder func inputSourceChip(_ cell: Cell) -> some View {
-        Menu {
-            Button("NONE (unrouted)") { setEditSourceNone() }
-            ForEach(0..<4, id: \.self) { r in Button("MIDI-IN · R\(r + 1)") { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } } }
-        } label: {
-            HStack {
-                Text(inputSourceLabel(cell)).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 8).frame(height: 24).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
-        }
-    }
-    func setEditSource(_ mutate: @escaping (inout SceneState) -> Void) {
-        guard let au, selCol >= 0, selRow >= 0, scene.cells[selCol][selRow] != nil else { return }
-        au.editScene(mutate); refreshFromDocument()
     }
     /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
     /// The edit applies to every selected cell; with a single cell selected it's just that cell.

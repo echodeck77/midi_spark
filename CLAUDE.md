@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DEAD-CODE SWEEP (2026-08-03, on `main`; 386 green, iOS builds; net −346 lines). A vetted survey found these
+  orphans (all confirmed zero-caller): the whole `PaletteView` (retired colour-brush palette, GridUI) + `RoutePanelView`
+  (FlowView) Views; the disconnected EDIT-page TRIGGERS accordion cluster (`triggersInline`/`tapEditor`/`holdEditor`/
+  `arriveEditor`/`trigLabel`/`editOn`/`trigMenu`/`trigSeg`/`trigStepper` — the ON model stays on `Colour`, its inline UI
+  returns with TOUCH; `facetRow` KEPT, shared with `inputShiftRow`); the dead EDIT helpers `editName`/`inputSourceChip`/
+  `setEditSource`; the dead AU read helpers `uiCellChain`/`twinCount`/`uiColourCensus`; and the unused `landscape`
+  var (fixed the sole compiler warning). Refreshed the stale `ORBIT comet` → `SEAL comet` comments (14 sites).
+  STILL DEFERRED (noted, own passes): the woven verb machinery (heldVerb-gated: onVerbEngaged/doVerb/RoutingVizOverlay/
+  etc. — parked until SELECT is defined); the inert preview plumbing (`Kernel.setPreview`/`AU.setPreview`/
+  `setPreviewOverlay`/`previewInputRow` — dead but threads the render path); `setColourType`/`setColourMorph` (dead but
+  morph param addresses 200+i/300 are reserved). `colourCensus` (Derivations) is now prod-dead but kept (still tested,
+  documents the D3 census). Already-removed per an earlier note: the SceneState chaining ops + routingEdges cell→cell edge.**
 - **▶ TEST SWEEP + sealFit REFACTOR (2026-08-03, on `main`; 386 green, iOS builds). REFACTOR: extracted the seal's
   pure bbox-fit math out of the SwiftUI `GridUI.sealLayout` into `Derivations.sealFit` (`SealFit{fractions,rangeX,
   rangeY}`, Foundation-only) — keeps pure logic testable (project rule) with zero behaviour change; `sealLayout`
