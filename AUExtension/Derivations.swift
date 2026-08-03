@@ -808,11 +808,22 @@ private struct SealKey: Encodable {
     let vw: VelWindow?         // source-shaping: velocity window
     let ch: SealChopKey?       // output chop (nil when the cell has no chop, per twin equality)
 }
+/// The RESOLVED chain a cell actually plays: its per-cell override, else the colour's TEMPLATE, else the colour's
+/// A face. The seal must hash THIS — a template/A-face cell has NIL `processors`, so its machine comes from the
+/// colour; hashing raw nil made every such cell (the DEFAULT arc + most factory presets) share ONE seal. (Same
+/// 3-tier resolution as SnapshotBuilder / AU.materializedChain.) Pure.
+func resolvedCellChain(_ cell: Cell, colours: [Colour]) -> [ProcessorSlot] {
+    if let p = cell.processors { return p }                              // per-cell OVERRIDE (incl. an explicit [] passthrough)
+    let c = colours.first { $0.colourID == cell.colourID }
+    if let t = c?.templateChain, !t.isEmpty { return t }                 // colour TEMPLATE
+    return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
+}
 /// A 32-bit FNV-1a over the JSON (sorted keys) of the behavioural config. Same config ⇒ same value on every
 /// device (document-visible truth); config-twins (regardless of colour) share it. Pure/testable. §1 contract.
-func sealHash(_ cell: Cell) -> UInt32 {
+/// Hashes the RESOLVED chain (needs `colours`) so template/A-face cells reflect their colour's machine.
+func sealHash(_ cell: Cell, colours: [Colour]) -> UInt32 {
     let chopKey = cell.chop.map { SealChopKey(m: $0.mainMask, a: $0.altMask, mu: $0.muteMask, alt: $0.altDest.map { $0.cable }.sorted()) }
-    let key = SealKey(p: cell.processors, ir: cell.inputReceiver, irow: cell.inputRow,
+    let key = SealKey(p: resolvedCellChain(cell, colours: colours), ir: cell.inputReceiver, irow: cell.inputRow,
                       b: cell.buses.map { $0.cable }.sorted(), cs: cell.chordSplit, vw: cell.velWindow, ch: chopKey)
     let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
     guard let data = try? enc.encode(key) else { return 0 }

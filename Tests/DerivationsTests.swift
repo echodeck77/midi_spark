@@ -1123,33 +1123,48 @@ final class DerivationsTests: XCTestCase {
     }
     func testSealHashIsStableAndConfigSensitive() {
         let a = sealCell()
-        XCTAssertEqual(sealHash(a), sealHash(sealCell()), "same config ⇒ same hash (document-visible truth)")
+        XCTAssertEqual(sealHash(a, colours: []), sealHash(sealCell(), colours: []), "same config ⇒ same hash (document-visible truth)")
         var chainChanged = a; chainChanged.processors?[0].params.harmIntervals = [7, 0, 0]
-        XCTAssertNotEqual(sealHash(a), sealHash(chainChanged), "a chain-param change ⇒ different seal")
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(chainChanged, colours: []), "a chain-param change ⇒ different seal")
         var inputChanged = a; inputChanged.inputReceiver = 2
-        XCTAssertNotEqual(sealHash(a), sealHash(inputChanged), "an input change ⇒ different seal")
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(inputChanged, colours: []), "an input change ⇒ different seal")
         var outputChanged = a; outputChanged.buses = [.a]
-        XCTAssertNotEqual(sealHash(a), sealHash(outputChanged), "an emitter change ⇒ different seal")
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(outputChanged, colours: []), "an emitter change ⇒ different seal")
         var chopChanged = a; chopChanged.chop?.muteMask = 0b0001_0000
-        XCTAssertNotEqual(sealHash(a), sealHash(chopChanged), "a chop-mask change ⇒ different seal")
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(chopChanged, colours: []), "a chop-mask change ⇒ different seal")
     }
     func testSealHashExcludesColourNameMutePosition() {
         let a = sealCell()
         var recoloured = a; recoloured.colourID = "cyan"
-        XCTAssertEqual(sealHash(a), sealHash(recoloured), "colour is the hue block, NOT the seal — same seal")
+        XCTAssertEqual(sealHash(a, colours: []), sealHash(recoloured, colours: []), "colour is the hue block, NOT the seal — same seal")
         var muted = a; muted.muted = true; muted.alt = true; muted.bypassed = true   // transient perform state
-        XCTAssertEqual(sealHash(a), sealHash(muted), "mute/alt/bypassed are chrome — a muted twin still twins")
+        XCTAssertEqual(sealHash(a, colours: []), sealHash(muted, colours: []), "mute/alt/bypassed are chrome — a muted twin still twins")
     }
     func testSealHashBusOrderInvariant() {
         var a = Cell(colourID: "gold", buses: [.a, .c]); a.processors = []
         var b = Cell(colourID: "cyan", buses: [.c, .a]); b.processors = []   // same set, different colour + order
-        XCTAssertEqual(sealHash(a), sealHash(b), "the emitter SET is unordered — config-twins share the seal")
+        XCTAssertEqual(sealHash(a, colours: []), sealHash(b, colours: []), "the emitter SET is unordered — config-twins share the seal")
+    }
+    // The startup/preset "every cell is the same shape" bug: a cell with NIL processors derives its machine from
+    // its COLOUR (template/A face), so the seal must hash the RESOLVED chain — different colours ⇒ different seals.
+    func testSealHashResolvesTheColourChainForTemplateCells() {
+        var gold = Colour(colourID: "gold", type: .arp); gold.paramsA.pattern = .up; gold.paramsA.rate = .r1_16
+        var cyan = Colour(colourID: "cyan", type: .arp); cyan.paramsA.pattern = .upDown; cyan.paramsA.rate = .r1_8
+        let cs = [gold, cyan]
+        let goldCell = Cell(colourID: "gold", buses: [.a])   // NIL processors → uses gold's A face
+        let cyanCell = Cell(colourID: "cyan", buses: [.a])   // NIL processors → uses cyan's A face
+        XCTAssertNotEqual(sealHash(goldCell, colours: cs), sealHash(cyanCell, colours: cs),
+                          "template/A-face cells reflect their colour's machine → different colours ⇒ different seals")
+        XCTAssertEqual(sealHash(goldCell, colours: cs), sealHash(Cell(colourID: "gold", buses: [.a]), colours: cs),
+                       "same colour, no override ⇒ same seal (twins)")
+        var override = Cell(colourID: "gold", buses: [.a]); override.processors = [ProcessorSlot(type: .ratchet)]
+        XCTAssertNotEqual(sealHash(goldCell, colours: cs), sealHash(override, colours: cs), "a per-cell OVERRIDE changes the seal")
     }
     // GEOMETRY: same hash ⇒ identical geometry (twins share the seal); the route obeys the §2 grammar.
     func testSealGeometryIsDeterministicAndTwinShared() {
-        let h = sealHash(sealCell())
+        let h = sealHash(sealCell(), colours: [])
         XCTAssertEqual(sealGeometry(h), sealGeometry(h), "same hash ⇒ identical seal")
-        XCTAssertEqual(sealGeometry(sealHash(sealCell())), sealGeometry(h), "recomputed config ⇒ identical seal")
+        XCTAssertEqual(sealGeometry(sealHash(sealCell(), colours: [])), sealGeometry(h), "recomputed config ⇒ identical seal")
     }
     func testSealGeometryObeysLatticeGrammar() {
         for raw in stride(from: UInt32(0), to: 4096, by: 7) {

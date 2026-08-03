@@ -354,7 +354,7 @@ struct GridView: View {
             } else if let cell {
                 // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
                 // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
-                let geo = sealGeometry(sealHash(cell))
+                let geo = sealGeometry(sealHash(cell, colours: colours))
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                       // engraved plate
                     RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)

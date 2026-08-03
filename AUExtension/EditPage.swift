@@ -352,14 +352,14 @@ extension DiagView {
                         RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                   // engraved plate (as cells)
                         RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
                         Canvas { ctx, size in
-                            drawSeal(sealGeometry(sealHash(cell)), into: ctx, size: size, padFraction: 0.16, stroke: 2.8, ink: sealInk)
+                            drawSeal(sealGeometry(sealHash(cell, colours: docColours)), into: ctx, size: size, padFraction: 0.16, stroke: 2.8, ink: sealInk)
                         }
                     }
                     .frame(width: box - 16, height: (box - 16) * 0.62)                                       // landscape — matches the cell seal's dims
-                    .id(sealHash(cell)).transition(.opacity)
+                    .id(sealHash(cell, colours: docColours)).transition(.opacity)
                 )
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
-                .animation(.easeInOut(duration: 0.25), value: sealHash(cell))
+                .animation(.easeInOut(duration: 0.25), value: sealHash(cell, colours: docColours))
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(s2), spacing: gap), count: 4), spacing: gap) {
                 ForEach(colourIDs, id: \.self) { id in
                     let on = cell.colourID == id
