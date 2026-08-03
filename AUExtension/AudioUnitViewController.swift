@@ -75,6 +75,7 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -732,7 +733,7 @@ struct DiagView: View {
                     // are edited on the EDIT page now; the signal flow fills the width. Landscape/portrait identical.
                     VStack(spacing: 8) {
                         arrangementBar                         // §2: LOGO · undo/redo · ⚙ header, then the 16-scene row below
-                        signalColumn(geo.size.width)           // RECEIVERS → GRID → EMITTERS (the signal flow)
+                        signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)   // RECEIVERS → GRID → EMITTERS
                     }
                     .padding(12)
                 }
@@ -741,6 +742,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, receivers: receivers, busChannels: busChannels, d: d,
                             inAt: receiverPeakAt, outAt: emitPeakAt, mpeAt: mpeSeenAt, aboutLine: aboutLine,
+                            showScenes: $showScenes,
                             onSetEmitterChannel: setEmitterChannel,
                             onChanged: { receivers = au?.uiReceivers() ?? receivers; busChannels = au?.uiBusChannels() ?? busChannels },
                             onClose: { showSettings = false })
@@ -936,16 +938,20 @@ struct DiagView: View {
     // §6d TWO FLOWS signal column: RECEIVERS (4 grid-rows tall, 50% width, centred) → GRID → EMITTERS (same),
     // filling the available height as 17 equal rows (4 receiver + 9 grid [key + 8] + 4 emitter). The bands are
     // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
-    func signalColumn(_ appWidth: CGFloat) -> some View {
+    func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
         GeometryReader { g in
-            let cell = max(18, min(48, (g.size.height - 30) / 21))   // 6 receiver + 9 grid + 6 emitter rows
-            let bandH = cell * 6, half = g.size.width * 0.5   // bands are 6 grid-rows tall (+50%); 50% of grid width, centred
+            // RECEIVERS (input controls) are now a FIXED height (user 2026-08-03 — estimate; the strips no longer
+            // stretch with the grid). The GRID + EMITTERS share the rest as 15 rows (9 grid + 6 emitter); +30 for the
+            // grid's own pad + the two VStack gaps.
+            let recvBandH: CGFloat = 168
+            let cell = max(18, min(48, (g.size.height - recvBandH - 30) / 15))
+            let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
             VStack(spacing: 3) {
                 HStack(spacing: 4) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION] — gutters tightened (SPACE-FILL)
                     controlsView.frame(maxWidth: .infinity)
-                    receiversBox.frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
+                    receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
-                }.frame(height: bandH)
+                }.frame(height: recvBandH)                    // FIXED input-controls height
                 gridBlock(cell, half)                         // `half` = the emitter section width (for the edit page's output block)
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
@@ -1149,9 +1155,9 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
 
-    @ViewBuilder var receiversBox: some View {
+    @ViewBuilder func receiversBox(_ isPortrait: Bool) -> some View {
         ReceiversView(receivers: receivers, peak: receiverPeak, peakAt: receiverPeakAt,
-                      heldVels: recvHeld, releaseMarks: recvRelease, liveHeld: recvLiveHeld, thruReceiver: thruReceiver,
+                      heldVels: recvHeld, releaseMarks: recvRelease, liveHeld: recvLiveHeld, isPortrait: isPortrait, thruReceiver: thruReceiver,
                       onToggleMute: toggleReceiverMute, onToggleEnable: toggleReceiverEnabled, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
@@ -1211,7 +1217,8 @@ struct DiagView: View {
                        canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
                        onUndo: undo, onRedo: redo,
                        isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
-                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on })
+                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on },
+                       showScenes: showScenes)                                  // scene row visibility (cog toggle)
     }
     // §3 PRESETS wiring
     func openPresets() {

@@ -678,6 +678,7 @@ struct ReceiversView: View {
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
     var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
     var liveHeld: [Bool] = [false, false, false, false] // header dot: a LIVE (never latch) accepted note is held per receiver
+    var isPortrait: Bool = false                        // PORTRAIT: tighten the strip — padlock-only LATCH, channel-only header
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source) — retired from the header (bypass took its place)
     let onToggleMute: (Int) -> Void
     var onToggleEnable: (Int) -> Void = { _ in }        // INPUT ENABLE: the header toggles the door's listening
@@ -752,9 +753,10 @@ struct ReceiversView: View {
     private func header(_ i: Int) -> some View {
         let rec = r(i), listening = rec.inputEnabledResolved
         let lit = i < liveHeld.count && liveHeld[i]   // LIVE input activity (not latch)
-        // Summary = channel + (the key RANGE when it's been narrowed) — the door's sign. (§2 range chips live in the cog.)
+        // Summary = channel + (the key RANGE when it's been narrowed) — the door's sign. In PORTRAIT the strip is
+        // narrow, so show the CHANNEL only. (§2 range chips live in the cog.)
         let chLabel = (rec.channel == 0 ? "OMNI" : "CH\(rec.channel)")
-                    + (rec.rangeIsFull ? "" : " \(midiNoteName(rec.rangeLoResolved))–\(midiNoteName(rec.rangeHiResolved))")
+                    + ((isPortrait || rec.rangeIsFull) ? "" : " \(midiNoteName(rec.rangeLoResolved))–\(midiNoteName(rec.rangeHiResolved))")
         return HStack(spacing: 3) {
             HStack(spacing: 4) {
                 Circle().fill(lit ? hues[i] : hues[i].opacity(listening ? 0.28 : 0.18))   // LIT while a live accepted note is held
@@ -808,6 +810,7 @@ struct ReceiversView: View {
         let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
         return VStack(spacing: 3) {
             latchRow(i)              // LATCH (left) + KEYS/CHORD (right) — one related cluster
+            Color.clear.frame(height: 5)   // gap: latch cluster ↔ OCT (user 2026-08-03)
             HStack(spacing: 2) {
                 featBtn("OCT−", lit: false) { onOct(i, -1) }
                 featBtn("OCT+", lit: false) { onOct(i, +1) }
@@ -815,6 +818,7 @@ struct ReceiversView: View {
             Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
                 .font(.system(size: 7, weight: .heavy, design: .monospaced))
                 .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
+            Color.clear.frame(height: 5)   // gap: OCT ↔ LIVE·SOLO (user 2026-08-03)
             HStack(spacing: 3) {     // LIVE · SOLO — moved here below OCT (user 2026-08-03); the EMITTER colours (LIVE cyan · SOLO amber)
                 footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: cyan, dim: muted) { onToggleMute(i) }
                 footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
@@ -832,10 +836,10 @@ struct ReceiversView: View {
             Image(systemName: on ? "arrow.turn.down.right" : "arrow.right").font(.system(size: 7, weight: .heavy))
             Text("BYP").font(.system(size: 7, weight: .heavy, design: .monospaced))
         }
-        .foregroundColor(on ? .black : cyan.opacity(0.85))
+        .foregroundColor(on ? .black : .white.opacity(0.85))   // WHITE unless selected (user 2026-08-03); cyan fill when armed
         .padding(.horizontal, 4).frame(height: 15)
         .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.9) : Color.white.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(cyan.opacity(on ? 0 : 0.4), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 3).stroke(on ? .clear : Color.white.opacity(0.35), lineWidth: 1))
         .contentShape(Rectangle()).onTapGesture { onToggleBypass(i) }
     }
 
@@ -862,7 +866,7 @@ struct ReceiversView: View {
         let armed = bit(latchMask, i)
         return HStack(spacing: 4) {
             Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 12, weight: .heavy))
-            Text("LATCH").font(.system(size: 9, weight: .heavy, design: .monospaced))
+            if !isPortrait { Text("LATCH").font(.system(size: 9, weight: .heavy, design: .monospaced)) }   // PORTRAIT: padlock only
         }
         .foregroundColor(armed ? .black : soloHue.opacity(0.95))
         .frame(maxWidth: .infinity, maxHeight: .infinity)

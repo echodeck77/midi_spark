@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ STRIP polish round 2 — scenes toggle, portrait, fixed height, +3 (2026-08-03, on `main`; 405 green, iOS
+  builds; DEVICE pass owed). (1) The 16-scene row is HIDDEN by default — `@AppStorage("midispark.showScenes")` (VC)
+  gates `ArrangementBar.showScenes`; a SHOW-SCENES toggle lives in a new cog DISPLAY section (`CogPage.showScenes`
+  binding). (2) PORTRAIT (`isPortrait = geo.h > geo.w`, threaded body→signalColumn→receiversBox→ReceiversView): the
+  LATCH button shows the padlock ONLY (no "LATCH" text). (3) PORTRAIT: the header shows the CHANNEL only (drops the
+  range suffix). (4) The RECEIVERS band is now a FIXED height (`recvBandH = 168`, an ESTIMATE — flagged) instead of
+  6 grid-rows; signalColumn recomputes `cell` from the remaining 15 rows (9 grid + 6 emitter). Emitters stay
+  grid-aligned (so the two bands are now asymmetric — flagged). (5) Gaps (`Color.clear.frame(height: 5)`) between the
+  LATCH cluster ↔ OCT and OCT ↔ LIVE·SOLO in performFeatures. (6) The BYP button is WHITE unless armed (cyan fill
+  when on). THRU pip stays retired.**
 - **▶ RECEIVER STRIP polish — 6 tweaks (2026-08-03, on `main`; 405 green, iOS builds; DEVICE pass owed). (1) BYPASS
   toggle moved into the header where the THRU pip was (pip retired; `thruReceiver`/`onSetThru` stay wired but
   unsurfaced). (2) `midiNoteName` now non-negative octaves (note 0 = C0 … G10) — no more "-1"; ASSUMPTION: 0-based

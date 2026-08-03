@@ -30,6 +30,7 @@ struct ArrangementBar: View {
     var onRedo: () -> Void = {}
     var isEditMode: Bool = false            // the prominent PERFORM/EDIT toggle — reflected on BOTH pages (shared bar)
     var onSetEditMode: (Bool) -> Void = { _ in }
+    var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -62,7 +63,7 @@ struct ArrangementBar: View {
                 undoRedo                                                           // labelled UNDO/REDO, moved to the right (user 2026-08-03)
                 cogOrCan                                                           // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
-            sceneChipRow                                                           // THE 16 SCENE CHIPS — full-width row below the header
+            if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }
         .offset(x: sceneShakeX)                              // shake when the active scene refuses the trash
         .background(sceneArmWatcher)                         // S2c: tight commit at the pass boundary (~1 render window)

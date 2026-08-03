@@ -18,6 +18,7 @@ struct CogPage: View {
     let outAt: [Date]                 // last output activity per emitter (for the OUT dot fade)
     let mpeAt: [Date]                 // last MPE-detected per receiver (auto-detect dot)
     let aboutLine: String
+    @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
     let onSetEmitterChannel: (Int, Int) -> Void
     let onChanged: () -> Void         // refresh the VC's receivers/busChannels after a live edit
     let onClose: () -> Void
@@ -42,6 +43,14 @@ struct CogPage: View {
                         divider
                         section("MIDI OUTPUT")
                         ForEach(0..<4, id: \.self) { outputRow($0) }
+                        divider
+                        section("DISPLAY")
+                        HStack(spacing: 8) {
+                            Text("SCENES").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
+                            Text("show the arrangement's 16-scene row").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            Spacer()
+                            mpeToggle(on: showScenes) { showScenes = $0 }
+                        }
                         divider
                         section("HEALTH")
                         healthRow
