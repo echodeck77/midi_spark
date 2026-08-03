@@ -1670,6 +1670,32 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // LATCH bug hunt (user: "playing, no difference"): a cell subscribing to an ARMED receiver must SUSTAIN the
+    // frozen chord even when the LIVE pool is empty (keys released). Tests the Router half (effectivePool + emit).
+    func testLatchedReceiverSustainsFrozenChordWhenLiveEmpty() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0   // R1 arp (inherits colour machine)
+        s.cells[0][0] = cell
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let frozen = NotePool()                                     // the latched chord for R1
+        frozen.noteOn(60, velocity: 100, channel: 0, cable: 1); frozen.noteOn(64, velocity: 100, channel: 0, cable: 1)
+        frozen.rebuildSorted()
+        let pools = [frozen, NotePool(), NotePool(), NotePool()]
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<6 {   // LIVE pool EMPTY (keys released), R1 ARMED (latchMask bit 0)
+            router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, latchMask: 0b0001, latchedPools: pools, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        XCTAssertGreaterThan(e.ons.count, 0, "an armed-latch cell SUSTAINS the frozen chord with the live pool empty")
+        XCTAssertTrue(e.ons.contains { $0.note == 60 } && e.ons.contains { $0.note == 64 }, "the frozen chord's notes sound")
+    }
+
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()

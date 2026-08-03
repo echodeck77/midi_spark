@@ -764,7 +764,11 @@ final class Router {
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
         for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max }
-        if pool.count > 0 {
+        // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
+        // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
+        // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
+        // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
+        if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
@@ -1093,7 +1097,7 @@ final class Router {
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
 
-        guard pool.count > 0 else {
+        guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 

@@ -157,6 +157,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ LATCH BUG FIXED (2026-08-03, on `main`; 394 green, iOS builds; DEVICE pass owed). Prereq §0 of the MIDI-IN
+  redesign ("on-strip LATCH does nothing"). ROOT CAUSE: `Router.process` gated BOTH emission loops on the LIVE pool
+  — `if pool.count > 0` (hold loop ~767) and `guard pool.count > 0 else { return }` (tick/arp loop ~1096) — both
+  BEFORE `effectivePool(for:live:)` runs. So releasing the keys emptied the live pool, skipped the whole cell loop,
+  and the FROZEN latch pool never sounded — the one case the latch exists for. FIX: both gates now read
+  `pool.count > 0 || latchMask != 0` (armed → subscribers emit from the frozen pool; non-subscribers read the empty
+  live pool → nothing, so safe). Regression test `testLatchedReceiverSustainsFrozenChordWhenLiveEmpty` (RouterTests).
+  My first ferry diagnosis ("mechanism intact, tested stopped") was WRONG; a repro test pinned the real gate bug.**
 - **▶ COG SIMPLIFICATION (2026-08-03, on `main`; 393 green, iOS builds; DEVICE pass owed). Spec:
   `Docs/AcceptanceCriteria/AcceptanceCriteria-cog-simplification.md`. CABLES RETIRED from the UI — the plugin now
   always hears every input cable (union): `SnapshotBuilder` forces `inputCableMask`/`recvCable` to `0b1111`,
