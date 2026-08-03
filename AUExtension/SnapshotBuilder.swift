@@ -24,8 +24,10 @@ enum SnapshotBuilder {
         }
 
         // ---- cells ----
+        let ladderOn = doc.ladderModeResolved                       // LADDER: exclusive columns (resolved here so render stays LADDER-unaware)
         var cells = [SnapCell](repeating: SnapCell(), count: Snap.cols * Snap.rows)
         for c in 0..<Snap.cols {
+            let ladderActive = ladderOn ? scene.ladderActiveRow(c) : nil   // the one speaking rung this column (topmost-occupied default)
             for r in 0..<Snap.rows {
                 guard c < scene.cells.count, r < scene.cells[c].count,
                       let cell = scene.cells[c][r],
@@ -57,6 +59,7 @@ enum SnapshotBuilder {
                     sc.bypassed = cell.bypassed
                 }
                 sc.muted = cell.muted
+                sc.dormant = ladderOn && r != (ladderActive ?? -1)   // LADDER: non-active rungs are silent (visible + dimmed in the UI)
                 sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)

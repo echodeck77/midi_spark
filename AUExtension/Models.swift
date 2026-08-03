@@ -343,6 +343,17 @@ struct SceneState: Codable, Equatable {
     // Optional (append-only) → old scenes decode nil (0). PERSISTED (the key is structure).
     var masterKey: Int? = nil
     var masterKeyResolved: Int { max(-12, min(12, masterKey ?? 0)) }
+    // LADDER (exclusive columns): the chosen "rung" per COLUMN — at most one cell speaks per column while LADDER
+    // mode is on. Optional (append-only) → old scenes decode nil; per-column nil = "use the gentle default".
+    // Scenes CAPTURE rung choices (arranged intensity). The LADDER on/off toggle itself is document-level.
+    var activeRow: [Int?]? = nil
+    /// The resolved rung for `col`: the committed row if it points at an occupied cell, else the TOPMOST occupied
+    /// cell (the gentlest default, per spec), else nil (an empty column — nothing speaks). Bounds-safe throughout.
+    func ladderActiveRow(_ col: Int) -> Int? {
+        if let ar = activeRow, col >= 0, col < ar.count, let r = ar[col], cellAt(col, r) != nil { return r }
+        for r in 0..<8 where cellAt(col, r) != nil { return r }   // topmost occupied
+        return nil
+    }
 
     static func empty() -> SceneState {
         SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
@@ -427,6 +438,10 @@ struct PluginState: Codable, Equatable {
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
     var masterMute: Bool? = nil
+    // LADDER MODE — the exclusive-columns arm (PERSISTED, document-level; the per-scene `activeRow` holds WHICH
+    // rung). While on, at most one cell speaks per column. Optional → old docs decode nil (off). Mirrors masterMute.
+    var ladderMode: Bool? = nil
+    var ladderModeResolved: Bool { ladderMode ?? false }
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

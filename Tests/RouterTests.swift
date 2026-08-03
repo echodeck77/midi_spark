@@ -1218,6 +1218,29 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // LADDER mode: at most ONE rung speaks per column. OFF = both rungs layer; ON = only the active rung
+    // (topmost-occupied by default, or the scene's chosen `activeRow`); the dormant rung is silent.
+    func testLadderModeMakesColumnExclusive() {
+        func makeBox(ladder: Bool, active: [Int?]?) -> SnapshotBox {
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // rung row 0 → Emit A (cable 1)
+            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // rung row 1 → Emit B (cable 2)
+            s.activeRow = active
+            var st = PluginState(colours: arpColours(), scenes: [s]); st.ladderMode = ladder
+            return SnapshotBuilder.build(from: st)
+        }
+        let off = RecordingEmitter(); run(makeBox(ladder: false, active: nil), chord([60]), beats: 8, into: off)
+        XCTAssertGreaterThan(off.ons.filter { $0.cable == 1 }.count, 0, "LADDER off: row 0 speaks")
+        XCTAssertGreaterThan(off.ons.filter { $0.cable == 2 }.count, 0, "LADDER off: row 1 also speaks (layered)")
+        let on = RecordingEmitter(); run(makeBox(ladder: true, active: nil), chord([60]), beats: 8, into: on)
+        XCTAssertGreaterThan(on.ons.filter { $0.cable == 1 }.count, 0, "LADDER on: the default rung (topmost, row 0) speaks")
+        XCTAssertTrue(on.ons.filter { $0.cable == 2 }.isEmpty, "LADDER on: the dormant rung (row 1) is silent")
+        let pick = RecordingEmitter(); run(makeBox(ladder: true, active: [1]), chord([60]), beats: 8, into: pick)
+        XCTAssertGreaterThan(pick.ons.filter { $0.cable == 2 }.count, 0, "LADDER on, chosen rung = row 1: it speaks")
+        XCTAssertTrue(pick.ons.filter { $0.cable == 1 }.isEmpty, "the non-chosen rung (row 0) is silent")
+        assertNothingLeftSounding(off); assertNothingLeftSounding(on); assertNothingLeftSounding(pick)
+    }
+
     // SEAL comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
     // silent cell records nothing. Drains read-and-clear.
     func testCellStrikeFeedRecordsFiringCell() {

@@ -30,6 +30,9 @@ struct SnapCell {
     var alt = false
     var bypassed = false
     var muted = false
+    var dormant = false        // LADDER: a non-active rung while LADDER mode is on — silent (skipped at the emit
+                               // guards, like `muted`) but present/visible; resolved in the builder so the render
+                               // thread stays LADDER-unaware. Default false → identical to pre-LADDER behaviour.
     var busMask: UInt8 = 0     // bits 0–3 = A–D (§2.3: the only exits)
     var runStartColumn: Int8 = -1   // LEGATO precompute (§7 v2.4) — UI-thread work, render just reads
     // v3.0 graph routing (delta §1, precomputed here so render never scans):

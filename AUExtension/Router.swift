@@ -767,7 +767,7 @@ final class Router {
         if pool.count > 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
@@ -1105,7 +1105,7 @@ final class Router {
 
         for r in 0..<Snap.rows {
             let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
