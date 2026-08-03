@@ -809,8 +809,7 @@ struct ReceiversView: View {
     private func performFeatures(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
         return VStack(spacing: 3) {
-            latchArm(i)              // BIG — the headline performance control (sizing law: everything else stays small)
-            keysChordToggle(i)       // small — the latch MODE, directly under LATCH (moved off the cog per §1)
+            latchRow(i)              // LATCH (left) + KEYS/CHORD (right) — one related cluster
             HStack(spacing: 2) {
                 featBtn("OCT−", lit: false) { onOct(i, -1) }
                 featBtn("OCT+", lit: false) { onOct(i, +1) }
@@ -822,33 +821,40 @@ struct ReceiversView: View {
         }.frame(maxWidth: .infinity)
     }
 
-    // The LATCH ARM — the receiver's headline performance control (spec §1 sizing law: everything on the strip is
-    // small EXCEPT this — easy to hit in the heat of the moment). A lock glyph + label, hue-tinted even at rest
-    // (reads as "the arm, tap to hold"), a solid glow when armed so an armed receiver is legible across the band.
-    // The MODE (KEYS/CHORD) now shows on the toggle below, so the arm is just "LATCH".
+    // LATCH + KEYS|CHORD as ONE related cluster (user 2026-08-03): the LATCH button on the LEFT (padlock latched to
+    // its side), the KEYS (top) / CHORD (bottom) mode stack on the RIGHT — both the same height so the three read as
+    // a set. LATCH height = the two mode segments stacked (no longer the oversized headline).
+    private func latchRow(_ i: Int) -> some View {
+        let keys = bit(latchAddMask, i)
+        return HStack(spacing: 3) {
+            latchArm(i)
+            VStack(spacing: 2) {
+                modeSeg("KEYS", on: keys) { onSetLatchKeys(i, true) }
+                modeSeg("CHORD", on: !keys) { onSetLatchKeys(i, false) }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 30)   // = two 14pt segments + 2pt spacing; the LATCH button matches this
+    }
+
+    // The LATCH ARM — the receiver's performance control. Padlock glyph LATCHED to the LEFT of the "LATCH" label
+    // (horizontal), hue-tinted at rest, a solid glow when armed so it's legible across the band. Fills the row
+    // height so it equals the KEYS/CHORD stack beside it.
     private func latchArm(_ i: Int) -> some View {
         let armed = bit(latchMask, i)
-        return VStack(spacing: 2) {
-            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 15, weight: .heavy))
+        return HStack(spacing: 4) {
+            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 12, weight: .heavy))
             Text("LATCH").font(.system(size: 9, weight: .heavy, design: .monospaced))
         }
         .foregroundColor(armed ? .black : soloHue.opacity(0.95))
-        .frame(maxWidth: .infinity).frame(height: 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 5).fill(armed ? soloHue : soloHue.opacity(0.14)))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(soloHue.opacity(armed ? 0 : 0.55), lineWidth: 1))
         .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
     }
 
-    // KEYS | CHORD — the latch update rule, on the strip directly under LATCH (spec §1, moved off the cog). KEYS
-    // (default) = each key toggles frozen-pool membership; CHORD = a detected chord clears & replaces the pool.
-    // Switching NEVER clears the pool. Small, per the sizing law.
-    private func keysChordToggle(_ i: Int) -> some View {
-        let keys = bit(latchAddMask, i)
-        return HStack(spacing: 2) {
-            modeSeg("KEYS", on: keys) { onSetLatchKeys(i, true) }
-            modeSeg("CHORD", on: !keys) { onSetLatchKeys(i, false) }
-        }
-    }
+    // KEYS | CHORD segments — the latch update rule (moved off the cog per §1). KEYS (default) = each key toggles
+    // frozen-pool membership; CHORD = a detected chord clears & replaces the pool. Switching NEVER clears the pool.
     private func modeSeg(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
         Text(t).font(.system(size: 7, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : .white.opacity(0.5))
