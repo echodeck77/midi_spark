@@ -4,9 +4,10 @@ import SwiftUI
 /// the running instrument: audio/render never stop, MIDI flows, latches hold; every edit applies live; dismiss
 /// returns to uninterrupted play. It hosts the MIDI I/O RIG CONFIG (set-once rarities), NOT performance roles.
 ///
-/// INPUT (4 receiver LENSES, one line each — COG SIMPLIFICATION 2026-08-03): channel (OMNI default) · latch
-/// CHORD|ADD · MPE-merge toggle — each with a live IN dot + an auto-detect MPE dot. CABLES are retired (the plugin
-/// hears every cable; routing-in is the host's job). OUTPUT (4 emitters A–D): stamp channel — each with a live OUT dot.
+/// INPUT (4 receiver LENSES, one line each — COG SIMPLIFICATION 2026-08-03): channel (OMNI default) · MPE-merge
+/// toggle — each with a live IN dot + an auto-detect MPE dot. CABLES are retired (the plugin hears every cable;
+/// routing-in is the host's job); the LATCH mode (KEYS|CHORD) moved to the STRIP (§2). OUTPUT (4 emitters A–D):
+/// stamp channel — each with a live OUT dot.
 struct CogPage: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
@@ -34,7 +35,7 @@ struct CogPage: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         section("MIDI INPUT")
-                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · chord-latch · MPE.")
+                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · MPE. (Latch KEYS|CHORD lives on the strip.)")
                             .font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             .fixedSize(horizontal: false, vertical: true)
                         ForEach(0..<4, id: \.self) { inputRow($0) }
@@ -77,7 +78,7 @@ struct CogPage: View {
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
 
     // MARK: INPUT — ONE line per door (COG SIMPLIFICATION 2026-08-03): hue·label · IN/MPE dots · CH chip
-    // (OMNI default) · LATCH CHORD|ADD · MPE toggle. Cables are RETIRED — the plugin hears every cable (union).
+    // (OMNI default) · MPE toggle. Cables are RETIRED and the LATCH mode (KEYS|CHORD) moved to the strip (§2).
 
     private func inputRow(_ i: Int) -> some View {
         let r = i < receivers.count ? receivers[i] : Receiver()
@@ -88,7 +89,7 @@ struct CogPage: View {
             mpeDot(mpeAt[safe: i], on: r.mpeMerge)                         // auto-detected MPE spread
             Spacer(minLength: 8)
             channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }   // CH chip — OMNI default, the one optional decision
-            labeled("LATCH") { latchSeg(add: r.latchAddResolved) { au?.setReceiverLatchAdd(i, $0); onChanged() } }
+            // (LATCH CHORD|ADD chip REMOVED 2026-08-03 — the mode is now KEYS|CHORD on the STRIP, per redesign §2.)
             labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
         }
     }
@@ -140,19 +141,7 @@ struct CogPage: View {
         }
     }
     // (CABLE toggles retired 2026-08-03 — cables are router-admin the host owns; the plugin always hears all cables.)
-    private func latchSeg(add: Bool, _ set: @escaping (Bool) -> Void) -> some View {
-        HStack(spacing: 2) {
-            seg("CHORD", on: !add) { set(false) }
-            seg("ADD", on: add) { set(true) }
-        }
-    }
-    private func seg(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        Text(t).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : ink.opacity(0.45))
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber : ink.opacity(0.07)))
-            .contentShape(Rectangle()).onTapGesture { tap() }
-    }
+    // (LATCH CHORD|ADD segments removed 2026-08-03 — the mode is now KEYS|CHORD on the strip, per redesign §2.)
     private func mpeToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Text(on ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : ink.opacity(0.45))

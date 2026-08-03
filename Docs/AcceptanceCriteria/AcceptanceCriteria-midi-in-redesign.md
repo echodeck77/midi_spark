@@ -7,11 +7,13 @@ features below assume a working latch underneath.
 
 ## 1. THE STRIP (per door, top → bottom)
 - **LATCH — BIG.** Strip sizing law: everything small EXCEPT LATCH (easy to hit in the heat of the moment). Lit
-  when armed.
+  when armed. **BUILT 2026-08-03:** 40pt headline (lock glyph + "LATCH"); the mode moved off the arm to the toggle.
 - **KEYS | CHORD** — a small toggle directly under LATCH (the mode, moved OUT of the cog per the split law):
   - **KEYS (DEFAULT):** each key played is ADDED to the latch pool; playing it again REMOVES it (per-note toggle).
   - **CHORD:** on chord detection, the pool CLEARS and REPLACES.
   - **Mode-switching NEVER clears the pool** — the latch persists across the toggle; only LATCH OFF releases.
+  - **BUILT 2026-08-03:** on the strip under LATCH; engine field kept as `Receiver.latchAdd` (true = KEYS); default
+    flipped to KEYS. Pool-persists-across-toggle already holds (Kernel resets only on the arm rising edge).
 - **ENABLE/DISABLE** — small per-door toggle: DISABLED = the door STOPS LISTENING (incoming MIDI ignored) while its
   latched pool + sounding state PERSIST. Workflow: latch a chord on R1, disable R1, move to R2 and play fresh —
   "close the door, keep the room." Distinct from LIVE (which mutes OUTPUT); this gates INPUT. Default: enabled.
@@ -30,7 +32,8 @@ features below assume a working latch underneath.
 - **GAINS: RANGE** — bottom note + top note (two small note chips), default ALL. The door admits only notes in
   range (the lens gains a window; UPSTREAM of latch and everything else).
 - **GAINS: BYPASS DESTINATIONS** — a per-door multiselect (A–D), default all — where §1's BYPASS routes.
-- **LOSES: the latch-type chip** — the mode now lives on the strip as KEYS | CHORD. Remove from the cog.
+- **LOSES: the latch-type chip** — the mode now lives on the strip as KEYS | CHORD. Remove from the cog. **DONE
+  2026-08-03** (CHORD|ADD chip + `latchSeg`/`seg` removed; doc lines updated).
 - With cables retired (prior instruction), the cog line reads: **hue·label · CH chip · RANGE chips · BYPASS dests · MPE.**
 
 ## 3. Defaults, restated

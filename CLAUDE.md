@@ -157,6 +157,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ STRIP LATCH — BIG LATCH + KEYS|CHORD on the strip (2026-08-03, on `main`; 397 green, iOS builds; DEVICE pass
+  owed). Redesign §1 (sizing law + mode-to-strip) + §2 (latch chip leaves the cog) + §3 (KEYS default). The strip
+  LATCH arm is now the BIG headline (40pt, lock glyph + "LATCH"; everything else on the strip stays small). The
+  latch MODE moved OFF the cog ONTO the strip directly under LATCH as a **KEYS | CHORD** toggle (`keysChordToggle`/
+  `modeSeg` in GridUI; `onSetLatchKeys` → VC `setReceiverLatchKeys` → `au.setReceiverLatchAdd`). KEYS = per-note
+  toggle (was "ADD"), CHORD = detect-and-replace; the engine field stays `Receiver.latchAdd` (decode-compat, true =
+  KEYS). DEFAULT flipped to KEYS: `latchAddResolved = latchAdd ?? true` (was `?? false`) — updated
+  `testLatchAddMaskFromReceivers` (nil ⇒ KEYS, mask 0b1111). Cog INPUT row lost its CHORD|ADD chip + `latchSeg`/`seg`
+  (doc lines updated). Mode-switching never clears the pool (Kernel resets only on the arm rising edge — unchanged).**
 - **▶ INPUT ENABLE / DISABLE — the strip HEADER (2026-08-03, on `main`; 397 green, iOS builds; DEVICE pass owed).
   Redesign §1 ENABLE/DISABLE, delivered as the user asked: each receiver strip's HEADER now SUMMARISES the door
   (hue · letter · CHANNEL — "CH3"/"OMNI"; RANGE appends here once §2 ships) AND doubles as the listen toggle. Two

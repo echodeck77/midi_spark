@@ -328,12 +328,15 @@ struct Receiver: Codable, Equatable {
     var cable: Int? = nil
     /// The cable bitmask, nil-safe: missing ⇒ ANY (hears every cable). Non-persisting read helper.
     var cableResolved: Int { cable ?? 0b1111 }
-    // TWO LATCH MODES (ferry 2026-07-27): the per-receiver latch update rule. false/nil = CHORD (as built,
-    // detect-and-replace); true = ADD (note-toggle accumulation — each note-on toggles frozen-pool membership).
-    // Persisted rig config. Optional so old docs decode nil ⇒ CHORD. Latch-off releases all in both modes.
+    // KEYS | CHORD (was "TWO LATCH MODES", ferry 2026-07-27; the toggle moved to the STRIP 2026-08-03): the
+    // per-receiver latch update rule, stored in `latchAdd` (name kept for decode-compat). true = KEYS (per-note
+    // toggle — each note-on toggles frozen-pool membership); false = CHORD (detect-and-replace — chord clears &
+    // replaces the pool). Persisted rig config. DEFAULT is now KEYS (redesign §3): optional so old docs decode
+    // nil ⇒ KEYS. Mode-switching NEVER clears the pool (the Kernel only resets on the arm rising edge); latch-off
+    // releases all, in both modes.
     var latchAdd: Bool? = nil
-    /// The latch mode, nil-safe: missing ⇒ CHORD (false). Non-persisting read helper.
-    var latchAddResolved: Bool { latchAdd ?? false }
+    /// The latch mode, nil-safe: missing ⇒ KEYS (true — the redesign default). Non-persisting read helper.
+    var latchAddResolved: Bool { latchAdd ?? true }
 }
 
 // MARK: - Scene & document — §9

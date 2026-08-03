@@ -130,15 +130,16 @@ final class SnapshotBuilderTests: XCTestCase {
     }
 
     func testLatchAddMaskFromReceivers() {
-        // TWO LATCH MODES: the per-receiver ADD flag packs into the box mask (bit i = receiver i toggles).
+        // KEYS | CHORD (2026-08-03): the per-receiver mode packs into the box mask (bit i = receiver i in KEYS =
+        // per-note toggle). KEYS is now the DEFAULT (nil ⇒ KEYS = bit set); CHORD is explicit (latchAdd = false).
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
-        st.receivers = [Receiver(name: "1"),
-                        { var r = Receiver(name: "2"); r.latchAdd = true; return r }(),
-                        Receiver(name: "3"),
-                        { var r = Receiver(name: "4"); r.latchAdd = true; return r }()]
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1010, "receivers 2 and 4 in ADD mode")
-        st.receivers = nil   // no receivers ⇒ all CHORD (mask 0)
-        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0, "default (nil) ⇒ all CHORD")
+        st.receivers = [{ var r = Receiver(name: "1"); r.latchAdd = false; return r }(),   // explicit CHORD
+                        Receiver(name: "2"),                                                // default ⇒ KEYS
+                        { var r = Receiver(name: "3"); r.latchAdd = false; return r }(),   // explicit CHORD
+                        Receiver(name: "4")]                                                // default ⇒ KEYS
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1010, "explicit CHORD clears the bit; default KEYS sets it")
+        st.receivers = nil   // no receivers ⇒ four default doors ⇒ all KEYS
+        XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1111, "default (nil) ⇒ all KEYS")
     }
 
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {

@@ -687,7 +687,8 @@ struct ReceiversView: View {
     var onToggleSolo: (Int) -> Void = { _ in }
     var latchMask: UInt8 = 0                            // inc 5: per-receiver chord LATCH
     var onToggleLatch: (Int) -> Void = { _ in }
-    var latchAddMask: UInt8 = 0                          // TWO LATCH MODES: bit i = receiver i latches in ADD mode (set on the cog; the perform face shows LATCH+)
+    var latchAddMask: UInt8 = 0                          // KEYS|CHORD: bit i = receiver i latches in KEYS (per-note toggle) mode; clear = CHORD
+    var onSetLatchKeys: (Int, Bool) -> Void = { _, _ in }   // KEYS|CHORD toggle on the strip (true = KEYS)
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
@@ -808,7 +809,8 @@ struct ReceiversView: View {
     private func performFeatures(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
         return VStack(spacing: 3) {
-            latchArm(i)
+            latchArm(i)              // BIG — the headline performance control (sizing law: everything else stays small)
+            keysChordToggle(i)       // small — the latch MODE, directly under LATCH (moved off the cog per §1)
             HStack(spacing: 2) {
                 featBtn("OCT−", lit: false) { onOct(i, -1) }
                 featBtn("OCT+", lit: false) { onOct(i, +1) }
@@ -820,20 +822,39 @@ struct ReceiversView: View {
         }.frame(maxWidth: .infinity)
     }
 
-    // The LATCH ARM — the receiver's headline performance control: a lock glyph + label, taller than the
-    // utility rows, hue-tinted even at rest (reads as "the arm, tap to hold"), a solid glow when armed so
-    // an armed receiver is legible at a glance across the band. LATCH+ shows the cog's ADD mode.
+    // The LATCH ARM — the receiver's headline performance control (spec §1 sizing law: everything on the strip is
+    // small EXCEPT this — easy to hit in the heat of the moment). A lock glyph + label, hue-tinted even at rest
+    // (reads as "the arm, tap to hold"), a solid glow when armed so an armed receiver is legible across the band.
+    // The MODE (KEYS/CHORD) now shows on the toggle below, so the arm is just "LATCH".
     private func latchArm(_ i: Int) -> some View {
-        let armed = bit(latchMask, i), add = bit(latchAddMask, i)
-        return HStack(spacing: 3) {
-            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 9, weight: .heavy))
-            Text(add ? "LATCH+" : "LATCH").font(.system(size: 8, weight: .heavy, design: .monospaced))
+        let armed = bit(latchMask, i)
+        return VStack(spacing: 2) {
+            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 15, weight: .heavy))
+            Text("LATCH").font(.system(size: 9, weight: .heavy, design: .monospaced))
         }
         .foregroundColor(armed ? .black : soloHue.opacity(0.95))
-        .frame(maxWidth: .infinity).frame(height: 22)
-        .background(RoundedRectangle(cornerRadius: 4).fill(armed ? soloHue : soloHue.opacity(0.14)))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(soloHue.opacity(armed ? 0 : 0.55), lineWidth: 1))
+        .frame(maxWidth: .infinity).frame(height: 40)
+        .background(RoundedRectangle(cornerRadius: 5).fill(armed ? soloHue : soloHue.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(soloHue.opacity(armed ? 0 : 0.55), lineWidth: 1))
         .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
+    }
+
+    // KEYS | CHORD — the latch update rule, on the strip directly under LATCH (spec §1, moved off the cog). KEYS
+    // (default) = each key toggles frozen-pool membership; CHORD = a detected chord clears & replaces the pool.
+    // Switching NEVER clears the pool. Small, per the sizing law.
+    private func keysChordToggle(_ i: Int) -> some View {
+        let keys = bit(latchAddMask, i)
+        return HStack(spacing: 2) {
+            modeSeg("KEYS", on: keys) { onSetLatchKeys(i, true) }
+            modeSeg("CHORD", on: !keys) { onSetLatchKeys(i, false) }
+        }
+    }
+    private func modeSeg(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(t).font(.system(size: 7, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.5))
+            .frame(maxWidth: .infinity).frame(height: 14)
+            .background(RoundedRectangle(cornerRadius: 3).fill(on ? soloHue.opacity(0.85) : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
 
     private func featBtn(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
