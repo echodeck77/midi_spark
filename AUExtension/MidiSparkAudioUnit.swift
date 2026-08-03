@@ -602,7 +602,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // §3 FACTORY presets (READ-ONLY): DEFAULT (the 3-scene arc) + THE CURRICULUM (SceneFactory's teaching scenes).
     // Code-defined builders, not files — so no save/overwrite/delete. Numbered non-negative for the host API.
     static let factoryPresetBuilders: [(name: String, make: () -> PluginState)] =
-        [("DEFAULT", PluginState.defaultArc), ("THE LADDER", PluginState.makeLadder)] + SceneFactory.scenes.map { s in (s.name, s.make) }
+        [("DEFAULT", PluginState.defaultArc),
+         ("THE LADDER", PluginState.makeLadder), ("TIDE", PluginState.makeLadderTide),
+         ("FORGE", PluginState.makeLadderForge), ("CHIME", PluginState.makeLadderChime),
+         ("SPARK", PluginState.makeLadderSpark)] + SceneFactory.scenes.map { s in (s.name, s.make) }
     func factoryPresetNames() -> [String] { Self.factoryPresetBuilders.map { $0.name } }
     /// Apply a factory preset's document — one undoable step + voice flush (from a builder, not a file). No KVO.
     private func applyFactoryDocument(named name: String) {

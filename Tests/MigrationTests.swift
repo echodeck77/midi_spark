@@ -92,37 +92,37 @@ final class MigrationTests: XCTestCase {
         XCTAssertGreaterThan(count(d.scenes[2]), count(d.scenes[0]), "scene 3 (epic) builds denser than scene 1")
     }
 
-    // THE LADDER factory preset (§PART 2): 8 machines (one per row, twins across columns), LADDER on, 3 intensity
-    // curves, single emitter A, HARM as +12 only. Structure + Codable round-trip of the new fields.
-    func testLadderPresetIsEightMachineLadder() throws {
-        let st = PluginState.makeLadder()
-        XCTAssertTrue(st.ladderModeResolved, "LADDER ships ON")
-        XCTAssertGreaterThanOrEqual(st.scenes.count, 3, "three-act arc")
-        let s = st.scenes[0]
-        for row in 0..<8 {
-            let proto = s.cells[0][row]?.processors
-            XCTAssertNotNil(proto, "row \(row) is placed")
-            for col in 0..<8 {
-                XCTAssertEqual(s.cells[col][row]?.processors, proto, "row \(row) is stamped identically across columns (twins)")
-                XCTAssertEqual(s.cells[col][row]?.buses, [.a], "single emitter A (minimum rig)")
+    // THE LADDER family (§PART 2): every ladder preset is a full 8×8 of 8 machines (one per row, twins across
+    // columns), LADDER on, 3 distinct intensity curves, single emitter A, HARM as +12 only.
+    func testLadderPresetsAreEightMachineLadders() throws {
+        let presets: [(String, PluginState)] = [
+            ("THE LADDER", .makeLadder()), ("TIDE", .makeLadderTide()), ("FORGE", .makeLadderForge()),
+            ("CHIME", .makeLadderChime()), ("SPARK", .makeLadderSpark()),
+        ]
+        for (name, st) in presets {
+            XCTAssertTrue(st.ladderModeResolved, "\(name): LADDER ships ON")
+            XCTAssertGreaterThanOrEqual(st.scenes.count, 3, "\(name): three-act arc")
+            let s = st.scenes[0]
+            for row in 0..<8 {
+                let proto = s.cells[0][row]?.processors
+                XCTAssertNotNil(proto, "\(name) row \(row) placed")
+                for col in 0..<8 {
+                    XCTAssertEqual(s.cells[col][row]?.processors, proto, "\(name) row \(row) stamped as twins across columns")
+                    XCTAssertEqual(s.cells[col][row]?.buses, [.a], "\(name): single emitter A")
+                }
+                for slot in proto ?? [] where slot.type == .harmonize {
+                    XCTAssertEqual((slot.params.harmIntervals ?? []).filter { $0 != 0 }, [12], "\(name): HARM is +12 octave only")
+                }
             }
+            XCTAssertNotEqual(st.scenes[0].activeRow, st.scenes[2].activeRow, "\(name): scenes paint different rung curves")
         }
-        // complexity rises: R1 = one PASS/legato slot; R8 = a 3-slot chain harmonize → arp → chance
-        XCTAssertEqual(s.cells[0][0]?.processors?.map { $0.type }, [.passgate])
-        XCTAssertEqual(s.cells[0][7]?.processors?.map { $0.type }, [.harmonize, .arp, .chance])
-        // HARM is +12 octave ONLY — no thirds/fifths anywhere
-        for col in 0..<8 { for row in 0..<8 {
-            for slot in s.cells[col][row]?.processors ?? [] where slot.type == .harmonize {
-                XCTAssertEqual((slot.params.harmIntervals ?? []).filter { $0 != 0 }, [12], "HARM is +12 octave only")
-            }
-        } }
-        // the scenes are DIFFERENT intensity curves over the SAME grid
-        XCTAssertNotNil(st.scenes[0].activeRow)
-        XCTAssertNotEqual(st.scenes[0].activeRow, st.scenes[2].activeRow, "scenes paint different rung curves")
-        // Codable round-trip: the new activeRow + ladderMode survive
-        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(st))
+        // the flagship's specific shape (R1 = PASS · R8 = harmonize → arp → chance) + Codable round-trip of the new fields
+        let l = PluginState.makeLadder()
+        XCTAssertEqual(l.scenes[0].cells[0][0]?.processors?.map { $0.type }, [.passgate])
+        XCTAssertEqual(l.scenes[0].cells[0][7]?.processors?.map { $0.type }, [.harmonize, .arp, .chance])
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(l))
         XCTAssertTrue(back.ladderModeResolved)
-        XCTAssertEqual(back.scenes[0].activeRow, st.scenes[0].activeRow, "activeRow round-trips")
+        XCTAssertEqual(back.scenes[0].activeRow, l.scenes[0].activeRow, "activeRow round-trips")
     }
 
     func testDefaultArcRoundTrips() {

@@ -710,56 +710,113 @@ struct PluginState: Codable, Equatable {
         return state
     }
 
-    /// THE LADDER — the factory preset (Docs/AcceptanceCriteria-ladder.md §PART 2). Full 8×8: each ROW is ONE
-    /// machine, gentle (top) → storm (bottom), stamped as 8 twins across every column. LADDER mode ships ON, so at
-    /// most one rung speaks per column; the three SCENES are pre-painted intensity curves (the active rung per
-    /// column). Single emitter A · ch1 throughout (minimum rig). HARM appears ONLY as +12 octave doubling.
-    static func makeLadder() -> PluginState {
-        let hue = ["gold", "bronze", "orange", "vermilion", "wine", "purple", "violet", "indigo"]   // light → dark down the rows
-        func arp(_ pat: ArpPattern, _ rate: ArpRate, oct: Int, gate: Double, legato: Bool = false) -> ProcessorSlot {
-            var p = ColourParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
-            if legato { p.phase = .legato }
-            return ProcessorSlot(type: .arp, params: p)
-        }
-        func pass(gate: Double, legato: Bool) -> ProcessorSlot {
-            var p = ColourParams(); p.gate = gate; if legato { p.phase = .legato }
-            return ProcessorSlot(type: .passgate, params: p)
-        }
-        func harm12() -> ProcessorSlot { var p = ColourParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
-        func rtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
-        func chnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
-        // The 8 rungs, gentle → storm (spec §PART 2). Multi-slot chains obey the driver rule (in R7 the RTC drives).
-        let machines: [[ProcessorSlot]] = [
-            [pass(gate: 1.0, legato: true)],                                         // R1 STILL — the held-chord bed
-            [arp(.up, .r1_4, oct: 1, gate: 0.92, legato: true)],                     // R2 ROLL — the slow roll
-            [arp(.up, .r1_8, oct: 1, gate: 0.70)],                                   // R3 PULSE — the heartbeat
-            [arp(.upDown, .r1_8, oct: 2, gate: 0.65)],                               // R4 WEAVE — motion widens
-            [arp(.up, .r1_16, oct: 2, gate: 0.55)],                                  // R5 CLIMB — the ascent
-            [harm12(), arp(.up, .r1_16, oct: 3, gate: 0.50)],                        // R6 SHINE — octave-doubled bright climb
-            [arp(.up, .r1_16, oct: 2, gate: 0.45), rtc(4)],                          // R7 GATLING — RTC drives, the arp composes
-            [harm12(), arp(.random, .r1_32, oct: 4, gate: 0.30), chnc(0.55)],        // R8 STORM — maximal scatter, thinned to breathe
-        ]
-        func rung(_ row: Int) -> Cell {
-            var c = Cell(colourID: hue[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]; return c
-        }
-        // Full 8×8: row r = machine r, stamped across every column (twins). Identical in every scene; the scenes
-        // differ ONLY in `activeRow` (the intensity curve), so LADDER's exclusive columns paint the arc.
-        var grid = SceneState.empty()
-        for col in 0..<8 { for row in 0..<8 { grid.cells[col][row] = rung(row) } }
-        func scene(_ curve: [Int]) -> SceneState { var s = grid; s.activeRow = curve.map { Optional($0) }; return s }
-        let s1 = scene([0, 1, 0, 1, 0, 1, 0, 1])   // Scene 1 — gentle opening (R1–R2)
-        let s2 = scene([2, 2, 3, 3, 4, 4, 3, 3])   // Scene 2 — rising mid-curve (R3→R5)
-        let s3 = scene([7, 5, 6, 5, 7, 5, 6, 6])   // Scene 3 — the high rungs; R8 STORM (row 7) at the bar turnarounds (cols 0, 4)
+    // MARK: - THE LADDER family (factory presets, Docs/AcceptanceCriteria-ladder.md §PART 2). Each is a full 8×8
+    // "instrument": one machine per ROW, gentle (top) → intense (bottom), stamped as 8 twins per column; LADDER
+    // mode ON; 3 SCENES = intensity curves (the active rung per column) over the SAME grid; single emitter A · ch1
+    // (minimum rig); HARM (where present) is +12 octave only. Slot helpers:
+    private static func lArp(_ pat: ArpPattern, _ rate: ArpRate, oct: Int, gate: Double, legato: Bool = false) -> ProcessorSlot {
+        var p = ColourParams(); p.pattern = pat; p.rate = rate; p.octaves = oct; p.gate = gate
+        if legato { p.phase = .legato }
+        return ProcessorSlot(type: .arp, params: p)
+    }
+    private static func lPass(_ gate: Double, legato: Bool = true) -> ProcessorSlot {
+        var p = ColourParams(); p.gate = gate; if legato { p.phase = .legato }
+        return ProcessorSlot(type: .passgate, params: p)
+    }
+    private static func lHarm12() -> ProcessorSlot { var p = ColourParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
+    private static func lRtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
+    private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
 
-        let colours = colourIDs.map { Colour(colourID: $0, type: .arp) }             // hues only — each cell's chain overrides
-        var state = PluginState(colours: colours, scenes: [s1, s2, s3])
-        state.ladderMode = true                                     // LADDER ships ON in the preset
-        state.formatVersion = 4
-        state.synthesizeReceiversIfNeeded()                         // every rung is MIDI-IN on R1
-        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in (minimum rig; output is Emit A · ch1 by default)
-        state.padScenes()
-        state.markDefinedFromUsage()
+    /// Build a LADDER preset from 8 rung HUES (light→dark), 8 MACHINES (chains, row 0 = gentlest), and the scene
+    /// CURVES (each an 8-entry per-column active row). All rungs → Emit A on R1; the grid is identical per scene.
+    private static func ladderPreset(_ hues: [String], _ machines: [[ProcessorSlot]], _ curves: [[Int]]) -> PluginState {
+        var grid = SceneState.empty()
+        for col in 0..<8 { for row in 0..<8 {
+            var c = Cell(colourID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
+            grid.cells[col][row] = c
+        } }
+        let scenes = curves.map { curve -> SceneState in var s = grid; s.activeRow = curve.map { Optional($0) }; return s }
+        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: scenes)
+        state.ladderMode = true; state.formatVersion = 4
+        state.synthesizeReceiversIfNeeded()
+        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
+        state.padScenes(); state.markDefinedFromUsage()
         return state
+    }
+
+    /// THE LADDER — the flagship (§PART 2): R1 STILL → R8 STORM. Warm gold → deep indigo.
+    static func makeLadder() -> PluginState {
+        ladderPreset(
+            ["gold", "bronze", "orange", "vermilion", "wine", "purple", "violet", "indigo"],
+            [[lPass(1.0)],                                                        // R1 STILL — the held-chord bed
+             [lArp(.up, .r1_4, oct: 1, gate: 0.92, legato: true)],               // R2 ROLL
+             [lArp(.up, .r1_8, oct: 1, gate: 0.70)],                             // R3 PULSE
+             [lArp(.upDown, .r1_8, oct: 2, gate: 0.65)],                         // R4 WEAVE
+             [lArp(.up, .r1_16, oct: 2, gate: 0.55)],                            // R5 CLIMB
+             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.50)],                 // R6 SHINE
+             [lArp(.up, .r1_16, oct: 2, gate: 0.45), lRtc(4)],                   // R7 GATLING (RTC drives)
+             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.30), lChnc(0.55)]],   // R8 STORM
+            [[0, 1, 0, 1, 0, 1, 0, 1], [2, 2, 3, 3, 4, 4, 3, 3], [7, 5, 6, 5, 7, 5, 6, 6]])
+    }
+
+    /// TIDE — a flowing UP-DOWN ladder, calm → churning. Cool mint → violet.
+    static func makeLadderTide() -> PluginState {
+        ladderPreset(
+            ["mint", "cyan", "green", "teal", "azure", "indigo", "purple", "violet"],
+            [[lPass(1.0)],
+             [lArp(.upDown, .r1_4, oct: 1, gate: 0.90, legato: true)],
+             [lArp(.upDown, .r1_8, oct: 1, gate: 0.72)],
+             [lArp(.upDown, .r1_8, oct: 2, gate: 0.62)],
+             [lArp(.upDown, .r1_16, oct: 2, gate: 0.55)],
+             [lArp(.upDown, .r1_16, oct: 3, gate: 0.50)],
+             [lArp(.upDown, .r1_16t, oct: 3, gate: 0.45)],
+             [lHarm12(), lArp(.upDown, .r1_32, oct: 4, gate: 0.35), lChnc(0.60)]],
+            [[0, 1, 1, 0, 0, 1, 1, 0], [3, 4, 3, 2, 3, 4, 3, 2], [5, 6, 7, 6, 5, 6, 7, 6]])
+    }
+
+    /// FORGE — mechanical RATCHET bursts, humming → hammering. Hot chartreuse → purple.
+    static func makeLadderForge() -> PluginState {
+        ladderPreset(
+            ["chartreuse", "gold", "bronze", "orange", "vermilion", "wine", "magenta", "purple"],
+            [[lPass(1.0)],
+             [lArp(.up, .r1_8, oct: 1, gate: 0.62)],
+             [lArp(.up, .r1_8, oct: 1, gate: 0.55), lRtc(2)],
+             [lArp(.up, .r1_16, oct: 2, gate: 0.50), lRtc(3)],
+             [lArp(.down, .r1_16, oct: 2, gate: 0.48), lRtc(4)],
+             [lArp(.up, .r1_16, oct: 3, gate: 0.45), lRtc(4)],
+             [lArp(.up, .r1_16t, oct: 3, gate: 0.42), lRtc(6)],
+             [lArp(.random, .r1_32, oct: 3, gate: 0.32), lRtc(8), lChnc(0.55)]],
+            [[0, 0, 1, 1, 0, 0, 1, 1], [2, 3, 4, 3, 2, 3, 4, 3], [6, 7, 7, 6, 6, 7, 7, 6]])
+    }
+
+    /// CHIME — octave-doubled bells, sparse → radiant (HARM +12 on every rung). Mint → indigo.
+    static func makeLadderChime() -> PluginState {
+        ladderPreset(
+            ["mint", "chartreuse", "gold", "blush", "magenta", "purple", "violet", "indigo"],
+            [[lPass(1.0)],
+             [lHarm12(), lPass(0.95)],
+             [lHarm12(), lArp(.up, .r1_8, oct: 1, gate: 0.70)],
+             [lHarm12(), lArp(.up, .r1_8, oct: 2, gate: 0.62)],
+             [lHarm12(), lArp(.upDown, .r1_16, oct: 2, gate: 0.55)],
+             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.50)],
+             [lHarm12(), lArp(.up, .r1_16, oct: 3, gate: 0.45), lChnc(0.70)],
+             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.35), lChnc(0.55)]],
+            [[1, 0, 0, 0, 0, 0, 0, 1], [3, 4, 5, 4, 3, 4, 5, 4], [5, 6, 7, 7, 6, 5, 6, 7]])
+    }
+
+    /// SPARK — generative, CHANCE-thinned, sparse → chaotic. Electric mint → wine.
+    static func makeLadderSpark() -> PluginState {
+        ladderPreset(
+            ["mint", "cyan", "chartreuse", "azure", "magenta", "purple", "vermilion", "wine"],
+            [[lPass(1.0)],
+             [lArp(.up, .r1_8, oct: 1, gate: 0.65), lChnc(0.80)],
+             [lArp(.up, .r1_16, oct: 1, gate: 0.55), lChnc(0.70)],
+             [lArp(.upDown, .r1_16, oct: 2, gate: 0.50), lChnc(0.65)],
+             [lArp(.random, .r1_16, oct: 2, gate: 0.50), lChnc(0.60)],
+             [lArp(.random, .r1_16, oct: 3, gate: 0.45), lChnc(0.55)],
+             [lHarm12(), lArp(.random, .r1_16t, oct: 3, gate: 0.45), lChnc(0.55)],
+             [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.35), lChnc(0.45)]],
+            [[0, 2, 0, 1, 0, 2, 0, 1], [3, 5, 4, 2, 4, 5, 3, 4], [7, 4, 6, 7, 5, 7, 4, 6]])
     }
 }
 

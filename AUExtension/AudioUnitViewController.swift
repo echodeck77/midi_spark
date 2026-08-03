@@ -780,9 +780,10 @@ struct DiagView: View {
             let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
         }
-        .onChange(of: d.effColumn) { col in                   // LADDER: the playhead ENTERED a column → commit any armed rung there
-            guard let row = ladderPending[col] else { return }
-            au?.setActiveRow(col, row); ladderPending[col] = nil; refreshFromDocument()
+        .onChange(of: d.effColumn) { _ in                     // LADDER: the playhead LEFT the armed column (an arm is only ever for
+            guard !ladderPending.isEmpty else { return }      // the column that WAS current) → commit now: the old rung finished this
+            for (col, row) in ladderPending { au?.setActiveRow(col, row) }   // pass, the new rung is set for the next entry, and the blink stops
+            ladderPending = [:]; refreshFromDocument()
         }
         .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
             if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }

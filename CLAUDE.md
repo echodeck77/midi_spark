@@ -176,6 +176,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   structure + Codable round-trip of activeRow/ladderMode). KNOWN FOLLOW-UPS: the ON-HOLD trigger trade (only TAP
   traded so far); a tighter column-entry commit than the 4 Hz poll if fast step rates need it; the preset's exact
   colour ramp + scene curves are a tunable first pass.**
+- **▶ LADDER UX refinements + preset family (2026-08-03, on `main`; 391 green, iOS builds; `5265d8a` = feedback
+  round 1). Device feedback fixes: playhead + active-column glow gated on `!ladderDim` (dormant rungs no longer
+  show them); tap a DORMANT rung → arm+BLINK only if the playhead is on that column now, else flip INSTANTLY; tap
+  the ACTIVE rung → toggle its MUTE (column silent); ROW selectors ENABLE a whole row (one-directional, never
+  disable); verbs panel is 2×2 (HOLD·MUTE / SELECT·LADDER). FLASH FIX: an armed rung commits when the playhead
+  LEAVES its column (the arm is only ever for the just-current column), not on re-entry — so the blink stops at the
+  end of the current column pass, not a full lap later. PRESET FAMILY: `makeLadder` refactored to a shared
+  `ladderPreset(hues,machines,curves)` builder + slot helpers; added 4 MORE ladder presets — TIDE (up-down flow),
+  FORGE (ratchet bursts), CHIME (octave-doubled bells), SPARK (chance-thinned generative) — all registered in the
+  factory browser. Test generalised to `testLadderPresetsAreEightMachineLadders` (all 5 validate). Colour ramps +
+  scene curves are tunable first passes.**
 - **▶ CRASH HARDENING — bounds-safe cell access (2026-08-03, on `main`; 389 green, iOS builds). User hit a crash
   changing the colour of a (multi-cell) selection; no exception captured. Root cause not confirmed, but the whole
   colour-edit path + several UI reads subscripted `scene.cells[col][row]` UNGUARDED on the upper bound — a trap if a
