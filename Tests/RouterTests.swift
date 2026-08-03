@@ -1239,6 +1239,67 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(router.currentCellSounding(), 0, "after release the gate clears")
     }
 
+    /// Run `b` for a few windows on a DIRECT router (so the caller can inspect drainCellStrikes /
+    /// snapshotCellSounding afterwards — the shared `run` helper's router is not exposed), holding `pool`.
+    private func runDirect(_ b: SnapshotBox, _ pool: NotePool, windows: Int = 4) -> Router {
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<windows {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        return router
+    }
+
+    // SEAL comet — the SILENT-GHOST exclusion: a MUTED claimant opens ONLY a silent ghost voice (which still
+    // carries its cellIndex). The `!v.silent` guard in snapshotCellSounding is the ONLY thing stopping that
+    // soundless cell from lighting a phantom comet. A same-pitch-shifted non-claimant DOES sound (proving the
+    // scene is live + the mask machinery works), so the muted claimant's cleared bit is a real exclusion.
+    func testSilentClaimGhostDoesNotLightTheSoundingComet() {
+        var st = PluginState(colours: claimColours(transposeB: 5), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // index 0 — MUTED claimant → only a silent ghost (holds 60)
+            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // index 1 — audible (holds 65, not the claimed pitch)
+            return s }()])
+        st.claimEmitter = 0
+        st.busEnabled = [false, true, true, true]                 // A muted → the claimant makes no sound
+        let router = runDirect(SnapshotBuilder.build(from: st), chord([60]))
+        router.snapshotCellSounding()
+        let mask = router.currentCellSounding()
+        XCTAssertEqual(mask & 1, 0, "the muted claimant's SILENT ghost must NOT light its comet (cell 0)")
+        XCTAssertEqual((mask >> 1) & 1, 1, "…while the audible non-claimant DOES light (cell 1) — the scene is live")
+    }
+
+    // SEAL comet — a MUTED (occupied) cell records NEITHER a strike NOR a sounding bit (tap-to-mute = dark comet).
+    // Distinct from an EMPTY cell: this one has a colour + buses, but `cell.muted` short-circuits the emit loop
+    // BEFORE currentCellIndex is set. (The same cell unmuted DOES fire — testCellStrikeFeedRecordsFiringCell.)
+    func testMutedCellRecordsNoStrikeOrSoundingBit() {
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = []; c.muted = true; return c }()
+        }
+        let router = runDirect(b, chord([60, 64, 67]))
+        XCTAssertEqual(router.drainCellStrikes()[0], 0, "a muted cell records no strike")
+        router.snapshotCellSounding()
+        XCTAssertEqual(router.currentCellSounding(), 0, "a muted cell lights no comet")
+    }
+
+    // SEAL comet — a FAN-OUT cell (emitting to ≥2 buses → ≥2 voices sharing one cellIndex) reports EXACTLY ONE
+    // sounding bit and ONE strike slot, not one per bus. Guards the per-CELL (not per-voice/per-bus) keying.
+    func testFanOutCellReportsSingleSoundingBitAndOneStrike() {
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a, .b]); c.processors = []; return c }()
+        }
+        let router = runDirect(b, chord([60, 64, 67]))
+        let strikes = router.drainCellStrikes()
+        XCTAssertGreaterThan(strikes[0], 0, "the fan-out cell records a strike at its index")
+        XCTAssertEqual(strikes.filter { $0 > 0 }.count, 1, "recorded ONCE, not per bus")
+        router.snapshotCellSounding()
+        XCTAssertEqual(router.currentCellSounding().nonzeroBitCount, 1, "exactly one sounding bit despite the fan-out")
+        XCTAssertEqual(router.currentCellSounding() & 1, 1, "…at the cell's index")
+    }
+
     // CELL MACHINE stage-2: a RATCHET tail re-strikes the HEAD stage's WHOLE output set each repeat.
     func testChainHarmonizeToRatchetRestrikesAllVoices() {
         let cs = arpColours()

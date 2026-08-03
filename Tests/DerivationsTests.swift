@@ -1178,4 +1178,37 @@ final class DerivationsTests: XCTestCase {
             XCTAssertEqual(sealGeometry(raw).coilNode, -1, "hash%4≠0 ⇒ never a coil")
         }
     }
+    func testSealCoilPositiveBranchLandsOnAMidNode() {
+        // The POSITIVE branch: some gated hash DOES produce a coil, and it straddles a mid-route node (1…len-2).
+        var produced = false
+        for raw in stride(from: UInt32(0), to: 4096, by: 4) {   // hash%4==0 candidates
+            let g = sealGeometry(raw)
+            guard g.coilNode >= 0 else { continue }
+            produced = true
+            XCTAssertGreaterThan(g.nodes.count, 2, "a coil implies interior nodes exist")
+            XCTAssertTrue(g.coilNode >= 1 && g.coilNode <= g.nodes.count - 2, "the coil straddles a mid-route node")
+        }
+        XCTAssertTrue(produced, "the coil POSITIVE branch is exercised (a coil IS produced for some gated hash)")
+    }
+    // FIT (bbox-fit): the route's bounding box maps to the unit square, so the seal fills the drawable rect
+    // instead of hugging one side; a straight run centres on its zero-range axis.
+    func testSealFitFillsTheLength() {
+        for raw in stride(from: UInt32(0), to: 2048, by: 11) {
+            let fit = sealFit(sealGeometry(raw))
+            XCTAssertTrue(fit.fractions.allSatisfy { $0.x >= 0 && $0.x <= 1 && $0.y >= 0 && $0.y <= 1 }, "unit square")
+            // the forced horizontal entry guarantees an x-span, so the fit reaches BOTH edges (fills the length)
+            XCTAssertEqual(fit.fractions.map { $0.x }.min(), 0, "reaches the left edge")
+            XCTAssertEqual(fit.fractions.map { $0.x }.max(), 1, "…and the right edge")
+        }
+    }
+    func testSealFitCentresStraightRuns() {
+        let horiz = SealGeometry(nodes: [SIMD2<Double>(0, 1), SIMD2<Double>(1, 1), SIMD2<Double>(2, 1)],
+                                 arcAtNode: [false, false, false], coilNode: -1)
+        XCTAssertTrue(sealFit(horiz).fractions.allSatisfy { $0.y == 0.5 }, "a horizontal run centres vertically")
+        XCTAssertEqual(sealFit(horiz).fractions.map { $0.x }, [0, 0.5, 1], "…and spreads across x")
+        let vert = SealGeometry(nodes: [SIMD2<Double>(1, 0), SIMD2<Double>(1, 1), SIMD2<Double>(1, 2)],
+                                arcAtNode: [false, false, false], coilNode: -1)
+        XCTAssertTrue(sealFit(vert).fractions.allSatisfy { $0.x == 0.5 }, "a vertical run centres horizontally")
+        XCTAssertEqual(sealFit(sealGeometry(1234)), sealFit(sealGeometry(1234)), "deterministic — twins share the fit")
+    }
 }

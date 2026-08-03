@@ -884,6 +884,26 @@ func sealGeometry(_ hash: UInt32) -> SealGeometry {
     return SealGeometry(nodes: nodes, arcAtNode: arc, coilNode: coilNode)
 }
 
+/// The seal's nodes NORMALISED to unit fractions [0,1]² by FITTING the route's bounding box (independent x/y
+/// scale), so the glyph fills the full LENGTH + height wherever the route sits on the lattice — no hugging one
+/// side. A zero-range axis (a straight run) centres at 0.5. Also carries the lattice ranges (the drawer scales
+/// its corner-arc radius by them). Pure/testable; the SwiftUI layer maps fractions → the padded rect. Twins share it.
+struct SealFit: Equatable {
+    var fractions: [SIMD2<Double>]   // per node, each component in [0,1] (0.5 on a zero-range axis)
+    var rangeX: Double               // lattice x-extent (maxX − minX), 0…2
+    var rangeY: Double               // lattice y-extent
+}
+func sealFit(_ geo: SealGeometry) -> SealFit {
+    let xs = geo.nodes.map { $0.x }, ys = geo.nodes.map { $0.y }
+    let minX = xs.min() ?? 0, maxX = xs.max() ?? 0, minY = ys.min() ?? 0, maxY = ys.max() ?? 0
+    let rangeX = maxX - minX, rangeY = maxY - minY
+    let fractions = geo.nodes.map { n in
+        SIMD2(rangeX > 0 ? (n.x - minX) / rangeX : 0.5,
+              rangeY > 0 ? (n.y - minY) / rangeY : 0.5)
+    }
+    return SealFit(fractions: fractions, rangeX: rangeX, rangeY: rangeY)
+}
+
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
 /// from deletion (scenes-are-precious). Pure/testable.
 func colourCensus(_ scenes: [SceneState]) -> [String: Int] {

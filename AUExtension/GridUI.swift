@@ -45,16 +45,10 @@ let sealInk = Color(.sRGB, red: 12.0 / 255, green: 12.0 / 255, blue: 16.0 / 255,
 func sealLayout(_ geo: SealGeometry, size: CGSize, padFraction: CGFloat) -> (pts: [CGPoint], arcRadius: CGFloat) {
     let pad = min(size.width, size.height) * padFraction
     let availW = size.width - 2 * pad, availH = size.height - 2 * pad
-    let xs = geo.nodes.map { CGFloat($0.x) }, ys = geo.nodes.map { CGFloat($0.y) }
-    let minX = xs.min() ?? 0, maxX = xs.max() ?? 0, minY = ys.min() ?? 0, maxY = ys.max() ?? 0
-    let rangeX = maxX - minX, rangeY = maxY - minY
-    let pts = geo.nodes.map { n -> CGPoint in
-        let fx: CGFloat = rangeX > 0 ? (CGFloat(n.x) - minX) / rangeX : 0.5
-        let fy: CGFloat = rangeY > 0 ? (CGFloat(n.y) - minY) / rangeY : 0.5
-        return CGPoint(x: pad + fx * availW, y: pad + fy * availH)
-    }
-    let pitchX = rangeX > 0 ? availW / rangeX : availW
-    let pitchY = rangeY > 0 ? availH / rangeY : availH
+    let fit = sealFit(geo)                                   // pure bbox-fit fractions (Derivations, tested)
+    let pts = fit.fractions.map { CGPoint(x: pad + CGFloat($0.x) * availW, y: pad + CGFloat($0.y) * availH) }
+    let pitchX = fit.rangeX > 0 ? availW / CGFloat(fit.rangeX) : availW
+    let pitchY = fit.rangeY > 0 ? availH / CGFloat(fit.rangeY) : availH
     return (pts, 0.45 * min(pitchX, pitchY))
 }
 

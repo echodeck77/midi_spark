@@ -157,6 +157,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TEST SWEEP + sealFit REFACTOR (2026-08-03, on `main`; 386 green, iOS builds). REFACTOR: extracted the seal's
+  pure bbox-fit math out of the SwiftUI `GridUI.sealLayout` into `Derivations.sealFit` (`SealFit{fractions,rangeX,
+  rangeY}`, Foundation-only) — keeps pure logic testable (project rule) with zero behaviour change; `sealLayout`
+  now just maps fractions → the rect. TESTS added (a coverage-survey found these gaps): `sealFit` fills-the-length
+  + centres-straight-runs (Derivations); the seal COIL positive branch (was only negative-tested); and three Router
+  comet-feed edge cases — the SILENT CLAIM-GHOST must NOT light the sounding comet (the load-bearing `!v.silent`
+  guard in `snapshotCellSounding`, previously unguarded), a MUTED occupied cell records no strike/no sounding bit,
+  and a FAN-OUT cell reports exactly one bit + one strike (per-cell not per-voice keying). Added a `runDirect`
+  RouterTests helper (direct router so `drainCellStrikes`/`snapshotCellSounding` are inspectable).**
+- **▶ HEADER/SCENES BAR SHARED across perform + edit + PERFORM/EDIT toggle (2026-08-02, `35f22b9`; 380 green, iOS
+  builds). `ArrangementBar` now tops BOTH pages (one consistent header + 16-scene strip); a prominent two-segment
+  PERFORM/EDIT toggle (cyan/orchid, `isEditMode`/`onSetEditMode`) drives `editArmed`. Removed the EDIT verb from the
+  perform verbs cluster (HOLD·MUTE·SELECT remain) + the edit page's DONE close button + its own header (GRID SETUP/
+  undo-redo) + the orphaned `editVerbButton`/`headerIcon`. NOTE: a scene switch still auto-closes EDIT (§cell-edit
+  A6, per-scene session) — kept; revisit if EDIT should persist across scene switches. DEVICE pass owed (header
+  crowding in portrait).**
 - **▶ THE SEAL — the derived cell face, SUPERSEDES THE ORBIT (2026-08-02, on `main` PENDING COMMIT; 379 green,
   iOS builds; DEVICE pass owed). Spec of record: `Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md`
   (renamed from -orbit-face). Design ferry `INSTRUCTIONS-implement-the-seal.md` RETIRED the lissajous ORBIT
