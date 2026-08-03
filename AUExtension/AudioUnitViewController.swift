@@ -1073,26 +1073,11 @@ struct DiagView: View {
     // FLOW thumbnail (intensity OFF/SUBTLE/SHOWCASE); TAP = open/close full FLOW, LONG-PRESS = cycle the view.
     // The header FLOW button retired into this. In DEBUG the slot flips to the DIAG face.
     var vizView: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
-                Text(flowVariation > 0 ? FlowView.names[min(flowVariation, FlowView.names.count - 1)] : "FLOW")
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(flowVariation > 0 ? Color(red: 0.15, green: 0.88, blue: 0.94) : .white.opacity(0.45))
-                Spacer(minLength: 0)
-                vizChip(["OFF", "SUBTLE", "SHOW"][vizIntensity], lit: false) { vizIntensity = (vizIntensity + 1) % 3 }
-                #if DEBUG
-                vizChip("DIAG", lit: vizShowDiag) { vizShowDiag.toggle() }
-                #endif
-            }
-            vizContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .contentShape(Rectangle())
-                .onTapGesture { flowVariation = (flowVariation + 1) % 6 }   // cycle: grid → FLOW/CONSTELLATION/SCOPE/WATERFALL/RADAR → grid
-                .onLongPressGesture { flowVariation = 0 }                   // long-press → back to the grid
-        }
-        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        // CONTENTS REMOVED (user 2026-08-03) — the FLOW thumbnail/label/cycle button are gone; the BOX stays in
+        // place (a parked slot for a future visualisation tenant). FlowView + vizContent/vizPicture stay defined.
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
     @ViewBuilder var vizContent: some View {
         #if DEBUG

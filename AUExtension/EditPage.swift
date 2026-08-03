@@ -87,7 +87,7 @@ extension DiagView {
         VStack(spacing: 8) {
             arrangementBar                                          // the SHARED header + scenes bar (consistent with PERFORM;
                                                                     // the PERFORM/EDIT toggle here replaces the old DONE button)
-            spikeGrid(cellH).frame(height: gridH)                    // the alternative main grid, on top (its column keys toggle the loop)
+            spikeGrid(cellH).frame(width: min(size.width - 24, 560), height: gridH)   // narrower grid (user 2026-08-03), aligned to the inspector width
             modeRow()                                                // MODE ROW: ADD/EDIT · MOVE · MUTE · CLEAR ‖ APPLY · CANCEL
             Text(modeGuidance)                                       // the ALWAYS-VISIBLE guidance for the current mode
                 .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))

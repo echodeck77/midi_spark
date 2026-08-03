@@ -274,8 +274,10 @@ struct GridView: View {
             }
         }
         .overlay { masterArrow }
-        // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP).
-        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, latched: holdLatch, onChange: cb) } }
+        // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP). ALWAYS LATCHED
+        // now (user 2026-08-03): a tap toggles a column into the loop set and it PERSISTS (like Hold was on), showing
+        // the "repeat" LOOP glyph — the same tap-toggle behaviour + icon as the EDIT page's column keys.
+        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, latched: true, onChange: cb) } }
     }
 
     // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
@@ -383,14 +385,12 @@ struct GridView: View {
                 }.allowsHitTesting(false)
             }
         }
-        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES the WHOLE cell cyan — advertise, tap to add
-            let pos = GridPos(col: col, row: row)
+        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES between its OWN
+            let pos = GridPos(col: col, row: row)            // colour and BLACK (user 2026-08-03) — advertise, tap to add.
             if twins.contains(pos) && !isSel && !whiteBorder.contains(pos) {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-                    let f = stagingPulseFraction(tl.date, period: 1.0)
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(accentCyan.opacity(0.12 + 0.45 * f))                              // whole-cell cyan wash
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentCyan.opacity(0.6 + 0.4 * f), lineWidth: 3))
+                    let f = stagingPulseFraction(tl.date, period: 1.0)                          // 0→1→0
+                    RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88 * f))       // fade toward black, revealing the cell's own colour
                 }
                 .allowsHitTesting(false)
             }
@@ -665,6 +665,23 @@ func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Col
 
 // MARK: - RECEIVERS panel (delta §9 item 11) — the input twin of the EMITTERS panel
 
+/// Velocity indicator (input + output faders, user 2026-08-03): a vertical GLOW brightest AT the level, fading
+/// dimly ABOVE and BELOW — using the whole bar — plus a crisp white set-point line. `level` 0…1 from the bottom.
+func velocityGlow(level: Double, hue: Color) -> some View {
+    let p = max(0.02, min(0.98, 1 - level))           // the brightest band's location, measured from the TOP
+    return GeometryReader { g in
+        ZStack {
+            Rectangle().fill(LinearGradient(stops: [
+                .init(color: hue.opacity(0), location: 0),
+                .init(color: hue.opacity(0.95), location: p),
+                .init(color: hue.opacity(0), location: 1),
+            ], startPoint: .top, endPoint: .bottom))
+            Rectangle().fill(Color.white.opacity(0.9)).frame(height: 1.5)
+                .position(x: g.size.width / 2, y: g.size.height * CGFloat(p))
+        }
+    }
+}
+
 /// The four MIDI receivers as a strip panel above COLOUR: name + a cable stepper + a channel filter
 /// (EDIT: ▲▼, OMNI…16) + an INPUT MUTE (both modes — "kill a live keyboard") + a LIVE input meter.
 /// MPE is SILENT AUTO-DETECT (user ruling 2026-07-25) — no interface anywhere. Receiver colours are the
@@ -840,9 +857,8 @@ struct ReceiversView: View {
             GeometryReader { g in
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
-                    if touched {                                   // OVERRIDE: the fill bottom-to-finger + set-point
-                        Rectangle().fill(hues[i]).frame(height: g.size.height * CGFloat(level))
-                        Rectangle().fill(Color.white).frame(height: 1.5).offset(y: -g.size.height * CGFloat(level) + 0.75)
+                    if touched {                                   // OVERRIDE: a glow brightest at the set velocity, fading above/below
+                        velocityGlow(level: level, hue: hues[i])
                     } else {                                       // ③ VELOCITY MARKS: a steady tick per currently-HELD input
                         // note (holds while sounding, strip hue) + a FADING mark for each just-released note (~250ms).
                         ForEach(Array((i < heldVels.count ? heldVels[i] : []).enumerated()), id: \.offset) { _, v in
@@ -1107,21 +1123,9 @@ struct OutputsView: View {
     // OVERRIDE (touched) = the LED-ladder FILL bottom-to-finger + set-point; PASSIVE (idle) = item-4 floating
     // velocity MARKS, each tinted in its source cell's Colour (who struck, how hard). Disabled = greyed.
     private func faderBody(i: Int, level: Double, touched: Bool, enabled: Bool, now: Date) -> some View {
-        let segs = 8
-        let lit = Int((Double(segs) * level).rounded(.up))
         return ZStack {
-            if touched {
-                VStack(spacing: 2) {
-                    ForEach(0..<segs, id: \.self) { row in
-                        let j = segs - 1 - row
-                        let isLit = enabled && j < lit
-                        let hot = j >= segs - 2
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(isLit ? (hot ? amber : cyan) : Color.white.opacity(enabled ? 0.08 : 0.04))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .overlay(alignment: .center) { if j == lit - 1 { Rectangle().fill(Color.white).frame(height: 2) } }
-                    }
-                }
+            if touched {                                    // OVERRIDE: a glow brightest at the set velocity, fading above/below
+                velocityGlow(level: level, hue: enabled ? cyan : Color.white.opacity(0.15))
             } else if enabled {
                 soundingLayer(i < sounding.count ? sounding[i] : []) { col in emitterHue(col) }   // §strips-done: hold-while-sounding
                 velMarkLayer(i < releaseMarks.count ? releaseMarks[i] : [], now: now) { col in emitterHue(col) }   // fade-on-release
