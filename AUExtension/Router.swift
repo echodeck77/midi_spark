@@ -283,7 +283,10 @@ final class Router {
         currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // bypass voices carry no grid identity / SEAL
         defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
         for r in 0..<4 {
-            let bypassed = receiverBypassMask & (1 << UInt8(r)) != 0
+            // SOLO includes bypass (ruling 2026-08-04): a receiver SOLO set silences every non-soloed door's bypass
+            // too — the door mutes with the grid. (LIVE-off already silences bypass via the match-nothing filter.)
+            let soloExcluded = soloReceiverMask != 0 && (soloReceiverMask & (1 << UInt8(r))) == 0
+            let bypassed = (receiverBypassMask & (1 << UInt8(r)) != 0) && !soloExcluded
             let destMask = bypassed ? receiverBypassDest[r] : 0
             let filter = receiverChannels[r], cable = Int(receiverCables[r])
             let lo = receiverRangeLo[r], hi = receiverRangeHi[r]

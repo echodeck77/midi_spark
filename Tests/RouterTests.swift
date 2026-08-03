@@ -1864,6 +1864,20 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "released while stopped → off")
     }
 
+    // SOLO includes bypass (ruling 2026-08-04): a receiver solo set that EXCLUDES the bypassed door silences its
+    // bypass too; the SOLOED door's bypass still sounds.
+    func testBypassRespectsReceiverSolo() {
+        let b = bypassBox(dest: 0b0001)   // R1 bypassed → emitter A
+        let e1 = RecordingEmitter(); var d1 = KernelDiag()
+        Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                         timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0010, out: e1, diag: &d1)   // R2 soloed, R1 excluded
+        XCTAssertTrue(e1.ons.isEmpty, "a solo set excluding the bypassed door silences its bypass")
+        let e2 = RecordingEmitter(); var d2 = KernelDiag()
+        Router().process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                         timestampSample: 0, frameCount: 512, soloReceiverMask: 0b0001, out: e2, diag: &d2)   // R1 soloed
+        XCTAssertTrue(e2.ons.contains { $0.note == 60 && $0.cable == 1 }, "the soloed door's bypass still sounds")
+    }
+
     // LADDER commit signal: absoluteStep advances EACH step even during a column LAP (where effColumn is pinned to
     // the held column). This is what lets an armed rung commit while looping one column — the old effColumn-change
     // trigger never fired there, so the arm just blinked forever.

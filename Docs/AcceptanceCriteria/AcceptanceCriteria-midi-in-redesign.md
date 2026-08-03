@@ -30,7 +30,10 @@ features below assume a working latch underneath.
   `reconcileBypass` injects held in-range notes to the dest emitters (own + ALL cable, emitter's stamp channel) as
   immortal tagged voices — a live monitor that survives transport stop; PANIC flushes it. **v1 FLAGS:** octave +
   velocity SHAPING deferred (output note = source note); a MUTED/DISABLED door's bypass goes quiet too (shares the
-  admission filter). No emitter roles (per the PIN).
+  admission filter). No emitter roles (per the PIN). **LIVE/SOLO ruling (2026-08-04) — DONE:** LIVE-off silences the
+  bypass too (already true via the match-nothing filter); a receiver SOLO set now also silences every non-soloed
+  door's bypass (`reconcileBypass` gains a `soloExcluded` gate; test `testBypassRespectsReceiverSolo`). One kill
+  switch per door — LIVE = may anything go out; ENABLE = may notes come in (orthogonal).
 - Existing tenants (OCT±, fader, LIVE·SOLO, THRU pip) stay, sized small per the law.
 
 ## 2. THE COG (per-door line gains/loses)
