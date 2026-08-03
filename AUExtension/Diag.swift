@@ -26,6 +26,7 @@ struct KernelDiag {
     var lastEmitNote: UInt8 = 0
     var lastEmitChan: UInt8 = 0        // 0-based wire channel (bus stamp); panel shows +1 (human)
     var effColumn = 0                  // active grid column (0…7), derived (§7)
+    var absoluteStep = 0               // global step counter — +1 each step, INCLUDING during a column LAP (LADDER arm commit)
     var pass: Int = 0                  // how many full 8-column cycles elapsed
     var activeCellRow = -1             // row of the sounding cell in effColumn, -1 = column empty
     var activeCellParent: Int8 = -1    // v3.0 resolvedParent of the active cell (−1 = MIDI IN)

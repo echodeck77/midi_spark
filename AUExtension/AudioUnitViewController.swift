@@ -286,12 +286,17 @@ struct DiagView: View {
     /// LADDER · row selector (user 2026-08-03): ENABLE the whole row — make it the active rung in every column that
     /// has an occupied cell there (un-muted). One-directional: it never DISABLES a row (re-tapping just re-enables).
     func setLadderRow(_ row: Int) {
+        let playingCol = d.playing ? d.effColumn : -1        // the sounding column ARMS (flashes) instead of cutting mid-note; the rest flip now
         au?.editScene(record: false) { s in
             var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-            for c in 0..<8 where s.cellAt(c, row) != nil { ar[c] = row; s.cells[c][row]?.muted = false }
+            for c in 0..<8 where s.cellAt(c, row) != nil {
+                s.cells[c][row]?.muted = false               // the enabled row must sound
+                if c != playingCol { ar[c] = row }           // instant flip for every column EXCEPT the one currently playing
+            }
             s.activeRow = ar
         }
-        ladderPending = [:]                                  // an explicit row enable supersedes any armed per-column switch
+        ladderPending = [:]                                  // an explicit row enable supersedes any prior armed per-column switch…
+        if playingCol >= 0, scene.cellAt(playingCol, row) != nil { ladderPending[playingCol] = row }   // …but the SOUNDING column arms
         refreshFromDocument()
     }
     /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
@@ -786,10 +791,10 @@ struct DiagView: View {
             let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
         }
-        .onChange(of: d.effColumn) { _ in                     // LADDER: the playhead LEFT the armed column (an arm is only ever for
-            guard !ladderPending.isEmpty else { return }      // the column that WAS current) → commit now: the old rung finished this
-            for (col, row) in ladderPending { au?.setActiveRow(col, row) }   // pass, the new rung is set for the next entry, and the blink stops
-            ladderPending = [:]; refreshFromDocument()
+        .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
+            guard !ladderPending.isEmpty else { return }      // rung for its next entry. absoluteStep increments each step EVEN when the
+            for (col, row) in ladderPending { au?.setActiveRow(col, row) }   // playhead is LOOPING one column (a lap) — where effColumn never changes, so
+            ladderPending = [:]; refreshFromDocument()         // the old effColumn-change trigger never fired and the arm just blinked forever.
         }
         .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
             if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }
@@ -809,7 +814,7 @@ struct DiagView: View {
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
-                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
+                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }

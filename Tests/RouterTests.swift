@@ -1864,6 +1864,32 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "released while stopped → off")
     }
 
+    // LADDER commit signal: absoluteStep advances EACH step even during a column LAP (where effColumn is pinned to
+    // the held column). This is what lets an armed rung commit while looping one column — the old effColumn-change
+    // trigger never fired there, so the arm just blinked forever.
+    func testAbsoluteStepAdvancesDuringAColumnLap() {
+        let b = box(colours: arpColours()) { _ in }
+        let sr = 48_000.0, tempo = 120.0; let frames: UInt32 = 4096
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        func sweep(laneMask: UInt8) -> (cols: Set<Int>, steps: Set<Int>) {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            var beat = 0.0, ts = 0.0; var cols = Set<Int>(), steps = Set<Int>()
+            for _ in 0..<80 {
+                router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, laneMask: laneMask, out: e, diag: &diag)
+                cols.insert(diag.effColumn); steps.insert(diag.absoluteStep)
+                beat += windowBeats; ts += Double(frames)
+            }
+            return (cols, steps)
+        }
+        let free = sweep(laneMask: 0)
+        XCTAssertGreaterThan(free.cols.count, 1, "no lap → effColumn sweeps the columns")
+        XCTAssertGreaterThan(free.steps.count, 4, "and absoluteStep advances each step")
+        let lap = sweep(laneMask: 0b0000_1000)   // hold column 3
+        XCTAssertEqual(lap.cols, [3], "a lap pins effColumn to the held column")
+        XCTAssertGreaterThan(lap.steps.count, 4, "but absoluteStep STILL advances each step during the lap — the commit signal")
+    }
+
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()

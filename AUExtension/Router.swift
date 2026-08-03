@@ -1145,6 +1145,7 @@ final class Router {
         let absoluteStep = Int((mNow / S).rounded(.down))          // global step counter (derived)
         let effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
         diag.effColumn = effColumn
+        diag.absoluteStep = absoluteStep                           // LADDER commit signal: increments EACH step even during a column LAP (effColumn stays put)
         diag.pass = Int((mNow / cycleBeats).rounded(.down))        // TRUE pass — never remapped (§5b)
 
         // PLAYING PREVIEW: the virtual cell renders SOLO at the live column — arp/ratchet/strum, with the

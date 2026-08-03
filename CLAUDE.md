@@ -157,6 +157,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ LADDER arm-commit FIXED — lap + row selector (2026-08-03, on `main`; 406 green, iOS builds; DEVICE pass
+  owed). Two bugs, both arm-commit timing. ROOT CAUSE (bug 1 — looping a column, the armed rung just blinks, never
+  switches): the commit fired on `onChange(of: d.effColumn)`, but during a column LAP (`heldColumns`) the engine
+  REMAPS effColumn to the held column so it never changes → the arm never committed. FIX: expose
+  `diag.absoluteStep` (Router: `Int((mNow / S).rounded(.down))`, set BEFORE the empty-pool guard) — the global step
+  counter that increments each step EVEN during a lap — and commit on `onChange(of: d.absoluteStep)` (also added to
+  the diag-poll write condition). Handles normal + lap uniformly (a step boundary = the sounding cell finished).
+  Bug 2 — the ROW selector switched the currently-playing column INSTANTLY (cut the note): `setLadderRow` now flips
+  every column EXCEPT the sounding one instantly and ARMS the sounding column (`ladderPending[effColumn]`) so its
+  cell finishes then the new rung takes over. Test: `testAbsoluteStepAdvancesDuringAColumnLap` (effColumn pinned to
+  the held column while absoluteStep still advances). Commit logic itself is VC-side (untested).**
 - **▶ STRIP polish round 2 — scenes toggle, portrait, fixed height, +3 (2026-08-03, on `main`; 405 green, iOS
   builds; DEVICE pass owed). (1) The 16-scene row is HIDDEN by default — `@AppStorage("midispark.showScenes")` (VC)
   gates `ArrangementBar.showScenes`; a SHOW-SCENES toggle lives in a new cog DISPLAY section (`CogPage.showScenes`
