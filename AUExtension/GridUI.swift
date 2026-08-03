@@ -310,7 +310,7 @@ struct GridView: View {
                 // real (swung) column window rather than finishing early and wrapping.
                 let f = columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing)
                 ForEach(0..<8, id: \.self) { r in
-                    if playing, let c = cellAt(playColumn, r), !c.muted {
+                    if playing, let c = cellAt(playColumn, r), !c.muted, !ladderDim.contains(GridPos(col: playColumn, row: r)) {   // LADDER: only the active rung
                         let faint = c.bypassed
                         Rectangle()
                             .fill(Color.white.opacity(faint ? 0.4 : 0.92))
@@ -424,7 +424,7 @@ struct GridView: View {
             }
         }
         .overlay {                                          // border: recently-hidden > no-dest > selection > active > idle
-            let activeGlow = inActiveCol && cell != nil     // only WORKING cells glow in the active column
+            let activeGlow = inActiveCol && cell != nil && !ladderDim.contains(GridPos(col: col, row: row))   // LADDER: only the ACTIVE rung glows, not the dormant ones
             if GridPos(col: col, row: row) == hiddenPending, let hc = raw {
                 // recently-HIDDEN (undo window): a ring in the hidden cell's own colour — tap to restore, touch elsewhere to delete
                 RoundedRectangle(cornerRadius: 8).stroke(colourColor(hc.colourID) ?? .white, lineWidth: 2.5)

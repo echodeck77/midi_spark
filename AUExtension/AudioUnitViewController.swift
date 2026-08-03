@@ -263,11 +263,34 @@ struct DiagView: View {
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
-    /// LADDER: arm a rung switch. Playing → arm (blinks; commits at the column's NEXT ENTRY via the effColumn
-    /// watcher). Stopped → switch immediately (there is no "next entry"). MUTE stays orthogonal to the rung choice.
+    /// LADDER tap (user 2026-08-03): tapping the ACTIVE rung toggles its MUTE (the column goes silent, dimmed like
+    /// the dormant rungs; tap again restores). Tapping a DORMANT rung makes it the active one — but BLINK-arm (commit
+    /// at the column's next entry) ONLY if the playhead is sounding this column right now; otherwise flip instantly.
     func armLadderRung(_ col: Int, _ row: Int) {
-        if d.playing { ladderPending[col] = row }
-        else { au?.setActiveRow(col, row); ladderPending[col] = nil; refreshFromDocument() }
+        if row == scene.ladderActiveRow(col) {           // the active rung → mute/unmute the column
+            au?.editScene(record: false) { $0.cells[col][row]?.muted.toggle() }; refreshFromDocument(); return
+        }
+        let armed = d.playing && d.effColumn == col      // playhead on THIS column → arm (avoid cutting the sounding note); else instant
+        au?.editScene(record: false) { s in
+            s.cells[col][row]?.muted = false             // the new rung must sound
+            if !armed {                                  // instant flip — set the active rung now
+                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                ar[col] = row; s.activeRow = ar
+            }
+        }
+        ladderPending[col] = armed ? row : nil
+        refreshFromDocument()
+    }
+    /// LADDER · row selector (user 2026-08-03): ENABLE the whole row — make it the active rung in every column that
+    /// has an occupied cell there (un-muted). One-directional: it never DISABLES a row (re-tapping just re-enables).
+    func setLadderRow(_ row: Int) {
+        au?.editScene(record: false) { s in
+            var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+            for c in 0..<8 where s.cellAt(c, row) != nil { ar[c] = row; s.cells[c][row]?.muted = false }
+            s.activeRow = ar
+        }
+        ladderPending = [:]                                  // an explicit row enable supersedes any armed per-column switch
+        refreshFromDocument()
     }
     /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
     var ladderDim: Set<GridView.GridPos> {
@@ -434,16 +457,20 @@ struct DiagView: View {
     // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
     var verbCluster: some View {
         VStack(spacing: 6) {
-            // HOLD (moved from the controls panel — the §5c sustain latch) · MUTE (arm → tap cells to mute) ·
-            // SELECT (to be implemented). EDIT moved OUT of the cluster — it's the header PERFORM/EDIT toggle now.
-            roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
-                .contentShape(Rectangle()).onTapGesture { toggleHold() }
-            roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
-                .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
-            roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
-                .opacity(0.4).allowsHitTesting(false)
-            roundVerb(label: "LADDER", hue: ladderHue, active: ladderMode, badge: nil)   // LADDER: exclusive columns (global arm)
-                .contentShape(Rectangle()).onTapGesture { let on = !ladderMode; ladderMode = on; au?.setLadderMode(on); if on { heldVerb = nil } }
+            // Two rows (user 2026-08-03): HOLD · MUTE on one line, SELECT · LADDER on the next. EDIT is the header
+            // PERFORM/EDIT toggle now. HOLD = the §5c sustain latch; MUTE = arm-then-tap; LADDER = exclusive columns.
+            HStack(spacing: 6) {
+                roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
+                    .contentShape(Rectangle()).onTapGesture { toggleHold() }
+                roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
+                    .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
+            }
+            HStack(spacing: 6) {
+                roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
+                    .opacity(0.4).allowsHitTesting(false)
+                roundVerb(label: "LADDER", hue: ladderHue, active: ladderMode, badge: nil)   // LADDER: exclusive columns (global arm)
+                    .contentShape(Rectangle()).onTapGesture { let on = !ladderMode; ladderMode = on; au?.setLadderMode(on); if on { heldVerb = nil } }
+            }
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -962,7 +989,8 @@ struct DiagView: View {
     // right rail points left, the left rail points right — both point INTO the grid. `chevron` picks which.
     func rowRail(_ cellHeight: CGFloat, chevron: String) -> some View {
         // PLACE lights the chevrons in the BRUSH colour (the cell to be placed); other verbs use the verb hue.
-        let hue = activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35))
+        // LADDER: the rail ENABLES a whole row as the active rung (tinted ladder-green).
+        let hue = ladderMode ? ladderHue : (activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35)))
         return VStack(spacing: GridGeometry.vGap) {
             Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
@@ -971,7 +999,7 @@ struct DiagView: View {
                     .frame(width: 40, height: cellHeight)
                     .background(RoundedRectangle(cornerRadius: 5).fill(hue.opacity(0.1)))
                     .contentShape(Rectangle())
-                    .onTapGesture { if let v = activeVerb { doVerbOnRow(v, r) } }
+                    .onTapGesture { if ladderMode { setLadderRow(r) } else if let v = activeVerb { doVerbOnRow(v, r) } }
             }
         }
     }
