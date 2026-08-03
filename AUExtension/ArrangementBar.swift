@@ -52,14 +52,14 @@ struct ArrangementBar: View {
                 Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
                     .foregroundColor(.white.opacity(0.85)).fixedSize()
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
-                modeToggle                                                         // the prominent PERFORM/EDIT toggle
-                presetButton                                                       // §3 PRESETS: the selector, right of the logo
-                undoRedo                                                            // /btw ②: UNDO/REDO to the right of the preset selector
+                presetButton                                                       // §3 PRESETS: right of the logo (user 2026-08-03)
+                modeToggle                                                         // PERFORM/EDIT toggle: right of the preset button
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 if d.playing {
                     Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
                         .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
                 }
+                undoRedo                                                           // labelled UNDO/REDO, moved to the right (user 2026-08-03)
                 cogOrCan                                                           // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
             sceneChipRow                                                           // THE 16 SCENE CHIPS — full-width row below the header
@@ -108,19 +108,22 @@ struct ArrangementBar: View {
         .frame(maxWidth: 150).fixedSize(horizontal: true, vertical: false)
         .contentShape(Rectangle()).onTapGesture { onOpenPresets() }
     }
-    // /btw ②: UNDO / REDO beside the preset selector — dimmed + inert when nothing is available.
+    // UNDO / REDO — LABELLED, on the right of the header (user 2026-08-03). Dimmed + inert when unavailable.
     private var undoRedo: some View {
-        HStack(spacing: 3) {
-            undoRedoBtn("arrow.uturn.backward", on: canUndo, action: onUndo)
-            undoRedoBtn("arrow.uturn.forward", on: canRedo, action: onRedo)
+        HStack(spacing: 4) {
+            undoRedoBtn("UNDO", "arrow.uturn.backward", on: canUndo, action: onUndo)
+            undoRedoBtn("REDO", "arrow.uturn.forward", on: canRedo, action: onRedo)
         }
     }
-    private func undoRedoBtn(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Image(systemName: symbol).font(.system(size: 11, weight: .heavy))
-            .foregroundColor(.white.opacity(on ? 0.82 : 0.22))
-            .frame(width: 26, height: 26)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(on ? 0.08 : 0.03)))
-            .contentShape(Rectangle()).onTapGesture { if on { action() } }
+    private func undoRedoBtn(_ label: String, _ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol).font(.system(size: 10, weight: .heavy))
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+        }
+        .foregroundColor(.white.opacity(on ? 0.82 : 0.22))
+        .padding(.horizontal, 7).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(on ? 0.08 : 0.03)))
+        .contentShape(Rectangle()).onTapGesture { if on { action() } }
     }
     private var sceneChipRow: some View {
         GeometryReader { geo in
