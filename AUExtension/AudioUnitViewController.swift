@@ -126,7 +126,7 @@ struct DiagView: View {
     @State var clearedStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
     @State var editLoopMask: UInt8 = 0
-    var editingCell: Cell? { (editArmed && selCol >= 0 && selRow >= 0) ? scene.cells[selCol][selRow] : nil }
+    var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
     static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State var busChannels: [Int] = [1, 2, 3, 4]
     @State var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
@@ -299,7 +299,7 @@ struct DiagView: View {
     var routeInCurrentReceiver: Int? {           // the receiver ALL foci share (nil ⇒ mixed / row-fed → no ring)
         var recv: Int?; var first = true
         for (col, f) in routeFoci {
-            guard let cell = scene.cells[col][f] else { continue }
+            guard let cell = scene.cellAt(col, f) else { continue }
             let r = cell.inputRow == nil ? cell.inputReceiver : nil
             if first { recv = r; first = false } else if recv != r { return nil }
         }
@@ -307,7 +307,7 @@ struct DiagView: View {
     }
     var routeOutBusesOn: [Bool] {                // a bus reads ON only if EVERY focus enables it
         guard !routeFoci.isEmpty else { return [false, false, false, false] }
-        return Bus.allCases.map { b in routeFoci.allSatisfy { (col, f) in scene.cells[col][f]?.buses.contains(b) ?? false } }
+        return Bus.allCases.map { b in routeFoci.allSatisfy { (col, f) in scene.cellAt(col, f)?.buses.contains(b) ?? false } }
     }
 
     // §11 dispatch a grid tap to the active verb.
@@ -722,7 +722,7 @@ struct DiagView: View {
             // distinct Colour sets brush = that Colour, so the COLOUR + PROCESSOR panels edit the SELECTED
             // cells' Colour (brush is the desk pointer). Multi-Colour → MIXED (handled elsewhere); empty → the
             // brush stays as-is.
-            let ids = Set(sel.compactMap { scene.cells[$0.col][$0.row]?.colourID })
+            let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
         }
         .onReceive(timer) { _ in
@@ -945,7 +945,7 @@ struct DiagView: View {
         case .delete: au.editScene { for c in 0..<8 { $0.deleteCellSever(col: c, row: row) } }
                       for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
         case .select:
-            for c in 0..<8 where scene.cells[c][row] != nil {
+            for c in 0..<8 where scene.cellAt(c, row) != nil {
                 let p = GridView.GridPos(col: c, row: row)
                 if selection.contains(p) { selection.remove(p) } else { selection.insert(p) }
             }
@@ -955,7 +955,7 @@ struct DiagView: View {
     // §11 SELECT "touching edits": recolour every selected cell to `id` (the Colour edit propagates per-Colour).
     func recolorSelection(_ id: String) {
         guard let au, !selection.isEmpty else { return }
-        au.editScene { s in for p in selection { if var c = s.cells[p.col][p.row] { c.colourID = id; s.cells[p.col][p.row] = c } } }
+        au.editScene { s in for p in selection { if var c = s.cellAt(p.col, p.row) { c.colourID = id; s.setCell(p.col, p.row, c) } } }
         brush = id                                          // desk re-point: the recoloured (single-Colour) set points the desk at it
         refreshFromDocument()
     }
@@ -1130,7 +1130,7 @@ struct DiagView: View {
     // MIXED-SET law: a SELECT set spanning >1 distinct Colour has no honest Colour-level edit, so the
     // PROCESSOR panels dim to "MIXED" (cell-level edits still apply). Single-Colour (or empty→brush) = normal.
     var selectionMixed: Bool {
-        Set(selection.compactMap { scene.cells[$0.col][$0.row]?.colourID }).count > 1
+        Set(selection.compactMap { scene.cellAt($0.col, $0.row)?.colourID }).count > 1
     }
 
     // (processorPanels — the retired shared-Colour A/B desk — removed with the morph layer; all processor

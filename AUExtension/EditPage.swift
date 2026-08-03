@@ -10,7 +10,7 @@ extension DiagView {
     // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to editSel.
     var editSelTargets: [(col: Int, row: Int)] { editSel.map { (col: $0.col, row: $0.row) } }
     func syncAnchor() {
-        if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cells[a.col][a.row]?.colourID ?? brush }
+        if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cellAt(a.col, a.row)?.colourID ?? brush }
         else { selCol = -1; selRow = -1 }
     }
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
@@ -19,7 +19,7 @@ extension DiagView {
         if bornThisSession.contains(pos) {
             au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; bornThisSession.remove(pos); refreshFromDocument()
         } else if let orig = preAdoptStash[pos] {
-            au?.editScene { $0.cells[pos.col][pos.row] = orig }; preAdoptStash[pos] = nil; refreshFromDocument()
+            au?.editScene { $0.setCell(pos.col, pos.row, orig) }; preAdoptStash[pos] = nil; refreshFromDocument()
         }
         editSel.removeAll { $0 == pos }
         syncAnchor()

@@ -442,6 +442,26 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(s.isEmpty, "a placed cell ⇒ not empty")
     }
 
+    // Bounds-safe cell access: a stale UI position or a decoded RAGGED scene must never trap a subscript (the
+    // crash class behind multi-cell edits). cellAt/setCell/inBounds/swapCells all no-op out of range.
+    func testBoundsSafeCellAccessNeverTraps() {
+        var s = SceneState.empty()
+        s.cells[3][4] = Cell(colourID: "gold")
+        XCTAssertEqual(s.cellAt(3, 4)?.colourID, "gold", "in-range read round-trips")
+        XCTAssertNil(s.cellAt(99, 99), "far out-of-range read → nil, no trap")
+        XCTAssertNil(s.cellAt(-1, 0), "negative index → nil")
+        s.setCell(50, 50, Cell(colourID: "cyan"))          // out-of-range write is a no-op
+        XCTAssertTrue(s.cellAt(50, 50) == nil, "out-of-range write did nothing")
+        s.setCell(3, 4, nil); XCTAssertNil(s.cellAt(3, 4), "in-range write clears the cell")
+        s.swapCells((0, 0), (99, 99))                      // ragged/out-of-range swap is a no-op (no trap)
+        // A genuinely RAGGED scene (short of 8×8, as a bad decode could produce) is safe too.
+        let ragged = SceneState(cells: [[Cell(colourID: "gold"), nil]])   // 1 column, 2 rows
+        XCTAssertEqual(ragged.cellAt(0, 0)?.colourID, "gold")
+        XCTAssertNil(ragged.cellAt(0, 5), "row past the ragged column → nil")
+        XCTAssertNil(ragged.cellAt(7, 7), "column past the ragged grid → nil")
+        XCTAssertFalse(ragged.inBounds(7, 7)); XCTAssertTrue(ragged.inBounds(0, 1))
+    }
+
     func testPadScenesFillsToEightIdempotently() {
         var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
         d.scenes[0].cells[0][0] = Cell(colourID: "gold")

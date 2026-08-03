@@ -355,12 +355,23 @@ struct SceneState: Codable, Equatable {
     /// Both are one swap of the cell structs — fields move AS-IS (MOVES NEVER REWRITE REFERENCES: inputRow
     /// is row-level, so within-row drags stay reference-safe and cross-row drags rewire meaning visibly).
     mutating func swapCells(_ a: (col: Int, row: Int), _ b: (col: Int, row: Int)) {
-        guard a.col >= 0, a.col < 8, a.row >= 0, a.row < 8,
-              b.col >= 0, b.col < 8, b.row >= 0, b.row < 8,
+        guard inBounds(a.col, a.row), inBounds(b.col, b.row),
               (a.col != b.col || a.row != b.row) else { return }
         let tmp = cells[a.col][a.row]
         cells[a.col][a.row] = cells[b.col][b.row]
         cells[b.col][b.row] = tmp
+    }
+
+    /// Is (col,row) a real slot in THIS scene's grid? A decoded/ragged scene can be short of 8×8, and a UI
+    /// selection can outlive its cell (a clear or a scene switch leaves a stale position), so callers must
+    /// never trap on a subscript. `cellAt`/`setCell` are the bounds-safe read/write; use them off the hot path.
+    func inBounds(_ col: Int, _ row: Int) -> Bool {
+        col >= 0 && col < cells.count && row >= 0 && row < cells[col].count
+    }
+    func cellAt(_ col: Int, _ row: Int) -> Cell? { inBounds(col, row) ? cells[col][row] : nil }
+    mutating func setCell(_ col: Int, _ row: Int, _ cell: Cell?) {
+        guard inBounds(col, row) else { return }
+        cells[col][row] = cell
     }
 }
 
@@ -437,7 +448,7 @@ struct PluginState: Codable, Equatable {
     /// Bounds-guarded → returns self unchanged for an out-of-range address.
     func restoringCell(col: Int, row: Int, to cell: Cell?) -> PluginState {
         guard activeScene >= 0, activeScene < scenes.count,
-              col >= 0, col < 8, row >= 0, row < scenes[activeScene].cells[col].count else { return self }
+              col >= 0, col < scenes[activeScene].cells.count, row >= 0, row < scenes[activeScene].cells[col].count else { return self }
         var s = self
         s.scenes[activeScene].cells[col][row] = cell
         return s

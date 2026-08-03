@@ -93,7 +93,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // MODE ROW — edit a MANUAL SELECTION SET (INSTRUCTIONS-edit-page-mode-row): apply the SAME operation to EACH
     // selected cell's OWN config — so a mixed selection keeps its per-cell differences except where the edit touches.
     func editCells(_ targets: [(col: Int, row: Int)], _ mutate: @escaping (inout Cell) -> Void) {
-        editScene { s in for t in targets { if var c = s.cells[t.col][t.row] { mutate(&c); s.cells[t.col][t.row] = c } } }
+        editScene { s in for t in targets { if var c = s.cellAt(t.col, t.row) { mutate(&c); s.setCell(t.col, t.row, c) } } }   // bounds-safe (stale/ragged positions)
     }
     func withChainCells(_ targets: [(col: Int, row: Int)], _ mutate: (inout [ProcessorSlot]) -> Void) {
         // Materialise + mutate each target's chain OUTSIDE editScene — materializedChain reads `document`, and

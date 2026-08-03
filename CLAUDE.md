@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CRASH HARDENING — bounds-safe cell access (2026-08-03, on `main`; 389 green, iOS builds). User hit a crash
+  changing the colour of a (multi-cell) selection; no exception captured. Root cause not confirmed, but the whole
+  colour-edit path + several UI reads subscripted `scene.cells[col][row]` UNGUARDED on the upper bound — a trap if a
+  UI selection outlives its cell (clear / scene switch) or a decoded scene is RAGGED (< 8×8; `editScopeTargets`
+  already guards for this, confirming ragged grids are possible). FIX: added `SceneState.inBounds/cellAt/setCell`
+  (bounds-safe read/write; nil/no-op out of range) and routed every unguarded site through them — `editCells` (the
+  colour mutation), `editingCell`, `syncAnchor`, `recolorSelection`, the route-foci reads, the selection `onChange`,
+  the mixed-selection check, the deselect-restore, plus hardened `swapCells` and `restoringCell` (were `< 8`, not
+  `< cells.count`). Test `testBoundsSafeCellAccessNeverTraps` (ragged + out-of-range never trap). DEVICE retest owed
+  — if it still crashes, we need the exception to locate a different site.**
 - **▶ CHOP BUG FIX — the ALT (bottom) row on HOLD cells (2026-08-03, on `main`; 388 green, iOS builds). The 8×3
   chop grid (top=MAIN dest · middle=MUTE · bottom=ALT dest) routed correctly for TICK cells (arp/ratchet/strum,
   via `emitChop`→`chopMask`) but was ENTIRELY IGNORED for HOLD cells (identity/passthrough/chance/harmonize) —
