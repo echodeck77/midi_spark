@@ -989,10 +989,13 @@ struct OutputsView: View {
     var wiring: Bool = false
     var routeOn: [Bool] = [false, false, false, false]     // the focus cell's enabled emitters (A–D)
     var onRouteOut: (Int) -> Void = { _ in }
+    // EMITTER PAGE (2026-08-04): LONG-PRESS a role button (→ that section) or the header (→ top) opens the full page.
+    var onOpenPage: (Int, String) -> Void = { _, _ in }
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
     @State private var roleDragBase: [Int?] = [nil, nil, nil, nil]   // role-button param value captured at drag start
+    @State private var roleLongFired = false                          // a role long-press opened the page → the drag's tap must not also toggle
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let letters = ["A", "B", "C", "D"]             // emitters A–D (box title MIDI OUTPUT disambiguates from inputs)
@@ -1071,6 +1074,8 @@ struct OutputsView: View {
             Text("ch\(ch(i))").font(.system(size: 8, weight: .heavy, design: .monospaced))
                 .foregroundColor(sharedWithEnabled(i) ? amber : .white.opacity(0.5))
         }
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 0.5) { onOpenPage(i, "top") }   // EMITTER PAGE at the top
     }
 
     // PERFORM role column — the emitter's playable roles in the roleButton grammar (tap = toggle · vertical
@@ -1086,11 +1091,11 @@ struct OutputsView: View {
         let altN = i < altCount.count ? altCount[i] : 1
         return VStack(spacing: 2) {
             // CLAIM: tap toggles membership; drag sets LEAK % (0 = hard suppression, shown as plain "CLAIM").
-            roleButton(i, label: "CLAIM", on: claimOn, value: leak, maxValue: 100,
+            roleButton(i, label: "CLAIM", section: "claim", on: claimOn, value: leak, maxValue: 100,
                        onToggle: { onClaim(i) }, onDrag: { onClaimLeak(i, $0) })
-            roleButton(i, label: "DUCK", on: flatOn, value: flatAmt, maxValue: 100,   // "DUCK" = the ruled rename of FLAT (label only; code stays flatten*)
+            roleButton(i, label: "DUCK", section: "duck", on: flatOn, value: flatAmt, maxValue: 100,   // "DUCK" = the ruled rename of FLAT (label only; code stays flatten*)
                        onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
-            roleButton(i, label: "ALT", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
+            roleButton(i, label: "ALT", section: "alt", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
                        onToggle: { onToggleAlt(i) }, onDrag: { onAltCount(i, max(1, $0)) })
             HStack(spacing: 2) {
                 octBtn("OCT−") { onOct(i, -1) }
@@ -1105,7 +1110,7 @@ struct OutputsView: View {
 
     // A ROLE BUTTON — the shared grammar for the role family: TAP toggles `on`; a VERTICAL DRAG sets its one
     // parameter (relative to the value at drag start; up = more). Shows "LABEL n" when on and the value ≠ 0.
-    private func roleButton(_ i: Int, label: String, on: Bool, value: Int, maxValue: Int,
+    private func roleButton(_ i: Int, label: String, section: String, on: Bool, value: Int, maxValue: Int,
                             onToggle: @escaping () -> Void, onDrag: @escaping (Int) -> Void) -> some View {
         Text(on && value != 0 ? "\(label) \(value)" : label)
             .font(.system(size: 8, weight: .heavy, design: .monospaced))
@@ -1113,6 +1118,9 @@ struct OutputsView: View {
             .frame(maxWidth: .infinity).frame(height: 24)   // taller, more inviting emitter buttons (user 2026-07-28)
             .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber.opacity(0.82) : Color.white.opacity(0.08)))   // ④ chrome quiet: role lights drop a step
             .contentShape(Rectangle())
+            // LONG-PRESS → the EMITTER PAGE at this role's section (a held finger that doesn't drag). The flag stops
+            // the drag's release from ALSO toggling. A drag past ~10px cancels the long-press (SwiftUI), so drag-to-set is unaffected.
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in roleLongFired = true; onOpenPage(i, section) })
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { v in
                     if roleDragBase[i] == nil { roleDragBase[i] = value }
@@ -1121,9 +1129,9 @@ struct OutputsView: View {
                     }
                 }
                 .onEnded { v in
-                    let wasDrag = abs(v.translation.height) > 4
                     roleDragBase[i] = nil
-                    if !wasDrag { onToggle() }
+                    if roleLongFired { roleLongFired = false; return }   // the page opened on long-press → don't toggle
+                    if abs(v.translation.height) <= 4 { onToggle() }     // a tap (no drag) toggles
                 })
     }
     private func octBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
