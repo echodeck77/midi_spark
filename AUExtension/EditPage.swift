@@ -410,13 +410,13 @@ extension DiagView {
                 .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil } }
         }
     }
-    // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×2 grid + ALT destination (model
-    // persisted; the routing ENGINE is a separate increment — labelled so it's honest, not a silent no-op).
+    // F — OUTPUT: MAIN destination toggles (live, edit cell.buses) · the CHOP 8×3 grid + ALT destination. The chop
+    // routing engine IS wired: tick cells (arp/ratchet/strum) route per-slice; a HOLD cell routes by its onset slice.
     var mainDestHue: Color { Color(red: 0.15, green: 0.88, blue: 0.94) }   // cyan — the emitters
     enum ChopRow { case main, alt, mute }
     /// The OUTPUT block — MAIN dest · the 8×3 CHOP grid · ALT dest — CENTRED at the emitter section's width so it
-    /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). MAIN dest is live (edits cell.buses); the
-    /// chop grid + alt dest persist but their routing ENGINE is a separate increment.
+    /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). Each slice column: TOP → the cell's own (MAIN)
+    /// emitters · MIDDLE → MUTE · BOTTOM → the ALT DESTINATION set (chosen below). The routing runs in the engine.
     @ViewBuilder func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
         let chop = cell.chopResolved
         VStack(alignment: .leading, spacing: 8) {            // §6 left-aligned with the page grammar (was centred)

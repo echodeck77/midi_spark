@@ -800,6 +800,10 @@ final class Router {
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
             let legato = mode == .identity && treat.a.phase == .legato && (bm & altMask) == 0
+            // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
+            // chop — MAIN adds the cell's own emitters, ALT adds altDest, MUTE silences. `chopMask` returns `bm`
+            // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
+            let hbm = chopMask(cell, m: colStart, S: S, base: bm)
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
             if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
             let srcN = holdChain ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter
@@ -810,14 +814,14 @@ final class Router {
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, t: t, baseVel: 96, row: r, storeArtics: false,
-                                busMask: bm, on: onSample, off: offSample, beat: colStart,
+                                busMask: hbm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, out: out, diag: &diag)
                 } else if legato {
                     // §2 per-bus reconcile: ADOPT the buses a matching drone already sounds (no off/on);
                     // STRIKE only the buses that are new — each opened IMMORTAL (offSample .max) so drainDue
                     // never truncates it and only the next boundary's reconcile can close it.
                     var emitMask: UInt8 = 0
-                    for b in UInt8(0)..<4 where bm & (1 << b) != 0 {
+                    for b in UInt8(0)..<4 where hbm & (1 << b) != 0 {
                         let w = n + emitterOctaveShift(Int(b)) + masterKey   // the wire pitch emitOneBus will open
                         guard w >= 0 && w <= 127 else { continue }           // out of range → emitOneBus would drop it
                         if !adoptLegatoBus(wire: UInt8(w), bus: b, ci: Int8(ci), alt: altFlag) { emitMask |= (1 << b) }
@@ -828,7 +832,7 @@ final class Router {
                                   out: out, diag: &diag)
                     }
                 } else {
-                    emitArtic(note: UInt8(n), busMask: bm,
+                    emitArtic(note: UInt8(n), busMask: hbm,
                               onSample: onSample, offSample: offSample, windowEnd: windowEnd,
                               out: out, diag: &diag)
                 }

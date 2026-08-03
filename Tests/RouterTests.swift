@@ -1192,6 +1192,31 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.isEmpty, "chop muteMask over every slice → the whole column is silent")
         assertNothingLeftSounding(e)
     }
+    // §cell-edit F CHOP alt row: every slice OFF main, ON alt, routed to altDest [.c] → notes emit on Emit C
+    // (cable 3), NOT on the cell's own Emit A (cable 1). (The bottom-row ALT-destination routing.)
+    func testChopAltRoutesToAltDestination() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]
+            c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])   // main OFF, alt ON → alt dest C only
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 3 }.count, 0, "alt slices emit on the ALT destination (Emit C)")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "main is OFF for every slice → nothing on Emit A")
+        assertNothingLeftSounding(e)
+    }
+    // §cell-edit F CHOP on a HOLD (passthrough/identity) cell — main/mute/alt must apply, same as a tick cell.
+    func testChopAppliesToHoldCell() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a]); c.processors = []   // EMPTY chain = identity HOLD
+            c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])   // main OFF, alt ON → Emit C only
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 3 }.count, 0, "a HOLD cell's alt slices reach the alt destination (Emit C)")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "main OFF → the hold does not sound on Emit A")
+        assertNothingLeftSounding(e)
+    }
 
     // SEAL comet: the per-CELL strike feed records the firing cell (index col*8+row) with its velocity; a
     // silent cell records nothing. Drains read-and-clear.

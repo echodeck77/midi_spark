@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CHOP BUG FIX — the ALT (bottom) row on HOLD cells (2026-08-03, on `main`; 388 green, iOS builds). The 8×3
+  chop grid (top=MAIN dest · middle=MUTE · bottom=ALT dest) routed correctly for TICK cells (arp/ratchet/strum,
+  via `emitChop`→`chopMask`) but was ENTIRELY IGNORED for HOLD cells (identity/passthrough/chance/harmonize) —
+  `emitColumnHolds` emitted the raw `bm`, never calling `chopMask`, so the ALT/MAIN/MUTE rows did nothing on a
+  hold (the default passthrough cell). FIX: `emitColumnHolds` now routes the held note by its ONSET slice
+  (`hbm = chopMask(cell, m: colStart, S:S, base: bm)` — a hold is one articulation at colStart=slice 0; MAIN→own
+  buses, ALT→altDest, MUTE→silent). `chopMask` returns `bm` unchanged when the cell has no chop → zero behaviour
+  change for ordinary holds; all legato/drone tests still green. Tests: `testChopAltRoutesToAltDestination` (tick),
+  `testChopAppliesToHoldCell` (hold). NOTE/LIMITATION: for a SUSTAINED hold this routes the WHOLE note by slice 0
+  (setting the whole bottom row → routes to alt; a subset not including slice 0 won't) — true per-slice CHOPPING of
+  a sustain (re-striking into 8 rerouted segments) is a larger follow-up needing device-verified future-note
+  scheduling. The dead PREVIEW path (`previewChordHold`) is unchanged. Fixed the stale "routing engine is a
+  separate increment" / "8×2 grid" UI comments.**
 - **▶ DEAD-CODE SWEEP (2026-08-03, on `main`; 386 green, iOS builds; net −346 lines). A vetted survey found these
   orphans (all confirmed zero-caller): the whole `PaletteView` (retired colour-brush palette, GridUI) + `RoutePanelView`
   (FlowView) Views; the disconnected EDIT-page TRIGGERS accordion cluster (`triggersInline`/`tapEditor`/`holdEditor`/
