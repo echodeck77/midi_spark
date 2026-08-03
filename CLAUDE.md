@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ INPUT ENABLE / DISABLE — the strip HEADER (2026-08-03, on `main`; 397 green, iOS builds; DEVICE pass owed).
+  Redesign §1 ENABLE/DISABLE, delivered as the user asked: each receiver strip's HEADER now SUMMARISES the door
+  (hue · letter · CHANNEL — "CH3"/"OMNI"; RANGE appends here once §2 ships) AND doubles as the listen toggle. Two
+  independent per-door gates now: DISABLE (header) = the door stops LISTENING (dark meter, latch SEALED — no
+  re-capture) while an ARMED latch keeps FEEDING its frozen chord to the grid; MUTE (foot LIVE/MUTED, existing) =
+  stops the FEED into the grid entirely. Workflow: latch A, disable A, play B untouched ("close the door, keep the
+  room"). Impl: `Receiver.inputEnabled: Bool?` (nil ⇒ enabled, persisted like mute) → builder sets
+  `receiverChannels[i] = mutedSourceFilter` for disabled (dark meter + Kernel capture seals) BUT leaves the CELL's
+  `inputChannel` = real channel so the frozen chord still reads → `box.receiverDisabledMask` → Router
+  `effectivePool` returns the frozen pool when armed (feeds even while disabled), else `emptyPool` when disabled
+  (blocks live read), else live. `toggleReceiverEnabled` on AU+VC; header tap in `ReceiversView.header(_:isThru:)`.
+  Tests: `testDisabledReceiverKeepsFeedingArmedLatchIgnoringLive`, `testDisabledReceiverNotArmedIsSilent`,
+  `testDisabledReceiverSealsMeteringButCellKeepsChannel` (RouterTests).**
 - **▶ LATCH BUG FIXED (2026-08-03, on `main`; 394 green, iOS builds; DEVICE pass owed). Prereq §0 of the MIDI-IN
   redesign ("on-strip LATCH does nothing"). ROOT CAUSE: `Router.process` gated BOTH emission loops on the LIVE pool
   — `if pool.count > 0` (hold loop ~767) and `guard pool.count > 0 else { return }` (tick/arp loop ~1096) — both

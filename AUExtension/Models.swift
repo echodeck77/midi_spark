@@ -315,6 +315,13 @@ struct Receiver: Codable, Equatable {
     var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
     var mpeMerge: Bool = false  // per-receiver MPE-merge (the front door); engine semantics deferred
     var muted: Bool = false     // input mute (PERSISTED) — a muted receiver feeds its subscribers nothing
+    // INPUT ENABLE (2026-08-03): whether this door LISTENS for incoming notes. DISABLED = admit no NEW notes
+    // (dark meter, latch SEALED — no re-capture), but a receiver already ARMED keeps FEEDING its frozen chord to
+    // the grid ("close the door, keep the room" — latch A, disable A, play B untouched). Distinct from `muted`,
+    // which stops the FEED into the grid entirely. Optional so old docs decode nil ⇒ enabled. Persisted, like mute.
+    var inputEnabled: Bool? = nil
+    /// The listen state, nil-safe: missing ⇒ enabled (listening). Non-persisting read helper.
+    var inputEnabledResolved: Bool { inputEnabled ?? true }
     // §item 11 INPUT CABLES (amendment 2026-07-26): the input cable(s) this receiver reads, as a BITMASK
     // (bit i = cable i+1; cables 1–4). Optional so pre-cable docs decode as nil ⇒ ANY (all cables) — a
     // migration no-op. The v1 stepper writes ANY or a single bit; the bitmask reserves subset-multi later.

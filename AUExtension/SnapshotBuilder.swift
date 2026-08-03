@@ -120,13 +120,20 @@ enum SnapshotBuilder {
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
         // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
         // the R1 passthrough gate blocks it (mute ruling 2026-07-26) — one representation, both consumers.
+        // A MUTED or DISABLED receiver resolves to the match-nothing filter: metering goes dark AND the latch
+        // capture (which reads this filter) admits nothing, so a disabled door's frozen pool is SEALED (no
+        // re-capture). Muted goes further — its CELLS also read match-nothing (line ~78), killing the grid feed;
+        // a disabled door's cells keep their real channel so an ARMED latch's frozen chord still feeds (effectivePool).
         let recvCh = doc.receiversResolved.map {
-            $0.muted ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
+            ($0.muted || !$0.inputEnabledResolved) ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
         }
         let recvCable = doc.receiversResolved.map { _ in UInt8(0b1111) }   // COG SIMPLIFICATION: always accept ALL input cables (union)
         // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
         var latchAddMask: UInt8 = 0
         for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.latchAddResolved { latchAddMask |= 1 << UInt8(i) }
+        // INPUT ENABLE: bit i = receiver i is NOT listening (door closed) — the Router blocks its cells' LIVE read.
+        var receiverDisabledMask: UInt8 = 0
+        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && !r.inputEnabledResolved { receiverDisabledMask |= 1 << UInt8(i) }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -147,7 +154,8 @@ enum SnapshotBuilder {
                            thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
                            receiverCables: recvCable,
-                           latchAddMask: latchAddMask)
+                           latchAddMask: latchAddMask,
+                           receiverDisabledMask: receiverDisabledMask)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

@@ -243,11 +243,18 @@ final class Router {
     private var latchMask: UInt8 = 0
     private var prevLatchMask: UInt8 = 0
     private var latchedPools: [NotePool] = []
-    /// The pool a cell reads: its receiver's frozen LATCH pool when armed, else the live pool. A row-fed
-    /// cell (recv −1) always reads live (its root's latch is applied when parentSoundingNote reaches it).
+    private var receiverDisabledMask: UInt8 = 0            // INPUT ENABLE: bit i = receiver i not listening (door closed)
+    private let emptyPool: NotePool = { let p = NotePool(); p.rebuildSorted(); return p }()   // a disabled door's cells read this
+    /// The pool a cell reads: its receiver's frozen LATCH pool when armed (which STILL feeds while the door is
+    /// disabled — the point of "close the door, keep the room"); else, if the door is DISABLED (not listening),
+    /// nothing; else the live pool. A row-fed cell (recv −1) always reads live (its root's latch reaches it via
+    /// parentSoundingNote). Mute is handled upstream (the cell's match-nothing filter kills even the frozen read).
     private func effectivePool(for cell: SnapCell, live: NotePool) -> NotePool {
         let r = cell.resolvedReceiver
-        if r >= 0, latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
+        if r >= 0 {
+            if latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
+            if receiverDisabledMask & (1 << UInt8(r)) != 0 { return emptyPool }   // not armed + not listening → silent
+        }
         return live
     }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
@@ -933,6 +940,7 @@ final class Router {
         currentAlt = false
         self.latchMask = latchMask                 // receiver strip: which receivers read a frozen LATCH pool
         self.latchedPools = latchedPools
+        self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render

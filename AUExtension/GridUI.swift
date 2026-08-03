@@ -679,6 +679,7 @@ struct ReceiversView: View {
     var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source)
     let onToggleMute: (Int) -> Void
+    var onToggleEnable: (Int) -> Void = { _ in }        // INPUT ENABLE: the header toggles the door's listening
     var onSetThru: (Int) -> Void = { _ in }             // THRU pip radio
     // (channel/cable/latch-mode config lives on the cog page — CogPage.swift — not the strip. "Single-face forever".)
     // Feature overlays — present in the shell, wired by later increments (inert defaults here).
@@ -723,13 +724,7 @@ struct ReceiversView: View {
         let rec = r(i), muted = rec.muted, isThru = thruReceiver == i
         let soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         return VStack(spacing: 3) {
-            HStack(spacing: 3) {
-                Circle().fill(hues[i]).frame(width: 7, height: 7)
-                Text(["A", "B", "C", "D"][i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundColor(muted ? .white.opacity(0.3) : .white.opacity(0.85))
-                Spacer(minLength: 0)
-                thruPip(i, isThru: isThru, muted: muted)
-            }
+            header(i, isThru: isThru)
             HStack(alignment: .top, spacing: 3) {
                 slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + momentary velocity override — grows tall
                 performFeatures(i)                          // single-face forever: config moved to the cog page
@@ -747,6 +742,33 @@ struct ReceiversView: View {
         .opacity(wiring ? 0.3 : (excluded ? 0.5 : 1))       // §10 dim-content-beneath while wiring (meters show through)
         .allowsHitTesting(!wiring)                          // the session face owns taps while wiring
         .overlay { if wiring { routeInFace(i) } }           // ROUTE IN session face on top
+    }
+
+    // The strip HEADER doubles as the INPUT ENABLE toggle (2026-08-03): it summarises the door's CHANNEL (and,
+    // once §2 RANGE ships, the key window) and tapping it OPENS/CLOSES the door to incoming notes. DISABLED = the
+    // door stops LISTENING (dark pill, channel struck) — an armed latch keeps FEEDING its frozen chord to the grid
+    // ("close the door, keep the room"); the FOOT's LIVE/MUTE is the separate grid-FEED gate. The THRU pip keeps
+    // its own tap on the right, outside the toggle's hit area.
+    private func header(_ i: Int, isThru: Bool) -> some View {
+        let rec = r(i), listening = rec.inputEnabledResolved, muted = rec.muted
+        let chLabel = rec.channel == 0 ? "OMNI" : "CH\(rec.channel)"
+        return HStack(spacing: 3) {
+            HStack(spacing: 4) {
+                Circle().fill(listening ? hues[i] : hues[i].opacity(0.28)).frame(width: 7, height: 7)
+                Text(["A", "B", "C", "D"][i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(listening ? .white.opacity(0.9) : .white.opacity(0.3))
+                Text(chLabel).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundColor(listening ? .white.opacity(0.72) : .white.opacity(0.3))
+                    .strikethrough(!listening, color: .white.opacity(0.35))
+            }
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(listening ? hues[i].opacity(0.2) : Color.white.opacity(0.03)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(listening ? hues[i].opacity(0.35) : Color.white.opacity(0.1), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { onToggleEnable(i) }
+            Spacer(minLength: 0)
+            thruPip(i, isThru: isThru, muted: muted)
+        }
     }
 
     // §10 the ROUTE IN session face — the whole strip is one target: hue glow, big label, the CURRENT source a

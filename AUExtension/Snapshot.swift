@@ -110,6 +110,7 @@ final class SnapshotBox {
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
     let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
     let latchAddMask: UInt8          // TWO LATCH MODES: bit i = receiver i latches in ADD (toggle) mode; 0 = CHORD
+    let receiverDisabledMask: UInt8  // INPUT ENABLE: bit i = receiver i is DISABLED (not listening) — its frozen latch still feeds the grid, but no new live notes reach its cells
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -118,7 +119,8 @@ final class SnapshotBox {
          altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
-         receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0) {
+         receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
+         receiverDisabledMask: UInt8 = 0) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -139,6 +141,7 @@ final class SnapshotBox {
         self.receiverChannels = receiverChannels
         self.receiverCables = receiverCables
         self.latchAddMask = latchAddMask
+        self.receiverDisabledMask = receiverDisabledMask
     }
 }
 

@@ -1696,6 +1696,64 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.contains { $0.note == 60 } && e.ons.contains { $0.note == 64 }, "the frozen chord's notes sound")
     }
 
+    // INPUT ENABLE (the strip header): the "latch A, disable A, play B" workflow. A DISABLED + ARMED door keeps
+    // feeding its FROZEN chord to the grid while IGNORING the live pool ("close the door, keep the room").
+    func testDisabledReceiverKeepsFeedingArmedLatchIgnoringLive() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.inputEnabled = false   // door CLOSED (not listening)
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let frozen = NotePool()                                 // R1's sealed latch = a C-major chord
+        frozen.noteOn(60, velocity: 100, channel: 0, cable: 1); frozen.noteOn(64, velocity: 100, channel: 0, cable: 1); frozen.rebuildSorted()
+        let live = NotePool()                                   // "playing B" — a fresh note R1 must ignore
+        live.noteOn(72, velocity: 100, channel: 0, cable: 1); live.rebuildSorted()
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<6 {
+            router.process(box: b, pool: live, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, latchMask: 0b0001,
+                           latchedPools: [frozen, NotePool(), NotePool(), NotePool()], out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(60) && notes.contains(64), "a disabled+armed door keeps feeding its frozen chord")
+        XCTAssertFalse(notes.contains(72), "a disabled door IGNORES the live note — latch A, disable A, play B leaves A untouched")
+    }
+
+    // A DISABLED door that isn't armed is a closed, empty room: no live pass-through, silent.
+    func testDisabledReceiverNotArmedIsSilent() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.inputEnabled = false
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let live = NotePool(); live.noteOn(60, velocity: 100, channel: 0, cable: 1); live.rebuildSorted()
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        run(b, live, beats: 8, into: e)
+        XCTAssertEqual(e.ons.count, 0, "a disabled door with no latch hears nothing — no live pass-through")
+    }
+
+    // Builder: a disabled door meters dark & seals its latch (match-nothing filter) and flags the Router mask,
+    // while its CELL keeps the real channel so an armed latch's frozen chord can still read.
+    func testDisabledReceiverSealsMeteringButCellKeepsChannel() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.channel = 3; r1.inputEnabled = false
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.receiverChannels[0], Snap.mutedSourceFilter, "disabled → match-nothing meter/capture filter (latch sealed)")
+        XCTAssertEqual(b.receiverDisabledMask & 0b0001, 0b0001, "disabled bit set for the Router's live-read block")
+        XCTAssertEqual(b.cells[0].inputChannel, 3, "the cell keeps its REAL channel so an armed frozen chord still reads")
+        XCTAssertEqual(b.receiverChannels[1], 0, "an enabled OMNI neighbour keeps its channel filter")
+        XCTAssertEqual(b.receiverDisabledMask & 0b0010, 0, "the enabled neighbour is not flagged disabled")
+    }
+
     // ANY (the migration default) hears every cable — byte-for-byte today's behaviour.
     func testAnyReceiverHearsAllCables() {
         var s = SceneState.empty()

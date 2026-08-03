@@ -207,6 +207,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
     // setReceiverCable retired 2026-08-03 (COG SIMPLIFICATION — cables gone from the UI; the render hears all cables).
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
+    // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
+    // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
+    func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // TWO LATCH MODES
     // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
     // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).

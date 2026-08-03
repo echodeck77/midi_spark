@@ -15,6 +15,12 @@ features below assume a working latch underneath.
 - **ENABLE/DISABLE** — small per-door toggle: DISABLED = the door STOPS LISTENING (incoming MIDI ignored) while its
   latched pool + sounding state PERSIST. Workflow: latch a chord on R1, disable R1, move to R2 and play fresh —
   "close the door, keep the room." Distinct from LIVE (which mutes OUTPUT); this gates INPUT. Default: enabled.
+  **BUILT 2026-08-03 (user refinement):** the toggle IS the strip HEADER — it summarises the door (hue · letter ·
+  CHANNEL; RANGE appends here once §2 ships) and tapping it opens/closes listening. Enabled = lit hue pill; disabled
+  = dark pill, channel struck-through. `Receiver.inputEnabled` (persisted). Engine: disabled → match-nothing meter/
+  capture filter (latch sealed) + `box.receiverDisabledMask`; the cell keeps its real channel so an armed latch's
+  frozen chord still feeds. Mental model confirmed by the user: HEADER enable = "does the strip listen for incoming
+  notes"; FOOT LIVE/SOLO = "does the receiver pass notes into the grid."
 - **BYPASS** — small toggle: the door's stream (post its shaping — octave, velocity, range) routes DIRECTLY to
   emitters, skipping the grid. Destination = the door's bypass mask (cog §2), default ALL four. PIN: v1 bypass is a
   direct injection (no role gating — the word is "directly"); flag if role interplay is ever wanted.

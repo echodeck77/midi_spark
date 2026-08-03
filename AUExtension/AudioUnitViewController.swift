@@ -618,6 +618,7 @@ struct DiagView: View {
     // now live on the cog page (CogPage.swift → au.setReceiverChannel/Cable/LatchAdd directly). MPE is silent
     // auto-detect (user ruling 2026-07-25) — no control.
     func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
+    func toggleReceiverEnabled(_ i: Int) { au?.toggleReceiverEnabled(i); receivers = au?.uiReceivers() ?? receivers }
     func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
     // gate is `audible = ¬muted ∧ (soloSet=∅ ∨ member)`; the whole set clears on transport stop.
@@ -1146,7 +1147,7 @@ struct DiagView: View {
     @ViewBuilder var receiversBox: some View {
         ReceiversView(receivers: receivers, peak: receiverPeak, peakAt: receiverPeakAt,
                       heldVels: recvHeld, releaseMarks: recvRelease, thruReceiver: thruReceiver,
-                      onToggleMute: toggleReceiverMute, onSetThru: setThru,
+                      onToggleMute: toggleReceiverMute, onToggleEnable: toggleReceiverEnabled, onSetThru: setThru,
                       soloMask: soloReceiverMask, onToggleSolo: toggleReceiverSolo,
                       latchMask: latchMask, onToggleLatch: toggleReceiverLatch,
                       latchAddMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.latchAddResolved ? $0 | UInt8(1 << $1.offset) : $0 },
