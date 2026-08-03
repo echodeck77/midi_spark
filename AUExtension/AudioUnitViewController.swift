@@ -871,7 +871,8 @@ struct DiagView: View {
             }
             if rel != recvRelease { recvRelease = rel }
             if held != recvHeld { recvHeld = held }
-            let live = au.pollReceiverLiveHeld()                       // header dot: LIVE (not latch) accepted-note-held per receiver
+            let liveMask = au.pollReceiverLiveHeld()                   // header dot: LIVE (not latch) accepted-note-held per receiver (scalar mask)
+            let live = (0..<4).map { liveMask & (1 << UInt8($0)) != 0 }   // unpack into a FRESH array (never shares the Kernel's buffer)
             if live != recvLiveHeld { recvLiveHeld = live }
             // §strips-done: the EMITTER twin — notes currently sounding per emitter (steady, cargo-tinted) + a
             // fade on release. Same multiset-diff as the receiver above, keyed on (velocity, source colour).

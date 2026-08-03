@@ -236,19 +236,26 @@ final class Kernel {
     // receiver (filter ≥ 17) matches nothing → empty, as it should.
     private var recvHeldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
     private var recvHeldCount = [Int](repeating: 0, count: 4)
-    private var recvLiveHeld = [Bool](repeating: false, count: 4)   // the header DOT: a LIVE (never latch) accepted note is held now
+    // the header DOT: bit i = a LIVE (never latch) accepted note held on receiver i. A SCALAR mask, published in one
+    // store — NOT a shared array. (A [Bool] returned by reference and retained by the UI kept the Kernel's buffer
+    // persistently shared, so the render thread's per-element write triggered copy-on-write + a refcount race →
+    // EXC_BAD_ACCESS in _swift_release_dealloc on the poll's next @State assignment. The mask can't corrupt a buffer.)
+    private var recvLiveHeldMask: UInt8 = 0
     func pollReceiverSounding() -> [[UInt8]] {
         var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldVel[i][0..<recvHeldCount[i]])) }
         return out
     }
-    func pollReceiverLiveHeld() -> [Bool] { recvLiveHeld }
+    func pollReceiverLiveHeld() -> UInt8 { recvLiveHeldMask }
     private func updateReceiverSounding() {
         pool.rebuildSorted()
+        var liveMask: UInt8 = 0
         for i in 0..<4 {
             // The header DOT lights whenever a LIVE input note that this door ACCEPTS (channel+cable+RANGE) is held —
             // never the latch (the latched pool is frozen, not live). Independent of the meter's latch-aware display.
-            recvLiveHeld[i] = pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
-                                            velLo: 0, velHi: 127, noteLo: receiverRangeLo[i], noteHi: receiverRangeHi[i]) > 0
+            if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                             velLo: 0, velHi: 127, noteLo: receiverRangeLo[i], noteHi: receiverRangeHi[i]) > 0 {
+                liveMask |= 1 << UInt8(i)
+            }
             recvHeldCount[i] = 0
             // When a receiver is ARMED, the meter shows the notes the LATCH holds (they keep sounding after the keys
             // lift). The latched pool is already receiver-filtered, so read it OMNI; otherwise read the live pool
@@ -263,6 +270,7 @@ final class Kernel {
                 recvHeldVel[i][recvHeldCount[i]] = src.velocity(note); recvHeldCount[i] += 1
             }
         }
+        recvLiveHeldMask = liveMask   // one scalar publish → the render→main boundary can't corrupt a COW buffer
     }
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI

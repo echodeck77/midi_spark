@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CRASH FIXED — render↔main race on the header-dot poll (2026-08-03, on `main`; 406 green, iOS builds).
+  Device crash (AUM host, MidiSparkAU): `EXC_BAD_ACCESS` in `_swift_release_dealloc`, main thread, via the 4 Hz poll
+  timer (`NSTimer.TimerPublisher` → `.onReceive` → `DiagView.body` closure). ROOT CAUSE: the `recvLiveHeld` poll I
+  added in the strip-polish commit returned the Kernel's `[Bool]` BY REFERENCE and the VC stored it in `@State`,
+  keeping the Kernel's buffer PERSISTENTLY shared — so `updateReceiverSounding` (audio render thread) triggered
+  copy-on-write + a refcount race on every per-element write, corrupting the buffer → crash on the next @State
+  release. FIX: `recvLiveHeld` is now a scalar `recvLiveHeldMask: UInt8` (published in ONE store — race-safe like
+  the other render→main masks); the VC unpacks it into a FRESH `[Bool]` that never shares the Kernel's buffer.
+  LESSON: every render→main poll must return a COPY or a scalar, NEVER a stored array by reference (the other polls
+  build a fresh `out` or self-detach via drain-reset). Races aren't unit-testable; verified by build + reasoning.**
 - **▶ LADDER arm-commit FIXED — lap + row selector (2026-08-03, on `main`; 406 green, iOS builds; DEVICE pass
   owed). Two bugs, both arm-commit timing. ROOT CAUSE (bug 1 — looping a column, the armed rung just blinks, never
   switches): the commit fired on `onChange(of: d.effColumn)`, but during a column LAP (`heldColumns`) the engine
