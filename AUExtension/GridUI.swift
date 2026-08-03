@@ -179,6 +179,9 @@ struct GridView: View {
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
     var twins: Set<GridPos> = []                     // CELL MACHINE: the pointed cell's TWINS (edit-together set) — dashed ring; non-twins dim
     var removeMarks: Set<GridPos> = []               // MODE ROW · CLEAR mode: cells marked for transactional removal — dashed red ring + ✕ + dim
+    var ladderDim: Set<GridPos> = []                 // LADDER: dormant rungs — dimmed (present + visible, but silent)
+    var ladderArmed: Set<GridPos> = []               // LADDER: armed rungs — blink until they commit at the column's next entry
+    var ladderBlink = false                          // LADDER: the blink phase (beat-toggled by the parent)
     var verbInvite: Color? = nil                     // §11b a verb is held: the grid glows its hue (invite); nil = triggers
     var routeFoci: Set<GridPos> = []                 // §10 ROUTE mode: the cells being wired (solid amber ring)
     var routeIn: Set<GridPos> = []                   // §10 SRC candidates above (pulsing "SRC" label — tap = route-in)
@@ -368,6 +371,8 @@ struct GridView: View {
             }   // §quieting (2026-08-02): otherwise an empty cell is NEAR-SILENT — bare faint rect
         }
         .opacity(removeMarks.contains(GridPos(col: col, row: row)) ? 0.3          // MODE ROW · CLEAR: a marked cell recedes
+                 : ladderArmed.contains(GridPos(col: col, row: row)) ? (ladderBlink ? 1.0 : 0.4)   // LADDER: an armed rung BLINKS
+                 : ladderDim.contains(GridPos(col: col, row: row)) ? 0.28         // LADDER: a dormant rung dims (silent, still visible)
                  : (tapMutedHere || raw?.muted == true) ? 0.28 : 1)               // muted dims; otherwise cells stay full (twins advertise by PULSING, not by others dimming)
         .overlay {                                          // MODE ROW · CLEAR: a marked cell wears a dashed red ring + an ✕
             if removeMarks.contains(GridPos(col: col, row: row)) {

@@ -144,6 +144,9 @@ struct DiagView: View {
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
+    @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode)
+    @State var ladderPending: [Int: Int] = [:]   // LADDER: armed rung switches (column → row) — fire at the column's next entry
+    @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
     // SEAL comet: per-cell last-strike time + velocity (index = col*8+row), stamped from the 4 Hz poll of
     // au.pollCellStrikes(); the cell's comet runs along its figure for ~1s after the last strike (UI owns the decay).
     @State var cellHitAt = [Date](repeating: .distantPast, count: 64)
@@ -251,11 +254,33 @@ struct DiagView: View {
             return
         }
         if muteArmed {                                       // PERFORM · MUTE mode: a tap toggles the cell's mute
-            guard scene.cells[col][row] != nil else { return }
+            guard scene.cellAt(col, row) != nil else { return }
             au?.editScene { $0.cells[col][row]?.muted.toggle() }; refreshFromDocument(); return
+        }
+        if ladderMode {                                      // LADDER: a tap ARMS this rung for its column (TAP is traded for switching)
+            guard scene.cellAt(col, row) != nil else { return }   // only an occupied rung can be armed
+            armLadderRung(col, row); return
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
+    /// LADDER: arm a rung switch. Playing → arm (blinks; commits at the column's NEXT ENTRY via the effColumn
+    /// watcher). Stopped → switch immediately (there is no "next entry"). MUTE stays orthogonal to the rung choice.
+    func armLadderRung(_ col: Int, _ row: Int) {
+        if d.playing { ladderPending[col] = row }
+        else { au?.setActiveRow(col, row); ladderPending[col] = nil; refreshFromDocument() }
+    }
+    /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
+    var ladderDim: Set<GridView.GridPos> {
+        guard ladderMode else { return [] }
+        var s = Set<GridView.GridPos>()
+        for c in 0..<8 {
+            let active = scene.ladderActiveRow(c)
+            for r in 0..<8 where scene.cellAt(c, r) != nil && r != active { s.insert(GridView.GridPos(col: c, row: r)) }
+        }
+        return s
+    }
+    /// The armed rungs (blinking): a pending switch not yet committed at its column's next entry.
+    var ladderArmedSet: Set<GridView.GridPos> { Set(ladderPending.map { GridView.GridPos(col: $0.key, row: $0.value) }) }
 
     // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
     // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
@@ -417,11 +442,14 @@ struct DiagView: View {
                 .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
             roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
                 .opacity(0.4).allowsHitTesting(false)
+            roundVerb(label: "LADDER", hue: ladderHue, active: ladderMode, badge: nil)   // LADDER: exclusive columns (global arm)
+                .contentShape(Rectangle()).onTapGesture { let on = !ladderMode; ladderMode = on; au?.setLadderMode(on); if on { heldVerb = nil } }
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
+    let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE/SELECT)
     func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
@@ -725,6 +753,13 @@ struct DiagView: View {
             let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
         }
+        .onChange(of: d.effColumn) { col in                   // LADDER: the playhead ENTERED a column → commit any armed rung there
+            guard let row = ladderPending[col] else { return }
+            au?.setActiveRow(col, row); ladderPending[col] = nil; refreshFromDocument()
+        }
+        .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
+            if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }
+        }
         .onReceive(timer) { _ in
             guard let au else { return }
             // Write @State ONLY when a DISPLAYED value changed — an unconditional write re-renders the
@@ -736,7 +771,9 @@ struct DiagView: View {
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
+                if !ladderPending.isEmpty { ladderPending = [:] }         // LADDER: drop un-committed arms (no "next entry" while stopped)
             }
+            let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
@@ -910,6 +947,7 @@ struct DiagView: View {
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
+                     ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,

@@ -310,6 +310,23 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     func uiMasterMute() -> Bool { document.masterMute ?? false }
     func setMasterMute(_ on: Bool) { editDocument { $0.masterMute = on } }
+    // LADDER MODE (exclusive columns). The on/off arm is document-level; the per-column chosen rung is scene state.
+    func uiLadderMode() -> Bool { document.ladderModeResolved }
+    func setLadderMode(_ on: Bool) { editDocument { $0.ladderMode = on } }
+    /// The resolved active rung for a column (topmost-occupied default) — the UI lights it + dims the other rungs.
+    func ladderActiveRow(_ col: Int) -> Int? { document.activeSceneState.ladderActiveRow(col) }
+    /// Commit a LADDER rung switch for a column. A PERFORMANCE action (record:false → not on the undo stack) that
+    /// rebuilds the snapshot; the render adopts/re-speaks at the next column boundary (no new render-thread concept).
+    func setActiveRow(_ col: Int, _ row: Int) {
+        guard col >= 0, col < 8 else { return }
+        editScene(record: false) { s in
+            var ar = s.activeRow ?? [Int?](repeating: nil, count: 8)
+            while ar.count < 8 { ar.append(nil) }
+            ar[col] = row
+            s.activeRow = ar
+        }
+    }
+    func uiEffColumn() -> Int { kernel.diag.effColumn }   // LADDER: the live playhead column, polled to commit an armed rung at its next entry
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
