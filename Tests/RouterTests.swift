@@ -1651,21 +1651,22 @@ final class RouterTests: XCTestCase {
     }
 
     // §item 11 INPUT CABLES: a cell whose receiver is sourced from CABLE 2 hears only cable-2 notes.
-    func testCabledReceiverCellHearsOnlyItsCable() {
+    // COG SIMPLIFICATION (2026-08-03): cables retired — even a receiver carrying a SAVED cable filter now hears
+    // ALL cables (the filter is ignored). Was `testCabledReceiverCellHearsOnlyItsCable` (the retired behaviour).
+    func testCabledReceiverStillHearsAllCablesAfterRetirement() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 0
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0
         s.cells[0][0] = cell
         var st = PluginState(colours: arpColours(), scenes: [s])
         st.receivers = [Receiver(name: "1", cable: 0b0010), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
         let pool = NotePool()
-        pool.noteOn(60, velocity: 100, channel: 0, cable: 1)   // cable 1 — the cable-2 receiver must NOT hear it
-        pool.noteOn(67, velocity: 100, channel: 0, cable: 2)   // cable 2 — heard
+        pool.noteOn(60, velocity: 100, channel: 0, cable: 1)
+        pool.noteOn(67, velocity: 100, channel: 0, cable: 2)
         let e = RecordingEmitter()
         run(b, pool, beats: 8, into: e)
         let notes = Set(e.ons.map { $0.note })
-        XCTAssertTrue(notes.contains(67), "the cable-2 receiver hears cable-2 notes")
-        XCTAssertFalse(notes.contains(60), "cable-1 notes are filtered out")
+        XCTAssertTrue(notes.contains(60) && notes.contains(67), "a saved cable filter is IGNORED — the receiver hears every cable")
         assertNothingLeftSounding(e)
     }
 
@@ -1821,16 +1822,17 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
-    // §item 11: the builder resolves each receiver's cable bitmask onto the box AND onto its subscriber cells.
-    func testReceiverCableResolvesIntoSnapCellAndBox() {
+    // COG SIMPLIFICATION (2026-08-03): cables are RETIRED — the render ALWAYS hears every cable (union), even if a
+    // saved receiver still carries a restricted `cable` field (kept for decode-compat but ignored by the builder).
+    func testInputCablesAlwaysAcceptAllAfterRetirement() {
         var s = SceneState.empty()
-        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputRow = nil; cell.inputReceiver = 1
+        var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 1
         s.cells[0][0] = cell
         var st = PluginState(colours: arpColours(), scenes: [s])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2", cable: 0b0101), Receiver(name: "3"), Receiver(name: "4")]
         let b = SnapshotBuilder.build(from: st)
-        XCTAssertEqual(b.cells[0 * Snap.rows + 0].inputCableMask, 0b0101, "cell subscribing to receiver 2 gets its cable mask")
-        XCTAssertEqual(b.receiverCables, [0b1111, 0b0101, 0b1111, 0b1111], "all four receiver cables land on the box (ANY default)")
+        XCTAssertEqual(b.cells[0 * Snap.rows + 0].inputCableMask, 0b1111, "a subscriber cell hears ALL cables (cables retired)")
+        XCTAssertEqual(b.receiverCables, [0b1111, 0b1111, 0b1111, 0b1111], "every receiver hears all cables — a saved cable filter is ignored")
     }
 
     // §item 11 mute ruling: a MUTED receiver resolves to the match-nothing filter on the box — this is what

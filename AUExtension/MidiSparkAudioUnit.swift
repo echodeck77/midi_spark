@@ -205,7 +205,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
     func uiReceivers() -> [Receiver] { document.receiversResolved }
     func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
-    func setReceiverCable(_ i: Int, _ mask: Int?)  { editReceiver(i) { $0.cable = mask } }   // §item 11 INPUT CABLES
+    // setReceiverCable retired 2026-08-03 (COG SIMPLIFICATION — cables gone from the UI; the render hears all cables).
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // TWO LATCH MODES
     // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge

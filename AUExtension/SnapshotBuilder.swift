@@ -77,7 +77,7 @@ enum SnapshotBuilder {
                     sc.resolvedReceiver = Int8(ri)
                     sc.inputChannel = recs[ri].muted ? Snap.mutedSourceFilter
                                                      : UInt8(max(0, min(16, recs[ri].channel)))
-                    sc.inputCableMask = UInt8(recs[ri].cableResolved & 0b1111)   // §item 11 INPUT CABLES
+                    sc.inputCableMask = 0b1111   // COG SIMPLIFICATION (2026-08-03): always accept ALL input cables (union) — cables retired from the UI
                 } else {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
                 }
@@ -123,7 +123,7 @@ enum SnapshotBuilder {
         let recvCh = doc.receiversResolved.map {
             $0.muted ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
         }
-        let recvCable = doc.receiversResolved.map { UInt8($0.cableResolved & 0b1111) }   // §item 11 INPUT CABLES
+        let recvCable = doc.receiversResolved.map { _ in UInt8(0b1111) }   // COG SIMPLIFICATION: always accept ALL input cables (union)
         // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
         var latchAddMask: UInt8 = 0
         for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.latchAddResolved { latchAddMask |= 1 << UInt8(i) }

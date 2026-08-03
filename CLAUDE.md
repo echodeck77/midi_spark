@@ -157,6 +157,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ COG SIMPLIFICATION (2026-08-03, on `main`; 393 green, iOS builds; DEVICE pass owed). Spec:
+  `Docs/AcceptanceCriteria/AcceptanceCriteria-cog-simplification.md`. CABLES RETIRED from the UI — the plugin now
+  always hears every input cable (union): `SnapshotBuilder` forces `inputCableMask`/`recvCable` to `0b1111`,
+  ignoring any saved receiver `cable` filter (kept decode-only). Removed `cableToggles` + `AU.setReceiverCable`.
+  The CogPage INPUT is now ONE LINE per receiver "lens" (hue·R# · IN dot · MPE dot · CH chip [OMNI default] · LATCH
+  CHORD|ADD · MPE toggle) + a lens doc line. OUTPUT (emitter channels) + HEALTH kept — HEALTH justified against the
+  admission law (the stuck-note/voice safety readout is a true global). Tests repurposed: cable filtering →
+  always-accept-all (`testInputCablesAlwaysAcceptAllAfterRetirement`, `testCabledReceiverStillHearsAllCablesAfterRetirement`).
+  SEAL fix (`b4d05cf`): `sealHash` now hashes the RESOLVED chain (template/A-face cells were all one shape).**
 - **▶ THE LADDER — exclusive-columns MODE + factory preset (2026-08-03, on `main`; 391 green, iOS builds; DEVICE
   pass owed). Spec: `Docs/AcceptanceCriteria/AcceptanceCriteria-ladder.md`. Built in 4 increments (`c012d55` =
   engine core; then AU+UI; then preset). PART 1 — MODE: while on, at most one cell "speaks" per column. Model:

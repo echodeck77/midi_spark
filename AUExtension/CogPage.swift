@@ -4,8 +4,9 @@ import SwiftUI
 /// the running instrument: audio/render never stop, MIDI flows, latches hold; every edit applies live; dismiss
 /// returns to uninterrupted play. It hosts the MIDI I/O RIG CONFIG (set-once rarities), NOT performance roles.
 ///
-/// INPUT (4 receivers): cable · channel/OMNI · latch CHORD|ADD · MPE-merge toggle — each with a live IN dot and
-/// an auto-detect MPE dot. OUTPUT (4 emitters A–D): stamp channel — each with a live OUT dot.
+/// INPUT (4 receiver LENSES, one line each — COG SIMPLIFICATION 2026-08-03): channel (OMNI default) · latch
+/// CHORD|ADD · MPE-merge toggle — each with a live IN dot + an auto-detect MPE dot. CABLES are retired (the plugin
+/// hears every cable; routing-in is the host's job). OUTPUT (4 emitters A–D): stamp channel — each with a live OUT dot.
 struct CogPage: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
@@ -33,6 +34,9 @@ struct CogPage: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         section("MIDI INPUT")
+                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · chord-latch · MPE.")
+                            .font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                            .fixedSize(horizontal: false, vertical: true)
                         ForEach(0..<4, id: \.self) { inputRow($0) }
                         divider
                         section("MIDI OUTPUT")
@@ -72,23 +76,20 @@ struct CogPage: View {
     }
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
 
-    // MARK: INPUT — one row per receiver: label · IN/MPE dots · CABLE · CHANNEL · LATCH · MPE toggle
+    // MARK: INPUT — ONE line per door (COG SIMPLIFICATION 2026-08-03): hue·label · IN/MPE dots · CH chip
+    // (OMNI default) · LATCH CHORD|ADD · MPE toggle. Cables are RETIRED — the plugin hears every cable (union).
 
     private func inputRow(_ i: Int) -> some View {
         let r = i < receivers.count ? receivers[i] : Receiver()
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Text("R\(i + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 26, alignment: .leading)
-                liveDot(inAt[safe: i], cyan)                                   // note-ons arriving
-                mpeDot(mpeAt[safe: i], on: r.mpeMerge)                         // auto-detected MPE spread
-                Spacer()
-                channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }
-            }
-            HStack(spacing: 10) {
-                labeled("CABLE") { cableToggles(mask: r.cableResolved) { au?.setReceiverCable(i, $0); onChanged() } }
-                labeled("LATCH") { latchSeg(add: r.latchAddResolved) { au?.setReceiverLatchAdd(i, $0); onChanged() } }
-                labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
-            }.padding(.leading, 34)
+        return HStack(spacing: 8) {
+            Text("R\(i + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(i < receiverHues.count ? receiverHues[i] : ink.opacity(0.85)).frame(width: 26, alignment: .leading)   // hue · label
+            liveDot(inAt[safe: i], cyan)                                   // note-ons arriving
+            mpeDot(mpeAt[safe: i], on: r.mpeMerge)                         // auto-detected MPE spread
+            Spacer(minLength: 8)
+            channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }   // CH chip — OMNI default, the one optional decision
+            labeled("LATCH") { latchSeg(add: r.latchAddResolved) { au?.setReceiverLatchAdd(i, $0); onChanged() } }
+            labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
         }
     }
 
@@ -138,20 +139,7 @@ struct CogPage: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
         }
     }
-    // CABLE: which virtual input cables this receiver hears (bit j = cable j). Default = all four.
-    private func cableToggles(mask: Int, _ set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 2) {
-            ForEach(0..<4, id: \.self) { j in
-                let on = (mask >> j) & 1 == 1
-                Text("\(j + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : ink.opacity(0.4))
-                    .frame(width: 16, height: 18)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.85) : ink.opacity(0.07)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { set(mask ^ (1 << j)) }   // toggle bit j
-            }
-        }
-    }
+    // (CABLE toggles retired 2026-08-03 — cables are router-admin the host owns; the plugin always hears all cables.)
     private func latchSeg(add: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         HStack(spacing: 2) {
             seg("CHORD", on: !add) { set(false) }
