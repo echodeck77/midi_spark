@@ -352,19 +352,14 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                // THE SEAL (which) — a CENTRED, RECTANGULAR (wider-than-tall) engraved plate carries the derived
-                // seal (the glyph fills its plate's aspect, so it reads landscape); the bus dots (where) sit CENTRED
-                // at the foot. A COMET runs the wire while the cell fires MIDI (§5). The SAME seal is on the Edit page.
+                // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
+                // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
                 let geo = sealGeometry(sealHash(cell))
-                VStack(spacing: 2) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                   // engraved plate
-                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
-                        Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
-                        sealComet(geo, col * 8 + row)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)                                        // fills → wider than tall
-                    busDots(cell, firing: inActiveCol)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                       // engraved plate
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                    Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
+                    sealComet(geo, col * 8 + row)
                 }
                 .padding(6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -549,18 +544,7 @@ struct GridView: View {
     // ① INPUT HEADER — "FROM MIDI" / "FROM R n" (a receiver) / "FROM ROW n"; flares white on the live
     // column. §9 item 11 BAND-AS-DEVIATION: a MIDI-IN cell on R2–R4 tints the header its receiver hue;
     // Receiver 1 (the default) and FROM-ROW cells show NO band — single-receiver grids stay clean.
-    // ④ BUS DOTS — four small dots CENTRED at the foot (A–D); lit = that emitter enabled, white = firing this column.
-    private func busDots(_ cell: Cell, firing: Bool) -> some View {
-        HStack(spacing: 4) {
-            ForEach(Bus.allCases, id: \.self) { b in
-                let on = cell.buses.contains(b)
-                Circle()
-                    .fill(on ? (firing ? Color.white : Color.black.opacity(0.62)) : Color.black.opacity(0.12))
-                    .frame(width: 5, height: 5)
-            }
-        }
-        .frame(maxWidth: .infinity).padding(.bottom, 2)
-    }
+    // (BUS DOTS retired 2026-08-03 — the seal now fills the whole cell face.)
 
     // THE SEAL COMET (§5) — a spark runs the wire while the cell SOUNDS. Position FREE-RUNS on a continuous clock
     // (loops the path START→ARROW→START), so a new note never resets it to the start. LIFE is gated by the per-cell

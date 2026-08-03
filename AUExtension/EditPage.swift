@@ -197,7 +197,7 @@ extension DiagView {
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                  cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                  selection: [],
-                 whiteBorder: Set(editSel), twins: twinCells, verbInvite: nil,
+                 whiteBorder: Set(editSel), twins: twinCells, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)

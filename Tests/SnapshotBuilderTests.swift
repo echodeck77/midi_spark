@@ -52,6 +52,23 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(legacy.cells[0].procs.first?.type, .arp, "no override, no template → the legacy A face")
     }
 
+    // LADDER: a DORMANT rung breaks the legato run — otherwise a full-8×8 ladder reads as one run from column 0
+    // and each active rung's legato arp arrives badly phase-advanced (the "starts late / sounds random" bug).
+    func testLadderDormantBreaksTheLegatoRun() {
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        func build(ladder: Bool) -> SnapshotBox {
+            var s = SceneState.empty()
+            for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]); s.cells[c][1] = Cell(colourID: "gold", buses: [.a]) }
+            s.activeRow = (0..<8).map { Optional($0 % 2 == 0 ? 0 : 1) }   // even cols → row 0 active, odd → row 1 active
+            var st = PluginState(colours: cs, scenes: [s]); st.ladderMode = ladder
+            return SnapshotBuilder.build(from: st)
+        }
+        XCTAssertEqual(build(ladder: false).cells[4 * 8 + 0].runStartColumn, 0, "no ladder → the row is ONE run from col 0")
+        let on = build(ladder: true)
+        XCTAssertEqual(on.cells[4 * 8 + 0].runStartColumn, 4, "ladder: the active rung (col 4, row 0) runs from its OWN column")
+        XCTAssertEqual(on.cells[5 * 8 + 1].runStartColumn, 5, "ladder: the active rung (col 5, row 1) runs from its OWN column")
+    }
+
     func testBusEnabledMaskFromDocument() {
         func mask(_ e: [Bool]?) -> UInt8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

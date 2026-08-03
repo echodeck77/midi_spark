@@ -86,14 +86,16 @@ enum SnapshotBuilder {
         }
 
         // ---- LEGATO run starts (§3.5/§7 v2.4): same colour + same ROW + contiguous COLUMNS.
-        //      Wiring/perform state irrelevant to run identity (§1.1); computed for every cell.
+        //      Wiring/perform state irrelevant to run identity (§1.1); computed for every cell. A LADDER-DORMANT
+        //      rung breaks the run (like an empty cell) — otherwise a full-8×8 ladder reads as one long run from
+        //      column 0, and each active rung's legato arp arrives badly phase-advanced (plays mid/end of its cycle).
         for r in 0..<Snap.rows {
             var runStart = -1
             var runColour: Int8 = -1
             for c in 0..<Snap.cols {
                 let idx = c * Snap.rows + r
                 let ci = cells[idx].colourIndex
-                if ci >= 0 {
+                if ci >= 0 && !cells[idx].dormant {
                     if ci != runColour { runStart = c; runColour = ci }
                     cells[idx].runStartColumn = Int8(runStart)
                 } else {
