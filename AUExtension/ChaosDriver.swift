@@ -26,12 +26,12 @@ final class ChaosDriver {
     private var lines: [String] = []
     private var dumpURL: URL?
 
-    // SIMULATED MIDI: a spell-driven generator — HELD notes → SHORT notes → SILENCE (same shape as the fuzz harness).
-    private var held: [UInt8] = []
-    private var shorts: [UInt8] = []
-    private enum Spell { case held, short, silence }
-    private var spell = Spell.held
-    private var spellLeft = 0
+    // SIMULATED MIDI (user 2026-08-04): ALWAYS PLAYING — alternates sustained CHORDS with random BURSTS of notes
+    // across ALL 16 channels; never silent. (The prefer-non-silent revert keeps the OUTPUT live too.)
+    private enum Play { case chord, burst }
+    private var play = Play.burst
+    private var playLeft = 0
+    private var heldSet = Set<UInt8>()
 
     // THE OUTPUT ORACLE: watches whether output MATCHES the state, and flags a mismatch on screen.
     private(set) var oracleFlag = "OK"
@@ -46,7 +46,7 @@ final class ChaosDriver {
     func start(au: MidiSparkAudioUnit, seed: UInt32, source: Source = .live) {
         guard !running else { return }
         self.au = au; self.seed = seed; self.source = source; rng = ChaosRNG(seed)
-        running = true; eventCount = 0; lines = []; held = []; shorts = []; spell = .held; spellLeft = rng.range(3, 8)
+        running = true; eventCount = 0; lines = []; heldSet = []; play = .burst; playLeft = 0   // first tick seeds a chord
         stuckStreak = 0; silentStreak = 0; oracleFlag = "OK"
         au.chaosSetActive(true)   // gate the render-side chain-dump to this session
         write("CHAOS START · seed=0x\(String(seed, radix: 16)) · MIDI=\(source == .simulated ? "SIMULATED" : "LIVE") · speed=\(speed)")
@@ -54,7 +54,7 @@ final class ChaosDriver {
     }
     func stop() {
         guard running else { return }
-        if source == .simulated { held.forEach { au?.chaosInjectMIDI(0x80, $0, 0) }; shorts.forEach { au?.chaosInjectMIDI(0x80, $0, 0) } }   // release our notes
+        if source == .simulated { heldSet.forEach { au?.chaosInjectMIDI(0x80, $0, 0) }; heldSet.removeAll() }   // release our notes
         au?.chaosSetActive(false)
         running = false; write("CHAOS STOP · \(eventCount) events")
     }
@@ -115,22 +115,22 @@ final class ChaosDriver {
     // Arm the inverse of a silencing control action; the next fire undoes it if the engine went silent (held chord).
     private func arm(_ label: String, _ revert: @escaping () -> Void) { revertLabel = label; pendingRevert = revert }
 
-    // SIMULATED MIDI — advance the HELD → SHORT → SILENCE spell and inject via the AU's debug MIDI path.
+    // SIMULATED MIDI — ALWAYS PLAYING: alternate a sustained CHORD with a BURST of random notes across all channels.
     private func midiTick(_ au: MidiSparkAudioUnit) {
-        func on(_ n: UInt8) { au.chaosInjectMIDI(0x90, n, UInt8(rng.range(1, 127))) }
-        func off(_ n: UInt8) { au.chaosInjectMIDI(0x80, n, 0) }
-        if spellLeft <= 0 {
-            spell = spell == .held ? .short : (spell == .short ? .silence : .held)
-            spellLeft = rng.range(3, 8)
-            if spell != .held { held.forEach(off); held.removeAll() }
-            if spell == .silence { shorts.forEach(off); shorts.removeAll() }
+        func on(_ n: UInt8, _ ch: Int) { au.chaosInjectMIDI(0x90 | UInt8(ch & 15), n, UInt8(rng.range(1, 127))); heldSet.insert(n) }
+        func off(_ n: UInt8) { au.chaosInjectMIDI(0x80, n, 0); heldSet.remove(n) }
+        if playLeft <= 0 {                                                          // switch phase: release the old, seed the new
+            play = play == .chord ? .burst : .chord
+            playLeft = rng.range(3, 8)
+            Array(heldSet).forEach(off)
+            if play == .chord { let ch = rng.int(16), root = rng.range(40, 76); for iv in [0, 4, 7, 11] where root + iv <= 127 { on(UInt8(root + iv), ch) } }
         }
-        spellLeft -= 1
-        switch spell {
-        case .held:    if held.isEmpty || rng.chance(0.4) { let n = UInt8(rng.int(128)); on(n); held.append(n) }
-        case .short:   shorts.forEach(off); shorts.removeAll(); for _ in 0..<rng.range(1, 3) { let n = UInt8(rng.int(128)); on(n); shorts.append(n) }
-        case .silence: break
+        playLeft -= 1
+        switch play {
+        case .chord: if rng.chance(0.25) { on(UInt8(rng.range(36, 96)), rng.int(16)) }                                   // sustain; occasionally thicken
+        case .burst: Array(heldSet).forEach(off); for _ in 0..<rng.range(2, 6) { on(UInt8(rng.int(128)), rng.int(16)) }  // fresh scatter, notes on ALL channels
         }
+        if heldSet.isEmpty { on(UInt8(rng.range(48, 72)), 0) }                       // guarantee: at least one note is always sounding
     }
 
     // THE ORACLE — does the OUTPUT match the STATE? Reads the live diag and flags a mismatch on screen + in the log.
