@@ -304,26 +304,48 @@ final class Kernel {
         chaosSilentStreak = suspicious ? chaosSilentStreak + 1 : 0
         if chaosSilentStreak == 12 { let t = buildRoutingText(box); chaosDump.withLock { $0 = t } }   // once, at threshold
     }
+    // Why a cell can't route the LIVE pool to an emitter (nil = it CAN → a genuine path). Mirrors effectivePool's
+    // gates: a BYPASSED door diverts the grid, a DISABLED door isn't listening, a LATCH-ARMED door reads the FROZEN
+    // pool (so the live admission is moot) — in all three the cell won't sound from the live held notes.
+    private func cellRouteBlock(_ c: SnapCell, _ box: SnapshotBox) -> String? {
+        let r = Int(c.resolvedReceiver)
+        if r >= 0 {
+            let bit = UInt8(1 << r)
+            if box.receiverBypassMask   & bit != 0 { return "recv BYPASS (grid diverted)" }
+            if box.receiverDisabledMask & bit != 0 { return "recv DISABLED (not listening)" }
+            if latchArmMask             & bit != 0 { return "recv LATCHED (reads frozen, not live)" }
+        }
+        if (c.busMask & box.busEnabledMask) == 0 { return "no enabled emitter" }
+        if pool.srcCount(for: c) == 0 { return "admits 0" }
+        return nil
+    }
     private func buildRoutingText(_ box: SnapshotBox) -> String {
+        func rflags(_ r: Int) -> String {
+            let bit = UInt8(1 << r); var f = ""
+            if box.receiverDisabledMask & bit != 0 { f += " [DISABLED]" }
+            if box.receiverBypassMask   & bit != 0 { f += " [BYPASS]" }
+            if latchArmMask             & bit != 0 { f += " [LATCHED]" }
+            return f
+        }
         var l = ["--- MIDI CHAIN @ suspicious silence ---",
                  "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
         let n = pool.srcCount(filter: 0)
         l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
-        for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])") }
+        for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])\(rflags(r))") }
         for (i, c) in box.cells.enumerated() where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
-            let adm = pool.srcCount(for: c), en = (c.busMask & box.busEnabledMask) != 0
-            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) recv=\(c.resolvedReceiver) admits=\(adm) buses=0b\(String(c.busMask, radix: 2)) enabledEmitter=\(en)" + (adm > 0 && en ? "  → PATH" : ""))
+            let block = cellRouteBlock(c, box)
+            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)"))
         }
         l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")
         return l.joined(separator: "\n")
     }
-    // CHAOS oracle (one cheap scan): a structural "should something sound?" — an occupied, audible cell that ADMITS a
-    // held note AND routes to an ENABLED emitter. Silence with NO such path is expected; WITH a path is suspicious.
+    // CHAOS oracle (one cheap scan): a structural "should something sound?" — an occupied, audible cell that routes
+    // the LIVE held pool to an enabled emitter (no bypass/disable/latch gate). No such path ⇒ silence is expected.
     private func computeRoutedPath(_ box: SnapshotBox) {
         var path = false
         for c in box.cells where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
-            if (c.busMask & box.busEnabledMask) != 0 && pool.srcCount(for: c) > 0 { path = true; break }
+            if cellRouteBlock(c, box) == nil { path = true; break }
         }
         diag.routedPath = path
     }
