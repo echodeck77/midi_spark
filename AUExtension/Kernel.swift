@@ -218,9 +218,10 @@ final class Kernel {
     private var inputEvents = [UInt32](repeating: 0, count: 4)
     private var inputChannelMask = [UInt16](repeating: 0, count: 4)   // §MPE: channels (bit = ch-1) a receiver heard this window
     func drainReceiverActivity() -> (peak: [UInt8], events: [UInt32], channels: [UInt16]) {
-        let r = (inputPeak, inputEvents, inputChannelMask)
-        for i in 0..<4 { inputPeak[i] = 0; inputEvents[i] = 0; inputChannelMask[i] = 0 }
-        return r
+        // FRESH copies — never capture the render-written buffers (COW-on-render + refcount race = the poll crash class).
+        var peak = [UInt8](repeating: 0, count: 4), events = [UInt32](repeating: 0, count: 4), channels = [UInt16](repeating: 0, count: 4)
+        for i in 0..<4 { peak[i] = inputPeak[i]; inputPeak[i] = 0; events[i] = inputEvents[i]; inputEvents[i] = 0; channels[i] = inputChannelMask[i]; inputChannelMask[i] = 0 }
+        return (peak, events, channels)
     }
     // item 4 VELOCITY MARKS (input side): per receiver, recent note-on velocities since the last poll (input
     // has no Colour → the UI tints them the strip's identity hue). Bounded to 8 per poll cycle.

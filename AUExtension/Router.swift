@@ -445,16 +445,19 @@ final class Router {
     /// call. UI-poll side (main thread) vs render-side accumulation — the race is benign (a dropped
     /// meter tick at worst), consistent with the diag being display-only.
     func drainMeters() -> (peak: [UInt8], events: [UInt32]) {
-        let r = (meterPeakVel, meterEvents)
-        for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0 }
-        return r
+        // Build FRESH arrays (never capture the render-written buffers) so the render thread can't hit copy-on-write
+        // + a refcount race on a shared buffer — the _swift_release_dealloc crash class. The per-byte read/reset race
+        // vs the render is benign (a dropped meter tick at worst).
+        var peak = [UInt8](repeating: 0, count: 4), events = [UInt32](repeating: 0, count: 4)
+        for i in 0..<4 { peak[i] = meterPeakVel[i]; meterPeakVel[i] = 0; events[i] = meterEvents[i]; meterEvents[i] = 0 }
+        return (peak, events)
     }
     /// SEAL comet: read-and-clear the per-CELL peak strike velocity (index = col*8+row) since the last poll.
     /// Accumulates across render windows (never lost between polls); the UI stamps a hit time + owns the decay.
     func drainCellStrikes() -> [UInt8] {
-        let r = cellStrike
-        for i in 0..<64 { cellStrike[i] = 0 }
-        return r
+        var out = [UInt8](repeating: 0, count: 64)   // FRESH copy — never share `cellStrike` with the poll (COW-on-render race)
+        for i in 0..<64 { out[i] = cellStrike[i]; cellStrike[i] = 0 }
+        return out
     }
 
     /// item 4 VELOCITY MARKS: read-and-clear the per-emitter note-on marks accumulated since the last poll —
