@@ -76,6 +76,8 @@ struct DiagView: View {
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
+    @State var emitterPageFor: Int? = nil       // EMITTER PAGE (long-press a role/header): the pointed emitter (nil = closed); replaces the grid
+    @State var emitterPageSection = "top"        // scroll target on open ("top"/"voice"/"claim"/"duck"/"alt")
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -741,6 +743,7 @@ struct DiagView: View {
                         signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)   // RECEIVERS → GRID → EMITTERS
                     }
                     .padding(12)
+                    .onChange(of: activeSceneIdx) { _ in emitterPageFor = nil }   // EMITTER PAGE: a scene switch closes it
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
@@ -958,7 +961,11 @@ struct DiagView: View {
                     receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: recvBandH)                    // FIXED input-controls height
-                gridBlock(cell, half)                         // `half` = the emitter section width (for the edit page's output block)
+                if let em = emitterPageFor {                  // EMITTER PAGE: the grid yields; the strips + master stay live around it
+                    emitterPageView(em).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    gridBlock(cell, half)
+                }                         // `half` = the emitter section width (for the edit page's output block)
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half).background(routeProbe("emitters"))     // §10 strips wear ROUTE OUT faces
@@ -1142,6 +1149,22 @@ struct DiagView: View {
                    onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
+    // EMITTER PAGE (pass 1) — the full-size band desk, rendered in the grid's slot. Reuses the strips' own callbacks
+    // (live + undoable). Tabs switch the pointed emitter; DONE / EDIT toggle / scene switch close it.
+    @ViewBuilder func emitterPageView(_ e: Int) -> some View {
+        EmitterPage(emitter: e, section: emitterPageSection,
+                    busChannels: busChannels, busEnabled: busEnabled,
+                    claimMask: claimMask, claimLeak: claimLeak,
+                    flattenMask: flattenMask, flattenAmount: flattenAmount,
+                    altMask: altMask, altCount: altCount, octave: emitterOctave,
+                    onTab: { emitterPageFor = $0 },
+                    onClaim: setClaim, onClaimLeak: setClaimLeak,
+                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
+                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
+                    onOct: nudgeEmitterOctave,
+                    onClose: { emitterPageFor = nil })
+    }
+
     var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
@@ -1156,7 +1179,8 @@ struct DiagView: View {
                     altMask: altMask, altCount: altCount,
                     onToggleAlt: toggleAlt, onAltCount: setAltCnt,
                     wiring: !routeFoci.isEmpty, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
-                    onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) })
+                    onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) },
+                    onOpenPage: { em, sec in emitterPageSection = sec; emitterPageFor = em })   // EMITTER PAGE entry (long-press)
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
@@ -1223,7 +1247,7 @@ struct DiagView: View {
                        canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
                        onUndo: undo, onRedo: redo,
                        isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
-                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on },
+                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on; emitterPageFor = nil },   // EDIT closes the emitter page
                        showScenes: showScenes)                                  // scene row visibility (cog toggle)
     }
     // §3 PRESETS wiring

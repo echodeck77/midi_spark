@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EMITTER PAGE — pass 1 (2026-08-04, on BRANCH `feature/emitter-page`, NOT merged; 407 green, iOS builds).
+  The full-size band desk, first pass = shell + entry/exit + today's controls only (no new engine). New
+  `EmitterPage.swift` renders IN PLACE OF THE GRID (signalColumn swaps `gridBlock` when `emitterPageFor != nil`);
+  strips/master/verbs stay live around it. Entry: LONG-PRESS an emitter role button (CLAIM/DUCK/ALT → that section)
+  or its header (→ top) — `OutputsView.onOpenPage`; the role long-press uses a `roleLongFired` flag so the drag's
+  release doesn't also toggle (a >10px drag cancels the long-press, so drag-to-set still works). Header: A·B·C·D
+  tabs + DONE. Live readout (true clauses only). Sections wired to the EXISTING callbacks (VOICE = channel display +
+  OCT · CLAIM+leak · DUCK+amount · ALT+count); FEEL/CONVERSATION/ECHO/CHOKE/DENSITY + VOICE curve/MONO/FENCE are
+  dimmed "coming" seats. Closes on DONE · EDIT toggle · scene switch. Project regenerated via `xcodegen generate` to
+  include the new file. Spec: `AcceptanceCriteria-emitter-page-pass1.md`. Pure UI → covered by the iOS build; the
+  claim/duck/alt engine paths already have Router tests. Later passes add the new engine (MONO/FENCE/DUCK envelope/
+  ALT rotate-deal-ring/FEEL/CONVERSATION).**
 - **▶ CRASH FIXED — render↔main race on the header-dot poll (2026-08-03, on `main`; 406 green, iOS builds).
   Device crash (AUM host, MidiSparkAU): `EXC_BAD_ACCESS` in `_swift_release_dealloc`, main thread, via the 4 Hz poll
   timer (`NSTimer.TimerPublisher` → `.onReceive` → `DiagView.body` closure). ROOT CAUSE: the `recvLiveHeld` poll I
