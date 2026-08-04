@@ -188,6 +188,11 @@ struct DiagView: View {
     @State var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
     @State var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
     @State var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
+    #if DEBUG
+    @State private var chaos = ChaosDriver()          // Layer 2 CHAOS MODE (debug-only): seeded control-surface fuzzer
+    @State private var chaosSeed: UInt32 = 0
+    @State private var chaosOn = false
+    #endif
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
     // ON-TAP overlay: TapKind/TapOverlay + the apply/mask logic are pure functions in Derivations (testable).
@@ -1326,12 +1331,37 @@ struct DiagView: View {
                 }
                 devLoader
                 stuckNoteMonitor
+                chaosRow
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.10, green: 0.11, blue: 0.14)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.12), lineWidth: 1))
             .padding(24)
         }
+    }
+
+    // Layer 2 CHAOS MODE start/stop — debug-only; drives the AU handlers on a seeded jittered loop while the engine
+    // renders live. The seed shows on screen (SEED LAW) + is written to a per-session dump so an .ips pairs with it.
+    @ViewBuilder var chaosRow: some View {
+        #if DEBUG
+        HStack(spacing: 8) {
+            Button(chaosOn ? "⏹ CHAOS" : "▶ CHAOS") {
+                if chaosOn { chaos.stop(); chaosOn = false }
+                else if let au = au {
+                    chaosSeed = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
+                    chaos.start(au: au, seed: chaosSeed); chaosOn = true
+                }
+            }
+            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(chaosOn ? .black : Color(red: 0.98, green: 0.35, blue: 0.3))
+            .padding(.vertical, 5).padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 4).fill(chaosOn ? Color(red: 0.98, green: 0.35, blue: 0.3) : Color.white.opacity(0.08)))
+            if chaosOn {
+                Text("seed 0x\(String(chaosSeed, radix: 16))").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            }
+            Spacer()
+        }
+        #endif
     }
 
     var devLoader: some View {

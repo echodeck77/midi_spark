@@ -157,7 +157,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ EMITTER PAGE — pass 1 (2026-08-04, on BRANCH `feature/emitter-page`, NOT merged; 407 green, iOS builds).
+- **▶ FUZZ HARNESS + CHAOS MODE — both built (2026-08-04, on `main`; 412 green, iOS builds; Layer 2 device-run owed).
+  Ferry-ratified pre-beta hardening. LAYER 1 `Tests/FuzzTests.swift` (5 tests, ~18s): seeded (`mulberry32`) random
+  doc + a SPELL-driven pool (**held → short → silence**, per the user) + pathological orderings, driving
+  `Router.process`. Invariants: I5 in-range · I1/I2 no-key-sounding-after-flush (LAST-event-per-key, NOT a net count
+  — the collision refcount folds many ons into one off) · I8/I10 `Router.quiescent` · I6 determinism (byte-identical
+  same-seed, 200) · I12 SnapshotBuilder totality (4000) · I13 NotePool robustness (3000). Failing seeds pin into
+  `testPinnedRegressionSeeds`. Added `Router.quiescent` (+ `hasDuplicateVoices`, unused — naive I3 flags legit
+  refcount collisions; needs an adoption-aware hook). LAYER 2 `AUExtension/ChaosDriver.swift` (`#if DEBUG` whole
+  file): seeded jittered MAIN-thread loop driving ~24 AU control handlers while the engine renders live (catches the
+  render↔main crash class); `▶ CHAOS` chip in the dev overlay shows the seed + writes `chaos-0x<seed>.log`. The
+  harness caught its OWN check bugs first pass (net-count I1/I2, over-strict I3) — corrected; `quiescent` never
+  failed → the engine is clean under the fuzz. Determinism CONFIRMED. Spec: `AcceptanceCriteria-fuzz-and-chaos.md`.
+  Project regenerated via `xcodegen`. NEXT (deferred): nightly-soak scheme; ring-buffer logger; adoption-aware I3;
+  optional `KernelCore` extraction to fuzz the Kernel orchestration pre-device.**
+- **▶ EMITTER PAGE — pass 1 (2026-08-04, on `main` via merge `b0668d9`; 407→green, iOS builds).
   The full-size band desk, first pass = shell + entry/exit + today's controls only (no new engine). New
   `EmitterPage.swift` renders IN PLACE OF THE GRID (signalColumn swaps `gridBlock` when `emitterPageFor != nil`);
   strips/master/verbs stay live around it. Entry: LONG-PRESS an emitter role button (CLAIM/DUCK/ALT → that section)

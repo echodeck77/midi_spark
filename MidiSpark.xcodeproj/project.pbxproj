@@ -13,6 +13,7 @@
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
 		1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
+		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
@@ -20,6 +21,7 @@
 		40E66AF78A7BAC8A0EEB79FD /* EmitterPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0188A4B562CB854A4625D6BE /* EmitterPage.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
+		5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D181AD808BD18E8D2F085F /* FuzzTests.swift */; };
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
 		60B13494D15905651204BE24 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
@@ -100,7 +102,9 @@
 		84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrangementBar.swift; sourceTree = "<group>"; };
 		88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
 		91BA15AAFC801CACFECA4085 /* MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationTests.swift; sourceTree = "<group>"; };
+		948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaosDriver.swift; sourceTree = "<group>"; };
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
+		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -133,6 +137,7 @@
 				DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */,
 				98149EBE4B9E76352A457113 /* DerivationsTests.swift */,
 				0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */,
+				99D181AD808BD18E8D2F085F /* FuzzTests.swift */,
 				91BA15AAFC801CACFECA4085 /* MigrationTests.swift */,
 				72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */,
 				688828AD8E02A3FA163D3656 /* RouterTests.swift */,
@@ -168,6 +173,7 @@
 			children = (
 				84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */,
 				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
+				948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */,
 				D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
 				88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */,
@@ -325,6 +331,7 @@
 			files = (
 				4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */,
 				C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */,
+				1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */,
 				E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
 				8CC40A50AE903C00870E629A /* Diag.swift in Sources */,
@@ -366,6 +373,7 @@
 				86DBDA072FBE5381278BC901 /* Diag.swift in Sources */,
 				D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */,
 				11389DE07A052AF31C5B1535 /* Emission.swift in Sources */,
+				5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */,
 				7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */,
 				B6CE33CA239BE671207C2E10 /* Models.swift in Sources */,
 				E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */,

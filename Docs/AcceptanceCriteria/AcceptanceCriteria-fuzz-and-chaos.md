@@ -1,7 +1,24 @@
 # AcceptanceCriteria / PLAN — ENGINE FUZZ HARNESS + ON-DEVICE CHAOS MODE
 _From the design ferry (design-ferry-fuzz-and-chaos, 2026-08-04; direction ratified by Paul, pre-TestFlight
 hardening). This is Code's PLAN grounded in the codebase + the answers to the ferry's OPEN FOR CODE items._
-_Status: PLANNED, not built. Additive test infrastructure; blocks nothing._
+_Status: **BUILT 2026-08-04.** Layer 1 (fuzz harness) is complete + green (412 tests); Layer 2 (chaos mode) is
+built, `#if DEBUG`-gated, and compile-verified — DEVICE run owed. Additive test infrastructure; blocks nothing._
+
+## BUILT — what landed
+- **Layer 1 — `Tests/FuzzTests.swift`** (5 tests, ~18 s): `mulberry32` seed → random doc + a spell-driven pool
+  (**held → short → silence**, per the user) with pathological orderings, driving `Router.process` + the recording
+  double. Asserts: **I5** (in-range), **I1/I2** (no key left sounding after flush — via LAST-event-per-key, NOT a
+  net count), **I8/I10** (`Router.quiescent`), **I6** (determinism — same seed ⇒ byte-identical stream, 200 seeds),
+  **I12** (SnapshotBuilder totality, 4000 docs), **I13** (NotePool robustness, 3000 seqs). Failing seeds pin into
+  `testPinnedRegressionSeeds`. Router gained `quiescent` (+ `hasDuplicateVoices`, unused pending an adoption-aware I3).
+- **Layer 2 — `AUExtension/ChaosDriver.swift`** (`#if DEBUG` — whole file): a seeded, jittered, MAIN-thread loop that
+  drives ~24 AU control handlers (claim/duck/alt, receiver channel/range/bypass/latch/mute, masters, ladder, panic…)
+  while the engine renders live. Seed shown on the dev overlay (`▶ CHAOS` chip) + written to a per-session dump
+  (`chaos-0x<seed>.log` in the container). MIDI comes from the host (AUM + latched chord). Chaos v1 = minimal dump.
+- **The harness caught its OWN invariant-check bugs first pass** (validating the approach): the net-count I1/I2 was
+  wrong (refcount folds many ons into one off → last-event-per-key is correct), and the naive I3 flagged legitimate
+  refcount collisions — both corrected. `quiescent` never failed → the engine is genuinely clean under the fuzz.
+- **Determinism CONFIRMED** on the engine (I6 green) — locks in the "no Date/RNG on the render path" invariant.
 
 ## The SEED LAW (both layers)
 Deterministic PRNG seeded per run; seed + build number replays the exact sequence. **Reuse the existing
