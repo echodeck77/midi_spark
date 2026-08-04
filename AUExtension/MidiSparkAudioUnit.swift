@@ -27,6 +27,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func kernelDiagnostics() -> KernelDiag { kernel.diag }
     #if DEBUG
     func chaosInjectMIDI(_ status: UInt8, _ d1: UInt8, _ d2: UInt8) { kernel.chaosEnqueue(status, d1, d2) }   // CHAOS SIMULATED source
+    func chaosSetActive(_ on: Bool) { kernel.chaosActive = on }                                               // gate the render-side oracle dump
+    func chaosRoutingDump() -> String { kernel.chaosRoutingDump() }                                           // the chain-state dump @ suspicious silence
     #endif
     func uiPass() -> Int { kernel.diag.pass }   // MULTI-SCENE S2c: the live pass, polled fast while a switch is armed
 

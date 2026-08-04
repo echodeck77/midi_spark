@@ -41,12 +41,14 @@ final class ChaosDriver {
         self.au = au; self.seed = seed; self.source = source; rng = ChaosRNG(seed)
         running = true; eventCount = 0; lines = []; held = []; shorts = []; spell = .held; spellLeft = rng.range(3, 8)
         stuckStreak = 0; silentStreak = 0; oracleFlag = "OK"
+        au.chaosSetActive(true)   // gate the render-side chain-dump to this session
         write("CHAOS START · seed=0x\(String(seed, radix: 16)) · MIDI=\(source == .simulated ? "SIMULATED" : "LIVE") · speed=\(speed)")
         schedule()
     }
     func stop() {
         guard running else { return }
         if source == .simulated { held.forEach { au?.chaosInjectMIDI(0x80, $0, 0) }; shorts.forEach { au?.chaosInjectMIDI(0x80, $0, 0) } }   // release our notes
+        au?.chaosSetActive(false)
         running = false; write("CHAOS STOP · \(eventCount) events")
     }
 
@@ -118,13 +120,22 @@ final class ChaosDriver {
     //  • SILENT (heuristic): playing + notes HELD, yet NOTHING out for a while → maybe silent-when-it-should-sound
     //    (soft "?" — legitimately silent if every routed cell is currently gated, e.g. a closed passgate).
     private func checkOracle() {
-        guard let d = au?.kernelDiagnostics() else { return }
+        guard let au = au else { return }
+        let d = au.kernelDiagnostics()
         stuckStreak  = (!d.playing && d.poolCount == 0 && d.distinctSounding > 0) ? stuckStreak + 1 : 0
-        silentStreak = ( d.playing && d.poolCount > 0 && d.distinctSounding == 0) ? silentStreak + 1 : 0
-        let flag = stuckStreak >= 4 ? "⚠ STUCK: \(d.distinctSounding) sounding, none held"
-                 : silentStreak >= 10 ? "⚠ SILENT?: \(d.poolCount) held, none out"
+        // SILENT is only SUSPICIOUS when a ROUTED PATH exists (the engine's structural verdict). No path ⇒ the silence
+        // is EXPECTED (nothing routes a held note to an enabled emitter) — not flagged.
+        silentStreak = (d.playing && d.poolCount > 0 && d.distinctSounding == 0 && d.routedPath) ? silentStreak + 1 : 0
+        let flag = stuckStreak >= 4  ? "⚠ STUCK \(d.distinctSounding) sounding, none held"
+                 : silentStreak >= 12 ? "⚠ SILENT (routed path, none out)"
                  : "OK"
-        if flag != oracleFlag { oracleFlag = flag; if flag != "OK" { write("ORACLE \(flag) (seed 0x\(String(seed, radix: 16)))") } }
+        if flag != oracleFlag {
+            oracleFlag = flag
+            if flag.hasPrefix("⚠") {
+                write("ORACLE \(flag) · seed 0x\(String(seed, radix: 16))")
+                write(au.chaosRoutingDump())   // the full MIDI-chain dump (built render-side at the streak threshold)
+            }
+        }
     }
 
     private func write(_ s: String) {

@@ -20,10 +20,18 @@ built, `#if DEBUG`-gated, and compile-verified — DEVICE run owed. Additive tes
     the SAME `handleIncoming` path host MIDI uses (a debug-only `OSAllocatedUnfairLock` — a deliberate, #if DEBUG,
     never-shipped exception to no-locks-on-render). AU hook `chaosInjectMIDI`.
   - **LIVE** (`▶ LIVE MIDI`) — MIDI from the host (AUM + a real latched chord); chaos fuzzes only controls.
-  - **THE OUTPUT ORACLE** (user 2026-08-04) — a live watchdog reading the diag each loop, highlighted on the overlay:
-    **STUCK** (precise: transport stopped + no notes held, yet notes still sounding → a hung note) · **SILENT?**
-    (heuristic: playing + notes held, yet nothing out for a while → maybe silent-when-it-should-sound; a soft "?"
-    since a legitimately-gated routing — e.g. a closed passgate — can be silent). Flags go to the dump too.
+  - **THE OUTPUT ORACLE** (user 2026-08-04) — a live watchdog reading the diag each loop, highlighted on the overlay
+    + written to the log:
+    - **STUCK** (precise): transport stopped + no notes held, yet notes still sounding → a hung note.
+    - **SILENT** — now **precise about the structural cause** via `diag.routedPath` (a render-side scan: does any
+      occupied, audible cell ADMIT a held note AND route to an ENABLED emitter?). Silence with **no routed path** is
+      **EXPECTED** (nothing routes) and NOT flagged; silence **with** a routed path is **SUSPICIOUS** and flagged.
+    - **The MIDI-CHAIN DUMP on silence** (user 2026-08-04): when the suspicious streak crosses threshold, the RENDER
+      side (safe access to box+pool) builds a full chain dump — held notes · per-receiver filter/range · every audible
+      cell's (receiver · admits · buses · enabled-emitter · → PATH) · a VERDICT line — stashed via a lock and
+      appended to `chaos-0x<seed>.log` by the driver. So the log now says WHY it's silent, not just "silent".
+    - The dump can't be 100%-certain a suspicious silence is a bug (a closed passgate / chance / arp-tick legitimately
+      gates a routed path), but it rules out the expected-silence cases and hands a precise routing snapshot to dig from.
 - **The harness caught its OWN invariant-check bugs first pass** (validating the approach): the net-count I1/I2 was
   wrong (refcount folds many ons into one off → last-event-per-key is correct), and the naive I3 flagged legitimate
   refcount collisions — both corrected. `quiescent` never failed → the engine is genuinely clean under the fuzz.

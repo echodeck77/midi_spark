@@ -291,6 +291,42 @@ final class Kernel {
             bytes.withUnsafeBufferPointer { handleIncoming(bytes: $0, length: 3, sampleTime: 0, playing: playing, cable: 1) }
         }
     }
+    // CHAOS ORACLE — the render side builds a full MIDI-CHAIN DUMP when silence looks SUSPICIOUS (playing + held +
+    // routed path, yet nothing sounding), stashed for the main-thread driver to read + log. Built ONCE at the streak
+    // threshold (rare) so the string alloc never hits the steady hot path. `chaosActive` gates it to a live session.
+    var chaosActive = false
+    private var chaosSilentStreak = 0
+    private let chaosDump = OSAllocatedUnfairLock(initialState: "")
+    func chaosRoutingDump() -> String { chaosDump.withLock { $0 } }
+    private func chaosOracleTick(_ box: SnapshotBox, playing: Bool) {
+        guard chaosActive else { return }
+        let suspicious = playing && pool.count > 0 && diag.distinctSounding == 0 && diag.routedPath
+        chaosSilentStreak = suspicious ? chaosSilentStreak + 1 : 0
+        if chaosSilentStreak == 12 { let t = buildRoutingText(box); chaosDump.withLock { $0 = t } }   // once, at threshold
+    }
+    private func buildRoutingText(_ box: SnapshotBox) -> String {
+        var l = ["--- MIDI CHAIN @ suspicious silence ---",
+                 "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
+        let n = pool.srcCount(filter: 0)
+        l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
+        for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])") }
+        for (i, c) in box.cells.enumerated() where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
+            let adm = pool.srcCount(for: c), en = (c.busMask & box.busEnabledMask) != 0
+            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) recv=\(c.resolvedReceiver) admits=\(adm) buses=0b\(String(c.busMask, radix: 2)) enabledEmitter=\(en)" + (adm > 0 && en ? "  → PATH" : ""))
+        }
+        l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
+                                 : "VERDICT: no routed path → silence is EXPECTED")
+        return l.joined(separator: "\n")
+    }
+    // CHAOS oracle (one cheap scan): a structural "should something sound?" — an occupied, audible cell that ADMITS a
+    // held note AND routes to an ENABLED emitter. Silence with NO such path is expected; WITH a path is suspicious.
+    private func computeRoutedPath(_ box: SnapshotBox) {
+        var path = false
+        for c in box.cells where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
+            if (c.busMask & box.busEnabledMask) != 0 && pool.srcCount(for: c) > 0 { path = true; break }
+        }
+        diag.routedPath = path
+    }
     #endif
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
 
@@ -415,6 +451,11 @@ final class Kernel {
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
         flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
         restartRequested = false        // MULTI-SCENE S2b restart-the-pass is a one-shot too
+
+        #if DEBUG
+        computeRoutedPath(box)                   // CHAOS oracle: is there a structural path a held note could sound through?
+        chaosOracleTick(box, playing: playing)   // build the chain-state dump when silence looks SUSPICIOUS
+        #endif
 
         // ---- a8 ASSERT-ON-SILENCE net: when nothing legitimately sounds (stopped, no held input, no
         //      audition), any lingering router voice or passthrough echo is a STUCK NOTE. Force silence —
