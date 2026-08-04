@@ -50,6 +50,7 @@ final class ChaosDriver {
         stuckStreak = 0; silentStreak = 0; oracleFlag = "OK"
         au.chaosSetActive(true)   // gate the render-side chain-dump to this session
         setupReceivers(au)        // FIRST: disable non-selected receivers, make the selected ones receptive — then never touch receivers again
+        au.setLadderMode(false)   // ladder OFF so per-cell mutes (not exclusive columns) shape the density toward 1–2/column
         write("CHAOS START · seed=0x\(String(seed, radix: 16)) · MIDI=\(source == .simulated ? "SIMULATED" : "LIVE") · recv=0b\(String(receiverMask, radix: 2)) · speed=\(speed)")
         schedule()
     }
@@ -75,15 +76,16 @@ final class ChaosDriver {
         let d = au.kernelDiagnostics()
         // PREFER NON-SILENT: a held chord that hasn't sounded for a few steps → REVIVE (reset every silencing gate).
         reviveStreak = (d.poolCount > 0 && d.distinctSounding == 0) ? reviveStreak + 1 : 0
-        if reviveStreak >= 2 {   // 2 steps of silence-under-a-held-chord (enough for the injected notes to render)
-            revive(au); reviveStreak = 0; eventCount += 1; return   // not logged (user 2026-08-04)
+        if reviveStreak >= 7 {   // let a mute BREATHE — revive only after a sustained full silence (user 2026-08-04)
+            revive(au); reviveStreak = 0; eventCount += 1; return   // not logged
         }
         checkOracle()
         if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
-        // Receivers are configured once at start and never touched again (user 2026-08-04) — chaos fuzzes the
-        // processing + output surface: roles, emitter octave/enable, master, ladder, clock.
+        if rng.chance(0.4) { shapeDensity(au); eventCount += 1; return }                       // aim for 1–2 active cells per column
+        // Receivers + ladder are configured once at start and left alone — chaos fuzzes the processing + output
+        // surface: roles, emitter octave/enable, master, clock.
         let i = rng.int(4), pct = rng.int(101), on = rng.chance(0.5)
-        switch rng.int(15) {
+        switch rng.int(13) {
         case 0:  au.setClaim(i)
         case 1:  au.setClaimLeak(i, pct)
         case 2:  au.setFlatten(i, on)
@@ -95,13 +97,27 @@ final class ChaosDriver {
         case 8:  au.nudgeMasterKey(rng.chance(0.5) ? 1 : -1)         // KEY± during held chords
         case 9:  au.setMasterMute(on)
         case 10: au.setMasterVelOverride(on ? rng.range(1, 127) : nil)
-        case 11: au.setLadderMode(on)
-        case 12: au.setActiveRow(rng.int(8), rng.int(8))
-        case 13: au.setStepRateIndex(rng.int(6))
+        case 11: au.setStepRateIndex(rng.int(6))
         default: rng.chance(0.15) ? au.masterPanic() : au.setSwing(rng.range(50, 75))   // PANIC rarely
         }
         eventCount += 1
         if eventCount % 50 == 0 { write("… \(eventCount) events · oracle=\(oracleFlag)") }
+    }
+    // Aim for ONE or TWO active cells per column (user 2026-08-04) — active = occupied and un-muted. Nudge one random
+    // column toward the target: mute an active cell when > 2, un-mute one only when the column has gone fully silent.
+    // Mutes PERSIST (only a silent column is revived), so the thinned texture holds rather than snapping back.
+    private func shapeDensity(_ au: MidiSparkAudioUnit) {
+        let s = au.uiScene(), col = rng.int(8)
+        guard col < s.cells.count else { return }
+        var occupied: [Int] = [], active: [Int] = []
+        for row in 0..<min(8, s.cells[col].count) where s.cells[col][row] != nil {
+            occupied.append(row); if s.cells[col][row]?.muted == false { active.append(row) }
+        }
+        if active.count > 2 {
+            let row = active[rng.int(active.count)]; au.editScene(record: false) { $0.cells[col][row]?.muted = true }
+        } else if active.isEmpty, !occupied.isEmpty {
+            let row = occupied[rng.int(occupied.count)]; au.editScene(record: false) { $0.cells[col][row]?.muted = false }
+        }
     }
     // REVIVE — open every gate that can silence output, so a held chord sounds again: master mute/kill/vel-override
     // off, ladder off, all emitters enabled (no vel-kill), all receivers un-muted / listening / un-bypassed / OMNI /
