@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALIEN CIRCUITRY — the full-face seal</title>
+<style>
+  :root{--bg:#0c0d11;--panel:#14161d;--ink:#eceadf;--dim:#61646f;
+    --gold:#f5b83d;--cyan:#3ad6de;--pink:#f2a0c0;--lime:#c8e04a;--blue:#4a90e2;
+    --mono:'SF Mono',ui-monospace,Menlo,monospace;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--mono);
+    margin:0;padding:38px 30px 70px;}
+  h1{font-size:15px;letter-spacing:.24em;color:#f27ecf;margin:0 0 6px;}
+  .sub{font-size:11px;color:var(--dim);line-height:1.7;max-width:680px;margin-bottom:30px;}
+  .cap{font-size:10px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;
+    margin:30px 0 12px;}
+  .row{display:flex;gap:14px;flex-wrap:wrap;}
+  .unit{display:flex;flex-direction:column;align-items:center;}
+  .tag{font-size:9px;color:var(--dim);text-align:center;margin-top:6px;line-height:1.5;}
+  .cellface{width:150px;height:64px;border-radius:10px;position:relative;overflow:hidden;}
+  .cellface canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .bigcard{background:var(--panel);border-radius:14px;padding:20px;display:inline-flex;
+    flex-direction:column;align-items:center;gap:10px;}
+  .bigcard .plate{width:420px;height:150px;border-radius:12px;background:#101218;
+    position:relative;overflow:hidden;}
+  .bigcard canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .bigcard .zl{font-size:9px;color:var(--dim);letter-spacing:.12em;}
+  .note{font-size:11px;color:var(--dim);line-height:1.78;max-width:690px;
+    margin-top:34px;border-top:1px solid #22242c;padding-top:18px;}
+  .note b{color:var(--ink);font-weight:600;}
+</style>
+</head>
+<body>
+<h1>ALIEN CIRCUITRY</h1>
+<div class="sub">The full-rectangle seal: a faint ambient layer (stub traces,
+pads, vias — the alien wall) beneath one bold SIGNAL TRACE with bevelled
+turns and a hash-chosen terminator (ring · fork · chevron). The spark, when
+it comes, runs only the bold wire. Twins share a board; strangers don't.</div>
+
+<div class="cap">On cells — full-face, landscape-native, two ink weights</div>
+<div class="row" id="grid"></div>
+
+<div class="cap">At edit size — the same board, breathing room, lattice implied by the vias</div>
+<div class="bigcard"><div class="plate"><canvas id="big1"></canvas></div>
+  <div class="zl">machine A, large — re-routes with a glide on config change</div></div>
+
+<div class="note">
+<b>The vocabulary:</b> an 8×3 node field spanning the face · MAIN TRACE:
+5–7 moves, orthogonal + 45° diagonals, bevelled corners, start PAD (filled
+square) → alien TERMINATOR (ring / fork / chevron, by hash) · AMBIENT: 2–3
+short stubs branching off dead nodes ending in small pads, a few via dots —
+thin ink at ~⅓ the alpha. <b>Laws unchanged:</b> one hash (twins share) ·
+static when silent · ink only, hue owns the block · the comet travels the
+main trace only, slowing through nothing (the coil retires with the badge era)
+· two weights = chrome-quiet in miniature: decoration whispers, signal speaks.
+</div>
+
+<script>
+function hash32(s){let h=2166136261;for(let i=0;i<s.length;i++){
+  h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function rnd(h){h=Math.imul(h^(h>>>13),0x5bd1e995);h^=h>>>15;return h>>>0;}
+function gen(seed){
+  let h=hash32(seed);
+  const NX=8,NY=3;
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  h=rnd(h);let x=h%2; h=rnd(h);let y=h%NY;      // start near the left
+  const main=[[x,y]];let last=-1;
+  const n=5+(rnd(h)%3); h=rnd(h);
+  for(let i=0;i<n;i++){
+    for(let t=0;t<10;t++){h=rnd(h);const di=h%8;
+      if(di===(last^1))continue;
+      const nx=x+dirs[di][0],ny=y+dirs[di][1];
+      if(nx<0||nx>=NX||ny<0||ny>=NY)continue;
+      x=nx;y=ny;last=di;main.push([x,y]);break;}}
+  h=rnd(h);const term=h%3;                       // 0 ring 1 fork 2 chevron
+  // ambient: stubs from random nodes not on the main path + vias
+  const used=new Set(main.map(p=>p[0]+','+p[1]));
+  const stubs=[],vias=[];
+  const nStub=2+(rnd(h)%2);h=rnd(h);
+  for(let s=0;s<nStub;s++){
+    h=rnd(h);let sx=h%NX;h=rnd(h);let sy=h%NY;
+    if(used.has(sx+','+sy))continue;
+    h=rnd(h);const d=dirs[h%8];
+    const ex=sx+d[0],ey=sy+d[1];
+    if(ex<0||ex>=NX||ey<0||ey>=NY)continue;
+    stubs.push([[sx,sy],[ex,ey]]);}
+  const nVia=3+(rnd(h)%3);h=rnd(h);
+  for(let v=0;v<nVia;v++){h=rnd(h);const vx=h%NX;h=rnd(h);const vy=h%NY;
+    if(!used.has(vx+','+vy))vias.push([vx,vy]);}
+  return{main,term,stubs,vias};}
+function draw(ctx,W,H,G,inkMain,inkDim,wMain,wDim){
+  ctx.clearRect(0,0,W,H);
+  const padX=W*.08,padY=H*.18,gx=(W-2*padX)/7,gy=(H-2*padY)/2;
+  const P=p=>[padX+p[0]*gx,padY+p[1]*gy];
+  // ambient
+  ctx.strokeStyle=inkDim;ctx.fillStyle=inkDim;ctx.lineWidth=wDim;
+  ctx.lineCap='round';ctx.lineJoin='round';
+  G.stubs.forEach(([a,b])=>{const[A,B2]=[P(a),P(b)];
+    ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B2[0],B2[1]);ctx.stroke();
+    ctx.beginPath();ctx.arc(B2[0],B2[1],wDim*1.6,0,7);ctx.fill();});
+  G.vias.forEach(v=>{const[X,Y]=P(v);
+    ctx.beginPath();ctx.arc(X,Y,wDim*1.1,0,7);ctx.fill();});
+  // main trace, bevelled
+  ctx.strokeStyle=inkMain;ctx.fillStyle=inkMain;ctx.lineWidth=wMain;
+  const M=G.main.map(P);
+  ctx.beginPath();ctx.moveTo(M[0][0],M[0][1]);
+  for(let i=1;i<M.length;i++)ctx.lineTo(M[i][0],M[i][1]);
+  ctx.stroke();
+  // start pad (filled square)
+  const s=wMain*1.9;
+  ctx.fillRect(M[0][0]-s/2,M[0][1]-s/2,s,s);
+  // terminator
+  const[ex,ey]=M[M.length-1],[bx,by]=M[M.length-2];
+  const ang=Math.atan2(ey-by,ex-bx);
+  if(G.term===0){ctx.beginPath();ctx.arc(ex,ey,wMain*1.7,0,7);
+    ctx.lineWidth=wMain*.9;ctx.stroke();}
+  else if(G.term===1){ // fork
+    ctx.lineWidth=wMain*.9;
+    [0.6,-0.6].forEach(o=>{ctx.beginPath();ctx.moveTo(ex,ey);
+      ctx.lineTo(ex+Math.cos(ang+o)*wMain*3,ey+Math.sin(ang+o)*wMain*3);
+      ctx.stroke();});}
+  else{ // chevron
+    ctx.lineWidth=wMain*.9;
+    ctx.beginPath();
+    ctx.moveTo(ex+Math.cos(ang+2.4)*wMain*2.6,ey+Math.sin(ang+2.4)*wMain*2.6);
+    ctx.lineTo(ex+Math.cos(ang)*wMain*1.4,ey+Math.sin(ang)*wMain*1.4);
+    ctx.lineTo(ex+Math.cos(ang-2.4)*wMain*2.6,ey+Math.sin(ang-2.4)*wMain*2.6);
+    ctx.stroke();}}
+const hues={lime:'#c8e04a',gold:'#f5b83d',cyan:'#3ad6de',pink:'#f2a0c0',blue:'#4a90e2'};
+const cells=[
+ {hue:'lime',seed:'aA',label:'machine A'},
+ {hue:'lime',seed:'aA',label:'machine A — twin<br>(same board)'},
+ {hue:'lime',seed:'aB',label:'one param differs<br>(new board)'},
+ {hue:'gold',seed:'aC',label:'gold machine'},
+ {hue:'cyan',seed:'aD',label:'cyan machine'},
+ {hue:'blue',seed:'aE',label:'blue machine'},
+];
+const grid=document.getElementById('grid');
+cells.forEach(c=>{
+  const u=document.createElement('div');u.className='unit';
+  const f=document.createElement('div');f.className='cellface';
+  f.style.background=hues[c.hue];
+  const cv=document.createElement('canvas');f.appendChild(cv);
+  u.appendChild(f);
+  u.insertAdjacentHTML('beforeend',`<div class="tag">${c.label}</div>`);
+  grid.appendChild(u);
+  requestAnimationFrame(()=>{
+    const r=cv.getBoundingClientRect();cv.width=r.width*2;cv.height=r.height*2;
+    const ctx=cv.getContext('2d');ctx.scale(2,2);
+    draw(ctx,r.width,r.height,gen(c.seed),
+      'rgba(12,12,16,.82)','rgba(12,12,16,.30)',2.3,1.1);});});
+const big=document.getElementById('big1');
+requestAnimationFrame(()=>{
+  const r=big.getBoundingClientRect();big.width=r.width*2;big.height=r.height*2;
+  const ctx=big.getContext('2d');ctx.scale(2,2);
+  draw(ctx,r.width,r.height,gen('aA'),
+    'rgba(236,234,223,.9)','rgba(236,234,223,.28)',3.2,1.5);});
+</script>
+</body>
+</html>
