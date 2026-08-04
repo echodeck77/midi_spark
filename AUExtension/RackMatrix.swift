@@ -23,6 +23,10 @@ struct RackMatrix: View {
     let altCount: [Int]
     let curveMask: UInt8        // CURVE (velocity re-map)
     let curveAmount: [Int]      // −100…100 per emitter
+    let fenceMask: UInt8        // FENCE (note-range policy)
+    let fencePolicy: [Int]      // 0 DROP · 1 CLAMP · 2 FOLD
+    let fenceLo: [Int]          // per-emitter window low (0…127)
+    let fenceHi: [Int]          // per-emitter window high (0…127)
     var emitPeak: [Double] = [0, 0, 0, 0]
     let onClaim: (Int) -> Void
     let onClaimLeak: (Int, Int) -> Void
@@ -32,6 +36,10 @@ struct RackMatrix: View {
     let onAltCount: (Int, Int) -> Void
     let onToggleCurve: (Int) -> Void
     let onCurveAmount: (Int, Int) -> Void
+    let onToggleFence: (Int) -> Void
+    let onCycleFence: (Int) -> Void
+    let onFenceLo: (Int, Int) -> Void
+    let onFenceHi: (Int, Int) -> Void
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -54,7 +62,8 @@ struct RackMatrix: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     familyLabel("THIS VOICE")
-                    dimRow("MONO"); dimRow("FENCE")
+                    dimRow("MONO")
+                    fenceRow
                     liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
                             isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
                             unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
@@ -138,6 +147,7 @@ struct RackMatrix: View {
         if bit(flattenMask, focus) { clauses.append("KEY: ducks others \(at(flattenAmount, focus, 0))%") }
         if bit(altMask, focus) { let n = max(1, at(altCount, focus, 1)); clauses.append("TURNS ×\(n)") }
         if bit(curveMask, focus) { let n = at(curveAmount, focus, 0); clauses.append("CURVE \(n > 0 ? "+" : "")\(n)") }
+        if bit(fenceMask, focus) { clauses.append("FENCE \(fencePolicyNames[max(0, min(2, at(fencePolicy, focus, 0)))]) \(noteName(at(fenceLo, focus, 0)))–\(noteName(at(fenceHi, focus, 127)))") }
         let raw = !bit(rackMask, focus)
         let line = raw ? "\(letters[focus]) — RAW (rack out of path)"
                        : (clauses.isEmpty ? "\(letters[focus]) — a plain voice, no pedals armed." : "\(letters[focus]) — " + clauses.joined(separator: "  ·  "))
@@ -205,9 +215,67 @@ struct RackMatrix: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { v in
                 if dragKey != key { dragKey = key; dragBase = value; lastRow = rowKey }
-                onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 6))))
+                onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 14))))   // less sensitive (user 2026-08-05): ~14px per unit
             }
             .onEnded { _ in dragKey = nil })
+    }
+
+    // MARK: FENCE — a note-range policy row: toggle over a POLICY cycle chip (DROP/CLAMP/FOLD). LO/HI live in the
+    // detail strip (touch the row). Its primary control is an enum, so it can't use the knob.
+    private let fencePolicyNames = ["DROP", "CLAMP", "FOLD"]
+    private var fenceRow: some View {
+        HStack(alignment: .center, spacing: 4) {
+            Text("Keeps notes in range").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(ink.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                .frame(width: rowLabelWidth, alignment: .leading)
+            ForEach(0..<4, id: \.self) { i in
+                let on = bit(fenceMask, i), inPath = bit(rackMask, i)
+                let pol = fencePolicyNames[max(0, min(2, at(fencePolicy, i, 0)))]
+                VStack(spacing: 4) {
+                    Text(on ? "ON" : "·").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : ink.opacity(0.45)).frame(maxWidth: .infinity).frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.82) : ink.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE"; onToggleFence(i) }
+                    Text(pol).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? cyan.opacity(0.9) : ink.opacity(0.3))
+                        .frame(maxWidth: .infinity).frame(height: 18)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
+                        .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE"; onCycleFence(i) }
+                }
+                .frame(maxWidth: .infinity).opacity(inPath ? 1 : 0.4)
+            }
+        }
+    }
+    // FENCE detail — per-column LO/HI window note-steppers (shown in the detail strip when FENCE is touched).
+    private var fenceDetail: some View {
+        HStack(alignment: .top, spacing: 4) {
+            Text("RANGE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.5))
+                .frame(width: rowLabelWidth, alignment: .leading)
+            ForEach(0..<4, id: \.self) { i in
+                VStack(spacing: 3) {
+                    noteStepper("LO", value: at(fenceLo, i, 0)) { onFenceLo(i, $0) }
+                    noteStepper("HI", value: at(fenceHi, i, 127)) { onFenceHi(i, $0) }
+                }.frame(maxWidth: .infinity).opacity(bit(rackMask, i) ? 1 : 0.4)
+            }
+        }
+    }
+    private func noteStepper(_ label: String, value: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+            stepPad("−") { set(value - 1) }
+            Text(noteName(value)).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(cyan.opacity(0.9)).frame(minWidth: 26)
+            stepPad("+") { set(value + 1) }
+        }
+    }
+    private func stepPad(_ t: String, _ tap: @escaping () -> Void) -> some View {
+        Text(t).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.8))
+            .frame(width: 16, height: 18).background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.1)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    private func noteName(_ n: Int) -> String {
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        return "\(names[((n % 12) + 12) % 12])\(n / 12 - 1)"
     }
 
     // MARK: a DIMMED future treatment row — present so the matrix never reflows when its engine lands.
@@ -225,19 +293,24 @@ struct RackMatrix: View {
 
     // MARK: the DETAIL STRIP — follows the last-touched row. Pass 1: the live rows' secondary params are named but
     // dimmed ("coming"); their engine is a later pass.
-    private var detailStrip: some View {
-        let detail: String
-        switch lastRow {
-        case "OWNS":  detail = "OWNS detail — SCOPE (CLASS | RANGE + lo/hi) · RELEASE LAG — coming"
-        case "KEY":   detail = "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
-        case "TURNS": detail = "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
-        case "CURVE": detail = "CURVE detail — FLOOR · CEILING — coming"
-        default:      detail = "Touch a row to see its detail."
-        }
-        return VStack(alignment: .leading, spacing: 4) {
+    @ViewBuilder private var detailStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
             Divider().overlay(ink.opacity(0.12))
-            Text(detail).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.32))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if lastRow == "FENCE" {
+                fenceDetail    // FENCE's LO/HI window is LIVE detail (the range is what makes FENCE do anything)
+            } else {
+                Text(detailText).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.32))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }.padding(.top, 6)
+    }
+    private var detailText: String {
+        switch lastRow {
+        case "OWNS":  return "OWNS detail — SCOPE (CLASS | RANGE + lo/hi) · RELEASE LAG — coming"
+        case "KEY":   return "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
+        case "TURNS": return "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
+        case "CURVE": return "CURVE detail — FLOOR · CEILING — coming"
+        default:      return "Touch a row to see its detail."
+        }
     }
 }

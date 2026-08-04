@@ -108,6 +108,10 @@ final class SnapshotBox {
     let altCount: [UInt8]            // 4 per-emitter ALT notes-per-turn (1…8)
     let curveMask: UInt8             // THE RACK CURVE: bit i = emitter i re-maps its output velocity (rack-gated)
     let curveAmount: [Int8]          // 4 per-emitter CURVE amounts (−100…100; 0 = linear, + harder, − softer)
+    let fenceMask: UInt8             // THE RACK FENCE: bit i = emitter i applies a note-range policy (rack-gated)
+    let fencePolicy: [UInt8]         // 4 per-emitter policies: 0 DROP · 1 CLAMP · 2 FOLD
+    let fenceLo: [UInt8]             // 4 per-emitter window lows (0…127)
+    let fenceHi: [UInt8]             // 4 per-emitter window highs (0…127)
     let rackMask: UInt8              // THE RACK (design-the-rack §3): bit i = emitter i's rack is IN the signal path. The builder pre-ANDs this into claimMask/flattenMask/altMask/curveMask above; carried here for future self-affecting treatments (MONO/FENCE) to gate on.
     let masterKey: Int8              // master panel: per-scene master transpose (−12…12), on every output note
     let masterMute: Bool             // master panel: global emission kill
@@ -126,7 +130,9 @@ final class SnapshotBox {
          claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
          flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
          altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
-         curveMask: UInt8 = 0, curveAmount: [Int8] = [0, 0, 0, 0], rackMask: UInt8 = 0b1111,
+         curveMask: UInt8 = 0, curveAmount: [Int8] = [0, 0, 0, 0],
+         fenceMask: UInt8 = 0, fencePolicy: [UInt8] = [0, 0, 0, 0],
+         fenceLo: [UInt8] = [0, 0, 0, 0], fenceHi: [UInt8] = [127, 127, 127, 127], rackMask: UInt8 = 0b1111,
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
@@ -149,6 +155,10 @@ final class SnapshotBox {
         self.altCount = altCount
         self.curveMask = curveMask
         self.curveAmount = curveAmount
+        self.fenceMask = fenceMask
+        self.fencePolicy = fencePolicy
+        self.fenceLo = fenceLo
+        self.fenceHi = fenceHi
         self.rackMask = rackMask
         self.masterKey = masterKey
         self.masterMute = masterMute

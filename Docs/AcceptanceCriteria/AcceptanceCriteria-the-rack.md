@@ -53,7 +53,7 @@ open the matrix (SETUP)**. Fallback if the tap/long-press combo tests poorly on 
   chrome-quiet (off rows recede).
 
 ## §5 — THE THREE FAMILIES (matrix row grouping)
-- **THIS VOICE** (shapes the emitter's OWN notes): MONO · FENCE · **CURVE** *(LIVE)* · POCKET. *(MONO/FENCE/POCKET dimmed)*
+- **THIS VOICE** (shapes the emitter's OWN notes): MONO · **FENCE** *(LIVE)* · **CURVE** *(LIVE)* · POCKET. *(MONO/POCKET dimmed)*
 - **OVER OTHERS** (this emitter changes what OTHERS may do): **OWNS** (claim) · **KEY** (duck). *(LIVE)*
 - **TOGETHER** (mutual arrangements): **TURNS** (alt) · LEAD/STANCE (conversation). *(TURNS live; LEAD dimmed)*
 A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — never "is affected by it."
@@ -75,7 +75,11 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   to whole-group dealing; (2) from a per-NOTE pointer to a per-MOMENT hand-off — the per-note pointer split
   simultaneous cells at COUNT 1, the bug the user hit. detail = coming.]**
 - **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
-- **FENCE** — out-of-range notes DROP|CLAMP|FOLD; lo/hi. **[NO ENGINE — dimmed seat.]**
+- **FENCE** — a per-emitter note-RANGE policy on the OUTPUT pitch: notes outside [lo, hi] are DROPped (suppressed),
+  CLAMPed (to the nearest bound), or octave-FOLDed back in. Primary = a **POLICY cycle chip** (DROP→CLAMP→FOLD);
+  LO/HI note-steppers live in the DETAIL strip (live — the window is what makes FENCE act). **[LIVE 2026-08-05:
+  backed by `fenceMask`/`fencePolicy`/`fenceLo`/`fenceHi`, rack-gated, applied in `Router.emitOneBus` on the fenced
+  pitch (so CLAIM/metering/refcount key on it and the note-off pairs). readout "FENCE FOLD C2–C4".]**
 - **CURVE** — per-output velocity re-map (soft↔hard). Toggle CURVE · chip **AMOUNT** (−100…+100 bipolar knob; 0 =
   linear, + boosts low velocities = harder, − softens; `u' = u^(2^(−amt/100))`). **[LIVE 2026-08-05: toggle+AMOUNT
   backed by `curveMask`/`curveAmount`, rack-gated, applied in `Router.emitOneBus` before the master fader; readout
@@ -85,6 +89,6 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
 - **Dimmed future seats**: ECHO · CHOKE · GOVERNOR — labels reserved so the matrix never reflows.
 
 ## OUT OF SCOPE (later passes — un-dim a seat as each lands)
-MONO · FENCE · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag, duck
-targeting/attack/release/match-class, curve floor/ceiling). Each = new model + box + builder + Router + AU setter +
-tests. (CURVE landed 2026-08-05.)
+MONO · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag, duck targeting/
+attack/release/match-class, curve floor/ceiling). Each = new model + box + builder + Router + AU setter + tests.
+(CURVE + FENCE landed 2026-08-05.)

@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE RACK — FENCE treatment un-dimmed + knob sensitivity lowered (2026-08-05, on `main`; 419 green, iOS builds;
+  DEVICE pass owed). FENCE = a per-emitter note-RANGE policy on the OUTPUT pitch: out-of-[lo,hi] notes DROP
+  (suppress) · CLAMP (to nearest bound) · FOLD (octave-fold in). `PluginState.fenceMask`/`fencePolicy`/`fenceLo`/
+  `fenceHi` (additive Optional) → box fields → builder pre-ANDs `fenceMask & rackMask` → `Router.emitOneBus`
+  applies the policy to the note right after the OCT/masterKey shift (so CLAIM/metering/refcount key on the fenced
+  pitch and the note-off pairs cleanly; `fenceFold` ±12, clamps if the window < an octave; previewMode bypasses).
+  AU: `uiFenceMask`/`setFence`/`cycleFencePolicy`/`uiFencePolicy`/`setFenceLo`/`setFenceHi` (persisted). UI: the
+  RackMatrix THIS-VOICE **FENCE** row (`fenceRow`) — toggle over a POLICY cycle chip (DROP→CLAMP→FOLD, an ENUM
+  primary, so no knob); LO/HI note-steppers are LIVE in the detail strip (`fenceDetail`/`noteStepper`, C4=60);
+  readout "FENCE FOLD C2–C4". Also: the rack KNOB drag is LESS SENSITIVE (÷6 → ÷14 px/unit, user request). No new
+  files (no xcodegen). Test: `RouterTests.testFencePolicyDropClampFoldAndRackGate` (drop/clamp/fold/in-range/rack-off).
+  Spec `AcceptanceCriteria-the-rack.md` §5/§6 + device step `test-procedures.md` RK-FENCE. STILL DIMMED: MONO (needs
+  voice-stealing) · POCKET (timing) · CONVERSATION.**
 - **▶ THE RACK — CURVE treatment un-dimmed (2026-08-05, on `main`; 418 green, iOS builds; DEVICE pass owed).
   Continuing the emitter work: the first of the dimmed THIS-VOICE seats goes live. CURVE = a per-emitter output
   velocity RE-MAP (soft↔hard). `PluginState.curveMask`/`curveAmount` (−100…100, additive Optional) → box

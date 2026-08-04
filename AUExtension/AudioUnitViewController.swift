@@ -141,6 +141,10 @@ struct DiagView: View {
     @State var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
     @State var curveMask: UInt8 = 0                         // THE RACK CURVE: per-emitter velocity-remap set (persisted)
     @State var curveAmount: [Int] = [0, 0, 0, 0]            // THE RACK CURVE: per-emitter −100…100 bend
+    @State var fenceMask: UInt8 = 0                         // THE RACK FENCE: per-emitter note-range policy set (persisted)
+    @State var fencePolicy: [Int] = [0, 0, 0, 0]           // THE RACK FENCE: 0 DROP · 1 CLAMP · 2 FOLD
+    @State var fenceLo: [Int] = [0, 0, 0, 0]               // THE RACK FENCE: per-emitter window low
+    @State var fenceHi: [Int] = [127, 127, 127, 127]       // THE RACK FENCE: per-emitter window high
     @State var rackMask: UInt8 = 0b1111                     // THE RACK: per-emitter "board in the signal path" gate (persisted; nil-doc ⇒ all in path)
     @State var masterMute = false                           // master panel: global emission kill (persisted)
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
@@ -585,6 +589,10 @@ struct DiagView: View {
         altCount = au.uiAltCount()
         curveMask = au.uiCurveMask()
         curveAmount = au.uiCurveAmount()
+        fenceMask = au.uiFenceMask()
+        fencePolicy = au.uiFencePolicy()
+        fenceLo = au.uiFenceLo()
+        fenceHi = au.uiFenceHi()
         rackMask = au.uiRackMask()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
@@ -712,6 +720,25 @@ struct DiagView: View {
     func setCurveAmt(_ i: Int, _ amount: Int) {
         au?.setCurveAmount(i, amount)
         curveAmount = au?.uiCurveAmount() ?? curveAmount
+    }
+    // THE RACK — FENCE: per-emitter note-range policy (persisted). Tap toggles; the policy chip cycles DROP/CLAMP/
+    // FOLD; the LO/HI knobs set the window bounds.
+    func toggleFence(_ i: Int) {
+        let on = fenceMask & (1 << UInt8(i)) != 0
+        au?.setFence(i, !on)
+        fenceMask = au?.uiFenceMask() ?? fenceMask
+    }
+    func cycleFence(_ i: Int) {
+        au?.cycleFencePolicy(i)
+        fencePolicy = au?.uiFencePolicy() ?? fencePolicy
+    }
+    func setFenceLoNote(_ i: Int, _ note: Int) {
+        au?.setFenceLo(i, note)
+        fenceLo = au?.uiFenceLo() ?? fenceLo
+    }
+    func setFenceHiNote(_ i: Int, _ note: Int) {
+        au?.setFenceHi(i, note)
+        fenceHi = au?.uiFenceHi() ?? fenceHi
     }
     // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
     func toggleAlt(_ i: Int) {
@@ -861,6 +888,10 @@ struct DiagView: View {
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
             let cvm = au.uiCurveMask();    if cvm != curveMask { curveMask = cvm }
             let cva = au.uiCurveAmount();  if cva != curveAmount { curveAmount = cva }
+            let fnm = au.uiFenceMask();    if fnm != fenceMask { fenceMask = fnm }
+            let fnp = au.uiFencePolicy();  if fnp != fencePolicy { fencePolicy = fnp }
+            let flo = au.uiFenceLo();      if flo != fenceLo { fenceLo = flo }
+            let fhi = au.uiFenceHi();      if fhi != fenceHi { fenceHi = fhi }
             let rk = au.uiRackMask();      if rk != rackMask { rackMask = rk }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
@@ -1189,11 +1220,15 @@ struct DiagView: View {
                    claimMask: claimMask, claimLeak: claimLeak,
                    flattenMask: flattenMask, flattenAmount: flattenAmount,
                    altMask: altMask, altCount: altCount,
-                   curveMask: curveMask, curveAmount: curveAmount, emitPeak: emitPeak,
+                   curveMask: curveMask, curveAmount: curveAmount,
+                   fenceMask: fenceMask, fencePolicy: fencePolicy, fenceLo: fenceLo, fenceHi: fenceHi,
+                   emitPeak: emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
                    onToggleCurve: toggleCurve, onCurveAmount: setCurveAmt,
+                   onToggleFence: toggleFence, onCycleFence: cycleFence,
+                   onFenceLo: setFenceLoNote, onFenceHi: setFenceHiNote,
                    onClose: { rackMatrixOpen = false })
     }
 

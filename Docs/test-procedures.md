@@ -310,6 +310,12 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   and check the output velocities on the monitor bend the way the knob says; the column-header readout shows
   "CURVE +30". Confirm RACK-off on that emitter suspends the curve (raw velocity), and the master fader still
   overrides it. (FLOOR/CEILING are the dimmed "coming" detail.)
+- **RK-FENCE (live — note-range policy, THIS VOICE):** the THIS VOICE family has a live **FENCE** row ("Keeps notes
+  in range"). Tap FENCE ON for an emitter; its primary control is a **POLICY chip** — tap it to cycle
+  **DROP → CLAMP → FOLD**. Touch the row → the DETAIL strip shows per-column **LO/HI** note steppers; set a window
+  narrower than your part. Play notes above/below it and confirm on the monitor: DROP = out-of-range notes vanish;
+  CLAMP = they snap to the nearest bound; FOLD = they jump by octaves back inside the window. The readout shows
+  "FENCE FOLD C2–C4". Confirm RACK-off suspends it (raw pitch) and watch for stuck notes on the boundary.
 - **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
   STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
   RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation
@@ -321,8 +327,8 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
 - **RK-READ (the readout):** tap a matrix column header → its one-line social sentence shows only TRUE clauses
   ("OWNS · leaks 20%", "KEY: ducks others 40%", "TURNS ×2"); a rack-off column reads "RAW"; a bare emitter reads
   "a plain voice, no pedals armed."
-- **RK-DIM (the coming seats):** MONO · FENCE · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present but inert
-  (recessive, no response to taps) — CURVE is now LIVE (see RK-CURVE). Touch a LIVE row → the detail strip beneath
+- **RK-DIM (the coming seats):** MONO · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present but inert
+  (recessive, no response to taps) — CURVE + FENCE are now LIVE (see RK-CURVE, RK-FENCE). Touch a LIVE row → the detail strip beneath
   names that row's secondary params as "coming" (OWNS scope/lag · KEY targets/envelope · TURNS rotate/ring · CURVE
   floor/ceiling). Flag any dimmed row that reacts, or a matrix that reflows.
 - **RK-PERSIST (state survives — persisted + undoable):** RACK state and the OWNS/KEY/TURNS toggles+chips are

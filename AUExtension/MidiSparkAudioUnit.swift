@@ -328,6 +328,48 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// THE RACK — FENCE (persisted): `setFence` toggles emitter `bus`'s range policy; `cycleFencePolicy` steps
+    /// DROP→CLAMP→FOLD→DROP; `setFenceLo`/`setFenceHi` set the window bounds (0…127). Rack-gated in the builder.
+    func uiFenceMask() -> UInt8 { document.fenceMask ?? 0 }
+    func uiFencePolicy() -> [Int] { document.fencePolicyResolved }
+    func uiFenceLo() -> [Int] { document.fenceLoResolved }
+    func uiFenceHi() -> [Int] { document.fenceHiResolved }
+    func setFence(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.fenceMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.fenceMask = m
+        }
+    }
+    func cycleFencePolicy(_ bus: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.fencePolicy ?? d.fencePolicyResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
+            d.fencePolicy = a
+        }
+    }
+    func setFenceLo(_ bus: Int, _ note: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.fenceLo ?? d.fenceLoResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = max(0, min(127, note))
+            d.fenceLo = a
+        }
+    }
+    func setFenceHi(_ bus: Int, _ note: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.fenceHi ?? d.fenceHiResolved
+            if a.count < 4 { a += Array(repeating: 127, count: 4 - a.count) }
+            a[bus] = max(0, min(127, note))
+            d.fenceHi = a
+        }
+    }
+
     /// emitter role family: ALT — turn-taking group (persisted). `setAlt` toggles membership; `setAltCount`
     /// sets an emitter's notes-per-turn (1…8).
     func uiAltMask() -> UInt8 { document.altMask ?? 0 }

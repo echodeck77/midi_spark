@@ -2986,4 +2986,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(vel(0), base, "amount 0 (armed) is linear = identity")
         XCTAssertEqual(vel(50, rack: 0b1110), base, "rack out of path ⇒ CURVE suspended (raw velocity)")
     }
+
+    // MARK: - THE RACK — FENCE (per-emitter note-range policy)
+
+    /// The set of output notes on A when a passgate holds note 60 → A under a FENCE window/policy.
+    private func fenceOut(policy: Int, lo: Int, hi: Int, on: Bool = true, rack: UInt8? = nil) -> Set<UInt8> {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A, note 60
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.fenceMask = on ? 0b0001 : 0
+        st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
+        st.rackEnabledMask = rack
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
+        assertNothingLeftSounding(e)
+        return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+    }
+
+    func testFencePolicyDropClampFoldAndRackGate() {
+        XCTAssertTrue(fenceOut(policy: 0, lo: 64, hi: 72).isEmpty, "DROP: 60 is below the window → suppressed")
+        XCTAssertEqual(fenceOut(policy: 1, lo: 64, hi: 72), [64], "CLAMP: 60 → the low bound 64")
+        XCTAssertEqual(fenceOut(policy: 2, lo: 72, hi: 96), [72], "FOLD: 60 octave-folds up to 72")
+        XCTAssertEqual(fenceOut(policy: 0, lo: 48, hi: 72), [60], "in range → passes unchanged")
+        XCTAssertEqual(fenceOut(policy: 0, lo: 64, hi: 72, rack: 0b1110), [60], "rack out of path ⇒ FENCE suspended (raw)")
+    }
 }

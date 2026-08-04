@@ -472,6 +472,17 @@ struct PluginState: Codable, Equatable {
     var curveAmount: [Int]? = nil
     /// The four CURVE amounts (−100…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
     var curveAmountResolved: [Int] { let a = curveAmount ?? []; return (0..<4).map { $0 < a.count ? max(-100, min(100, a[$0])) : 0 } }
+    // THE RACK — FENCE (design-the-rack §6, THIS VOICE family): a per-emitter note-RANGE policy. Notes outside
+    // [lo, hi] are handled by `fencePolicy` — 0 = DROP (suppress), 1 = CLAMP (to the nearest bound), 2 = FOLD
+    // (octave-fold back in). `fenceMask` = which emitters fence; lo/hi = the window (0/127 default = no-op).
+    // Persisted; Optional → old docs decode nil (off). Self-affecting → rack-gated. (Applied to the OUTPUT note.)
+    var fenceMask: UInt8? = nil
+    var fencePolicy: [Int]? = nil          // per-emitter 0=DROP · 1=CLAMP · 2=FOLD
+    var fenceLo: [Int]? = nil              // per-emitter window low (0…127)
+    var fenceHi: [Int]? = nil              // per-emitter window high (0…127)
+    var fencePolicyResolved: [Int] { let a = fencePolicy ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
+    var fenceLoResolved: [Int] { let a = fenceLo ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 0 } }
+    var fenceHiResolved: [Int] { let a = fenceHi ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 127 } }
     // THE RACK (design-the-rack §3, the two-tier law): the per-emitter "is the board in the signal path" gate.
     // The matrix toggles (claim/duck/alt/…) say which pedals are ARMED; this mask says whether the board is
     // patched in. Bit i clear ⇒ emitter i's whole rack is bypassed → its output is the raw wire regardless of the

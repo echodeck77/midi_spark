@@ -99,6 +99,21 @@ final class Router {
         let mapped = pow(u, pow(2.0, -Double(amount) / 100.0))
         return UInt8(max(1, min(127, Int((mapped * 127.0).rounded()))))
     }
+    // THE RACK — FENCE (design-the-rack §6): per-emitter note-RANGE policy on the OUTPUT note. `fenceMask` = which
+    // emitters fence; policy 0 DROP · 1 CLAMP · 2 FOLD; lo/hi = the window. Rack-gated in the builder.
+    private var fenceMask: UInt8 = 0
+    private var fencePolicy: [UInt8] = [0, 0, 0, 0]
+    private var fenceLo: [UInt8] = [0, 0, 0, 0]
+    private var fenceHi: [UInt8] = [127, 127, 127, 127]
+    /// Octave-FOLD a note into [lo, hi] by ±12; a window narrower than an octave can't fold, so it clamps.
+    private func fenceFold(_ note: UInt8, lo: UInt8, hi: UInt8) -> UInt8 {
+        let l = Int(lo), h = Int(hi)
+        if h - l < 11 { return UInt8(min(max(Int(note), l), h)) }
+        var n = Int(note)
+        while n > h { n -= 12 }
+        while n < l { n += 12 }
+        return UInt8(min(max(n, l), h))
+    }
     private func emitterSounding(_ bus: Int) -> Bool {
         let b = UInt8(bus)
         for v in voices where v.active && !v.silent && v.bus == b { return true }
@@ -755,7 +770,20 @@ final class Router {
         // ...OCT shift + the master KEY (per-scene transpose) both fold into the outgoing pitch here.
         let sn = Int(note) + emitterOctaveShift(bus) + (previewMode ? 0 : masterKey)
         guard sn >= 0 && sn <= 127 else { return -1 }
-        let note = UInt8(sn)
+        var note = UInt8(sn)
+        // THE RACK FENCE: a per-emitter note-RANGE policy on the OUTPUT pitch — DROP (suppress), CLAMP (to the
+        // nearest bound), or FOLD (octave-fold in). Applied here so CLAIM/metering/refcount all key on the fenced
+        // pitch, and the note-off (opened on this same note) pairs cleanly. previewMode bypasses.
+        if fenceMask & (1 << UInt8(bus)) != 0 && !previewMode {
+            let lo = fenceLo[bus], hi = fenceHi[bus]
+            if lo <= hi && (note < lo || note > hi) {
+                switch fencePolicy[bus] {
+                case 0: return -1                                      // DROP
+                case 1: note = min(max(note, lo), hi)                  // CLAMP
+                default: note = fenceFold(note, lo: lo, hi: hi)        // FOLD
+                }
+            }
+        }
         var leakScale = 100   // 100 = no attenuation; a leaked (shadow) non-claimant sets this < 100 below
         if claimMask != 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
             if (claimMask & (1 << UInt8(bus))) != 0 {
@@ -1070,6 +1098,8 @@ final class Router {
         flattenAmount = box.flattenAmount
         curveMask = box.curveMask                   // THE RACK CURVE: per-emitter velocity re-map set, this render
         curveAmount = box.curveAmount
+        fenceMask = box.fenceMask                   // THE RACK FENCE: per-emitter note-range policy, this render
+        fencePolicy = box.fencePolicy; fenceLo = box.fenceLo; fenceHi = box.fenceHi
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
