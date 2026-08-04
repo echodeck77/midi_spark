@@ -328,7 +328,7 @@ final class Kernel {
             return f
         }
         var l = ["--- MIDI CHAIN @ suspicious silence ---",
-                 "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
+                 "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) master[mute=\(box.masterMute) kill=\(masterKill) vel=\(masterVelOverride)] enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
         let n = pool.srcCount(filter: 0)
         l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
         for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])\(rflags(r))") }
@@ -343,6 +343,7 @@ final class Kernel {
     // CHAOS oracle (one cheap scan): a structural "should something sound?" — an occupied, audible cell that routes
     // the LIVE held pool to an enabled emitter (no bypass/disable/latch gate). No such path ⇒ silence is expected.
     private func computeRoutedPath(_ box: SnapshotBox) {
+        if box.masterMute || masterKill { diag.routedPath = false; return }   // master mute / fader-kill silences ALL output → expected
         var path = false
         for c in box.cells where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
             if cellRouteBlock(c, box) == nil { path = true; break }
