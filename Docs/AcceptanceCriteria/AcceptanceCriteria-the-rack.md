@@ -22,8 +22,13 @@ open the matrix (SETUP)**. Fallback if the tap/long-press combo tests poorly on 
   stay live around it. DONE returns; scene-switch closes; EDIT-toggle closes; one overlay at a time.
 - **Four COLUMNS = the emitters A–D** (header: hue dot · A–D · ch · mini-meter; a rack-off column reads **RAW**).
   **ROWS = the treatments**, grouped by three families (§5).
-- Each row×column = an **on/off toggle** with the treatment's **PRIMARY PARAM as a drag-chip directly beneath**,
+- Each row×column = an **on/off toggle** with the treatment's **PRIMARY PARAM as a rotary knob directly beneath**
+  (270° gauge + pointer; vertical drag turns it — user 2026-08-04, rotary over a slider for legibility),
   column-aligned, no row-selection step (the flat law). TAP a column header → its social-sentence readout.
+- **Row labels are DESCRIPTIVE** (user 2026-08-04, space traded for legibility — wide label column, narrow emitter
+  columns): OWNS reads **"Claims this note from others"**, KEY reads **"Ducks others' velocity"**, TURNS reads
+  **"Takes turns with others"** (TURNS wording is Code's pick — confirm/rename). The canonical short names
+  (OWNS/KEY/TURNS) remain the identity in the readout + spec.
 - **DETAIL STRIP below the matrix** follows the last-touched row (four columns). PASS 1: the live rows' secondary
   params are named but dimmed ("coming").
 

@@ -166,7 +166,8 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   OCT±·velocity·LIVE·SOLO·**RACK** (`OutputsView.rackColumn`/`rackButton`; the CLAIM/DUCK/ALT `roleButton`s +
   their inputs REMOVED). RACK tap = `toggleRack` (toggle board in/out of path); long-press = open the matrix.
   (2) NEW `AUExtension/RackMatrix.swift` — a 4-column (emitters A–D) × treatment-rows matrix, grouped THIS VOICE /
-  OVER OTHERS / TOGETHER (design §5); OWNS/KEY/TURNS live (toggle + primary drag-chip → existing claim/duck/alt);
+  OVER OTHERS / TOGETHER (design §5); OWNS/KEY/TURNS live (toggle + primary ROTARY KNOB → existing claim/duck/alt;
+  descriptive row labels "Claims this note from others" / "Ducks others' velocity" / "Takes turns with others");
   MONO·FENCE·CURVE·POCKET·LEAD-STANCE·ECHO·CHOKE·GOVERNOR dimmed; column-header tap → social-sentence readout;
   detail strip follows the last-touched row (secondary params named-but-dimmed). (3) GEOMETRY — drawn INSIDE the
   grid's cell area (user: 'keep the chevron row + column selectors, draw the panel inside'): new

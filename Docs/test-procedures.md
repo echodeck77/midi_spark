@@ -294,12 +294,12 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   close paths: **DONE**, the **PERFORM/EDIT toggle**, and a **scene switch** each dismiss the matrix. Flag if the
   chevron row or either rail disappears, or the panel spills past the cell area.
 - **RK-OWNS (live — equals old CLAIM):** open the matrix; in the OVER OTHERS family, tap OWNS ON for A. While A
-  holds a pitch, that pitch on B is withheld (A owns it). Drag A's LEAK chip up → B bleeds back at reduced
+  holds a pitch, that pitch on B is withheld (A owns it). Turn A's LEAK knob up → B bleeds back at reduced
   velocity (the shadow), 0% = silent. Same intent as SP-CLAIM; monitor B for the suppression/shadow.
-- **RK-KEY (live — the duck):** tap KEY ON for A, drag its AMOUNT chip. While A sounds, B/C/D's NEW note-ons
+- **RK-KEY (live — the duck):** tap KEY ON for A, turn its AMOUNT knob. While A sounds, B/C/D's NEW note-ons
   arrive quieter (already-sounding notes never lurch); 100% ≈ a keyed gate. Monitor a target emitter's velocities.
 - **RK-TURNS (live — turn-taking):** tap TURNS ON for A and B; a cell fanning A+B alternates notes between them
-  (ping-pong). Drag the COUNT chip → N notes per turn. Monitor A and B for the alternation.
+  (ping-pong). Turn the COUNT knob → N notes per turn. Monitor A and B for the alternation.
 - **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
   STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
   RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation

@@ -52,12 +52,15 @@ struct RackMatrix: View {
                     familyLabel("THIS VOICE")
                     dimRow("MONO"); dimRow("FENCE"); dimRow("CURVE"); dimRow("POCKET")
                     familyLabel("OVER OTHERS")
-                    liveRow("OWNS", hue: amber, isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
+                    liveRow(key: "OWNS", title: "Claims this note from others", hue: amber,
+                            isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
                             unit: "%", maxV: 100, onToggle: onClaim, onSet: onClaimLeak)
-                    liveRow("KEY", hue: amber, isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
+                    liveRow(key: "KEY", title: "Ducks others' velocity", hue: amber,
+                            isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
                             unit: "%", maxV: 100, onToggle: onToggleDuck, onSet: onDuckAmount)
                     familyLabel("TOGETHER")
-                    liveRow("TURNS", hue: amber, isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
+                    liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
+                            isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
                             unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
                     dimRow("LEAD / STANCE")
                     dimRow("ECHO"); dimRow("CHOKE"); dimRow("GOVERNOR")
@@ -134,28 +137,31 @@ struct RackMatrix: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private let rowLabelWidth: CGFloat = 54
+    private let rowLabelWidth: CGFloat = 132   // wide, for legible descriptive labels (user: trade space for legibility)
+    private let knobSize: CGFloat = 30
     private func familyLabel(_ t: String) -> some View {
         Text(t).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(ink.opacity(0.4))
             .padding(.top, 4)
     }
 
-    // MARK: a LIVE treatment row — label + 4 columns of (toggle over primary-param chip). Column-aligned; a
-    // rack-off column dims (its arming is inert until the strip patches the board back in).
-    private func liveRow(_ label: String, hue: Color, isOn: @escaping (Int) -> Bool, value: @escaping (Int) -> Int,
-                         unit: String, maxV: Int, minV: Int = 0,
+    // MARK: a LIVE treatment row — a descriptive `title` (wide, wrapping) + 4 narrow columns of (toggle over a
+    // rotary knob). `key` is the stable identity ("OWNS"/"KEY"/"TURNS") used for the detail strip + last-touched.
+    // A rack-off column dims (its arming is inert until the strip patches the board back in).
+    private func liveRow(key: String, title: String, hue: Color, isOn: @escaping (Int) -> Bool,
+                         value: @escaping (Int) -> Int, unit: String, maxV: Int, minV: Int = 0,
                          onToggle: @escaping (Int) -> Void, onSet: @escaping (Int, Int) -> Void) -> some View {
-        HStack(spacing: 4) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(ink.opacity(0.75)).frame(width: rowLabelWidth, alignment: .leading)
+        HStack(alignment: .center, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(ink.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                .frame(width: rowLabelWidth, alignment: .leading)
             ForEach(0..<4, id: \.self) { i in
                 let on = isOn(i), inPath = bit(rackMask, i)
-                VStack(spacing: 3) {
+                VStack(spacing: 4) {
                     Text(on ? "ON" : "·").font(.system(size: 9, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : ink.opacity(0.45)).frame(maxWidth: .infinity).frame(height: 22)
                         .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue.opacity(0.82) : ink.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { lastRow = label; onToggle(i) }
-                    chip(row: label, col: i, value: value(i), unit: unit, maxV: maxV, minV: minV, enabled: on, onSet: onSet)
+                        .contentShape(Rectangle()).onTapGesture { lastRow = key; onToggle(i) }
+                    knob(rowKey: key, col: i, value: value(i), unit: unit, maxV: maxV, minV: minV, enabled: on, onSet: onSet)
                 }
                 .frame(maxWidth: .infinity)
                 .opacity(inPath ? 1 : 0.4)   // two-tier law: a rack-off column's arming is inert (visibly recessive)
@@ -163,23 +169,36 @@ struct RackMatrix: View {
         }
     }
 
-    // A compact primary-param chip: shows the value; a VERTICAL drag adjusts it (up = more), relative to the value
-    // at drag start (one chip drags at a time). Recessive when the treatment is off.
-    private func chip(row: String, col: Int, value: Int, unit: String, maxV: Int, minV: Int,
+    // A ROTARY knob for a treatment's primary param (user: rotary over a slider for legibility in the narrow
+    // column). A 270° gauge + pointer; the reading sits beneath. A VERTICAL drag turns it (up = more) relative to
+    // the value at drag start (one knob at a time). Recessive when the treatment is off.
+    private func knob(rowKey: String, col: Int, value: Int, unit: String, maxV: Int, minV: Int,
                       enabled: Bool, onSet: @escaping (Int, Int) -> Void) -> some View {
-        let key = "\(row)-\(col)"
-        return Text(unit == "×" ? "×\(value)" : "\(value)\(unit)")
-            .font(.system(size: 8, weight: .heavy, design: .monospaced))
-            .foregroundColor(enabled ? amber.opacity(0.9) : ink.opacity(0.3))
-            .frame(maxWidth: .infinity).frame(height: 18)
-            .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in
-                    if dragKey != key { dragKey = key; dragBase = value; lastRow = row }
-                    onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 6))))
-                }
-                .onEnded { _ in dragKey = nil })
+        let key = "\(rowKey)-\(col)"
+        let span = max(1, maxV - minV)
+        let frac = CGFloat(value - minV) / CGFloat(span)
+        let hue = enabled ? amber : ink.opacity(0.25)
+        return VStack(spacing: 2) {
+            ZStack {
+                Circle().trim(from: 0, to: 0.75)
+                    .stroke(ink.opacity(0.14), style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(135))
+                Circle().trim(from: 0, to: 0.75 * frac)
+                    .stroke(hue.opacity(enabled ? 0.9 : 0.5), style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(135))
+                Capsule().fill(hue).frame(width: 2, height: knobSize * 0.36)
+                    .offset(y: -knobSize * 0.22).rotationEffect(.degrees(-135 + 270 * Double(frac)))
+            }
+            .frame(width: knobSize, height: knobSize)
+            Text(unit == "×" ? "×\(value)" : "\(value)\(unit)")
+                .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(enabled ? amber.opacity(0.9) : ink.opacity(0.3))
+        }
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                if dragKey != key { dragKey = key; dragBase = value; lastRow = rowKey }
+                onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 6))))
+            }
+            .onEnded { _ in dragKey = nil })
     }
 
     // MARK: a DIMMED future treatment row — present so the matrix never reflows when its engine lands.
