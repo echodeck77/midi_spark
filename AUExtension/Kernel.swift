@@ -13,6 +13,7 @@ import AudioToolbox
 import AVFoundation
 import CoreMIDI
 import os
+import os
 
 // KernelDiag moved to Diag.swift (Foundation-only) so Router can compile into the unit-test target.
 
@@ -275,6 +276,22 @@ final class Kernel {
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
     private let router = Router()       // grid → emission (§2/§7)
+
+    #if DEBUG
+    // CHAOS MODE — SIMULATED MIDI (debug-only): the chaos loop enqueues synthetic note bytes from the main thread;
+    // render() drains them into the SAME handleIncoming path host MIDI uses, so a soak is self-contained (no
+    // controller). The brief lock is a DELIBERATE debug-only exception to the no-locks-on-render invariant — this
+    // code is `#if DEBUG`, never shipped.
+    private let chaosMIDI = OSAllocatedUnfairLock(initialState: [(UInt8, UInt8, UInt8)]())
+    func chaosEnqueue(_ status: UInt8, _ d1: UInt8, _ d2: UInt8) { chaosMIDI.withLock { $0.append((status, d1, d2)) } }
+    private func drainChaosMIDI(playing: Bool) {
+        let batch = chaosMIDI.withLock { b -> [(UInt8, UInt8, UInt8)] in let c = b; b.removeAll(keepingCapacity: true); return c }
+        for (s, d1, d2) in batch {
+            var bytes = [s, d1, d2]
+            bytes.withUnsafeBufferPointer { handleIncoming(bytes: $0, length: 3, sampleTime: 0, playing: playing, cable: 1) }
+        }
+    }
+    #endif
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
 
     func reset() {
@@ -329,6 +346,10 @@ final class Kernel {
         // soundcheck. CC/PB/AT always pass. Computed once here so handleIncoming is cheap.
         let audition = playing ? -1 : Int(auditionTarget)
         suppressAuditionNotes = audition >= 0 && auditionCellSounds(box, audition)
+
+        #if DEBUG
+        drainChaosMIDI(playing: playing)   // CHAOS SIMULATED source: fold any injected notes into the real input path, this render
+        #endif
 
         // ---- event list: MIDI + parameter events ----
         var ev = events

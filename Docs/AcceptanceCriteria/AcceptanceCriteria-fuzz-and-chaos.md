@@ -13,8 +13,17 @@ built, `#if DEBUG`-gated, and compile-verified — DEVICE run owed. Additive tes
   `testPinnedRegressionSeeds`. Router gained `quiescent` (+ `hasDuplicateVoices`, unused pending an adoption-aware I3).
 - **Layer 2 — `AUExtension/ChaosDriver.swift`** (`#if DEBUG` — whole file): a seeded, jittered, MAIN-thread loop that
   drives ~24 AU control handlers (claim/duck/alt, receiver channel/range/bypass/latch/mute, masters, ladder, panic…)
-  while the engine renders live. Seed shown on the dev overlay (`▶ CHAOS` chip) + written to a per-session dump
-  (`chaos-0x<seed>.log` in the container). MIDI comes from the host (AUM + latched chord). Chaos v1 = minimal dump.
+  while the engine renders live. Seed shown on the dev overlay + written to a per-session dump (`chaos-0x<seed>.log`).
+  Chaos v1 = minimal dump. TWO MIDI SOURCES (user 2026-08-04):
+  - **SIMULATED** (`▶ SIM MIDI`) — chaos injects its OWN seeded spell-MIDI (held → short → silence), so a soak is
+    self-contained (no controller). Injection: `Kernel.chaosEnqueue` (main) → drained at the top of `render()` into
+    the SAME `handleIncoming` path host MIDI uses (a debug-only `OSAllocatedUnfairLock` — a deliberate, #if DEBUG,
+    never-shipped exception to no-locks-on-render). AU hook `chaosInjectMIDI`.
+  - **LIVE** (`▶ LIVE MIDI`) — MIDI from the host (AUM + a real latched chord); chaos fuzzes only controls.
+  - **THE OUTPUT ORACLE** (user 2026-08-04) — a live watchdog reading the diag each loop, highlighted on the overlay:
+    **STUCK** (precise: transport stopped + no notes held, yet notes still sounding → a hung note) · **SILENT?**
+    (heuristic: playing + notes held, yet nothing out for a while → maybe silent-when-it-should-sound; a soft "?"
+    since a legitimately-gated routing — e.g. a closed passgate — can be silent). Flags go to the dump too.
 - **The harness caught its OWN invariant-check bugs first pass** (validating the approach): the net-count I1/I2 was
   wrong (refcount folds many ons into one off → last-event-per-key is correct), and the naive I3 flagged legitimate
   refcount collisions — both corrected. `quiescent` never failed → the engine is genuinely clean under the fuzz.

@@ -12,22 +12,43 @@ import Foundation
 /// container; the ring-buffer logger is a fast-follow). Any `.ips` crash pairs with its input history via the seed +
 /// build number. Replay = re-run from the same seed.
 final class ChaosDriver {
+    /// MIDI source: SIMULATED = chaos injects its OWN seeded spell-MIDI (self-contained soak, no controller); LIVE =
+    /// MIDI comes from the host (AUM + a real latched chord) and chaos only fuzzes controls.
+    enum Source { case simulated, live }
     private weak var au: MidiSparkAudioUnit?
     private var rng = ChaosRNG(0)
     private(set) var seed: UInt32 = 0
     private(set) var running = false
     private(set) var eventCount = 0
+    private(set) var source: Source = .live
     var speed: Double = 1.0                 // chaos-speed multiplier (overnight-soak vs quick shake)
     private var lines: [String] = []
     private var dumpURL: URL?
 
-    func start(au: MidiSparkAudioUnit, seed: UInt32) {
+    // SIMULATED MIDI: a spell-driven generator — HELD notes → SHORT notes → SILENCE (same shape as the fuzz harness).
+    private var held: [UInt8] = []
+    private var shorts: [UInt8] = []
+    private enum Spell { case held, short, silence }
+    private var spell = Spell.held
+    private var spellLeft = 0
+
+    // THE OUTPUT ORACLE: watches whether output MATCHES the state, and flags a mismatch on screen.
+    private(set) var oracleFlag = "OK"
+    private var stuckStreak = 0, silentStreak = 0
+
+    func start(au: MidiSparkAudioUnit, seed: UInt32, source: Source = .live) {
         guard !running else { return }
-        self.au = au; self.seed = seed; rng = ChaosRNG(seed); running = true; eventCount = 0; lines = []
-        write("CHAOS START · seed=0x\(String(seed, radix: 16)) · speed=\(speed)")
+        self.au = au; self.seed = seed; self.source = source; rng = ChaosRNG(seed)
+        running = true; eventCount = 0; lines = []; held = []; shorts = []; spell = .held; spellLeft = rng.range(3, 8)
+        stuckStreak = 0; silentStreak = 0; oracleFlag = "OK"
+        write("CHAOS START · seed=0x\(String(seed, radix: 16)) · MIDI=\(source == .simulated ? "SIMULATED" : "LIVE") · speed=\(speed)")
         schedule()
     }
-    func stop() { guard running else { return }; running = false; write("CHAOS STOP · \(eventCount) events") }
+    func stop() {
+        guard running else { return }
+        if source == .simulated { held.forEach { au?.chaosInjectMIDI(0x80, $0, 0) }; shorts.forEach { au?.chaosInjectMIDI(0x80, $0, 0) } }   // release our notes
+        running = false; write("CHAOS STOP · \(eventCount) events")
+    }
 
     // Jittered gap: mostly short ms, occasional near-0 burst, occasional multi-second idle — both extremes find bugs.
     private func schedule() {
@@ -41,6 +62,8 @@ final class ChaosDriver {
 
     private func fire() {
         guard running, let au = au else { return }
+        checkOracle()
+        if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
         let i = rng.int(4), pct = rng.int(101), on = rng.chance(0.5)
         switch rng.int(24) {
         case 0:  au.setClaim(i)
@@ -69,7 +92,39 @@ final class ChaosDriver {
         default: rng.chance(0.15) ? au.masterPanic() : au.setSwing(rng.range(50, 75))   // PANIC rarely
         }
         eventCount += 1
-        if eventCount % 50 == 0 { write("… \(eventCount) events") }
+        if eventCount % 50 == 0 { write("… \(eventCount) events · oracle=\(oracleFlag)") }
+    }
+
+    // SIMULATED MIDI — advance the HELD → SHORT → SILENCE spell and inject via the AU's debug MIDI path.
+    private func midiTick(_ au: MidiSparkAudioUnit) {
+        func on(_ n: UInt8) { au.chaosInjectMIDI(0x90, n, UInt8(rng.range(1, 127))) }
+        func off(_ n: UInt8) { au.chaosInjectMIDI(0x80, n, 0) }
+        if spellLeft <= 0 {
+            spell = spell == .held ? .short : (spell == .short ? .silence : .held)
+            spellLeft = rng.range(3, 8)
+            if spell != .held { held.forEach(off); held.removeAll() }
+            if spell == .silence { shorts.forEach(off); shorts.removeAll() }
+        }
+        spellLeft -= 1
+        switch spell {
+        case .held:    if held.isEmpty || rng.chance(0.4) { let n = UInt8(rng.int(128)); on(n); held.append(n) }
+        case .short:   shorts.forEach(off); shorts.removeAll(); for _ in 0..<rng.range(1, 3) { let n = UInt8(rng.int(128)); on(n); shorts.append(n) }
+        case .silence: break
+        }
+    }
+
+    // THE ORACLE — does the OUTPUT match the STATE? Reads the live diag and flags a mismatch on screen + in the log.
+    //  • STUCK (precise): transport stopped + NO notes held, yet notes still SOUNDING → a hung note.
+    //  • SILENT (heuristic): playing + notes HELD, yet NOTHING out for a while → maybe silent-when-it-should-sound
+    //    (soft "?" — legitimately silent if every routed cell is currently gated, e.g. a closed passgate).
+    private func checkOracle() {
+        guard let d = au?.kernelDiagnostics() else { return }
+        stuckStreak  = (!d.playing && d.poolCount == 0 && d.distinctSounding > 0) ? stuckStreak + 1 : 0
+        silentStreak = ( d.playing && d.poolCount > 0 && d.distinctSounding == 0) ? silentStreak + 1 : 0
+        let flag = stuckStreak >= 4 ? "⚠ STUCK: \(d.distinctSounding) sounding, none held"
+                 : silentStreak >= 10 ? "⚠ SILENT?: \(d.poolCount) held, none out"
+                 : "OK"
+        if flag != oracleFlag { oracleFlag = flag; if flag != "OK" { write("ORACLE \(flag) (seed 0x\(String(seed, radix: 16)))") } }
     }
 
     private func write(_ s: String) {

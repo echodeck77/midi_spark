@@ -192,6 +192,7 @@ struct DiagView: View {
     @State private var chaos = ChaosDriver()          // Layer 2 CHAOS MODE (debug-only): seeded control-surface fuzzer
     @State private var chaosSeed: UInt32 = 0
     @State private var chaosOn = false
+    @State private var chaosStatus = "OK"             // live oracle readout (should-output check)
     #endif
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
@@ -809,6 +810,9 @@ struct DiagView: View {
         }
         .onReceive(timer) { _ in
             guard let au else { return }
+            #if DEBUG
+            if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
+            #endif
             // Write @State ONLY when a DISPLAYED value changed — an unconditional write re-renders the
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
@@ -1344,25 +1348,36 @@ struct DiagView: View {
     // renders live. The seed shows on screen (SEED LAW) + is written to a per-session dump so an .ips pairs with it.
     @ViewBuilder var chaosRow: some View {
         #if DEBUG
+        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
         HStack(spacing: 8) {
-            Button(chaosOn ? "⏹ CHAOS" : "▶ CHAOS") {
-                if chaosOn { chaos.stop(); chaosOn = false }
-                else if let au = au {
-                    chaosSeed = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
-                    chaos.start(au: au, seed: chaosSeed); chaosOn = true
-                }
-            }
-            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-            .foregroundColor(chaosOn ? .black : Color(red: 0.98, green: 0.35, blue: 0.3))
-            .padding(.vertical, 5).padding(.horizontal, 10)
-            .background(RoundedRectangle(cornerRadius: 4).fill(chaosOn ? Color(red: 0.98, green: 0.35, blue: 0.3) : Color.white.opacity(0.08)))
             if chaosOn {
-                Text("seed 0x\(String(chaosSeed, radix: 16))").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                chaosBtn("⏹ STOP", active: true) { chaos.stop(); chaosOn = false }
+                Text("0x\(String(chaosSeed, radix: 16)) · \(chaosStatus)")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundColor(chaosStatus.hasPrefix("⚠") ? red : .white.opacity(0.6))
+            } else {
+                chaosBtn("▶ SIM MIDI", active: false) { startChaos(.simulated) }   // chaos plays its own spell-MIDI
+                chaosBtn("▶ LIVE MIDI", active: false) { startChaos(.live) }        // MIDI from the host; chaos fuzzes controls
             }
             Spacer()
         }
         #endif
     }
+    #if DEBUG
+    private func chaosBtn(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
+        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+        return Button(label, action: tap)
+            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(active ? .black : red)
+            .padding(.vertical, 5).padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 4).fill(active ? red : Color.white.opacity(0.08)))
+    }
+    private func startChaos(_ source: ChaosDriver.Source) {
+        guard let au = au else { return }
+        chaosSeed = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
+        chaosStatus = "OK"; chaos.start(au: au, seed: chaosSeed, source: source); chaosOn = true
+    }
+    #endif
 
     var devLoader: some View {
         VStack(alignment: .leading, spacing: 3) {
