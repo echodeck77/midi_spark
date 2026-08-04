@@ -37,6 +37,12 @@ final class ChaosDriver {
     private(set) var oracleFlag = "OK"
     private var stuckStreak = 0, silentStreak = 0
 
+    // PREFER NON-SILENT (user 2026-08-04): if a control action silences a held, sounding engine, REVERT that exact
+    // action on the next step and move on — so the soak stays live rather than parking in a silent corner.
+    private var pendingRevert: (() -> Void)?
+    private var revertLabel = ""
+    private var soundingBeforeLast = 0
+
     func start(au: MidiSparkAudioUnit, seed: UInt32, source: Source = .live) {
         guard !running else { return }
         self.au = au; self.seed = seed; self.source = source; rng = ChaosRNG(seed)
@@ -65,7 +71,16 @@ final class ChaosDriver {
 
     private func fire() {
         guard running, let au = au else { return }
+        let d = au.kernelDiagnostics()
+        // PREFER NON-SILENT: if the previous control action silenced a held, sounding engine, undo it and move on.
+        if let revert = pendingRevert, soundingBeforeLast > 0, d.distinctSounding == 0, d.poolCount > 0 {
+            revert(); pendingRevert = nil; eventCount += 1
+            write("REVIVE · undid \(revertLabel) (it silenced a held chord) · seed 0x\(String(seed, radix: 16))")
+            return
+        }
+        pendingRevert = nil
         checkOracle()
+        soundingBeforeLast = d.distinctSounding
         if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
         let i = rng.int(4), pct = rng.int(101), on = rng.chance(0.5)
         switch rng.int(24) {
@@ -75,8 +90,8 @@ final class ChaosDriver {
         case 3:  au.setFlattenAmount(i, pct)
         case 4:  au.setAlt(i, on)
         case 5:  au.setAltCount(i, rng.range(1, 8))
-        case 6:  au.toggleReceiverMute(i)
-        case 7:  au.toggleReceiverEnabled(i)
+        case 6:  au.toggleReceiverMute(i);    arm("recv \(i) mute")   { au.toggleReceiverMute(i) }      // silencing toggles arm a revert
+        case 7:  au.toggleReceiverEnabled(i); arm("recv \(i) enable") { au.toggleReceiverEnabled(i) }
         case 8:  au.toggleReceiverBypass(i)
         case 9:  au.setReceiverChannel(i, rng.int(17))
         case 10: let lo = rng.int(128); au.setReceiverRange(i, lo: lo, hi: rng.range(lo, 127))
@@ -85,9 +100,9 @@ final class ChaosDriver {
         case 13: au.setInputVelOverride(i, on ? rng.range(1, 127) : nil)
         case 14: au.setInputOctave(i, rng.range(-2, 2))
         case 15: au.setEmitterOctave(i, rng.range(-2, 2))
-        case 16: au.setBusEnabled(i, on)
+        case 16: au.setBusEnabled(i, on);     arm("bus \(i) enable=\(on)") { au.setBusEnabled(i, !on) }
         case 17: au.nudgeMasterKey(rng.chance(0.5) ? 1 : -1)         // KEY± during held chords
-        case 18: au.setMasterMute(on)
+        case 18: au.setMasterMute(on);        arm("master mute=\(on)")     { au.setMasterMute(!on) }
         case 19: au.setMasterVelOverride(on ? rng.range(1, 127) : nil)
         case 20: au.setLadderMode(on)
         case 21: au.setActiveRow(rng.int(8), rng.int(8))
@@ -97,6 +112,8 @@ final class ChaosDriver {
         eventCount += 1
         if eventCount % 50 == 0 { write("… \(eventCount) events · oracle=\(oracleFlag)") }
     }
+    // Arm the inverse of a silencing control action; the next fire undoes it if the engine went silent (held chord).
+    private func arm(_ label: String, _ revert: @escaping () -> Void) { revertLabel = label; pendingRevert = revert }
 
     // SIMULATED MIDI — advance the HELD → SHORT → SILENCE spell and inject via the AU's debug MIDI path.
     private func midiTick(_ au: MidiSparkAudioUnit) {
