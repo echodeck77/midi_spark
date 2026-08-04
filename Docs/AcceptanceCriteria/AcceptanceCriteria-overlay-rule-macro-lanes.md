@@ -54,8 +54,10 @@ Lane ON: the playhead drives the macro; the fader thumb follows.**
   - BYPASS — the lane is ABSENT this column: the macro sits at its
     manual/fader position (offset suspended) — sparse, rhythmic
     automation; untouched columns tell the base truth.
-    [PIN, flagged: the alternative read — hold-previous-value — is
-    available if the user prefers; manual-position is the lean.]
+    [RESOLVED 2026-08-04 → MANUAL-POSITION. The lane goes absent and the
+    fader's own value governs that column — sparse automation with honest
+    gaps. Hold-previous-value is retired as the fallback (revisit only if
+    device use shows gaps feel wrong).]
 - **Rendering**: value = fill-height mini-bar in the cell · STEP =
   flat-top · SMOOTH = ramped edge toward the next · BYPASS = a dim
   dash. Chrome-quiet: the sweep and the bars are the display.
@@ -75,9 +77,10 @@ set dynamically on the grid itself, strokes included (paint a row's
 back half OFF in one swipe). Eligibility by lane kind (the mover
 rule's echo): continuous lanes take SMOOTH/STEPPED/OFF; discrete
 (button) lanes take ON/OFF. Ineligible toggles dim per the pointed
-row. [PIN, confirm: ON on a continuous lane = STEP at the cell's
-current value, or reserved to discrete lanes — the dim rule as
-drawn assumes the latter.]
+row. [RESOLVED 2026-08-04 → RESERVED TO DISCRETE LANES. ON/OFF apply
+only to discrete (button/step) lanes; continuous lanes use
+STEP/SMOOTH/OFF exclusively. The dim rule as drawn stands — ON dims on
+a pointed continuous row.]
 **② PER-LANE RATE — automation at every timescale.** Each lane gains
 a RATE chip: from **×8 (all eight steps inside ONE column — the
 LFO-fast wobble)** through ×1 (one step per column, the default)
