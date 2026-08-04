@@ -43,10 +43,18 @@ final class ChaosDriver {
     // silence usually accrues from several actions at once. Keeps the soak live rather than parking in a silent corner.
     private var reviveStreak = 0
 
+    // DENSITY (user 2026-08-04): mostly ONE active cell per column; every few passes SWELL a random few columns to a
+    // few active cells, then gradually STRIP them back to one. `targetActive[col]` is what the shaper nudges toward.
+    private var targetActive = [Int](repeating: 1, count: 8)
+    private var lastPass = -1
+    private var passesSinceSwell = 0
+    private var swellEvery = 5
+
     func start(au: MidiSparkAudioUnit, seed: UInt32, source: Source = .live) {
         guard !running else { return }
         self.au = au; self.seed = seed; self.source = source; rng = ChaosRNG(seed)
         running = true; eventCount = 0; lines = []; heldSet = []; play = .burst; playLeft = 0   // first tick seeds a chord
+        for c in 0..<8 { targetActive[c] = 1 }; lastPass = -1; passesSinceSwell = 0; swellEvery = rng.range(4, 8)
         stuckStreak = 0; silentStreak = 0; oracleFlag = "OK"
         au.chaosSetActive(true)   // gate the render-side chain-dump to this session
         setupReceivers(au)        // FIRST: disable non-selected receivers, make the selected ones receptive — then never touch receivers again
@@ -79,6 +87,7 @@ final class ChaosDriver {
         if reviveStreak >= 7 {   // let a mute BREATHE — revive only after a sustained full silence (user 2026-08-04)
             revive(au); reviveStreak = 0; eventCount += 1; return   // not logged
         }
+        if d.pass != lastPass { lastPass = d.pass; scheduleDensity() }   // per-PASS swell / strip of the density targets
         checkOracle()
         if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
         if rng.chance(0.4) { shapeDensity(au); eventCount += 1; return }                       // aim for 1–2 active cells per column
@@ -103,20 +112,31 @@ final class ChaosDriver {
         eventCount += 1
         if eventCount % 50 == 0 { write("… \(eventCount) events · oracle=\(oracleFlag)") }
     }
-    // Aim for ONE or TWO active cells per column (user 2026-08-04) — active = occupied and un-muted. Nudge one random
-    // column toward the target: mute an active cell when > 2, un-mute one only when the column has gone fully silent.
-    // Mutes PERSIST (only a silent column is revived), so the thinned texture holds rather than snapping back.
+    // Per-PASS density schedule: every few passes SWELL a random few columns to a few active cells; on the other
+    // passes STRIP the elevated targets back down by one — so the texture blooms then gradually thins to one/column.
+    private func scheduleDensity() {
+        passesSinceSwell += 1
+        if passesSinceSwell >= swellEvery {
+            passesSinceSwell = 0; swellEvery = rng.range(4, 8)
+            for _ in 0..<rng.range(1, 4) { targetActive[rng.int(8)] = rng.range(2, 4) }   // add active cells to some columns
+        } else {
+            for c in 0..<8 where targetActive[c] > 1 { targetActive[c] -= 1 }              // gradually strip back to one
+        }
+    }
+    // Nudge one random column toward its target active-cell count (active = occupied and un-muted): mute an active
+    // cell when over, un-mute a muted one when under. Baseline target is 1, so most columns settle to one cell.
     private func shapeDensity(_ au: MidiSparkAudioUnit) {
         let s = au.uiScene(), col = rng.int(8)
         guard col < s.cells.count else { return }
-        var occupied: [Int] = [], active: [Int] = []
+        var active: [Int] = [], muted: [Int] = []
         for row in 0..<min(8, s.cells[col].count) where s.cells[col][row] != nil {
-            occupied.append(row); if s.cells[col][row]?.muted == false { active.append(row) }
+            if s.cells[col][row]?.muted == false { active.append(row) } else { muted.append(row) }
         }
-        if active.count > 2 {
+        let target = col < targetActive.count ? targetActive[col] : 1
+        if active.count > target {
             let row = active[rng.int(active.count)]; au.editScene(record: false) { $0.cells[col][row]?.muted = true }
-        } else if active.isEmpty, !occupied.isEmpty {
-            let row = occupied[rng.int(occupied.count)]; au.editScene(record: false) { $0.cells[col][row]?.muted = false }
+        } else if active.count < target, !muted.isEmpty {
+            let row = muted[rng.int(muted.count)]; au.editScene(record: false) { $0.cells[col][row]?.muted = false }
         }
     }
     // REVIVE — open every gate that can silence output, so a held chord sounds again: master mute/kill/vel-override
