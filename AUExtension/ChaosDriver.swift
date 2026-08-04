@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import os
 
 /// ON-DEVICE CHAOS MODE — v1 (Layer 2 of the fuzz+chaos plan, 2026-08-04). This WHOLE FILE is `#if DEBUG`, so it is
 /// impossible to ship enabled (compile-flag gated, not a hidden runtime toggle). It drives the SAME action handlers
@@ -138,8 +139,14 @@ final class ChaosDriver {
         }
     }
 
+    // PRIMARY channel = the UNIFIED LOG (os_log), the only log an AUv3 extension can reliably surface: read it LIVE in
+    // Console.app on a Mac (filter subsystem `com.paulbarrett.MidiSpark`, category `chaos`). The extension's Documents
+    // container is NOT reachable from the iPad's Files app / Spotlight, so the file is a best-effort Xcode-container
+    // fallback only. (Multi-line dumps come through as one entry.)
+    private static let logger = Logger(subsystem: "com.paulbarrett.MidiSpark", category: "chaos")
     private func write(_ s: String) {
         lines.append(s)
+        Self.logger.notice("\(s, privacy: .public)")   // ← Console.app, subsystem com.paulbarrett.MidiSpark
         if dumpURL == nil, let dir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
             dumpURL = dir.appendingPathComponent("chaos-0x\(String(seed, radix: 16)).log")
         }
