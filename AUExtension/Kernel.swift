@@ -317,6 +317,9 @@ final class Kernel {
         }
         if (c.busMask & box.busEnabledMask) == 0 { return "no enabled emitter" }
         if pool.srcCount(for: c) == 0 { return "admits 0" }
+        let m = c.proc   // ALWAYS-silent machine configs → expected silence (a partly-closed passgate still sounds on its open passes)
+        if m.type == .passgate && m.passMask == 0 { return "passgate CLOSED (no open passes)" }
+        if m.type == .chance && m.probability <= 0 { return "chance prob 0 (drops all)" }
         return nil
     }
     private func buildRoutingText(_ box: SnapshotBox) -> String {
@@ -332,9 +335,11 @@ final class Kernel {
         let n = pool.srcCount(filter: 0)
         l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
         for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])\(rflags(r))") }
+        l.append("  roles: claim=0b\(String(box.claimMask, radix: 2)) leak=\(box.claimLeak) duck=0b\(String(box.flattenMask, radix: 2)) alt=0b\(String(box.altMask, radix: 2)) altCount=\(box.altCount)")
         for (i, c) in box.cells.enumerated() where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
-            let block = cellRouteBlock(c, box)
-            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)"))
+            let block = cellRouteBlock(c, box), m = c.proc
+            let mdesc = "\(m.type)" + (m.type == .passgate ? " pass=0b\(String(m.passMask, radix: 2))" : m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
+            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)"))
         }
         l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")
