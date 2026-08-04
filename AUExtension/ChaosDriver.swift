@@ -74,9 +74,7 @@ final class ChaosDriver {
         // PREFER NON-SILENT: a held chord that hasn't sounded for a few steps → REVIVE (reset every silencing gate).
         reviveStreak = (d.poolCount > 0 && d.distinctSounding == 0) ? reviveStreak + 1 : 0
         if reviveStreak >= 2 {   // 2 steps of silence-under-a-held-chord (enough for the injected notes to render)
-            revive(au); reviveStreak = 0; eventCount += 1
-            write("REVIVE · held chord not sounding → reset the gates · seed 0x\(String(seed, radix: 16))")
-            return
+            revive(au); reviveStreak = 0; eventCount += 1; return   // not logged (user 2026-08-04)
         }
         checkOracle()
         if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
@@ -124,7 +122,8 @@ final class ChaosDriver {
         }
     }
 
-    // SIMULATED MIDI — ALWAYS PLAYING: alternate a sustained CHORD with a BURST of random notes across all channels.
+    // SIMULATED MIDI — ALWAYS PLAYING, all notes in G MINOR: alternate a sustained Gm7 CHORD with a BURST of random
+    // in-scale notes across all channels.
     private func midiTick(_ au: MidiSparkAudioUnit) {
         func on(_ n: UInt8, _ ch: Int) { au.chaosInjectMIDI(0x90 | UInt8(ch & 15), n, UInt8(rng.range(1, 127))); heldSet.insert(n) }
         func off(_ n: UInt8) { au.chaosInjectMIDI(0x80, n, 0); heldSet.remove(n) }
@@ -132,14 +131,22 @@ final class ChaosDriver {
             play = play == .chord ? .burst : .chord
             playLeft = rng.range(3, 8)
             Array(heldSet).forEach(off)
-            if play == .chord { let ch = rng.int(16), root = rng.range(40, 76); for iv in [0, 4, 7, 11] where root + iv <= 127 { on(UInt8(root + iv), ch) } }
+            if play == .chord { let ch = rng.int(16), g = 12 * rng.range(3, 5) + 7; for iv in [0, 3, 7, 10] where g + iv <= 127 { on(UInt8(g + iv), ch) } }   // Gm7: G Bb D F
         }
         playLeft -= 1
         switch play {
-        case .chord: if rng.chance(0.25) { on(UInt8(rng.range(36, 96)), rng.int(16)) }                                   // sustain; occasionally thicken
-        case .burst: Array(heldSet).forEach(off); for _ in 0..<rng.range(2, 6) { on(UInt8(rng.int(128)), rng.int(16)) }  // fresh scatter, notes on ALL channels
+        case .chord: if rng.chance(0.25) { on(gMinor(rng.range(36, 96)), rng.int(16)) }                                       // sustain; occasionally thicken (in scale)
+        case .burst: Array(heldSet).forEach(off); for _ in 0..<rng.range(2, 6) { on(gMinor(rng.int(128)), rng.int(16)) }      // fresh scatter, in-scale notes on ALL channels
         }
-        if heldSet.isEmpty { on(UInt8(rng.range(48, 72)), 0) }                       // guarantee: at least one note is always sounding
+        if heldSet.isEmpty { on(gMinor(rng.range(48, 72)), 0) }                      // guarantee: at least one note is always sounding
+    }
+    // G MINOR (natural): semitone offsets from G — G · A · Bb · C · D · Eb · F. Every simulated note snaps into it.
+    private static let gMinorScale: Set<Int> = [0, 2, 3, 5, 7, 8, 10]
+    private func gMinor(_ note: Int) -> UInt8 {
+        let n = max(0, min(127, note))
+        let rel = ((n % 12) - 7 + 12) % 12                                           // pitch class relative to G
+        var off = rel; while off > 0 && !Self.gMinorScale.contains(off) { off -= 1 } // snap DOWN to the nearest scale tone
+        return UInt8(n - (rel - off))
     }
 
     // THE ORACLE — does the OUTPUT match the STATE? Reads the live diag and flags a mismatch on screen + in the log.
