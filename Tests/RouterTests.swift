@@ -2961,4 +2961,29 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(aOn, bOn, "at one moment only ONE emitter sounds — the group hands off in TIME, no simultaneous split")
         XCTAssertTrue(aOn, "count 1 → the first turn-holder (A) takes this moment")
     }
+
+    // MARK: - THE RACK — CURVE (per-emitter velocity re-map)
+
+    private func curveBox(amount: Int, on: Bool = true, rack: UInt8? = nil) -> SnapshotBox {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A (one note-on at the source velocity)
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.curveMask = on ? 0b0001 : 0
+        st.curveAmount = [amount, 0, 0, 0]
+        st.rackEnabledMask = rack
+        return SnapshotBuilder.build(from: st)
+    }
+
+    func testCurveRemapsOutputVelocityAndIsRackGated() {
+        func vel(_ amount: Int, on: Bool = true, rack: UInt8? = nil) -> Int {
+            let e = RecordingEmitter()
+            run(curveBox(amount: amount, on: on, rack: rack), chord([60]), beats: 16, into: e)
+            return Int(e.ons.first { $0.cable == 1 }!.vel)
+        }
+        let base = vel(0, on: false)                        // curve off → identity (the raw source velocity)
+        XCTAssertGreaterThan(vel(50), base, "+50 boosts low velocities (harder)")
+        XCTAssertLessThan(vel(-50), base, "−50 softens")
+        XCTAssertEqual(vel(0), base, "amount 0 (armed) is linear = identity")
+        XCTAssertEqual(vel(50, rack: 0b1110), base, "rack out of path ⇒ CURVE suspended (raw velocity)")
+    }
 }

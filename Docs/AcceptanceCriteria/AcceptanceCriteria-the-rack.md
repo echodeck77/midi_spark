@@ -53,7 +53,7 @@ open the matrix (SETUP)**. Fallback if the tap/long-press combo tests poorly on 
   chrome-quiet (off rows recede).
 
 ## §5 — THE THREE FAMILIES (matrix row grouping)
-- **THIS VOICE** (shapes the emitter's OWN notes): MONO · FENCE · CURVE · POCKET. *(all dimmed, pass 1)*
+- **THIS VOICE** (shapes the emitter's OWN notes): MONO · FENCE · **CURVE** *(LIVE)* · POCKET. *(MONO/FENCE/POCKET dimmed)*
 - **OVER OTHERS** (this emitter changes what OTHERS may do): **OWNS** (claim) · **KEY** (duck). *(LIVE)*
 - **TOGETHER** (mutual arrangements): **TURNS** (alt) · LEAD/STANCE (conversation). *(TURNS live; LEAD dimmed)*
 A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — never "is affected by it."
@@ -76,12 +76,15 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   simultaneous cells at COUNT 1, the bug the user hit. detail = coming.]**
 - **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
 - **FENCE** — out-of-range notes DROP|CLAMP|FOLD; lo/hi. **[NO ENGINE — dimmed seat.]**
-- **CURVE** — per-output velocity re-map (soft↔hard, bipolar); floor/ceiling. **[NO ENGINE — dimmed seat.]**
+- **CURVE** — per-output velocity re-map (soft↔hard). Toggle CURVE · chip **AMOUNT** (−100…+100 bipolar knob; 0 =
+  linear, + boosts low velocities = harder, − softens; `u' = u^(2^(−amt/100))`). **[LIVE 2026-08-05: toggle+AMOUNT
+  backed by `curveMask`/`curveAmount`, rack-gated, applied in `Router.emitOneBus` before the master fader; readout
+  "CURVE +30". FLOOR/CEILING detail = coming.]**
 - **POCKET** — per-output timing feel (±ms push/lag) + humanize. **[NO ENGINE — dimmed seat.]**
 - **LEAD / STANCE (conversation)** — one LEAD (radio); others FREE|WITH|AGAINST. **[NO ENGINE — dimmed seat.]**
 - **Dimmed future seats**: ECHO · CHOKE · GOVERNOR — labels reserved so the matrix never reflows.
 
 ## OUT OF SCOPE (later passes — un-dim a seat as each lands)
-MONO · FENCE · CURVE · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag,
-duck targeting/attack/release/match-class, alt rotate|deal/ring/reset). Each = new model + box + builder + Router +
-AU setter + tests.
+MONO · FENCE · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag, duck
+targeting/attack/release/match-class, curve floor/ceiling). Each = new model + box + builder + Router + AU setter +
+tests. (CURVE landed 2026-08-05.)

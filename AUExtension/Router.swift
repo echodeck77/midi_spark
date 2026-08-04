@@ -87,6 +87,18 @@ final class Router {
     // from the box each render. Stateless — a pure query of the live voice table at admission time.
     private var flattenMask: UInt8 = 0
     private var flattenAmount: [UInt8] = [0, 0, 0, 0]
+    // THE RACK — CURVE (design-the-rack §6): per-emitter output-velocity re-map. `curveMask` = which emitters
+    // curve; `curveAmount` = −100…100 (0 = linear, + boosts low velocities = harder, − softens). Rack-gated in
+    // the builder. Applied per note-on in emitOneBus (a pure transform of the outgoing velocity).
+    private var curveMask: UInt8 = 0
+    private var curveAmount: [Int8] = [0, 0, 0, 0]
+    /// The velocity re-map for one emitter: u' = u^gamma, gamma = 2^(−amount/100) (a smooth soft↔hard bend).
+    private func curveVelocity(_ v: UInt8, _ amount: Int8) -> UInt8 {
+        if amount == 0 { return v }
+        let u = Double(v) / 127.0
+        let mapped = pow(u, pow(2.0, -Double(amount) / 100.0))
+        return UInt8(max(1, min(127, Int((mapped * 127.0).rounded()))))
+    }
     private func emitterSounding(_ bus: Int) -> Bool {
         let b = UInt8(bus)
         for v in voices where v.active && !v.silent && v.bus == b { return true }
@@ -800,6 +812,9 @@ final class Router {
         // §6a CLAIM v2 LEAK: a leaked non-claimant (a claimed pitch class bleeding through) sounds at scaled
         // velocity — the SHADOW. Same tier as FLATTEN (a per-note-on duck); the master fader below still wins.
         if leakScale < 100 { v = UInt8(max(1, Int(v) * leakScale / 100)) }
+        // THE RACK CURVE: per-emitter output-velocity re-map (soft↔hard). A per-note transform of the shaped
+        // velocity, before the master fader (which still wins absolutely). previewMode bypasses (raw audition).
+        if curveMask & (1 << UInt8(bus)) != 0 && !previewMode { v = curveVelocity(v, curveAmount[bus]) }
         // master panel FADER: a momentary-absolute override over ALL output — applied LAST so it wins over the
         // per-emitter/input overrides and FLATTEN (the whisper-drop). 0 = untouched. previewMode bypasses.
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
@@ -1053,6 +1068,8 @@ final class Router {
         claimLeak = box.claimLeak                   // §6a CLAIM v2: per-claimant LEAK %, this render
         flattenMask = box.flattenMask               // role family: FLATTEN ducking set, this render
         flattenAmount = box.flattenAmount
+        curveMask = box.curveMask                   // THE RACK CURVE: per-emitter velocity re-map set, this render
+        curveAmount = box.curveAmount
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render

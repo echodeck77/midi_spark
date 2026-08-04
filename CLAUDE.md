@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE RACK — CURVE treatment un-dimmed (2026-08-05, on `main`; 418 green, iOS builds; DEVICE pass owed).
+  Continuing the emitter work: the first of the dimmed THIS-VOICE seats goes live. CURVE = a per-emitter output
+  velocity RE-MAP (soft↔hard). `PluginState.curveMask`/`curveAmount` (−100…100, additive Optional) → box
+  `curveMask`/`curveAmount: [Int8]` → builder pre-ANDs `curveMask & rackMask` (rack-gated like claim/duck/alt) →
+  `Router.emitOneBus` applies `curveVelocity(v, amount)` = `u^(2^(−amount/100))` (u = v/127) to the shaped velocity
+  BEFORE the master fader (previewMode bypasses). AU: `uiCurveMask`/`setCurve`/`uiCurveAmount`/`setCurveAmount`
+  (persisted, undoable). UI: the RackMatrix THIS-VOICE **CURVE** row is now a `liveRow` with the existing rotary
+  KNOB run BIPOLAR (minV −100 / maxV +100; toggle → `toggleCurve`, knob → `setCurveAmt`); readout gains a "CURVE
+  +30" clause; detail strip names FLOOR/CEILING as coming. No new files (no xcodegen). Test:
+  `RouterTests.testCurveRemapsOutputVelocityAndIsRackGated` (+50 boosts, −50 softens, 0/off = identity, rack-off =
+  raw). Spec `AcceptanceCriteria-the-rack.md` §5/§6 + device step `test-procedures.md` RK-CURVE. STILL DIMMED:
+  MONO (needs voice-stealing) · FENCE (range policy, needs an enum chip) · POCKET (timing) · CONVERSATION.**
 - **▶ TURNS — cross-cell dealing on the EMITTER (2026-08-04, on `main`; 416 green, iOS builds; DEVICE pass owed).
   Two-step: (1) REVERTED the short-lived cell-turns feature (commit `d0ac7f4` reverts `f137e03` — `Cell.turnsGroup`,
   the SnapCell fields, builder resolution, `turnsSilent`, the EDIT ▸ TAKES TURNS UI, and the RackMatrix TURNS-row

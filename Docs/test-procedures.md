@@ -304,6 +304,12 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   then B, then A — NOT play together (the count-1 simultaneity bug is fixed). Raise the COUNT knob → each emitter
   DWELLS for that many moments before the turn passes. Confirm the total note count is conserved (each note routes
   to ONE member) and nothing hangs across the hand-off. (A single fan-out cell → A+B still ping-pongs per note.)
+- **RK-CURVE (live — velocity re-map, THIS VOICE):** in the matrix, the THIS VOICE family now has a live **CURVE**
+  row ("Re-maps velocity (soft↔hard)"). Tap CURVE ON for an emitter and turn its knob: **+** (right) makes it hit
+  HARDER (low-velocity notes boosted toward loud), **−** softens, 0 = linear (no change). Play a dynamic passage
+  and check the output velocities on the monitor bend the way the knob says; the column-header readout shows
+  "CURVE +30". Confirm RACK-off on that emitter suspends the curve (raw velocity), and the master fader still
+  overrides it. (FLOOR/CEILING are the dimmed "coming" detail.)
 - **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
   STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
   RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation
@@ -315,10 +321,10 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
 - **RK-READ (the readout):** tap a matrix column header → its one-line social sentence shows only TRUE clauses
   ("OWNS · leaks 20%", "KEY: ducks others 40%", "TURNS ×2"); a rack-off column reads "RAW"; a bare emitter reads
   "a plain voice, no pedals armed."
-- **RK-DIM (the coming seats):** MONO · FENCE · CURVE · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present
-  but inert (recessive, no response to taps). Touch a LIVE row → the detail strip beneath names that row's
-  secondary params as "coming" (OWNS scope/lag · KEY targets/envelope · TURNS rotate/ring). Flag any dimmed row
-  that reacts, or a matrix that reflows.
+- **RK-DIM (the coming seats):** MONO · FENCE · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present but inert
+  (recessive, no response to taps) — CURVE is now LIVE (see RK-CURVE). Touch a LIVE row → the detail strip beneath
+  names that row's secondary params as "coming" (OWNS scope/lag · KEY targets/envelope · TURNS rotate/ring · CURVE
+  floor/ceiling). Flag any dimmed row that reacts, or a matrix that reflows.
 - **RK-PERSIST (state survives — persisted + undoable):** RACK state and the OWNS/KEY/TURNS toggles+chips are
   document state. Set some, then UNDO/REDO (three-finger or header) reverses them one step. Save the AUM session,
   reload → rack + treatments restored. An OLD session (saved before this build) must load with **every rack in

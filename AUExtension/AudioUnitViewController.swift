@@ -139,6 +139,8 @@ struct DiagView: View {
     @State var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
     @State var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
+    @State var curveMask: UInt8 = 0                         // THE RACK CURVE: per-emitter velocity-remap set (persisted)
+    @State var curveAmount: [Int] = [0, 0, 0, 0]            // THE RACK CURVE: per-emitter −100…100 bend
     @State var rackMask: UInt8 = 0b1111                     // THE RACK: per-emitter "board in the signal path" gate (persisted; nil-doc ⇒ all in path)
     @State var masterMute = false                           // master panel: global emission kill (persisted)
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
@@ -581,6 +583,8 @@ struct DiagView: View {
         flattenAmount = au.uiFlattenAmount()
         altMask = au.uiAltMask()
         altCount = au.uiAltCount()
+        curveMask = au.uiCurveMask()
+        curveAmount = au.uiCurveAmount()
         rackMask = au.uiRackMask()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
@@ -698,6 +702,16 @@ struct DiagView: View {
         let inPath = rackMask & (1 << UInt8(i)) != 0
         au?.setRack(i, !inPath)
         rackMask = au?.uiRackMask() ?? rackMask
+    }
+    // THE RACK — CURVE: per-emitter velocity re-map (persisted). Tap toggles; the knob sets the −100…100 bend.
+    func toggleCurve(_ i: Int) {
+        let on = curveMask & (1 << UInt8(i)) != 0
+        au?.setCurve(i, !on)
+        curveMask = au?.uiCurveMask() ?? curveMask
+    }
+    func setCurveAmt(_ i: Int, _ amount: Int) {
+        au?.setCurveAmount(i, amount)
+        curveAmount = au?.uiCurveAmount() ?? curveAmount
     }
     // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
     func toggleAlt(_ i: Int) {
@@ -845,6 +859,8 @@ struct DiagView: View {
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
+            let cvm = au.uiCurveMask();    if cvm != curveMask { curveMask = cvm }
+            let cva = au.uiCurveAmount();  if cva != curveAmount { curveAmount = cva }
             let rk = au.uiRackMask();      if rk != rackMask { rackMask = rk }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
@@ -1172,10 +1188,12 @@ struct DiagView: View {
         RackMatrix(busChannels: busChannels, busEnabled: busEnabled, rackMask: rackMask,
                    claimMask: claimMask, claimLeak: claimLeak,
                    flattenMask: flattenMask, flattenAmount: flattenAmount,
-                   altMask: altMask, altCount: altCount, emitPeak: emitPeak,
+                   altMask: altMask, altCount: altCount,
+                   curveMask: curveMask, curveAmount: curveAmount, emitPeak: emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
+                   onToggleCurve: toggleCurve, onCurveAmount: setCurveAmt,
                    onClose: { rackMatrixOpen = false })
     }
 

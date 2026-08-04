@@ -306,6 +306,28 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// THE RACK — CURVE (persisted): `setCurve` toggles emitter `bus`'s velocity re-map; `setCurveAmount` sets its
+    /// −100…100 bend (0 = linear, + harder, − softer). Rack-gated in the builder.
+    func uiCurveMask() -> UInt8 { document.curveMask ?? 0 }
+    func uiCurveAmount() -> [Int] { document.curveAmountResolved }
+    func setCurve(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.curveMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.curveMask = m
+        }
+    }
+    func setCurveAmount(_ bus: Int, _ amount: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.curveAmount ?? d.curveAmountResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = max(-100, min(100, amount))
+            d.curveAmount = a
+        }
+    }
+
     /// emitter role family: ALT — turn-taking group (persisted). `setAlt` toggles membership; `setAltCount`
     /// sets an emitter's notes-per-turn (1…8).
     func uiAltMask() -> UInt8 { document.altMask ?? 0 }

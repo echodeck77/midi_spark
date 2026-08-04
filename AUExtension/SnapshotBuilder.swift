@@ -165,6 +165,8 @@ enum SnapshotBuilder {
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
                            altMask: (doc.altMask ?? 0) & rackMask,
                            altCount: doc.altCountResolved.map { UInt8($0) },
+                           curveMask: (doc.curveMask ?? 0) & rackMask,
+                           curveAmount: doc.curveAmountResolved.map { Int8($0) },
                            rackMask: rackMask,
                            masterKey: Int8(scene.masterKeyResolved),
                            masterMute: doc.masterMute ?? false,

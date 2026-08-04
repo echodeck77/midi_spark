@@ -464,6 +464,14 @@ struct PluginState: Codable, Equatable {
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
     var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    // THE RACK — CURVE (design-the-rack §6, THIS VOICE family): a per-emitter velocity RE-MAP — the matching knob
+    // between the grid's dynamics and the synth's response. `curveMask` = which emitters curve; `curveAmount` =
+    // per-emitter −100…+100 (0 = linear, + = harder/boosts low velocities, − = softer). Persisted; Optional → old
+    // docs decode nil (off). Self-affecting → gated by the rack like claim/duck/alt. (FLOOR/CEILING = later detail.)
+    var curveMask: UInt8? = nil
+    var curveAmount: [Int]? = nil
+    /// The four CURVE amounts (−100…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
+    var curveAmountResolved: [Int] { let a = curveAmount ?? []; return (0..<4).map { $0 < a.count ? max(-100, min(100, a[$0])) : 0 } }
     // THE RACK (design-the-rack §3, the two-tier law): the per-emitter "is the board in the signal path" gate.
     // The matrix toggles (claim/duck/alt/…) say which pedals are ARMED; this mask says whether the board is
     // patched in. Bit i clear ⇒ emitter i's whole rack is bypassed → its output is the raw wire regardless of the

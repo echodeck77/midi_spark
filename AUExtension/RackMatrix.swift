@@ -21,6 +21,8 @@ struct RackMatrix: View {
     let flattenAmount: [Int]
     let altMask: UInt8          // TURNS
     let altCount: [Int]
+    let curveMask: UInt8        // CURVE (velocity re-map)
+    let curveAmount: [Int]      // −100…100 per emitter
     var emitPeak: [Double] = [0, 0, 0, 0]
     let onClaim: (Int) -> Void
     let onClaimLeak: (Int, Int) -> Void
@@ -28,6 +30,8 @@ struct RackMatrix: View {
     let onDuckAmount: (Int, Int) -> Void
     let onToggleAlt: (Int) -> Void
     let onAltCount: (Int, Int) -> Void
+    let onToggleCurve: (Int) -> Void
+    let onCurveAmount: (Int, Int) -> Void
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -50,7 +54,11 @@ struct RackMatrix: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     familyLabel("THIS VOICE")
-                    dimRow("MONO"); dimRow("FENCE"); dimRow("CURVE"); dimRow("POCKET")
+                    dimRow("MONO"); dimRow("FENCE")
+                    liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
+                            isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
+                            unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
+                    dimRow("POCKET")
                     familyLabel("OVER OTHERS")
                     liveRow(key: "OWNS", title: "Claims this note from others", hue: amber,
                             isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
@@ -129,6 +137,7 @@ struct RackMatrix: View {
         if bit(claimMask, focus) { clauses.append(at(claimLeak, focus, 0) > 0 ? "OWNS · leaks \(at(claimLeak, focus, 0))%" : "OWNS (hard)") }
         if bit(flattenMask, focus) { clauses.append("KEY: ducks others \(at(flattenAmount, focus, 0))%") }
         if bit(altMask, focus) { let n = max(1, at(altCount, focus, 1)); clauses.append("TURNS ×\(n)") }
+        if bit(curveMask, focus) { let n = at(curveAmount, focus, 0); clauses.append("CURVE \(n > 0 ? "+" : "")\(n)") }
         let raw = !bit(rackMask, focus)
         let line = raw ? "\(letters[focus]) — RAW (rack out of path)"
                        : (clauses.isEmpty ? "\(letters[focus]) — a plain voice, no pedals armed." : "\(letters[focus]) — " + clauses.joined(separator: "  ·  "))
@@ -222,6 +231,7 @@ struct RackMatrix: View {
         case "OWNS":  detail = "OWNS detail — SCOPE (CLASS | RANGE + lo/hi) · RELEASE LAG — coming"
         case "KEY":   detail = "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
         case "TURNS": detail = "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
+        case "CURVE": detail = "CURVE detail — FLOOR · CEILING — coming"
         default:      detail = "Touch a row to see its detail."
         }
         return VStack(alignment: .leading, spacing: 4) {
