@@ -19,11 +19,15 @@ struct RackMatrix: View {
     let claimLeak: [Int]
     let flattenMask: UInt8      // KEY (the DUCK engine; code stays flatten*)
     let flattenAmount: [Int]
+    let altMask: UInt8          // TURNS
+    let altCount: [Int]
     var emitPeak: [Double] = [0, 0, 0, 0]
     let onClaim: (Int) -> Void
     let onClaimLeak: (Int, Int) -> Void
     let onToggleDuck: (Int) -> Void
     let onDuckAmount: (Int, Int) -> Void
+    let onToggleAlt: (Int) -> Void
+    let onAltCount: (Int, Int) -> Void
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -55,7 +59,9 @@ struct RackMatrix: View {
                             isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
                             unit: "%", maxV: 100, onToggle: onToggleDuck, onSet: onDuckAmount)
                     familyLabel("TOGETHER")
-                    movedRow("TURNS", "now on the cell — EDIT ▸ TAKES TURNS")
+                    liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
+                            isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
+                            unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
                     dimRow("LEAD / STANCE")
                     dimRow("ECHO"); dimRow("CHOKE"); dimRow("GOVERNOR")
                     detailStrip
@@ -122,6 +128,7 @@ struct RackMatrix: View {
         var clauses: [String] = []
         if bit(claimMask, focus) { clauses.append(at(claimLeak, focus, 0) > 0 ? "OWNS · leaks \(at(claimLeak, focus, 0))%" : "OWNS (hard)") }
         if bit(flattenMask, focus) { clauses.append("KEY: ducks others \(at(flattenAmount, focus, 0))%") }
+        if bit(altMask, focus) { let n = max(1, at(altCount, focus, 1)); clauses.append("TURNS ×\(n)") }
         let raw = !bit(rackMask, focus)
         let line = raw ? "\(letters[focus]) — RAW (rack out of path)"
                        : (clauses.isEmpty ? "\(letters[focus]) — a plain voice, no pedals armed." : "\(letters[focus]) — " + clauses.joined(separator: "  ·  "))
@@ -194,16 +201,6 @@ struct RackMatrix: View {
             .onEnded { _ in dragKey = nil })
     }
 
-    // MARK: a MOVED treatment — the label + a note pointing where it now lives (TURNS → the cell).
-    private func movedRow(_ label: String, _ note: String) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(ink.opacity(0.35)).frame(width: rowLabelWidth, alignment: .leading)
-            Text(note).font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundColor(cyan.opacity(0.5)).frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     // MARK: a DIMMED future treatment row — present so the matrix never reflows when its engine lands.
     private func dimRow(_ label: String) -> some View {
         HStack(spacing: 4) {
@@ -224,6 +221,7 @@ struct RackMatrix: View {
         switch lastRow {
         case "OWNS":  detail = "OWNS detail — SCOPE (CLASS | RANGE + lo/hi) · RELEASE LAG — coming"
         case "KEY":   detail = "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
+        case "TURNS": detail = "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
         default:      detail = "Touch a row to see its detail."
         }
         return VStack(alignment: .leading, spacing: 4) {

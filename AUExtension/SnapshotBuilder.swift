@@ -87,26 +87,6 @@ enum SnapshotBuilder {
             }
         }
 
-        // ---- CELL TURNS (design-the-rack follow-up, user 2026-08-04): resolve turn-groups → per-cell order +
-        //      size, so the render rotates by pass (one member sounds per lap; the rest go dormant). Group id 0 =
-        //      ungrouped. Members are collected in grid-index order (col-major, c outer / r inner), so the order is
-        //      deterministic and matches the render's cell indexing.
-        var turnsMembers: [Int: [Int]] = [:]
-        for c in 0..<Snap.cols {
-            for r in 0..<Snap.rows where c < scene.cells.count && r < scene.cells[c].count {
-                guard let cell = scene.cells[c][r] else { continue }
-                let g = cell.turnsGroupResolved
-                if g > 0 { turnsMembers[g, default: []].append(c * Snap.rows + r) }
-            }
-        }
-        for (_, members) in turnsMembers {
-            let size = Int8(min(127, members.count))
-            for (order, idx) in members.enumerated() {
-                cells[idx].turnsGroupSize = size
-                cells[idx].turnsOrder = Int8(min(127, order))
-            }
-        }
-
         // ---- LEGATO run starts (§3.5/§7 v2.4): same colour + same ROW + contiguous COLUMNS.
         //      Wiring/perform state irrelevant to run identity (§1.1); computed for every cell. A LADDER-DORMANT
         //      rung breaks the run (like an empty cell) — otherwise a full-8×8 ladder reads as one long run from

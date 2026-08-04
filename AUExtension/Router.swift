@@ -847,16 +847,6 @@ final class Router {
         }
     }
 
-    // CELL TURNS (design-the-rack follow-up): a cell in a turns-group is silent unless it is the active member
-    // for THIS pass (one member per lap, round-robin). Pure function of diag.pass — no accumulated state; a lone
-    // or ungrouped cell (size ≤ 1) always sounds. Checked at the emit guards alongside `dormant`/`muted`.
-    @inline(__always) private func turnsSilent(_ cell: SnapCell, pass: Int) -> Bool {
-        let size = Int(cell.turnsGroupSize)
-        guard size > 1 else { return false }
-        let active = ((pass % size) + size) % size          // guard a negative pass → nonnegative index
-        return active != Int(cell.turnsOrder)
-    }
-
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: Int64,
@@ -882,7 +872,7 @@ final class Router {
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || turnsSilent(cell, pass: pass) { continue }   // §9 ON TAP = MUTE · LADDER dormant · CELL TURNS
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
@@ -1230,7 +1220,7 @@ final class Router {
 
         for r in 0..<Snap.rows {
             let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) || turnsSilent(cell, pass: diag.pass) { continue }   // §9 ON TAP = MUTE · LADDER dormant · CELL TURNS
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
