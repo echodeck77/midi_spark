@@ -269,3 +269,57 @@ PANICS > 0 or a note hangs, record exactly what triggered it — a stuck-note bu
   LATCH edge (its capture is Kernel-side, off-device tests can't reach it).
 - **SP-LABEL:** both bands read A–D, titled MIDI INPUT / MIDI OUTPUT; cell chips A–D.
   Flag if either role column is cramped in the narrow band.
+
+## RACK PASS — the emitter treatment matrix + the two-tier gate (2026-08-04)
+
+Device screen for **THE RACK pass 1** (`AcceptanceCriteria-the-rack.md`; commit `c757f73`). The tabbed emitter
+page is GONE — the emitter roles (CLAIM/DUCK/ALT) moved off the strip into a matrix opened from a single RACK
+button, and a new per-emitter gate (RACK on/off) decides whether that emitter's armed treatments apply at all.
+Only three treatments are wired this pass (OWNS=claim · KEY=duck · TURNS=alt); the rest are dimmed seats.
+
+Reuse the STRIP-PASS rig via the HIDDEN DEV LOADER (long-press the "8×8 STATE" logotype ~1.2s). Two cells of the
+SAME pitches on DIFFERENT emitters (held chord → A, arp of the same notes → B) is the workhorse for OWNS/KEY.
+**Golden rule unchanged: if PANICS > 0 or a note hangs, record exactly what triggered it — a stuck-note bug.**
+Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must never strand a voice.
+
+- **RK-STRIP (the clean strip — look first):** each MIDI OUTPUT strip shows ONLY OCT± · velocity fader · LIVE ·
+  SOLO · **RACK**. No CLAIM/DUCK/ALT buttons remain. RACK reads lit (cyan fill) = board in path, or outlined =
+  raw. Flag any leftover role button or a cramped RACK button in the narrow band.
+- **RK-TOGGLE (the RACK button grammar):** a short TAP flips RACK lit↔outlined (does NOT open the matrix); a
+  LONG-PRESS (~0.5s) opens the matrix (and must NOT also flip the toggle on release). Confirm both, on every
+  emitter.
+- **RK-GEO (drawn INSIDE the grid — the headline layout ask):** with the matrix open, the **chevron column-key
+  row stays visible above it** and **both L/R row-select rails stay visible beside it** (only the 8×8 cell body is
+  replaced). The receiver strips, emitter strips, verbs, and master stay LIVE around it. Then confirm all three
+  close paths: **DONE**, the **PERFORM/EDIT toggle**, and a **scene switch** each dismiss the matrix. Flag if the
+  chevron row or either rail disappears, or the panel spills past the cell area.
+- **RK-OWNS (live — equals old CLAIM):** open the matrix; in the OVER OTHERS family, tap OWNS ON for A. While A
+  holds a pitch, that pitch on B is withheld (A owns it). Drag A's LEAK chip up → B bleeds back at reduced
+  velocity (the shadow), 0% = silent. Same intent as SP-CLAIM; monitor B for the suppression/shadow.
+- **RK-KEY (live — the duck):** tap KEY ON for A, drag its AMOUNT chip. While A sounds, B/C/D's NEW note-ons
+  arrive quieter (already-sounding notes never lurch); 100% ≈ a keyed gate. Monitor a target emitter's velocities.
+- **RK-TURNS (live — turn-taking):** tap TURNS ON for A and B; a cell fanning A+B alternates notes between them
+  (ping-pong). Drag the COUNT chip → N notes per turn. Monitor A and B for the alternation.
+- **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
+  STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
+  RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation
+  stops/returns). **Ruling to feel + confirm (flagged):** RACK-off is a FULL-column bypass — turning A's rack off
+  also stops A ducking/owning OTHERS, not just A's own shaping. Confirm that reads right; if you'd expect A to keep
+  affecting others while raw, say so (it's a one-line change).
+- **RK-LIVE-SENIOR (kill-switch law):** LIVE/SOLO stay senior to RACK. LIVE OFF on an emitter silences it
+  completely whether its rack is in path or raw. RACK off ≠ silent (the emitter still sounds, just unprocessed).
+- **RK-READ (the readout):** tap a matrix column header → its one-line social sentence shows only TRUE clauses
+  ("OWNS · leaks 20%", "KEY: ducks others 40%", "TURNS ×2"); a rack-off column reads "RAW"; a bare emitter reads
+  "a plain voice, no pedals armed."
+- **RK-DIM (the coming seats):** MONO · FENCE · CURVE · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present
+  but inert (recessive, no response to taps). Touch a LIVE row → the detail strip beneath names that row's
+  secondary params as "coming" (OWNS scope/lag · KEY targets/envelope · TURNS rotate/ring). Flag any dimmed row
+  that reacts, or a matrix that reflows.
+- **RK-PERSIST (state survives — persisted + undoable):** RACK state and the OWNS/KEY/TURNS toggles+chips are
+  document state. Set some, then UNDO/REDO (three-finger or header) reverses them one step. Save the AUM session,
+  reload → rack + treatments restored. An OLD session (saved before this build) must load with **every rack in
+  path** and its existing claim/duck/alt unchanged (the nil-default).
+
+Reporting: use the standard template — "RK-XXX: PASS/FAIL — [what was heard/seen] — monitor: [voice count,
+pairing, stuck notes]". The AUM MIDI monitor is the truth for suppression/duck/turn claims; screenshots when a
+pairing or velocity is disputed.
