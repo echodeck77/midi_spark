@@ -2942,4 +2942,23 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(a1, 0); XCTAssertGreaterThan(a2, 0, "both emitters take turns")
         XCTAssertEqual(a1 + a2, n1 + n2, "every note still routes to exactly ONE member (total conserved)")
     }
+
+    func testAltHoldsAtSameMomentDoNotSplitSimultaneously() {
+        // The user's bug (2026-08-04): two HOLD cells fire at the SAME instant (column 0 entry) — gold → A, cyan
+        // → B, TURNS {A,B}, COUNT 1. They must both route to the ONE turn-holder for that moment (A), NOT split
+        // A/B simultaneously (count 1 previously played both at once). The turn advances per onset MOMENT, so a
+        // single moment picks a single emitter.
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A
+        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // passgate hold → B
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
+        let box = SnapshotBuilder.build(from: st)
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120,
+                       sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        let aOn = e.ons.contains { $0.cable == 1 }, bOn = e.ons.contains { $0.cable == 2 }
+        XCTAssertNotEqual(aOn, bOn, "at one moment only ONE emitter sounds — the group hands off in TIME, no simultaneous split")
+        XCTAssertTrue(aOn, "count 1 → the first turn-holder (A) takes this moment")
+    }
 }

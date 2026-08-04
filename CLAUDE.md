@@ -161,16 +161,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   Two-step: (1) REVERTED the short-lived cell-turns feature (commit `d0ac7f4` reverts `f137e03` — `Cell.turnsGroup`,
   the SnapCell fields, builder resolution, `turnsSilent`, the EDIT ▸ TAKES TURNS UI, and the RackMatrix TURNS-row
   removal are all GONE; the emitter TURNS row is back). The user's true intent was NOT per-cell grouping. (2)
-  REWORKED the emitter ALT/TURNS engine (`Router.emitArtic`) so the TURNS emitters take turns playing the INCOMING
-  notes from ANY cell: a note destined for any group member is routed to the current turn-holder (the WHOLE-group
-  rotation, count-weighted via `altSequence`), then the pointer advances — so two independent cells (one → A, one →
-  B, both in TURNS) pool + interleave, and a single cell → A alone still spreads across the group. Non-group
-  emitters in a fan-out untouched. WAS: dealt only among members PRESENT in one cell's fan-out (so single-target
-  cells stuck on their own emitter — the bug the user hit). No model/snapshot/AU/UI change — the rack matrix TURNS
-  toggle + COUNT knob (`altMask`/`altCount`) are unchanged; only the render routing rule changed. Tests: replaced
-  `testAltEdgeSkipsAbsentMemberWithoutStarving` (obsolete premise) with `testAltDealsSingleTargetNotesAcrossTheGroup`
-  + `testAltPoolsTwoIndependentCellsAcrossTheGroup`; `testAltTurnTakingPingPongsAndHonoursCount` (single fan-out cell)
-  still green. Docs: `AcceptanceCriteria-the-rack.md` §6 TURNS + `test-procedures.md` RK-TURNS updated.**
+  REWORKED the emitter ALT/TURNS engine (`Router.emitArtic`) so the TURNS emitters take turns IN TIME playing the
+  INCOMING notes from ANY cell. The turn advances once per ARTICULATION MOMENT (a new onset SAMPLE — `altLastOnset`/
+  `altMomentIndex`, `currentPass` idea dropped); every note at that moment routes to the one holder
+  `altSequence[altMomentIndex % len]`, then the next moment hands off. So two independent cells firing at the SAME
+  instant both sound on ONE emitter and alternate over moments (A then B — NOT both at once), while a single fan-out
+  cell whose notes land at distinct times still ping-pongs per note. COUNT = moments of DWELL (was notes-per-turn).
+  Two iterations landed: first whole-group dealing via a per-NOTE pointer (fixed single-target cells stuck on their
+  own emitter — the old code dealt only among members PRESENT in one cell's fan-out); then the per-MOMENT hand-off
+  (the per-note pointer SPLIT simultaneous cells at COUNT 1 — the user's second report). Reset at transport-start
+  only. No model/snapshot/AU/UI change — the rack TURNS toggle + COUNT knob (`altMask`/`altCount`) unchanged; only
+  the render routing rule. Tests: replaced `testAltEdgeSkipsAbsentMemberWithoutStarving` (obsolete) with
+  `testAltDealsSingleTargetNotesAcrossTheGroup`, `testAltPoolsTwoIndependentCellsAcrossTheGroup`,
+  `testAltHoldsAtSameMomentDoNotSplitSimultaneously`; `testAltTurnTakingPingPongsAndHonoursCount` still green (417
+  total). KNOWN minor: a window holding 2+ arp ticks across multiple cells can misalign a moment (cells processed
+  sequentially, onSample non-monotonic) — negligible at normal rates; holds (one onset/lap) are exact. Docs:
+  `AcceptanceCriteria-the-rack.md` §6 TURNS + `test-procedures.md` RK-TURNS updated.**
 - **▶ THE RACK — emitter treatment matrix, PASS 1 (2026-08-04, on `main`; 415 green, iOS builds; DEVICE pass owed).
   Design ferry `DESIGN-the-rack.md` → spec of record `Docs/AcceptanceCriteria/AcceptanceCriteria-the-rack.md`.
   SUPERSEDES the tabbed emitter page (`EmitterPage.swift` DELETED; `AcceptanceCriteria-emitter-page-pass1.md`

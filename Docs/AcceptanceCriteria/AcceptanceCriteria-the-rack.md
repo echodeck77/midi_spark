@@ -65,14 +65,15 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
 - **KEY (duck)** — while this emitter sounds, others' NEW notes arrive velocity-scaled down (admission-time; 100% =
   gate). Toggle KEY · chip **AMOUNT %** · detail DUCKS→B·C·D targets · ATTACK · RELEASE · MATCH-CLASS · readout
   "KEY: ducks B·C by 40%". **[LIVE: toggle+AMOUNT backed by flattenMask/flattenAmount; detail = coming.]**
-- **TURNS (alt)** — the lit emitters form a ring and **take turns playing the INCOMING notes from ANY cell**: any
-  note destined for a group member is routed to the current turn-holder (the whole-group rotation), then the turn
-  advances — so two independent cells (one → A, one → B, both in TURNS) POOL and interleave across A and B, and a
-  single cell targeting only A still spreads across the group. Non-group emitters in a fan-out are untouched. Toggle
-  TURNS · chip **COUNT** (notes-per-turn) · detail RING · RESET-at-pass · readout "TURNS (count 2)".
-  **[LIVE: toggle+COUNT backed by altMask/altCount. REVISED 2026-08-04 — was per-fan-out only (dealt only among the
-  members present in one cell's fan-out), which left single-target cells stuck on their own emitter; now the whole
-  group shares the incoming stream. detail = coming.]**
+- **TURNS (alt)** — the lit emitters **take turns IN TIME playing the INCOMING notes from ANY cell**. The turn
+  advances once per articulation MOMENT (a new onset time); every note at that moment routes to the one turn-holder,
+  then the next moment hands off to the next member. So two independent cells firing at the SAME instant both sound
+  on ONE emitter and alternate over successive moments (A then B, not both at once); a single fan-out cell whose
+  notes land at distinct times still ping-pongs per note. Non-group emitters in a fan-out are untouched. Toggle
+  TURNS · chip **COUNT** = moments of DWELL before the turn passes (1 = hand off every moment) · readout "TURNS
+  (count 2)". **[LIVE: toggle+COUNT backed by altMask/altCount. REVISED TWICE 2026-08-04: (1) from per-fan-out-only
+  to whole-group dealing; (2) from a per-NOTE pointer to a per-MOMENT hand-off — the per-note pointer split
+  simultaneous cells at COUNT 1, the bug the user hit. detail = coming.]**
 - **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
 - **FENCE** — out-of-range notes DROP|CLAMP|FOLD; lo/hi. **[NO ENGINE — dimmed seat.]**
 - **CURVE** — per-output velocity re-map (soft↔hard, bipolar); floor/ceiling. **[NO ENGINE — dimmed seat.]**

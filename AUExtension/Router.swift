@@ -92,13 +92,16 @@ final class Router {
         for v in voices where v.active && !v.silent && v.bus == b { return true }
         return false
     }
-    // emitter role family: ALT — turn-taking. `altSequence` is the expanded turn order (each group member,
-    // position order, repeated its notes-per-turn); `altTurn` is the running note counter over the group.
-    // A note fanning to the group routes to sequence[altTurn % len] (the others in the group stay silent),
-    // then the counter advances. Reset on the transport edge. previewMode bypasses (no role context).
+    // emitter role family: ALT / TURNS — turn-taking IN TIME. `altSequence` is the expanded turn order (each group
+    // member, position order, repeated its COUNT/dwell). The turn advances once per ARTICULATION MOMENT (a new
+    // onset SAMPLE), and ALL notes at the same moment route to the SAME holder. So a single fan-out cell whose notes
+    // land at distinct times still ping-pongs per note, while independent cells that fire at the SAME instant hand
+    // off in time (A this moment, B the next) instead of splitting simultaneously (user 2026-08-04). `altMomentIndex`
+    // % len picks the holder. previewMode bypasses (no role context).
     private var altMask: UInt8 = 0
     private var altSequence: [UInt8] = []
-    private var altTurn = 0
+    private var altLastOnset: Int64 = .min   // onset sample of the current articulation moment (sentinel = fresh)
+    private var altMomentIndex = -1          // moments elapsed; advances once per new onset time → picks the holder
     // master panel: per-scene KEY (transpose, from the box), global MUTE (from the box), and the ephemeral
     // master velocity FADER (from process(), like the emitter override) — all applied in emitOneBus.
     private var masterKey: Int = 0
@@ -686,19 +689,17 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
-        // role family ALT / TURNS (user 2026-08-04 — the true intent): the TURNS emitters take turns playing the
-        // INCOMING notes from ANY cell. If this articulation is destined for the group (it touches any group
-        // member), route the group-portion to the CURRENT turn-holder — the next member in the whole-group
-        // rotation, regardless of which member the cell originally addressed — then advance the shared pointer.
-        // So two INDEPENDENT cells (one → A, one → B, with A+B in TURNS) pool their notes and interleave across
-        // A and B; a single cell targeting only A still spreads across the whole group. Non-group emitters in the
-        // fan-out are untouched. COUNT (notes-per-turn) rides in `altSequence` (each member repeated count times).
-        // previewMode bypasses (no other-emitter context). (Was: deal only among members PRESENT in this fan-out —
-        // which left single-target cells stuck on their own emitter, the bug the user hit.)
+        // role family ALT / TURNS (user 2026-08-04 — the true intent): the TURNS emitters take turns IN TIME playing
+        // the INCOMING notes from ANY cell. The turn advances once per ARTICULATION MOMENT (a new onset sample); all
+        // notes at the same moment route to the SAME holder = altSequence[altMomentIndex % len]. Any note destined
+        // for the group (touches any group member) routes there; non-group emitters in the fan-out are untouched.
+        // So two independent cells firing at the SAME instant both sound on ONE emitter this moment and hand off to
+        // the next at the following moment (no simultaneous split), while a single fan-out cell whose notes land at
+        // distinct times still ping-pongs per note. COUNT = moments of dwell. previewMode bypasses.
         var busMask = busMask
         if (busMask & altMask) != 0 && !previewMode && !altSequence.isEmpty {
-            let entry = altSequence[altTurn % altSequence.count]     // the whole-group turn-holder (count-weighted)
-            altTurn = (altTurn + 1) % altSequence.count
+            if onSample != altLastOnset { altLastOnset = onSample; altMomentIndex &+= 1 }   // a new moment → advance the turn
+            let entry = altSequence[altMomentIndex % altSequence.count]
             busMask = (busMask & ~altMask) | (1 << entry)
         }
         // §6a CLAIM v2: emit ALL claimant buses in this fan-out FIRST (any order among them), so every
@@ -1087,21 +1088,21 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
             prevEffColumn = -1
-            altTurn = 0                                  // role family ALT: the turn counter resets with transport
+            altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
             allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)   // the one hard flush — bypass included
-            prevEffColumn = -1; altTurn = 0
+            prevEffColumn = -1
             diag.panics &+= 1
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
         if sceneFlush {
             allNotesOff(atSample: renderSampleImmediate, out: out)
-            prevEffColumn = -1; altTurn = 0
+            prevEffColumn = -1
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -1153,7 +1154,7 @@ final class Router {
         if sceneRestart {
             passAnchor = beatPos
             allNotesOff(atSample: renderSampleImmediate, out: out)
-            prevEffColumn = -1; altTurn = 0
+            prevEffColumn = -1
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         }
         let beatPos = beatPos - passAnchor
