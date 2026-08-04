@@ -464,6 +464,15 @@ struct PluginState: Codable, Equatable {
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
     var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    // THE RACK (design-the-rack §3, the two-tier law): the per-emitter "is the board in the signal path" gate.
+    // The matrix toggles (claim/duck/alt/…) say which pedals are ARMED; this mask says whether the board is
+    // patched in. Bit i clear ⇒ emitter i's whole rack is bypassed → its output is the raw wire regardless of the
+    // matrix (the builder pre-ANDs this into claim/flatten/alt). Persisted (document-level, mirrors the emitter
+    // family above). Optional → old docs (and clean instruments) decode nil = all ON, so existing claim/duck/alt
+    // keep applying unchanged. LIVE/SOLO stay senior (the kill-switch law).
+    var rackEnabledMask: UInt8? = nil
+    /// The rack gate (bits A–D); missing ⇒ 0b1111 (all racks in path). Non-persisting read helper.
+    var rackEnabledResolved: UInt8 { (rackEnabledMask ?? 0b1111) & 0b1111 }
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
     var masterMute: Bool? = nil

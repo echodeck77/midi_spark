@@ -863,6 +863,56 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - THE RACK (design-the-rack §3) — the two-tier gate: RACK off ⇒ raw wire regardless of the matrix
+
+    private func rackClaimBox(_ cs: [Colour], claim: UInt8, rack: UInt8?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
+        var s = SceneState.empty(); build(&s)
+        var st = PluginState(colours: cs, scenes: [s]); st.claimMask = claim; st.rackEnabledMask = rack
+        return SnapshotBuilder.build(from: st)
+    }
+
+    func testRackOffMakesClaimantARawWire() {
+        // A claims (matrix armed) but A's RACK is OFF (bit 0 clear) → the board is out of the signal path, so A's
+        // claim does NOT apply: a cell fanning A+B lets B keep the pitch (the raw wire, as if nothing were armed).
+        let b = rackClaimBox(claimColours(transposeB: 0), claim: 0b0001, rack: 0b1110) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A still sounds (LIVE, not RACK, silences)")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 && $0.note == 60 }.count, 0, "B keeps the pitch — A's rack is out of path, so no claim")
+        assertNothingLeftSounding(e)
+    }
+
+    func testRackOnKeepsClaimSuppression() {
+        // Same doc but A's RACK ON (all bits set) → claim applies exactly as before: B yields the claimed pitch.
+        let b = rackClaimBox(claimColours(transposeB: 0), claim: 0b0001, rack: 0b1111) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a, .b])
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 0, "A (claimant) sounds")
+        XCTAssertTrue(e.ons.filter { $0.cable == 2 }.isEmpty, "B yields — rack in path, claim applies")
+        assertNothingLeftSounding(e)
+    }
+
+    func testRackGatePreAndsTreatmentMasksIntoTheBox() {
+        // The builder pre-ANDs the rack gate into every treatment mask; a missing gate ⇒ all-on (old-doc safe).
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [SceneState.empty()])
+        st.claimMask = 0b0011; st.flattenMask = 0b0011; st.altMask = 0b0011
+        st.rackEnabledMask = 0b0001                                  // only emitter A's rack is in path
+        let gated = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(gated.claimMask, 0b0001, "claim gated to A")
+        XCTAssertEqual(gated.flattenMask, 0b0001, "duck gated to A")
+        XCTAssertEqual(gated.altMask, 0b0001, "alt gated to A")
+        XCTAssertEqual(gated.rackMask, 0b0001, "box carries the raw gate for future treatments")
+
+        st.rackEnabledMask = nil                                    // old doc / clean instrument ⇒ all racks in path
+        let ungated = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(ungated.claimMask, 0b0011, "nil rack ⇒ no gating (0b1111)")
+        XCTAssertEqual(ungated.rackMask, 0b1111, "resolver defaults to all-on")
+    }
+
     // §6a THE WITHHELD TELL — the drainWithheld() feed reports CLAIM-suppressed note-ons (for the hollow strip mark).
     private func drainWithheldAfter(_ box: SnapshotBox, windows: Int = 8) -> [[(vel: UInt8, col: Int8)]] {
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()

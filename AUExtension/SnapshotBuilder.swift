@@ -115,9 +115,15 @@ enum SnapshotBuilder {
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
         var busEnabledMask: UInt8 = 0
         for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
+        // THE RACK (design-the-rack §3, the two-tier law): pre-AND the per-emitter "board in the signal path"
+        // gate into every treatment mask. A rack-off emitter drops out of claim/duck/alt entirely → its output is
+        // the raw wire regardless of the matrix (no claim ghost/reservation, no duck, no alt turn). The raw doc
+        // masks stay the "armed" truth the matrix UI reads directly; only the RENDER sees the gated masks. nil/old
+        // docs ⇒ 0b1111 (all racks in path) so existing claim/duck/alt keep applying unchanged.
+        let rackMask = doc.rackEnabledResolved
         // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
-        // per-claimant LEAK % (0 = full suppression = v1).
-        let claimMask = doc.claimMaskResolved
+        // per-claimant LEAK % (0 = full suppression = v1). Gated by the rack.
+        let claimMask = doc.claimMaskResolved & rackMask
         let claimLeak = doc.claimLeakResolved.map { UInt8($0) }
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
         // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
@@ -155,10 +161,11 @@ enum SnapshotBuilder {
                            busEnabledMask: busEnabledMask,
                            claimMask: claimMask,
                            claimLeak: claimLeak,
-                           flattenMask: doc.flattenMask ?? 0,
+                           flattenMask: (doc.flattenMask ?? 0) & rackMask,
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
-                           altMask: doc.altMask ?? 0,
+                           altMask: (doc.altMask ?? 0) & rackMask,
                            altCount: doc.altCountResolved.map { UInt8($0) },
+                           rackMask: rackMask,
                            masterKey: Int8(scene.masterKeyResolved),
                            masterMute: doc.masterMute ?? false,
                            thruReceiver: Int8(doc.thruReceiverResolved),

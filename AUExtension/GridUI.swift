@@ -193,6 +193,10 @@ struct GridView: View {
     var strokeActive: Bool = false                   // a verb is held → drags stroke instead of doing nothing
     var onStroke: ((Int, Int) -> Void)? = nil        // called once per newly-entered cell during a stroke
     var onStrokeEnd: (() -> Void)? = nil             // drag ended → commit the swathe (close its one undo)
+    // THE RACK (design-the-rack): when set, this view REPLACES the 8×8 cell body while the chevron column-key row
+    // stays as the VStack's first row (the user's "keep the chevron row + selectors, draw the panel inside"). The
+    // L/R row rails live OUTSIDE GridView (in gridBlock), so they stay put too. nil ⇒ the normal cell grid.
+    var cellAreaOverride: AnyView? = nil
 
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var strokeVisited: Set<GridPos> = []   // cells already painted THIS stroke (fire once each)
@@ -239,13 +243,17 @@ struct GridView: View {
     var body: some View {
         VStack(spacing: Self.vGap) {
             columnKeys                                   // v57 prominent column keys + sweeping arrow
-            ForEach(0..<8, id: \.self) { row in
-                HStack(spacing: Self.vGap) {
-                    ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
+            if let override = cellAreaOverride {         // THE RACK: the panel takes the cell area; column keys stay above
+                override
+            } else {
+                ForEach(0..<8, id: \.self) { row in
+                    HStack(spacing: Self.vGap) {
+                        ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
+                    }
                 }
             }
         }
-        .overlay { mutationLines }                       // per-cell falling lines in the active column
+        .overlay { if cellAreaOverride == nil { mutationLines } }   // per-cell falling lines in the active column (grid only)
         .coordinateSpace(name: "grid")                   // §5 drag-and-drop: maps a drag location → a cell
         .simultaneousGesture(strokeGesture)              // STROKES: drag-paint while a verb is held
         .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
@@ -965,25 +973,18 @@ struct OutputsView: View {
     var marks: [[VelMark]] = [[], [], [], []]                             // item 4: floating output velocity marks (Colour-tinted)
     var sounding: [[SoundMark]] = [[], [], [], []]                        // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
     var releaseMarks: [[VelMark]] = [[], [], [], []]                      // §strips-done: notes just released — fading marks (~250ms), cargo-tinted
-    var claimMask: UInt8 = 0                                               // §6a CLAIM v2: the multi-claim mask (bits A–D)
-    var claimLeak: [Int] = [0, 0, 0, 0]                                    // §6a CLAIM v2: per-claimant LEAK % (0…100)
     var holdLatch: Bool = false                                            // §5c: fader release latches (keeps the value)
     let onToggle: (Int) -> Void           // toggle pad → enable/disable emitter i
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // PERFORM fader → force vel (1–127); nil = release
-    var onClaim: (Int) -> Void = { _ in }                  // PERFORM CLAIM → toggle emitter i in/out of the claim set
-    var onClaimLeak: (Int, Int) -> Void = { _, _ in }      // PERFORM CLAIM drag → set emitter i's LEAK % (0…100)
     var soloMask: UInt8 = 0                                 // foot SOLO — additive set (reuses soloEmitterMask)
     var onToggleSolo: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                       // E-2: ephemeral output ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }            // (emitter, ±1)
-    var flattenMask: UInt8 = 0                             // role family: FLATTEN (activity ducking) set
-    var flattenAmount: [Int] = [0, 0, 0, 0]
-    var onToggleFlatten: (Int) -> Void = { _ in }
-    var onFlattenAmount: (Int, Int) -> Void = { _, _ in }
-    var altMask: UInt8 = 0                                 // role family: ALT (turn-taking) group
-    var altCount: [Int] = [1, 1, 1, 1]
-    var onToggleAlt: (Int) -> Void = { _ in }
-    var onAltCount: (Int, Int) -> Void = { _, _ in }
+    // THE RACK (design-the-rack §1): the strip is CLEAN — OCT±·velocity·LIVE·SOLO·RACK. The RACK button (tap =
+    // toggle the board in/out of the signal path; long-press = open the matrix) supersedes the CLAIM/DUCK/ALT role
+    // buttons, which move into the matrix overlay. `rackMask` bit i set ⇒ emitter i's rack is in path (lit).
+    var rackMask: UInt8 = 0b1111
+    var onToggleRack: (Int) -> Void = { _ in }             // strip RACK tap → toggle emitter i's rack in/out of path
     // §10 STRIP SESSION FACE — while a verb is held the emitter strip becomes a ROUTE OUT toggle, large and
     // geographic (content dims beneath, green glow; lit = this emitter carries the focus cell). Tap toggles.
     var wiring: Bool = false
@@ -994,8 +995,7 @@ struct OutputsView: View {
 
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
-    @State private var roleDragBase: [Int?] = [nil, nil, nil, nil]   // role-button param value captured at drag start
-    @State private var roleLongFired = false                          // a role long-press opened the page → the drag's tap must not also toggle
+    @State private var rackLongFired = false                          // a RACK long-press opened the matrix → the release must not also toggle
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let letters = ["A", "B", "C", "D"]             // emitters A–D (box title MIDI OUTPUT disambiguates from inputs)
@@ -1029,7 +1029,7 @@ struct OutputsView: View {
             header(i, muted: muted)
             HStack(alignment: .top, spacing: 3) {
                 fader(i).frame(width: 16).frame(maxHeight: .infinity)
-                roleColumn(i)                               // single-face forever: channel config moved to the cog page
+                rackColumn(i)                               // THE RACK: RACK button + OCT± (roles moved into the matrix)
             }
             .frame(minHeight: controlHeight, maxHeight: .infinity)   // SPACE-FILL: fader region spends the band's height
             HStack(spacing: 3) {                             // foot: MUTE (the enable gate) · SOLO
@@ -1078,25 +1078,13 @@ struct OutputsView: View {
         .onLongPressGesture(minimumDuration: 0.5) { onOpenPage(i, "top") }   // EMITTER PAGE at the top
     }
 
-    // PERFORM role column — the emitter's playable roles in the roleButton grammar (tap = toggle · vertical
-    // drag = the one param): CLAIM (leak %) · DUCK (the FLAT rename — activity ducking amount) · ALT (count),
-    // over the OCT−/OCT+ nudges. Code identifiers stay flatten* (the no-rename rule).
-    private func roleColumn(_ i: Int) -> some View {
+    // THE RACK (design-the-rack §1) — the strip's clean control column: one RACK button over the OCT−/OCT+
+    // nudges. RACK = the loop switcher: TAP toggles this emitter's whole pedalboard in/out of the signal path;
+    // LONG-PRESS opens the matrix (SETUP). The CLAIM/DUCK/ALT role buttons moved into the matrix.
+    private func rackColumn(_ i: Int) -> some View {
         let oct = i < octave.count ? octave[i] : 0
-        let claimOn = claimMask & (1 << UInt8(i)) != 0
-        let leak = i < claimLeak.count ? claimLeak[i] : 0
-        let flatOn = flattenMask & (1 << UInt8(i)) != 0
-        let flatAmt = i < flattenAmount.count ? flattenAmount[i] : 0
-        let altOn = altMask & (1 << UInt8(i)) != 0
-        let altN = i < altCount.count ? altCount[i] : 1
         return VStack(spacing: 2) {
-            // CLAIM: tap toggles membership; drag sets LEAK % (0 = hard suppression, shown as plain "CLAIM").
-            roleButton(i, label: "CLAIM", section: "claim", on: claimOn, value: leak, maxValue: 100,
-                       onToggle: { onClaim(i) }, onDrag: { onClaimLeak(i, $0) })
-            roleButton(i, label: "DUCK", section: "duck", on: flatOn, value: flatAmt, maxValue: 100,   // "DUCK" = the ruled rename of FLAT (label only; code stays flatten*)
-                       onToggle: { onToggleFlatten(i) }, onDrag: { onFlattenAmount(i, $0) })
-            roleButton(i, label: "ALT", section: "alt", on: altOn, value: altN > 1 ? altN : 0, maxValue: 8,
-                       onToggle: { onToggleAlt(i) }, onDrag: { onAltCount(i, max(1, $0)) })
+            rackButton(i)
             HStack(spacing: 2) {
                 octBtn("OCT−") { onOct(i, -1) }
                 octBtn("OCT+") { onOct(i, +1) }
@@ -1108,31 +1096,22 @@ struct OutputsView: View {
         }.frame(maxWidth: .infinity)
     }
 
-    // A ROLE BUTTON — the shared grammar for the role family: TAP toggles `on`; a VERTICAL DRAG sets its one
-    // parameter (relative to the value at drag start; up = more). Shows "LABEL n" when on and the value ≠ 0.
-    private func roleButton(_ i: Int, label: String, section: String, on: Bool, value: Int, maxValue: Int,
-                            onToggle: @escaping () -> Void, onDrag: @escaping (Int) -> Void) -> some View {
-        Text(on && value != 0 ? "\(label) \(value)" : label)
-            .font(.system(size: 8, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.65))
-            .frame(maxWidth: .infinity).frame(height: 24)   // taller, more inviting emitter buttons (user 2026-07-28)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber.opacity(0.82) : Color.white.opacity(0.08)))   // ④ chrome quiet: role lights drop a step
+    // THE RACK button — lit (cyan) = the board is in the signal path; unlit (outlined) = raw wire. TAP toggles;
+    // LONG-PRESS opens the matrix. `rackLongFired` stops the long-press release from also toggling.
+    private func rackButton(_ i: Int) -> some View {
+        let inPath = rackMask & (1 << UInt8(i)) != 0
+        return Text("RACK")
+            .font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(inPath ? .black : cyan.opacity(0.85))
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 3).fill(inPath ? cyan.opacity(0.85) : Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(inPath ? .clear : cyan.opacity(0.5), lineWidth: 1.2))
             .contentShape(Rectangle())
-            // LONG-PRESS → the EMITTER PAGE at this role's section (a held finger that doesn't drag). The flag stops
-            // the drag's release from ALSO toggling. A drag past ~10px cancels the long-press (SwiftUI), so drag-to-set is unaffected.
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in roleLongFired = true; onOpenPage(i, section) })
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in
-                    if roleDragBase[i] == nil { roleDragBase[i] = value }
-                    if abs(v.translation.height) > 4 {
-                        onDrag(max(0, min(maxValue, (roleDragBase[i] ?? value) + Int(-v.translation.height / 2))))
-                    }
-                }
-                .onEnded { v in
-                    roleDragBase[i] = nil
-                    if roleLongFired { roleLongFired = false; return }   // the page opened on long-press → don't toggle
-                    if abs(v.translation.height) <= 4 { onToggle() }     // a tap (no drag) toggles
-                })
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in rackLongFired = true; onOpenPage(i, "top") })
+            .onTapGesture {
+                if rackLongFired { rackLongFired = false; return }   // the matrix opened on long-press → don't toggle
+                onToggleRack(i)
+            }
     }
     private func octBtn(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))

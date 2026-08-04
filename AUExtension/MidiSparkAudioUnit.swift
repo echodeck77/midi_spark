@@ -248,6 +248,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// THE RACK (design-the-rack §3): the four per-emitter "board in the signal path" gates (nil/old docs ⇒ all
+    /// ON), and the toggle (persisted, undoable). Lit ⇒ the emitter's armed treatments apply; off ⇒ raw wire (the
+    /// builder pre-ANDs this into claim/duck/alt). Distinct from LIVE (which silences the output entirely).
+    func uiRackMask() -> UInt8 { document.rackEnabledResolved }
+    func setRack(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.rackEnabledResolved
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.rackEnabledMask = m
+        }
+    }
+
     /// delta §6a CLAIM v2: MULTI-claim (persisted). `setClaim` toggles emitter `bus` in/out of the claim set
     /// (buttons are no longer a radio — several light); `setClaimLeak` sets its 0…100 % bleed. The legacy
     /// single `claimEmitter` field is kept in sync (lowest claimed bus) so an OLDER build downgrades cleanly.

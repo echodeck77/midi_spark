@@ -76,8 +76,7 @@ struct DiagView: View {
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
-    @State var emitterPageFor: Int? = nil       // EMITTER PAGE (long-press a role/header): the pointed emitter (nil = closed); replaces the grid
-    @State var emitterPageSection = "top"        // scroll target on open ("top"/"voice"/"claim"/"duck"/"alt")
+    @State var rackMatrixOpen = false            // THE RACK: the treatment matrix overlay is open (drawn INSIDE the grid's cell area; chevron row + rails stay)
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -140,6 +139,7 @@ struct DiagView: View {
     @State var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
     @State var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
+    @State var rackMask: UInt8 = 0b1111                     // THE RACK: per-emitter "board in the signal path" gate (persisted; nil-doc ⇒ all in path)
     @State var masterMute = false                           // master panel: global emission kill (persisted)
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
     @State var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
@@ -581,6 +581,7 @@ struct DiagView: View {
         flattenAmount = au.uiFlattenAmount()
         altMask = au.uiAltMask()
         altCount = au.uiAltCount()
+        rackMask = au.uiRackMask()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
         sceneEmpty = au.uiScenes().map { $0.isEmpty }   // MULTI-SCENE strip occupancy + active
@@ -692,6 +693,12 @@ struct DiagView: View {
         au?.setFlattenAmount(i, amount)
         flattenAmount = au?.uiFlattenAmount() ?? flattenAmount
     }
+    // THE RACK — the strip RACK button toggles emitter i's whole board in/out of the signal path (persisted, undoable).
+    func toggleRack(_ i: Int) {
+        let inPath = rackMask & (1 << UInt8(i)) != 0
+        au?.setRack(i, !inPath)
+        rackMask = au?.uiRackMask() ?? rackMask
+    }
     // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
     func toggleAlt(_ i: Int) {
         let on = altMask & (1 << UInt8(i)) != 0
@@ -751,7 +758,7 @@ struct DiagView: View {
                         signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)   // RECEIVERS → GRID → EMITTERS
                     }
                     .padding(12)
-                    .onChange(of: activeSceneIdx) { _ in emitterPageFor = nil }   // EMITTER PAGE: a scene switch closes it
+                    .onChange(of: activeSceneIdx) { _ in rackMatrixOpen = false }   // THE RACK: a scene switch closes the matrix
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
@@ -838,6 +845,7 @@ struct DiagView: View {
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
+            let rk = au.uiRackMask();      if rk != rackMask { rackMask = rk }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
             let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi; editArmed = false }   // §cell-edit A6: a scene switch auto-closes EDIT
@@ -972,11 +980,8 @@ struct DiagView: View {
                     receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: recvBandH)                    // FIXED input-controls height
-                if let em = emitterPageFor {                  // EMITTER PAGE: the grid yields; the strips + master stay live around it
-                    emitterPageView(em).frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    gridBlock(cell, half)
-                }                         // `half` = the emitter section width (for the edit page's output block)
+                gridBlock(cell, half)                         // THE RACK draws INSIDE this (cellAreaOverride) — chevron row + rails stay; `half` = emitter width
+
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity)
                     emittersBox.frame(width: half).background(routeProbe("emitters"))     // §10 strips wear ROUTE OUT faces
@@ -991,7 +996,7 @@ struct DiagView: View {
     }
 
     @ViewBuilder func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
-        if flowVariation > 0 {
+        if flowVariation > 0 && !rackMatrixOpen {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
@@ -1015,7 +1020,8 @@ struct DiagView: View {
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
-                     strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
+                     strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke,
+                     cellAreaOverride: rackMatrixOpen ? AnyView(rackMatrixView) : nil)   // THE RACK: the matrix takes the cell area; chevron row + rails stay
                 .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
             rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
         }
@@ -1160,38 +1166,32 @@ struct DiagView: View {
                    onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
-    // EMITTER PAGE (pass 1) — the full-size band desk, rendered in the grid's slot. Reuses the strips' own callbacks
-    // (live + undoable). Tabs switch the pointed emitter; DONE / EDIT toggle / scene switch close it.
-    @ViewBuilder func emitterPageView(_ e: Int) -> some View {
-        EmitterPage(emitter: e, section: emitterPageSection,
-                    busChannels: busChannels, busEnabled: busEnabled,
-                    claimMask: claimMask, claimLeak: claimLeak,
-                    flattenMask: flattenMask, flattenAmount: flattenAmount,
-                    altMask: altMask, altCount: altCount, octave: emitterOctave,
-                    onTab: { emitterPageFor = $0 },
-                    onClaim: setClaim, onClaimLeak: setClaimLeak,
-                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
-                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
-                    onOct: nudgeEmitterOctave,
-                    onClose: { emitterPageFor = nil })
+    // THE RACK (pass 1) — the treatment matrix, drawn INSIDE the grid's cell area (chevron row + rails stay).
+    // Reuses the strips' own callbacks (live + undoable). DONE / EDIT toggle / scene switch close it.
+    var rackMatrixView: some View {
+        RackMatrix(busChannels: busChannels, busEnabled: busEnabled, rackMask: rackMask,
+                   claimMask: claimMask, claimLeak: claimLeak,
+                   flattenMask: flattenMask, flattenAmount: flattenAmount,
+                   altMask: altMask, altCount: altCount, emitPeak: emitPeak,
+                   onClaim: setClaim, onClaimLeak: setClaimLeak,
+                   onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
+                   onToggleAlt: toggleAlt, onAltCount: setAltCnt,
+                   onClose: { rackMatrixOpen = false })
     }
 
     var emittersBox: some View {
         OutputsView(busEnabled: busEnabled, busChannels: busChannels,
                     emitPeak: emitPeak, emitPeakAt: emitPeakAt, marks: emitMarks,
                     sounding: emitHeld, releaseMarks: emitRelease,
-                    claimMask: claimMask, claimLeak: claimLeak, holdLatch: holdLatch,
+                    holdLatch: holdLatch,
                     onToggle: toggleEmitter,
-                    onVelOverride: setVelOverride, onClaim: setClaim, onClaimLeak: setClaimLeak,
+                    onVelOverride: setVelOverride,
                     soloMask: emitterFootSolo, onToggleSolo: toggleEmitterSolo,
                     octave: emitterOctave, onOct: nudgeEmitterOctave,
-                    flattenMask: flattenMask, flattenAmount: flattenAmount,
-                    onToggleFlatten: toggleFlatten, onFlattenAmount: setFlatAmount,
-                    altMask: altMask, altCount: altCount,
-                    onToggleAlt: toggleAlt, onAltCount: setAltCnt,
+                    rackMask: rackMask, onToggleRack: toggleRack,           // THE RACK: strip tap toggles the board in/out of path
                     wiring: !routeFoci.isEmpty, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
                     onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) },
-                    onOpenPage: { em, sec in emitterPageSection = sec; emitterPageFor = em })   // EMITTER PAGE entry (long-press)
+                    onOpenPage: { _, _ in rackMatrixOpen = true })          // THE RACK: long-press opens the matrix (all emitters at once)
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
@@ -1258,7 +1258,7 @@ struct DiagView: View {
                        canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
                        onUndo: undo, onRedo: redo,
                        isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
-                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on; emitterPageFor = nil },   // EDIT closes the emitter page
+                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on; rackMatrixOpen = false },   // EDIT closes the rack matrix
                        showScenes: showScenes)                                  // scene row visibility (cog toggle)
     }
     // §3 PRESETS wiring

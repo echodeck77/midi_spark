@@ -157,6 +157,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE RACK — emitter treatment matrix, PASS 1 (2026-08-04, on `main`; 415 green, iOS builds; DEVICE pass owed).
+  Design ferry `DESIGN-the-rack.md` → spec of record `Docs/AcceptanceCriteria/AcceptanceCriteria-the-rack.md`.
+  SUPERSEDES the tabbed emitter page (`EmitterPage.swift` DELETED; `AcceptanceCriteria-emitter-page-pass1.md`
+  retired). The metaphor: each output has a RACK — matrix toggles ARM pedals; a strip button decides whether the
+  board is in the signal path (the TWO-TIER LAW). Pass-1 scope (user-confirmed): the full shell + the gate + the 3
+  engine-backed verbs' PRIMARY controls; the rest are dimmed 'coming' seats. What landed: (1) STRIP goes clean —
+  OCT±·velocity·LIVE·SOLO·**RACK** (`OutputsView.rackColumn`/`rackButton`; the CLAIM/DUCK/ALT `roleButton`s +
+  their inputs REMOVED). RACK tap = `toggleRack` (toggle board in/out of path); long-press = open the matrix.
+  (2) NEW `AUExtension/RackMatrix.swift` — a 4-column (emitters A–D) × treatment-rows matrix, grouped THIS VOICE /
+  OVER OTHERS / TOGETHER (design §5); OWNS/KEY/TURNS live (toggle + primary drag-chip → existing claim/duck/alt);
+  MONO·FENCE·CURVE·POCKET·LEAD-STANCE·ECHO·CHOKE·GOVERNOR dimmed; column-header tap → social-sentence readout;
+  detail strip follows the last-touched row (secondary params named-but-dimmed). (3) GEOMETRY — drawn INSIDE the
+  grid's cell area (user: 'keep the chevron row + column selectors, draw the panel inside'): new
+  `GridView.cellAreaOverride` swaps ONLY the 8×8 body, so the chevron column-key row + both `rowRail`s stay framing
+  it; the wholesale `emitterPageFor` branch in `signalColumn` is gone (`emitterPageFor`→`rackMatrixOpen`).
+  (4) ENGINE — the only new engine this pass = the two-tier gate: `PluginState.rackEnabledMask: UInt8?` (nil ⇒
+  0b1111, old-doc/clean safe) + `rackEnabledResolved`; `SnapshotBuilder` PRE-ANDs it into claim/flatten/alt before
+  the box (`SnapshotBox.rackMask` also carried for future self-affecting treatments); Router UNCHANGED; AU
+  `uiRackMask()`/`setRack()`. Tests: `RouterTests.testRackOffMakesClaimantARawWire`, `testRackOnKeepsClaimSuppression`,
+  `testRackGatePreAndsTreatmentMasksIntoTheBox`. Project regenerated via `xcodegen`. OPEN RULING (flagged, device):
+  RACK-off = FULL-column bypass (suspends the emitter's OWNS/KEY over others too, since those are its pedals) — the
+  alternative (gate only self-affecting) is a 1-line builder change. DEFERRED (later passes, un-dim a seat as each
+  lands): MONO·FENCE·CURVE·POCKET·CONVERSATION engines + all secondary detail params (claim scope/range/lag · duck
+  targeting/envelope/match-class · alt rotate|deal/ring/reset).**
 - **▶ FUZZ HARNESS + CHAOS MODE — both built (2026-08-04, on `main`; 412 green, iOS builds; Layer 2 device-run owed).
   Ferry-ratified pre-beta hardening. LAYER 1 `Tests/FuzzTests.swift` (5 tests, ~18s): seeded (`mulberry32`) random
   doc + a SPELL-driven pool (**held → short → silence**, per the user) + pathological orderings, driving
