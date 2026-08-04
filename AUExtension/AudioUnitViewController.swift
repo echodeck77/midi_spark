@@ -193,6 +193,7 @@ struct DiagView: View {
     @State private var chaosSeed: UInt32 = 0
     @State private var chaosOn = false
     @State private var chaosStatus = "OK"             // live oracle readout (should-output check)
+    @State private var chaosRecvMask: UInt8 = 0b0001  // which receivers chaos fuzzes (default R1 only)
     #endif
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
@@ -1356,6 +1357,14 @@ struct DiagView: View {
                     .font(.system(size: 9, weight: .heavy, design: .monospaced))
                     .foregroundColor(chaosStatus.hasPrefix("⚠") ? red : .white.opacity(0.6))
             } else {
+                ForEach(0..<4, id: \.self) { r in                                   // which receivers chaos fuzzes (default R1)
+                    let on = chaosRecvMask & (1 << UInt8(r)) != 0
+                    Text("R\(r + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.5))
+                        .frame(width: 26, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { chaosRecvMask ^= (1 << UInt8(r)) }
+                }
                 chaosBtn("▶ SIM MIDI", active: false) { startChaos(.simulated) }   // chaos plays its own spell-MIDI
                 chaosBtn("▶ LIVE MIDI", active: false) { startChaos(.live) }        // MIDI from the host; chaos fuzzes controls
             }
@@ -1375,6 +1384,7 @@ struct DiagView: View {
     private func startChaos(_ source: ChaosDriver.Source) {
         guard let au = au else { return }
         chaosSeed = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
+        chaos.receiverMask = chaosRecvMask == 0 ? 0b0001 : chaosRecvMask   // at least R1
         chaosStatus = "OK"; chaos.start(au: au, seed: chaosSeed, source: source); chaosOn = true
     }
     #endif

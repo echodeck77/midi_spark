@@ -22,6 +22,7 @@ final class ChaosDriver {
     private(set) var running = false
     private(set) var eventCount = 0
     private(set) var source: Source = .live
+    var receiverMask: UInt8 = 0b0001        // which receivers chaos fuzzes + revives (bit i = receiver i; default R1 only)
     var speed: Double = 1.0                 // chaos-speed multiplier (overnight-soak vs quick shake)
     private var lines: [String] = []
     private var dumpURL: URL?
@@ -78,7 +79,7 @@ final class ChaosDriver {
         }
         checkOracle()
         if source == .simulated, rng.chance(0.45) { midiTick(au); eventCount += 1; return }   // some fires PLAY (spell MIDI)
-        let i = rng.int(4), pct = rng.int(101), on = rng.chance(0.5)
+        let i = rng.int(4), pct = rng.int(101), on = rng.chance(0.5), ri = pickReceiver()   // ri = an INCLUDED receiver
         switch rng.int(24) {
         case 0:  au.setClaim(i)
         case 1:  au.setClaimLeak(i, pct)
@@ -86,15 +87,15 @@ final class ChaosDriver {
         case 3:  au.setFlattenAmount(i, pct)
         case 4:  au.setAlt(i, on)
         case 5:  au.setAltCount(i, rng.range(1, 8))
-        case 6:  au.toggleReceiverMute(i)
-        case 7:  au.toggleReceiverEnabled(i)
-        case 8:  au.toggleReceiverBypass(i)
-        case 9:  au.setReceiverChannel(i, rng.int(17))
-        case 10: let lo = rng.int(128); au.setReceiverRange(i, lo: lo, hi: rng.range(lo, 127))
-        case 11: au.setReceiverLatchAdd(i, on)
-        case 12: au.setLatchArm(UInt8(rng.int(16)))                 // LATCH toggles while notes are held
-        case 13: au.setInputVelOverride(i, on ? rng.range(1, 127) : nil)
-        case 14: au.setInputOctave(i, rng.range(-2, 2))
+        case 6:  au.toggleReceiverMute(ri)
+        case 7:  au.toggleReceiverEnabled(ri)
+        case 8:  au.toggleReceiverBypass(ri)
+        case 9:  au.setReceiverChannel(ri, rng.int(17))
+        case 10: let lo = rng.int(128); au.setReceiverRange(ri, lo: lo, hi: rng.range(lo, 127))
+        case 11: au.setReceiverLatchAdd(ri, on)
+        case 12: au.setLatchArm(UInt8(rng.int(16)) & receiverMask)  // LATCH toggles, only on included receivers
+        case 13: au.setInputVelOverride(ri, on ? rng.range(1, 127) : nil)
+        case 14: au.setInputOctave(ri, rng.range(-2, 2))
         case 15: au.setEmitterOctave(i, rng.range(-2, 2))
         case 16: au.setBusEnabled(i, on)
         case 17: au.nudgeMasterKey(rng.chance(0.5) ? 1 : -1)         // KEY± during held chords
@@ -114,12 +115,20 @@ final class ChaosDriver {
     private func revive(_ au: MidiSparkAudioUnit) {
         au.setMasterMute(false); au.setMasterKill(false); au.setMasterVelOverride(nil); au.setLadderMode(false)
         for i in 0..<4 { au.setBusEnabled(i, true); au.setEmitterVelKill(i, false) }
-        for (i, r) in au.uiReceivers().enumerated() where i < 4 {
+        // only the INCLUDED receivers are reset — non-tested receivers keep the user's preset config.
+        let recs = au.uiReceivers()
+        for i in 0..<4 where receiverMask & (1 << UInt8(i)) != 0 && i < recs.count {
+            let r = recs[i]
             if r.muted { au.toggleReceiverMute(i) }
             if !r.inputEnabledResolved { au.toggleReceiverEnabled(i) }
             if r.bypassResolved { au.toggleReceiverBypass(i) }
             au.setReceiverChannel(i, 0); au.setReceiverRange(i, lo: 0, hi: 127)
         }
+    }
+    // A random INCLUDED receiver (default R1); falls back to 0 if the mask is somehow empty.
+    private func pickReceiver() -> Int {
+        let included = (0..<4).filter { receiverMask & (1 << UInt8($0)) != 0 }
+        return included.isEmpty ? 0 : included[rng.int(included.count)]
     }
 
     // SIMULATED MIDI — ALWAYS PLAYING, all notes in G MINOR: alternate a sustained Gm7 CHORD with a BURST of random
