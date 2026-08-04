@@ -33,6 +33,13 @@ struct SnapCell {
     var dormant = false        // LADDER: a non-active rung while LADDER mode is on — silent (skipped at the emit
                                // guards, like `muted`) but present/visible; resolved in the builder so the render
                                // thread stays LADDER-unaware. Default false → identical to pre-LADDER behaviour.
+    // CELL TURNS (design-the-rack follow-up, user 2026-08-04): the cell-level turn-taking that replaces the
+    // emitter fan-out ALT. Cells sharing a `Cell.turnsGroup` rotate — one member sounds per lap. Resolved here so
+    // the render stays group-unaware: `turnsGroupSize` = the group's member count (0/1 = not grouped/lone → always
+    // sounds); `turnsOrder` = this cell's 0-based position in the group (sorted by grid index). The emit guards
+    // skip the cell iff `turnsGroupSize > 1 && pass % turnsGroupSize != turnsOrder` (pure function of diag.pass).
+    var turnsGroupSize: Int8 = 0
+    var turnsOrder: Int8 = 0
     var busMask: UInt8 = 0     // bits 0–3 = A–D (§2.3: the only exits)
     var runStartColumn: Int8 = -1   // LEGATO precompute (§7 v2.4) — UI-thread work, render just reads
     // v3.0 graph routing (delta §1, precomputed here so render never scans):

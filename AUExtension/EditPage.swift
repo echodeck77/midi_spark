@@ -97,6 +97,7 @@ extension DiagView {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
                         sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
+                        sectionHeader("TAKES TURNS");    turnsGroupRow(cell)   // CELL TURNS: group cells to rotate (one sounds per lap)
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
                         chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
                         chainStack(cell, boxWidth: min(540, size.width - 48))
@@ -380,6 +381,40 @@ extension DiagView {
     func setCellColour(_ id: String) {   // applies to the whole selection set
         au?.editCells(editSelTargets) { $0.colourID = id }
         brush = id; refreshFromDocument()
+    }
+    // CELL TURNS (design-the-rack follow-up, user 2026-08-04) — assign the selected cell(s) to a turns-GROUP.
+    // Cells sharing a group take turns: one member sounds per lap, the rest go dormant that pass. GROUP NONE (0) =
+    // ungrouped (always sounds). Applies to the whole selection via editPointedCell. Replaces the emitter ALT.
+    @ViewBuilder func turnsGroupRow(_ cell: Cell) -> some View {
+        let g = cell.turnsGroupResolved
+        let n = turnsGroupCount(g)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("GROUP").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                turnsBtn("−") { setTurnsGroup(max(0, g - 1)) }
+                Text(g == 0 ? "NONE" : "\(g)").font(.system(size: 16, weight: .heavy, design: .monospaced))
+                    .foregroundColor(g == 0 ? .white.opacity(0.5) : Self.editHue).frame(minWidth: 54)
+                turnsBtn("+") { setTurnsGroup(min(8, g + 1)) }
+                Spacer(minLength: 0)
+            }
+            Text(g == 0 ? "No group — this cell always sounds. Put two cells in the same group to make them take turns."
+                        : "Group \(g): \(n) cell\(n == 1 ? "" : "s") take turns — one sounds per lap, then the turn passes.")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.42))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func turnsBtn(_ t: String, _ tap: @escaping () -> Void) -> some View {
+        Text(t).font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+            .frame(width: 40, height: 40).background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    func setTurnsGroup(_ g: Int) {
+        editPointedCell { $0.turnsGroup = g == 0 ? nil : g }
+    }
+    /// How many cells currently belong to turns-group `g` (across the whole scene). 0 for the NONE group.
+    func turnsGroupCount(_ g: Int) -> Int {
+        guard g > 0 else { return 0 }
+        return scene.cells.reduce(0) { acc, col in acc + col.reduce(0) { $0 + (($1?.turnsGroupResolved == g) ? 1 : 0) } }
     }
     // D — INPUT section: source · shift (the chord-split + velocity-window "splits" were removed — a future processor).
     @ViewBuilder func inputSection(_ cell: Cell) -> some View {

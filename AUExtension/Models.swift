@@ -247,6 +247,11 @@ struct Cell: Codable, Equatable {
     var alt: Bool = false
     var bypassed: Bool = false
     var muted: Bool = false
+    // CELL TURNS (design-the-rack follow-up, user 2026-08-04): cells sharing a turns-group rotate — one member
+    // sounds per lap, the rest go dormant that pass. nil/0 = ungrouped (always sounds). Additive Optional → old
+    // docs decode nil. Replaces the emitter fan-out ALT for the "two independent cells take turns" intent.
+    var turnsGroup: Int? = nil
+    var turnsGroupResolved: Int { turnsGroup ?? 0 }
     // v3.0 (delta §1/§2): the cell's single input reference. nil = MIDI IN; else the referenced row
     // in the same column (any row; cycles legal-and-silent). Optional → old docs (no key) decode as
     // nil and are filled by migrateLegacyRoutingIfNeeded(); the render path uses SnapCell's Int

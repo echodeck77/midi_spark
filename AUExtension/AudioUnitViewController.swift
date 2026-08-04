@@ -1171,11 +1171,9 @@ struct DiagView: View {
     var rackMatrixView: some View {
         RackMatrix(busChannels: busChannels, busEnabled: busEnabled, rackMask: rackMask,
                    claimMask: claimMask, claimLeak: claimLeak,
-                   flattenMask: flattenMask, flattenAmount: flattenAmount,
-                   altMask: altMask, altCount: altCount, emitPeak: emitPeak,
+                   flattenMask: flattenMask, flattenAmount: flattenAmount, emitPeak: emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
-                   onToggleAlt: toggleAlt, onAltCount: setAltCnt,
                    onClose: { rackMatrixOpen = false })
     }
 

@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CELL TURNS — turn-taking moved from the emitter to the CELL (2026-08-04, on `main`; 419 green, iOS builds;
+  DEVICE pass owed). User found the rack's emitter TURNS couldn't make two INDEPENDENT cells take turns (the ALT
+  engine only splits ONE cell's fan-out across outputs — Router:695). Ruling: turn-taking is a CELL feature. NEW
+  `Cell.turnsGroup: Int?` (nil/0 = ungrouped, 1…8 = group; additive Optional). Cells sharing a group ROTATE — one
+  member sounds per lap, the rest dormant that pass; active = `pass % groupSize`, member order = grid index (pure
+  fn of `diag.pass`, invariant 2). Resolved in `SnapshotBuilder` → `SnapCell.turnsGroupSize`/`turnsOrder`; Router
+  skips via `turnsSilent(cell, pass:)` at BOTH emit guards (beside `dormant`/`muted`) — render stays group-unaware,
+  reuses the LADDER dormant machinery. UI: EDIT ▸ **TAKES TURNS** ▸ GROUP stepper (NONE/1…8) on the selection
+  (`EditPage.turnsGroupRow`/`setTurnsGroup`). The emitter TURNS row is REMOVED from `RackMatrix` (a "now on the
+  cell" note replaces it; `altMask`/`altCount` engine stays decode-only, unsurfaced). Grouping = EXPLICIT (user
+  pick, vs same-column/same-emitter). Tests: `testCellTurnsAlternatesByPass` (pass 0→member0, pass 1→member1) +
+  ungrouped-double control + builder order/size + across-laps-no-stuck. OWNS/KEY confirmed ALREADY cross-cell (they
+  read the live voice table, Router:760/795). DEFERRED: per-member COUNT (hold N laps); faster-than-lap cadence;
+  perform-grid turns affordance. ⚠ Moves TURNS off the design ferry's rack placement — flagged to design.**
 - **▶ THE RACK — emitter treatment matrix, PASS 1 (2026-08-04, on `main`; 415 green, iOS builds; DEVICE pass owed).
   Design ferry `DESIGN-the-rack.md` → spec of record `Docs/AcceptanceCriteria/AcceptanceCriteria-the-rack.md`.
   SUPERSEDES the tabbed emitter page (`EmitterPage.swift` DELETED; `AcceptanceCriteria-emitter-page-pass1.md`

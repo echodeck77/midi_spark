@@ -55,8 +55,16 @@ open the matrix (SETUP)**. Fallback if the tap/long-press combo tests poorly on 
 ## §5 — THE THREE FAMILIES (matrix row grouping)
 - **THIS VOICE** (shapes the emitter's OWN notes): MONO · FENCE · CURVE · POCKET. *(all dimmed, pass 1)*
 - **OVER OTHERS** (this emitter changes what OTHERS may do): **OWNS** (claim) · **KEY** (duck). *(LIVE)*
-- **TOGETHER** (mutual arrangements): **TURNS** (alt) · LEAD/STANCE (conversation). *(TURNS live; LEAD dimmed)*
-A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — never "is affected by it."
+- **TOGETHER** (mutual arrangements): ~~TURNS (alt)~~ **MOVED TO THE CELL** · LEAD/STANCE (conversation, dimmed).
+A lit toggle always means "THIS COLUMN does the verb" — owns, keys — never "is affected by it."
+
+**CELL TURNS (user 2026-08-04 — supersedes the emitter TURNS).** The emitter fan-out ALT couldn't make two
+INDEPENDENT cells take turns (it only splits one cell's fan-out across outputs). Per the user, turn-taking moved to
+the CELL: cells sharing a `Cell.turnsGroup` rotate — one member sounds per lap, the rest go dormant that pass
+(pure function of `diag.pass`; reuses the LADDER `dormant` skip). Assigned in EDIT ▸ TAKES TURNS ▸ GROUP. The rack's
+TURNS row is removed (a "now on the cell" note sits in its place). OWNS and KEY stayed emitter-level — they are
+ALREADY cross-cell (they read the live voice table, so they act on any cell's output). See the CELL TURNS section
+below.
 
 ## §6 — THE TREATMENTS (toggle · chip · detail · readout). PASS-1 engine status in brackets.
 - **OWNS (claim)** — owns its sounding pitch classes; others withheld or admitted as shadows per LEAK. Toggle OWNS ·
@@ -65,9 +73,8 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
 - **KEY (duck)** — while this emitter sounds, others' NEW notes arrive velocity-scaled down (admission-time; 100% =
   gate). Toggle KEY · chip **AMOUNT %** · detail DUCKS→B·C·D targets · ATTACK · RELEASE · MATCH-CLASS · readout
   "KEY: ducks B·C by 40%". **[LIVE: toggle+AMOUNT backed by flattenMask/flattenAmount; detail = coming.]**
-- **TURNS (alt)** — lit emitters form a ring; each COUNT-per-turn note goes to the current holder then advances.
-  Toggle TURNS · chip **COUNT** · detail ROTATE | DEAL · RING (1|2) · RESET-at-pass · readout "TURNS (count 2)".
-  **[LIVE: toggle+COUNT backed by altMask/altCount; detail = coming.]**
+- **TURNS** — **MOVED TO THE CELL** (see CELL TURNS below). The emitter-level ALT engine (`altMask`/`altCount`)
+  stays in the model decode-only; it is no longer surfaced anywhere.
 - **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
 - **FENCE** — out-of-range notes DROP|CLAMP|FOLD; lo/hi. **[NO ENGINE — dimmed seat.]**
 - **CURVE** — per-output velocity re-map (soft↔hard, bipolar); floor/ceiling. **[NO ENGINE — dimmed seat.]**
@@ -75,7 +82,26 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
 - **LEAD / STANCE (conversation)** — one LEAD (radio); others FREE|WITH|AGAINST. **[NO ENGINE — dimmed seat.]**
 - **Dimmed future seats**: ECHO · CHOKE · GOVERNOR — labels reserved so the matrix never reflows.
 
+## CELL TURNS — turn-taking as a CELL feature (user 2026-08-04; built off-device: 419 macOS tests green, iOS builds)
+The "two independent cells take turns" intent, which the emitter fan-out ALT could not express.
+- **Model**: `Cell.turnsGroup: Int?` (nil/0 = ungrouped, else a group id 1…8). Additive Optional → old docs decode nil.
+- **Semantics**: cells sharing a group ROTATE — on each lap exactly one member sounds, the rest go dormant that pass.
+  The active member = `pass % groupSize` (member order = grid index; pure function of `diag.pass`, no accumulated
+  state — invariant 2). A lone/ungrouped cell (size ≤ 1) always sounds. One firing per turn this pass (a per-member
+  COUNT is a fast follow-up).
+- **Render**: resolved in `SnapshotBuilder` into `SnapCell.turnsGroupSize`/`turnsOrder`; the Router skips a cell via
+  `turnsSilent(cell, pass:)` at both emit guards (alongside `dormant`/`muted`) — the render stays group-unaware.
+- **UI**: EDIT ▸ **TAKES TURNS** ▸ GROUP stepper (NONE / 1…8), applied to the whole selection; a hint shows how many
+  cells share the group.
+- **Grouping choice** (user): EXPLICIT — any cells anywhere bind into a numbered group (vs. same-column/same-emitter).
+- **Tests**: `RouterTests.testCellTurnsAlternatesByPass` (pass 0 → member 0 sounds, pass 1 → member 1),
+  `testUngroupedCellsBothSoundEveryPass` (control), `testCellTurnsBuilderAssignsOrderAndSize`,
+  `testCellTurnsBothMembersSoundAcrossLapsNoStuck`.
+- **Deferred**: a per-member COUNT (hold N laps/firings before passing); faster-than-lap cadence (per column-entry
+  when looping a column); a visual "turns-group" affordance on the perform grid.
+- **⚠ Design note**: this moves TURNS off the emitter matrix, revising the design ferry's placement — flagged to the
+  design side.
+
 ## OUT OF SCOPE (later passes — un-dim a seat as each lands)
 MONO · FENCE · CURVE · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag,
-duck targeting/attack/release/match-class, alt rotate|deal/ring/reset). Each = new model + box + builder + Router +
-AU setter + tests.
+duck targeting/attack/release/match-class). Each = new model + box + builder + Router + AU setter + tests.

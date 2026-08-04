@@ -913,6 +913,69 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ungated.rackMask, 0b1111, "resolver defaults to all-on")
     }
 
+    // MARK: - CELL TURNS (design-the-rack follow-up) — two grouped cells take turns, one per lap
+
+    /// A single render window at `beat` with a FRESH router → which buses sound when column 0 is entered on that
+    /// pass. beat 0 = pass 0, beat 16 = pass 1 (default S=2 → cycle = 16 beats).
+    private func turnsWindow(_ box: SnapshotBox, _ pool: NotePool, atBeat beat: Double) -> RecordingEmitter {
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120,
+                       sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        return e
+    }
+    /// Two passgate (sustaining) cells in column 0: gold → A, cyan → B, both in the given turns-group (nil = none).
+    private func turnsBox(group: Int?) -> SnapshotBox {
+        var s = SceneState.empty()
+        var a = Cell(colourID: "gold", buses: [.a]); a.turnsGroup = group; s.cells[0][0] = a
+        var b = Cell(colourID: "cyan", buses: [.b]); b.turnsGroup = group; s.cells[0][1] = b
+        return SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+    }
+
+    func testCellTurnsAlternatesByPass() {
+        // gold (order 0 → A) and cyan (order 1 → B) share group 1. Pass 0 → only A sounds; pass 1 → only B.
+        let b = turnsBox(group: 1)
+        let p0 = turnsWindow(b, chord([60]), atBeat: 0)
+        XCTAssertGreaterThan(p0.ons.filter { $0.cable == 1 }.count, 0, "pass 0: member 0 (A) takes the turn")
+        XCTAssertTrue(p0.ons.filter { $0.cable == 2 }.isEmpty, "pass 0: member 1 (B) waits — silent")
+        let p1 = turnsWindow(b, chord([60]), atBeat: 16)
+        XCTAssertTrue(p1.ons.filter { $0.cable == 1 }.isEmpty, "pass 1: member 0 (A) now waits")
+        XCTAssertGreaterThan(p1.ons.filter { $0.cable == 2 }.count, 0, "pass 1: member 1 (B) takes the turn")
+    }
+
+    func testUngroupedCellsBothSoundEveryPass() {
+        // Control: no group → both cells double every pass (the pre-turns behaviour the user was hitting).
+        let b = turnsBox(group: nil)
+        let p0 = turnsWindow(b, chord([60]), atBeat: 0)
+        XCTAssertGreaterThan(p0.ons.filter { $0.cable == 1 }.count, 0, "A sounds (ungrouped)")
+        XCTAssertGreaterThan(p0.ons.filter { $0.cable == 2 }.count, 0, "B also sounds (ungrouped — doubling)")
+    }
+
+    func testCellTurnsBuilderAssignsOrderAndSize() {
+        // Two cells in group 1 → size 2 with orders 0,1 (grid-index order). A LONE grouped cell → size 1 (always sounds).
+        let two = turnsBox(group: 1)
+        XCTAssertEqual(two.cells[0 * Snap.rows + 0].turnsGroupSize, 2)
+        XCTAssertEqual(two.cells[0 * Snap.rows + 0].turnsOrder, 0)
+        XCTAssertEqual(two.cells[0 * Snap.rows + 1].turnsGroupSize, 2)
+        XCTAssertEqual(two.cells[0 * Snap.rows + 1].turnsOrder, 1)
+
+        var s = SceneState.empty()
+        var lone = Cell(colourID: "gold", buses: [.a]); lone.turnsGroup = 3; s.cells[0][0] = lone
+        let one = SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+        XCTAssertEqual(one.cells[0].turnsGroupSize, 1, "a lone member → size 1")
+        let e = turnsWindow(one, chord([60]), atBeat: 0)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "a lone grouped cell always sounds")
+    }
+
+    func testCellTurnsBothMembersSoundAcrossLapsNoStuck() {
+        // Over two full laps, BOTH members get a turn (rotation happens) and nothing hangs.
+        let b = turnsBox(group: 1)
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 32, into: e)                     // 2 cycles = 2 passes
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "A took a turn on some lap")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 0, "B took a turn on some lap")
+        assertNothingLeftSounding(e)
+    }
+
     // §6a THE WITHHELD TELL — the drainWithheld() feed reports CLAIM-suppressed note-ons (for the hollow strip mark).
     private func drainWithheldAfter(_ box: SnapshotBox, windows: Int = 8) -> [[(vel: UInt8, col: Int8)]] {
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
