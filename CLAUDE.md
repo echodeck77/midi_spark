@@ -176,7 +176,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `testAltHoldsAtSameMomentDoNotSplitSimultaneously`; `testAltTurnTakingPingPongsAndHonoursCount` still green (417
   total). KNOWN minor: a window holding 2+ arp ticks across multiple cells can misalign a moment (cells processed
   sequentially, onSample non-monotonic) — negligible at normal rates; holds (one onset/lap) are exact. Docs:
-  `AcceptanceCriteria-the-rack.md` §6 TURNS + `test-procedures.md` RK-TURNS updated.**
+  `AcceptanceCriteria-the-rack.md` §6 TURNS + `test-procedures.md` RK-TURNS updated.
+  **⚠ REVIEW OWED (user, 2026-08-05): confirm the per-MOMENT hand-off is what's wanted on device — the user may
+  prefer the per-NOTE variant ("by note"), where the turn advances every note (alternates faster; is the pre-fix
+  behaviour, and splits simultaneous cells). Both are viable; the switch is a ~1-line change in `Router.emitArtic`
+  (advance per onset-moment vs per note). Do NOT retire the per-moment code until the user rules — they flagged they
+  might want it by note later.**
 - **▶ THE RACK — emitter treatment matrix, PASS 1 (2026-08-04, on `main`; 415 green, iOS builds; DEVICE pass owed).
   Design ferry `DESIGN-the-rack.md` → spec of record `Docs/AcceptanceCriteria/AcceptanceCriteria-the-rack.md`.
   SUPERSEDES the tabbed emitter page (`EmitterPage.swift` DELETED; `AcceptanceCriteria-emitter-page-pass1.md`
