@@ -194,6 +194,7 @@ struct DiagView: View {
     @State private var chaosOn = false
     @State private var chaosStatus = "OK"             // live oracle readout (should-output check)
     @State private var chaosRecvMask: UInt8 = 0b0001  // which receivers chaos fuzzes (default R1 only)
+    @State private var chaosEditMode = false          // false = PERFORM desk, true = EDIT screen
     #endif
     // §9 item 1 ON TAP quant/duration (4c): active TIMED actions. A tap adds one (onset from tapWhen, expiry
     // from tapFor); each poll derives the three ephemeral masks from the actions that are live at the beat.
@@ -1365,8 +1366,9 @@ struct DiagView: View {
                         .background(RoundedRectangle(cornerRadius: 4).fill(on ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.08)))
                         .contentShape(Rectangle()).onTapGesture { chaosRecvMask ^= (1 << UInt8(r)) }
                 }
-                chaosBtn("▶ SIM MIDI", active: false) { startChaos(.simulated) }   // chaos plays its own spell-MIDI
-                chaosBtn("▶ LIVE MIDI", active: false) { startChaos(.live) }        // MIDI from the host; chaos fuzzes controls
+                chaosBtn(chaosEditMode ? "EDIT" : "PERF", active: chaosEditMode) { chaosEditMode.toggle() }   // what chaos fuzzes
+                chaosBtn("▶ SIM", active: false) { startChaos(.simulated) }        // chaos plays its own spell-MIDI
+                chaosBtn("▶ LIVE", active: false) { startChaos(.live) }             // MIDI from the host; chaos fuzzes controls
             }
             Spacer()
         }
@@ -1385,7 +1387,7 @@ struct DiagView: View {
         guard let au = au else { return }
         chaosSeed = UInt32(truncatingIfNeeded: Int(Date().timeIntervalSince1970))
         chaos.receiverMask = chaosRecvMask == 0 ? 0b0001 : chaosRecvMask   // at least R1
-        chaosStatus = "OK"; chaos.start(au: au, seed: chaosSeed, source: source); chaosOn = true
+        chaosStatus = "OK"; chaos.start(au: au, seed: chaosSeed, source: source, mode: chaosEditMode ? .edit : .perform); chaosOn = true
     }
     #endif
 
