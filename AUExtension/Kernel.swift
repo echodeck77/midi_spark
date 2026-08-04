@@ -317,8 +317,10 @@ final class Kernel {
         }
         if (c.busMask & box.busEnabledMask) == 0 { return "no enabled emitter" }
         if pool.srcCount(for: c) == 0 { return "admits 0" }
-        let m = c.proc   // ALWAYS-silent machine configs → expected silence (a partly-closed passgate still sounds on its open passes)
-        if m.type == .passgate && m.passMask == 0 { return "passgate CLOSED (no open passes)" }
+        let m = c.proc   // the head machine, gated on THIS pass exactly as the router decides (a closed passgate is silent this pass)
+        if cellMode(type: m.type, bypassed: c.slotBypass.first ?? false, passMask: m.passMask, pass: diag.pass) == .silent {
+            return "passgate closed this pass (pass%4=\(((diag.pass % 4) + 4) % 4))"
+        }
         if m.type == .chance && m.probability <= 0 { return "chance prob 0 (drops all)" }
         return nil
     }
@@ -331,7 +333,7 @@ final class Kernel {
             return f
         }
         var l = ["--- MIDI CHAIN @ suspicious silence ---",
-                 "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) master[mute=\(box.masterMute) kill=\(masterKill) vel=\(masterVelOverride)] enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
+                 "playing=\(diag.playing) held=\(pool.count) sounding=\(diag.distinctSounding) routedPath=\(diag.routedPath) playhead=col\(diag.effColumn) pass=\(diag.pass) master[mute=\(box.masterMute) kill=\(masterKill) vel=\(masterVelOverride)] enabledEmitters=0b\(String(box.busEnabledMask, radix: 2))"]
         let n = pool.srcCount(filter: 0)
         l.append("held notes: " + (0..<n).map { String(pool.srcAscending($0, filter: 0)) }.joined(separator: ","))
         for r in 0..<4 { l.append("  R\(r + 1): filter=\(receiverChannels[r]) range=\(receiverRangeLo[r])–\(receiverRangeHi[r])\(rflags(r))") }
@@ -339,7 +341,8 @@ final class Kernel {
         for (i, c) in box.cells.enumerated() where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
             let block = cellRouteBlock(c, box), m = c.proc
             let mdesc = "\(m.type)" + (m.type == .passgate ? " pass=0b\(String(m.passMask, radix: 2))" : m.type == .chance ? " prob=\(m.probability)" : "") + (c.procs.count > 1 ? " +chain\(c.procs.count)" : "")
-            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)"))
+            let here = (i / Snap.rows) == diag.effColumn ? " ◀playhead" : ""
+            l.append("  cell \(i / 8),\(i % 8) col=\(c.colourIndex) [\(mdesc)] recv=\(c.resolvedReceiver) admits=\(pool.srcCount(for: c)) buses=0b\(String(c.busMask, radix: 2))" + (block == nil ? "  → PATH" : "  ✗ \(block!)") + here)
         }
         l.append(diag.routedPath ? "VERDICT: a routed path exists → SILENCE IS SUSPICIOUS (a machine may be gating: closed passgate / chance / arp tick — or a real bug)"
                                  : "VERDICT: no routed path → silence is EXPECTED")
@@ -349,9 +352,13 @@ final class Kernel {
     // the LIVE held pool to an enabled emitter (no bypass/disable/latch gate). No such path ⇒ silence is expected.
     private func computeRoutedPath(_ box: SnapshotBox) {
         if box.masterMute || masterKill { diag.routedPath = false; return }   // master mute / fader-kill silences ALL output → expected
+        // Only the CURRENT column can sound right now — a routed cell in some OTHER column is not why this instant is
+        // silent. Scan effColumn only, gated on this pass, so the verdict tracks what the playhead is actually over.
+        let col = min(max(0, diag.effColumn), Snap.cols - 1)
         var path = false
-        for c in box.cells where c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 {
-            if cellRouteBlock(c, box) == nil { path = true; break }
+        for row in 0..<Snap.rows {
+            let c = box.cells[col * Snap.rows + row]
+            if c.colourIndex >= 0 && !c.muted && !c.dormant && c.busMask != 0 && cellRouteBlock(c, box) == nil { path = true; break }
         }
         diag.routedPath = path
     }
