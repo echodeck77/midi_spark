@@ -686,21 +686,20 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
-        // role family ALT (design ruling: advance-until-present, pointer-lands-after): if this articulation fans
-        // to the ALT group, scan the expanded turn sequence from the pointer for the first member PRESENT in this
-        // fan-out, route the note there (non-group emitters untouched), and land the pointer JUST PAST it. Full
-        // fan-outs keep strict rotation; partial fan-outs alternate within their subset (no starvation, no lost
-        // notes); mixed cells share one deterministic pointer. previewMode bypasses.
+        // role family ALT / TURNS (user 2026-08-04 — the true intent): the TURNS emitters take turns playing the
+        // INCOMING notes from ANY cell. If this articulation is destined for the group (it touches any group
+        // member), route the group-portion to the CURRENT turn-holder — the next member in the whole-group
+        // rotation, regardless of which member the cell originally addressed — then advance the shared pointer.
+        // So two INDEPENDENT cells (one → A, one → B, with A+B in TURNS) pool their notes and interleave across
+        // A and B; a single cell targeting only A still spreads across the whole group. Non-group emitters in the
+        // fan-out are untouched. COUNT (notes-per-turn) rides in `altSequence` (each member repeated count times).
+        // previewMode bypasses (no other-emitter context). (Was: deal only among members PRESENT in this fan-out —
+        // which left single-target cells stuck on their own emitter, the bug the user hit.)
         var busMask = busMask
-        let altGroup = busMask & altMask
-        if altGroup != 0 && !previewMode && !altSequence.isEmpty {
-            let len = altSequence.count
-            var pick = altGroup & (~altGroup + 1)   // fallback = lowest present (only if none matched, shouldn't happen)
-            for off in 0..<len {
-                let entry = altSequence[(altTurn + off) % len]
-                if altGroup & (1 << entry) != 0 { pick = 1 << entry; altTurn = (altTurn + off + 1) % len; break }
-            }
-            busMask = (busMask & ~altMask) | pick
+        if (busMask & altMask) != 0 && !previewMode && !altSequence.isEmpty {
+            let entry = altSequence[altTurn % altSequence.count]     // the whole-group turn-holder (count-weighted)
+            altTurn = (altTurn + 1) % altSequence.count
+            busMask = (busMask & ~altMask) | (1 << entry)
         }
         // §6a CLAIM v2: emit ALL claimant buses in this fan-out FIRST (any order among them), so every
         // claimant's ownership trace (the silent ghost opened in emitOneBus) is in the table before any

@@ -298,8 +298,12 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   velocity (the shadow), 0% = silent. Same intent as SP-CLAIM; monitor B for the suppression/shadow.
 - **RK-KEY (live — the duck):** tap KEY ON for A, turn its AMOUNT knob. While A sounds, B/C/D's NEW note-ons
   arrive quieter (already-sounding notes never lurch); 100% ≈ a keyed gate. Monitor a target emitter's velocities.
-- **RK-TURNS (live — turn-taking):** tap TURNS ON for A and B; a cell fanning A+B alternates notes between them
-  (ping-pong). Turn the COUNT knob → N notes per turn. Monitor A and B for the alternation.
+- **RK-TURNS (live — turn-taking across incoming notes):** the TURNS emitters take turns playing notes from ANY
+  cell. Tap TURNS ON for A and B, then use **two independent cells — one → A, one → B** (or a single cell → A only):
+  their notes POOL and interleave across A and B (not both playing every note). Turn the COUNT knob → N notes per
+  turn. Monitor A and B for the alternation; confirm the total note count is conserved (each note routes to ONE
+  member) and nothing hangs across the hand-off. (This is the revised behaviour — the old ALT only split ONE cell's
+  own fan-out, so two separate cells doubled.)
 - **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
   STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
   RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation

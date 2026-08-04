@@ -65,9 +65,14 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
 - **KEY (duck)** — while this emitter sounds, others' NEW notes arrive velocity-scaled down (admission-time; 100% =
   gate). Toggle KEY · chip **AMOUNT %** · detail DUCKS→B·C·D targets · ATTACK · RELEASE · MATCH-CLASS · readout
   "KEY: ducks B·C by 40%". **[LIVE: toggle+AMOUNT backed by flattenMask/flattenAmount; detail = coming.]**
-- **TURNS (alt)** — lit emitters form a ring; each COUNT-per-turn note goes to the current holder then advances.
-  Toggle TURNS · chip **COUNT** · detail ROTATE | DEAL · RING (1|2) · RESET-at-pass · readout "TURNS (count 2)".
-  **[LIVE: toggle+COUNT backed by altMask/altCount; detail = coming.]**
+- **TURNS (alt)** — the lit emitters form a ring and **take turns playing the INCOMING notes from ANY cell**: any
+  note destined for a group member is routed to the current turn-holder (the whole-group rotation), then the turn
+  advances — so two independent cells (one → A, one → B, both in TURNS) POOL and interleave across A and B, and a
+  single cell targeting only A still spreads across the group. Non-group emitters in a fan-out are untouched. Toggle
+  TURNS · chip **COUNT** (notes-per-turn) · detail RING · RESET-at-pass · readout "TURNS (count 2)".
+  **[LIVE: toggle+COUNT backed by altMask/altCount. REVISED 2026-08-04 — was per-fan-out only (dealt only among the
+  members present in one cell's fan-out), which left single-target cells stuck on their own emitter; now the whole
+  group shares the incoming stream. detail = coming.]**
 - **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
 - **FENCE** — out-of-range notes DROP|CLAMP|FOLD; lo/hi. **[NO ENGINE — dimmed seat.]**
 - **CURVE** — per-output velocity re-map (soft↔hard, bipolar); floor/ceiling. **[NO ENGINE — dimmed seat.]**

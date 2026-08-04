@@ -2890,12 +2890,13 @@ final class RouterTests: XCTestCase {
 
     // MARK: - ALT edge: advance-until-present (no starvation of a partial fan-out)
 
-    func testAltEdgeSkipsAbsentMemberWithoutStarving() {
-        // altMask = {A,B,C}; one arp cell fans to {A,C} only. When the pointer lands on B (absent here) it must
-        // advance to the next PRESENT member (C) — so A and C ALTERNATE. The old lowest-present rule starved C.
+    func testAltDealsSingleTargetNotesAcrossTheGroup() {
+        // The user's intent (2026-08-04): the TURNS emitters take turns playing INCOMING notes from ANY cell. A
+        // single cell targets ONLY emitter A, but A and B are a TURNS group → its notes are DEALT across both A
+        // and B (the old per-fan-out ALT left everything on A, because B was never in the note's own fan-out).
         var s = SceneState.empty()
-        s.cells[0][0] = Cell(colourID: "gold", buses: [.a, .c])
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = 0b0111; st.altCount = [1, 1, 1, 1]
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // ONE cell → A only
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]
         let box = SnapshotBuilder.build(from: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
@@ -2908,8 +2909,37 @@ final class RouterTests: XCTestCase {
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
                        timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
-        let a = e.ons.filter { $0.cable == 1 }.count, c = e.ons.filter { $0.cable == 3 }.count   // A=cable1, C=cable3
-        XCTAssertGreaterThan(a, 0); XCTAssertGreaterThan(c, 0, "C must not be starved — it takes B's skipped turns")
-        XCTAssertLessThanOrEqual(abs(a - c), 1, "A and C alternate evenly")
+        let a = e.ons.filter { $0.cable == 1 }.count, b = e.ons.filter { $0.cable == 2 }.count   // A=cable1, B=cable2
+        XCTAssertGreaterThan(a, 0, "A takes its turns")
+        XCTAssertGreaterThan(b, 0, "B receives dealt notes too — despite no cell addressing it (the fix)")
+        XCTAssertLessThanOrEqual(abs(a - b), 1, "the group deals evenly (count 1 each)")
+    }
+
+    func testAltPoolsTwoIndependentCellsAcrossTheGroup() {
+        // Two INDEPENDENT cells (cell 1 → A, cell 2 → B), group {A,B} → their incoming notes POOL and interleave
+        // across the group. Both emitters sound and the total is conserved (each note routes to ONE member).
+        func run3(_ altMask: UInt8) -> (Int, Int) {
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // cell 1 → A
+            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // cell 2 → B
+            var st = PluginState(colours: arpColours(), scenes: [s]); st.altMask = altMask; st.altCount = [1, 1, 1, 1]
+            let box = SnapshotBuilder.build(from: st)
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+            while beat < 8.0 {
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            assertNothingLeftSounding(e)
+            return (e.ons.filter { $0.cable == 1 }.count, e.ons.filter { $0.cable == 2 }.count)
+        }
+        let (n1, n2) = run3(0)             // no TURNS: each cell emits on its own bus
+        let (a1, a2) = run3(0b0011)        // TURNS {A,B}: the two streams pool and interleave
+        XCTAssertGreaterThan(a1, 0); XCTAssertGreaterThan(a2, 0, "both emitters take turns")
+        XCTAssertEqual(a1 + a2, n1 + n2, "every note still routes to exactly ONE member (total conserved)")
     }
 }

@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TURNS — cross-cell dealing on the EMITTER (2026-08-04, on `main`; 416 green, iOS builds; DEVICE pass owed).
+  Two-step: (1) REVERTED the short-lived cell-turns feature (commit `d0ac7f4` reverts `f137e03` — `Cell.turnsGroup`,
+  the SnapCell fields, builder resolution, `turnsSilent`, the EDIT ▸ TAKES TURNS UI, and the RackMatrix TURNS-row
+  removal are all GONE; the emitter TURNS row is back). The user's true intent was NOT per-cell grouping. (2)
+  REWORKED the emitter ALT/TURNS engine (`Router.emitArtic`) so the TURNS emitters take turns playing the INCOMING
+  notes from ANY cell: a note destined for any group member is routed to the current turn-holder (the WHOLE-group
+  rotation, count-weighted via `altSequence`), then the pointer advances — so two independent cells (one → A, one →
+  B, both in TURNS) pool + interleave, and a single cell → A alone still spreads across the group. Non-group
+  emitters in a fan-out untouched. WAS: dealt only among members PRESENT in one cell's fan-out (so single-target
+  cells stuck on their own emitter — the bug the user hit). No model/snapshot/AU/UI change — the rack matrix TURNS
+  toggle + COUNT knob (`altMask`/`altCount`) are unchanged; only the render routing rule changed. Tests: replaced
+  `testAltEdgeSkipsAbsentMemberWithoutStarving` (obsolete premise) with `testAltDealsSingleTargetNotesAcrossTheGroup`
+  + `testAltPoolsTwoIndependentCellsAcrossTheGroup`; `testAltTurnTakingPingPongsAndHonoursCount` (single fan-out cell)
+  still green. Docs: `AcceptanceCriteria-the-rack.md` §6 TURNS + `test-procedures.md` RK-TURNS updated.**
 - **▶ THE RACK — emitter treatment matrix, PASS 1 (2026-08-04, on `main`; 415 green, iOS builds; DEVICE pass owed).
   Design ferry `DESIGN-the-rack.md` → spec of record `Docs/AcceptanceCriteria/AcceptanceCriteria-the-rack.md`.
   SUPERSEDES the tabbed emitter page (`EmitterPage.swift` DELETED; `AcceptanceCriteria-emitter-page-pass1.md`
