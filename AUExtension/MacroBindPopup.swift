@@ -18,6 +18,7 @@ struct MacroBindPopup: View {
     @State private var aVals: [String: Double] = [:]   // captured A per "slot.param"
     @State private var bVals: [String: Double] = [:]   // the demonstrated B (live)
     @State private var toast: String? = nil
+    @State private var bindBank: MacroKind = .slider   // which bank the binding list shows (SLD default; TML deferred)
 
     private let ink = Color.white
     private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
@@ -134,24 +135,42 @@ struct MacroBindPopup: View {
         }
     }
 
-    // The binding list — the 8 SLIDER macros. Tap a row = bind the current delta; tap the CELL chip = remove it here.
+    // The binding list — SLIDER or BUTTON macros (TIMELINES land with that bank). A continuous-only B (all this
+    // popup authors) is eligible for any mover, so both banks accept it; a SLIDER morphs A→B, a BUTTON snaps A|B.
     private var bindSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("BIND TO A MACRO SLIDER").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.55)).tracking(1)
-            ForEach(0..<8, id: \.self) { i in macroRow(i) }
+        let base = bindBank == .button ? 8 : 0
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("BIND TO A MACRO").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.55)).tracking(1)
+                Spacer()
+                bankChip("SLD", .slider); bankChip("BTN", .button)
+            }
+            ForEach(0..<8, id: \.self) { r in macroRow(base + r) }
         }
+    }
+    private func bankChip(_ label: String, _ k: MacroKind) -> some View {
+        let on = bindBank == k
+        return Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : ink.opacity(0.5))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? cyan : ink.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture { bindBank = k }
+    }
+    private func macroLabel(_ i: Int, _ m: Macro) -> String {
+        if !m.name.isEmpty { return m.name }
+        return i < 8 ? "M\(i + 1)" : "B\(i - 7)"
     }
     private func macroRow(_ i: Int) -> some View {
         let m = i < macros.count ? macros[i] : Macro()
         let boundHere = m.targets.contains { $0.col == anchor.col && $0.row == anchor.row }
         return HStack(spacing: 8) {
-            Text(m.name.isEmpty ? "M\(i + 1)" : m.name).font(.system(size: 11, weight: .heavy, design: .monospaced))
+            Text(macroLabel(i, m)).font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(m.name.isEmpty ? ink.opacity(0.4) : cyan).frame(width: 64, alignment: .leading).lineLimit(1)
             if boundHere {
                 Text("THIS CELL ✕").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: 3).fill(cyan))
-                    .contentShape(Rectangle()).onTapGesture { onRemove(i); toast = "removed from \(m.name.isEmpty ? "M\(i+1)" : m.name)" }
+                    .contentShape(Rectangle()).onTapGesture { onRemove(i); toast = "removed from \(macroLabel(i, m))" }
             }
             Spacer()
             Text("BIND").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -159,7 +178,7 @@ struct MacroBindPopup: View {
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 4).fill(anyTouched ? cyan : ink.opacity(0.05)))
                 .contentShape(Rectangle())
-                .onTapGesture { guard anyTouched else { return }; onBind(i, deltaTargets); toast = "bound → \(m.name.isEmpty ? "M\(i+1)" : m.name)" }
+                .onTapGesture { guard anyTouched else { return }; onBind(i, deltaTargets); toast = "bound → \(macroLabel(i, m))" }
         }
         .padding(.vertical, 3)
     }

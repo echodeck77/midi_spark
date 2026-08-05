@@ -248,4 +248,13 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(box.cells[0 * 8 + 0].procs[0].gate, 0.8, accuracy: 1e-9)
         XCTAssertEqual(box.cells[3 * 8 + 5].procs[0].gate, 0.8, accuracy: 1e-9)
     }
+
+    /// A BUTTON-bank macro (index ≥ 8) folds identically to a slider — the builder iterates all 24 banks, so a
+    /// button snapped to B (value 1) reconstructs B just like M1. Locks that non-slider banks aren't excluded.
+    func testButtonBankMacroModulatesLikeSlider() {
+        XCTAssertEqual(PluginState.macroKind(8), .button)
+        var doc = chainCellDoc(gate: 0.5)
+        doc.macros?[8] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3)])
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.8, accuracy: 1e-9)   // 0.5 + 1×0.3
+    }
 }

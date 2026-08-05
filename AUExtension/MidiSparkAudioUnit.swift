@@ -549,11 +549,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
     }
 
-    /// Macro slider m (AUParameter 400+m, m∈0…7) — the automatable macro fader. Set via the tree so host
-    /// automation / the CC rail / the in-app panel stay in sync; the observer folds it into the document (offset).
+    /// Set a macro's value. SLIDERS (0…7) route via the AU param tree so host automation / the CC rail / the in-app
+    /// panel stay in sync (the observer folds it into the document). BUTTONS/TIMELINES (8…23) aren't AU params —
+    /// write the document directly (still an OFFSET; bases untouched). Coalesced so a drag/hold isn't undo spam.
     func setMacroValue(_ index: Int, _ value: Double) {
-        guard index >= 0 && index < ParamAddress.macroSliderCount else { return }
-        _parameterTree.parameter(withAddress: ParamAddress.macro(index))?.value = AUValue(max(0, min(1, value)))
+        guard (0..<24).contains(index) else { return }
+        let v = max(0, min(1, value))
+        if index < ParamAddress.macroSliderCount {
+            _parameterTree.parameter(withAddress: ParamAddress.macro(index))?.value = AUValue(v)
+        } else {
+            editDocument(record: false, coalesceKey: "macro\(index)") { d in
+                if d.macros == nil { d.macros = d.macrosResolved }
+                d.macros?[index].value = v
+            }
+        }
     }
     /// The 24 macros for the UI (panel / A/B authoring). Read-back; the values mirror the automatable sliders.
     func uiMacros() -> [Macro] { document.macrosResolved }
