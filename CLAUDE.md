@@ -157,6 +157,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ LAYOUT v2 — THE TAB ERA, phase 1 (the tab shell); all on `main`, 2026-08-05; iOS builds, 428 green; DEVICE
+  pass owed. Six commits `41aa233`→`8504957` (Parts 0-5). Replaces the PERFORM/EDIT toggle + in-grid overlays with
+  ONE permanent address per surface — a six-tab bar (`enum AppTab`: GRID · PROCESSORS · RECEIVERS · EMITTERS ·
+  MACROS · AUTOMATION; `.live` gates the last two dim/inert). **Part 0** (`41aa233`) retired the (inert) SELECT verb
+  — enum case + hue + button + `doVerbOnRow`/`strokeCell`/`onVerbEngaged` branches gone; verb cluster now
+  HOLD·MUTE·LADDER; `selection`/`selectionSnapshot` kept (always empty). **Parts 1-2** (`b228a64`): `ArrangementBar`
+  `modeToggle`→`tabBar` (own row under the header; `activeTab`/`onSetTab` replace `isEditMode`/`onSetEditMode`);
+  VC body switches on `activeTab` via `tabBody` (.grid→signalColumn · .processors→editSpikePage · .emitters→
+  rackMatrixView · others→`comingSoonPage`); `.onChange(of: activeTab)` bridges `editArmed = (tab == .processors)`
+  so the begin/apply edit-session logic is unchanged; `EditPage` dropped its own `arrangementBar` (parent renders
+  once). **Part 3** (`1a50756`): STEP+SWING leave the grid `ControlsView` (struct + `controlsView` var deleted) →
+  a `clockControl` chip+popover in the header; receivers band's left flank is now empty (keeps RECEIVERS centred).
+  **Part 4** (`b96bc09`): per-door MIDI INPUT config extracted from `CogPage` into new
+  `AUExtension/ReceiverConfigView.swift` = the RECEIVERS tab; cog keeps OUTPUT·DISPLAY·HEALTH (its `receivers`/
+  `inAt`/`mpeAt` inputs + input-only helpers removed). **Part 5** (`8504957`): rack matrix is the full-page EMITTERS
+  tab; `GridView.cellAreaOverride` machinery removed; strip RACK long-press → `activeTab = .emitters`, DONE →
+  `.grid`; `rackMatrixOpen` state gone. DEFERRED phase 2+ (captured, not built): GRID top-band 8 macro sliders+
+  buttons · SINGLE|MULTI · HOLD localisation · MACROS/AUTOMATION engines · global FREEZE/STUTTER · MIDI-OUT channels
+  into the emitters tab. Plan: `~/.claude/plans/resilient-imagining-truffle.md`.**
 - **▶ MERGED `feat/multiple_features` → `main` + EDIT-PAGE REARRANGE + 6 design captures (2026-08-05; iOS builds,
   427 green). The whole branch (FENCE UX · per-note TURNS · bypass + loop bug fixes · seal lock · in-app manual ·
   manual Why-merge · macro capture) fast-forwarded onto `main`. Design **endorsed the RACK full-bypass** ruling

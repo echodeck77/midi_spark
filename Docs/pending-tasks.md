@@ -5,6 +5,15 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-07-29._
 
+## ★ DONE (2026-08-05) — LAYOUT v2 tab shell (phase 1)
+Spec of record: **`Docs/AcceptanceCriteria/layout-v2-tabs.md`**; plan `~/.claude/plans/resilient-imagining-truffle.md`.
+On `main`, iOS builds, 428 green; commit refs in CLAUDE.md status; **device pass owed**.
+- [x] Part 0 — retire SELECT · Parts 1-2 — six-tab bar + body switch (`AppTab`) · Part 3 — clock→header ·
+  Part 4 — RECEIVERS tab (`ReceiverConfigView`) · Part 5 — EMITTERS tab (rack out of the grid).
+- [ ] **Phase 2+ (deferred, captured):** GRID top-band 8 macro sliders+buttons · SINGLE|MULTI toggle · HOLD
+  localisation per slider group · the MACROS + AUTOMATION engines/pages · global FREEZE/STUTTER gestures ·
+  MIDI-OUT channels moved into the emitters tab. (These are engine/authoring work — needs Paul to prioritise.)
+
 ## ★ DONE (user, 2026-07-29) — /btw authoring UX + AcceptanceCriteria wave
 Spec of record: **`Docs/AcceptanceCriteria/verbs-behaviour.md`**. All LANDED off-device (device pass owed) —
 commit refs in CLAUDE.md "Current status":
