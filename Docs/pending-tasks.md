@@ -45,6 +45,16 @@ commit refs in CLAUDE.md "Current status":
   `deleteCell` dedup (`181bf7c`).
 
 ## A. Blocked on the user (need a decision before building)
+- [ ] **Accent-colour dedup (refactor B1)** — the two accent hues are redefined ~35× under ~14 local names
+  (`cyan`/`barCyan`/`sceneAmber`/`amber`/`claimAmber`/`soloHue`/…). Canonicalise to `Color.accentCyan`/`accentAmber`
+  once (all SwiftUI-only files → import-safe). **BLOCKER:** `FlowView.swift`'s cyan is `Color(red:0.145,g:0.878,
+  b:0.941)` — a real ~0.005 near-miss of the canonical `0.15/0.88/0.94`; needs a ruling (unify to canonical, or keep
+  FlowView's tuned-for-dark-canvas value). Same open question for FlowView's lighter receiver-hue palette vs
+  `receiverHues`.
+- [ ] **midiNoteName convention** — the shared `midiNoteName` is 0-based (note 60 = "C5"); `RackMatrix.noteName` is
+  `n/12−1` (note 60 = "C4"), so FENCE labels read an octave below the receiver RANGE labels. `midiNoteName`'s doc
+  says it exists "so naming can't drift". Pick the canonical convention (C4=60 is the common MIDI one) → unify (a
+  visible label shift, hence a ruling).
 - [ ] **HOLD latch re-home** — §5c latch UI slot is vacant; CONTROLS-corner restoration recommended, awaiting the nod.
 - [ ] **SCOPE ops home** — chips-during-SELECT-hold vs deferred (design device-nod).
 - [x] **DELETE-sever fallback in the null era** (user ruled NULL, 2026-07-30) — severed children now fall to NULL

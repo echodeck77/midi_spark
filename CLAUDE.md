@@ -157,6 +157,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ QUALITY PASS — tests · dead-code · dedup · one real bug (2026-08-05, on `main`; macOS 460→487 green, iOS
+  builds; NOT pushed). A survey-driven legibility/coverage pass (3 parallel survey agents → verified + implemented
+  in-loop). Commits `c9f28cb`→`753b875`. (1) `c9f28cb`: UI — whole-UI scroll (header+tabs scroll WITH the body when
+  the content overflows, raw when it fits to keep ColumnHoldOverlay alive), SINGLE|MULTI moved to the title bar,
+  row/column selectors tint by mode (SINGLE green · MULTI yellow via `GridView.laneHue`), CONTROLS placeholders
+  RANDOMIZE·AUTOMATION·MUTATE·AUTOPLAY, macro rotaries→sliders (`GridMacroSlider`), consistent `bandLabel`/
+  `labeledPanel` panel headers + PROCESSOR GRID title. (2) `d6377e2`: +18 pure-core tests (resolved4 all branches ·
+  rack/modulation Codable round-trips + old-doc-nil→resolved-default · effectiveRepeats/Octaves/HarmInterval/
+  RateBeats clamps · applyMacros neg-index/zero-offset · midiNoteName · chopSlice wrap · tapOverlayMasks future-
+  onset · colourCensus empty · trigger-glyph totality · heldVelocity). (3) `8c19e45`: +5 Router tests (render-side
+  param route/invariant 6 · playing CHANCE · sceneFlush · bypass multi-dest). (4) **`84e67d8`: REAL BUG FIX** — a
+  fenced LEGATO drone machine-gunned: `emitColumnHolds` predicted the adoption wire pitch as `n+emitterOctaveShift+
+  masterKey` but `emitOneBus` applies FENCE after, so a CLAMP/FOLD emitter's voice diverged → adoption failed →
+  re-strike every boundary. Fix: one `fencedNote(_:bus:)` helper used by BOTH the emit path (behaviour-identical
+  refactor) and the prediction. Regression test reproduces (ons 6→2, offs>0→0). (5) `8ea1cb0`: −224 lines
+  grep-verified dead code (VIZ view cluster + roundVerb/recolorSelection/editBrushColour/holdSeq/selectionSnapshot
+  in VC · ReceiversView strip leftovers bypassToggle/latchRow/modeSeg/featBtn/slider/decayed/faderVel +
+  MarchingAnts in GridUI · Cell.hasChain/Colour.hasTemplate · EditPage inputSourceLabel/setEditSourceNone · Kernel
+  dup import). (6) `7b8817d`: extracted shared pure helpers `clampVel`/`positiveFract`/`splitmix64Mix` (dedup 5+2+2
+  sites) +3 helper tests. (7) `753b875`: stale-comment/naming fixes (chainDriverIndex doc · currentColourIndex ·
+  CHOP fragment · CogPage mpeToggle→onOffToggle · TestSessions header). DEFERRED (flagged, need a ruling — see
+  pending-tasks): the accent-colour dedup (B1: ~35 sites/14 names for 2 colours; FlowView's `0.145` cyan is a real
+  near-miss needing a decision) · `midiNoteName` vs `RackMatrix.noteName` octave convention (C4 vs C5) · the
+  over-long-function decompositions (poll closure/cellView/renderFlow — high-churn, skipped as unsafe unattended).**
 - **▶ MERGED `feat/macros` → `main` (fast-forward, PUSHED, `c661025..6b2d609`, 2026-08-05). Banked: the whole MACROS
   feature (M0–M4 + BUTTON bank + OUTPUT engine/authoring) · the MIDI compliance audit + its fixes (B1 THRU-system ·
   B2 stuck k=1-lap drone · B3 fullState flush · B5 altSequence prealloc; B4/B7 deferred) · a test/refactor hardening
