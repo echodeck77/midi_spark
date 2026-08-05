@@ -171,6 +171,7 @@ struct DiagView: View {
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
     @State var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
+    @State var receiverNote: [Int] = [0, 0, 0, 0]           // receiver strip: per-receiver ±semitone NOTE nudge (ephemeral)
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
     @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
@@ -682,6 +683,12 @@ struct DiagView: View {
         receiverOctave[i] = max(-3, min(3, receiverOctave[i] + delta))
         au?.setInputOctave(i, receiverOctave[i])
     }
+    // receiver strip: ±semitone NOTE nudge (±1 per tap, clamp ±12). Ephemeral; composes with the octave nudge.
+    func nudgeReceiverNote(_ i: Int, _ delta: Int) {
+        guard (0..<4).contains(i) else { return }
+        receiverNote[i] = max(-12, min(12, receiverNote[i] + delta))
+        au?.setInputSemitone(i, receiverNote[i])
+    }
     // receiver strip: the slider's momentary input-velocity override (touch = absolute, release = nil → spring).
     func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
     // receiver strip: per-receiver chord LATCH (additive toggle). Arm = detect-and-hold; a new chord replaces;
@@ -695,7 +702,8 @@ struct DiagView: View {
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
     func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
-        receiverOctave = [0, 0, 0, 0]; for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputVelOverride(i, nil) }
+        receiverOctave = [0, 0, 0, 0]; receiverNote = [0, 0, 0, 0]
+        for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputSemitone(i, 0); au?.setInputVelOverride(i, nil) }
         clearReceiverLatch()
     }
 
@@ -1082,7 +1090,12 @@ struct DiagView: View {
         case .emitters:
             rackMatrixView                    // the treatment matrix, now a full page
         case .receivers:
-            ReceiverConfigView(au: au, receivers: receivers, inAt: receiverPeakAt, mpeAt: mpeSeenAt,
+            ReceiverConfigView(au: au, receivers: receivers,
+                               soloMask: soloReceiverMask, latchMask: latchMask, octave: receiverOctave, note: receiverNote,
+                               onToggleEnable: toggleReceiverEnabled, onToggleMute: toggleReceiverMute,
+                               onToggleSolo: toggleReceiverSolo, onToggleLatch: toggleReceiverLatch,
+                               onSetLatchKeys: setReceiverLatchKeys, onToggleBypass: toggleReceiverBypass,
+                               onOct: nudgeReceiverOctave, onNote: nudgeReceiverNote,
                                onChanged: { receivers = au?.uiReceivers() ?? receivers })
         case .macros:
             MacroPanel(macros: au?.uiMacros() ?? [],
@@ -1353,6 +1366,7 @@ struct DiagView: View {
                       bypassMask: receivers.enumerated().reduce(UInt8(0)) { $1.offset < 4 && $1.element.bypassResolved ? $0 | UInt8(1 << $1.offset) : $0 },
                       onToggleBypass: toggleReceiverBypass,
                       octave: receiverOctave, onOct: nudgeReceiverOctave,
+                      note: receiverNote, onNote: nudgeReceiverNote,
                       onVelOverride: setReceiverVel, holdLatch: holdLatch,
                       wiring: !routeFoci.isEmpty, routeCurrent: routeInCurrentReceiver,   // §10 ROUTE IN session face
                       onRouteIn: routeInReceiver)

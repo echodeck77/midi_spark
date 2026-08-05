@@ -94,6 +94,13 @@ final class Kernel {
         let byte = UInt8(bitPattern: Int8(max(-3, min(3, oct))))
         inputOctave = Kernel.packLane(inputOctave, recv, byte)
     }
+    // receiver strip: per-receiver ±semitone NOTE nudge (−12…+12), packed one signed byte each. Composes with octave.
+    private var inputSemitone: UInt32 = 0
+    func setInputSemitone(_ recv: Int, _ n: Int) {
+        guard recv >= 0 && recv < 4 else { return }
+        let byte = UInt8(bitPattern: Int8(max(-12, min(12, n))))
+        inputSemitone = Kernel.packLane(inputSemitone, recv, byte)
+    }
     // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
     // receiver (0 = none, 1–127 = flatten). Ephemeral; the UI springs it back to 0 on slider release.
     private var inputVelOverride: UInt32 = 0
@@ -475,7 +482,7 @@ final class Kernel {
                         frameCount: frameCount, audition: audition, laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloEmitterMask: soloEmitterMask,
-                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputVelOverride: inputVelOverride,
+                        soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,

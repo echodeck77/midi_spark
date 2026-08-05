@@ -560,13 +560,13 @@ struct GridView: View {
             Canvas { ctx, size in
                 let strikeAge = tl.date.timeIntervalSince(hitAt)
                 let releaseAge = tl.date.timeIntervalSince(releasedAt)
-                // STOP when the playhead leaves the column (user 2026-08-05). A TRACKED release (releasedAt after the
-                // strike) fades FAST (~0.45s) — no extra pass. The ~1.1s strike-tail free-run is kept ONLY for a pluck
-                // so short the 4Hz gate never recorded a release (no tracked release), so plucks still register.
+                // STOP when the playhead leaves the column (user 2026-08-05). The spark TRAVELS only while the note
+                // SOUNDS; once it lets go it FREEZES in place and fades — no extra pass. A tracked release fades fast
+                // (~0.45s); a pluck the 4Hz gate never caught sounding still flashes a brief frozen spark (~0.5s).
                 let hasRelease = releasedAt > hitAt
                 let life = sounding ? 1.0
                                     : (hasRelease ? max(0.0, 1 - releaseAge / 0.45)
-                                                  : max(0.0, 1 - strikeAge / 1.1))
+                                                  : max(0.0, 1 - strikeAge / 0.5))
                 guard life > 0 else { return }
                 let pts = sealNodePoints(geo, size: size, padFraction: 0.16)
                 guard pts.count > 1 else { return }
@@ -585,10 +585,12 @@ struct GridView: View {
                 if glow > 0 {                                                   // §5: the wire brightens on strike
                     drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: .white.opacity(0.35 * glow))
                 }
-                // FREE-RUN while the note sounds (a new strike never resets it); FREEZE at the release position once
-                // it lets go (a tracked release) so it fades IN PLACE instead of running an extra fraction of the path.
-                let clock = (sounding || !hasRelease) ? tl.date.timeIntervalSinceReferenceDate
-                                                      : releasedAt.timeIntervalSinceReferenceDate
+                // TRAVEL only while sounding (a new strike never resets the free-run); once the note lets go, FREEZE
+                // the spark's clock — at the release, or at the STRIKE for a pluck the gate never caught sounding — so
+                // it fades IN PLACE. This is the fix: short single-column notes (whose release the 4Hz gate misses)
+                // no longer free-run an extra fraction of the path after the playhead has left.
+                let clock = sounding ? tl.date.timeIntervalSinceReferenceDate
+                                     : (hasRelease ? releasedAt : hitAt).timeIntervalSinceReferenceDate
                 let prog = (clock * 0.9).truncatingRemainder(dividingBy: 1.0)
                 let head = Int(prog * Double(dense.count - 1))                  // loops the path at ~0.9 lengths/s
                 let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§5)
@@ -701,6 +703,8 @@ struct ReceiversView: View {
     var onToggleBypass: (Int) -> Void = { _ in }
     var octave: [Int] = [0, 0, 0, 0]                   // inc 3: ephemeral ±octave nudge
     var onOct: (Int, Int) -> Void = { _, _ in }        // (receiver, ±1)
+    var note: [Int] = [0, 0, 0, 0]                     // per-receiver ±semitone NOTE nudge (ephemeral)
+    var onNote: (Int, Int) -> Void = { _, _ in }       // (receiver, ±1 semitone)
     var onVelOverride: (Int, Int?) -> Void = { _, _ in }   // inc 4: the slider's momentary input-velocity override
     var holdLatch: Bool = false                        // §5c HOLD latches the touched slider value
     // §10 STRIP SESSION FACE — while a verb is held the whole strip becomes one large ROUTE IN target: the
@@ -721,12 +725,8 @@ struct ReceiversView: View {
     var body: some View {
         // SPACE-FILL: the box grows to fill its band; the strips stretch VERTICALLY so the slider (and its
         // marks) gets the room — reclaimed pixels go to touch, not new controls.
-        VStack(alignment: .leading, spacing: 3) {
-            Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }
-                .frame(maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        HStack(alignment: .top, spacing: 4) { ForEach(0..<4, id: \.self) { strip($0) } }   // MIDI INPUT label removed (user 2026-08-05)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // The strip: header (hue dot + R-label + THRU pip) · control region (SLIDER | features, faces swap) ·
@@ -736,11 +736,8 @@ struct ReceiversView: View {
         let soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         return VStack(spacing: 3) {
             header(i)
-            HStack(alignment: .top, spacing: 3) {
-                slider(i).frame(width: 16).frame(maxHeight: .infinity)   // input meter + FIXED velocity override — grows tall
-                performFeatures(i)                          // LATCH+KEYS/CHORD · OCT · LIVE·SOLO (moved here, right of the slider)
-            }
-            .frame(minHeight: Self.controlHeight, maxHeight: .infinity)  // SPACE-FILL: control region spends the band's height
+            performFeatures(i)                              // LATCH arm · NOTE± / OCT± · MUTE·SOLO (slider/velocity-override removed, user 2026-08-05)
+                .frame(minHeight: Self.controlHeight, maxHeight: .infinity)  // SPACE-FILL: control region spends the band's height
         }
         .padding(4).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: strip fills the band height
         .background(RoundedRectangle(cornerRadius: 6)
@@ -781,7 +778,7 @@ struct ReceiversView: View {
             .contentShape(Rectangle())
             .onTapGesture { onToggleEnable(i) }
             Spacer(minLength: 0)
-            bypassToggle(i)   // BYPASS — replaced the THRU pip (user 2026-08-03)
+            // BYPASS removed from the grid strip (user 2026-08-05) — it lives on the RECEIVERS tab now.
         }
     }
 
@@ -811,26 +808,39 @@ struct ReceiversView: View {
     // PERFORM features (right of the slider): the LATCH + KEYS/CHORD cluster, the OCT−/OCT+ nudges + deviation
     // readout, and LIVE·SOLO (moved here from the foot). Single-face forever — channel/range config lives in the cog.
     private func performFeatures(_ i: Int) -> some View {
-        let oct = i < octave.count ? octave[i] : 0
         let muted = r(i).muted, soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-        return VStack(spacing: 3) {
-            latchRow(i)              // LATCH (left) + KEYS/CHORD (right) — one related cluster
-            Color.clear.frame(height: 5)   // gap: latch cluster ↔ OCT (user 2026-08-03)
-            HStack(spacing: 2) {
-                featBtn("OCT−", lit: false) { onOct(i, -1) }
-                featBtn("OCT+", lit: false) { onOct(i, +1) }
-            }
-            Text(oct == 0 ? " " : (oct > 0 ? "+\(oct)" : "\(oct)"))
-                .font(.system(size: 7, weight: .heavy, design: .monospaced))
-                .foregroundColor(oct != 0 ? soloHue : .white.opacity(0.3))
-            Color.clear.frame(height: 5)   // gap: OCT ↔ LIVE·SOLO (user 2026-08-03)
-            HStack(spacing: 3) {     // LIVE · SOLO — moved here below OCT (user 2026-08-03); the EMITTER colours (LIVE cyan · SOLO amber)
-                footBtn(muted ? "MUTED" : "LIVE", lit: !muted, hue: cyan, dim: muted) { onToggleMute(i) }
+        return VStack(spacing: 4) {
+            latchCluster(i)          // LATCH arm (left) + NOTE± (top, where KEYS was) / OCT± (bottom, where CHORD was)
+            HStack(spacing: 3) {     // MUTE · SOLO — directly under the latch controls (user 2026-08-05)
+                footBtn("MUTE", lit: muted, hue: cyan, dim: false) { onToggleMute(i) }
                 footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
             }
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity)
+    }
+
+    // The LATCH cluster: the padlock ARM on the LEFT (spans both rows), and — where KEYS|CHORD used to be — the NOTE±
+    // (top) and OCT± (bottom) semitone/octave nudges (user 2026-08-05: latch mode moved to the RECEIVERS tab).
+    private func latchCluster(_ i: Int) -> some View {
+        HStack(spacing: 3) {
+            latchArm(i)
+            VStack(spacing: 2) {
+                nudgeRow("NOTE", value: i < note.count ? note[i] : 0) { onNote(i, $0) }
+                nudgeRow("OCT", value: i < octave.count ? octave[i] : 0) { onOct(i, $0) }
+            }.frame(maxWidth: .infinity)
+        }
+        .frame(height: 44)   // two nudge rows; the padlock arm matches this height
+    }
+    private func nudgeRow(_ label: String, value: Int, _ act: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 2) {
+            Text(value == 0 ? label : "\(label)\(value > 0 ? "+\(value)" : "\(value)")")
+                .font(.system(size: 6, weight: .heavy, design: .monospaced))
+                .foregroundColor(value != 0 ? soloHue : .white.opacity(0.5))
+                .frame(minWidth: 30).lineLimit(1).minimumScaleFactor(0.7)
+            featBtn("−", lit: false) { act(-1) }
+            featBtn("+", lit: false) { act(+1) }
+        }
     }
 
     // BYPASS toggle (§1) — compact, in the header where the THRU pip used to be. Lit = this door skips the grid and

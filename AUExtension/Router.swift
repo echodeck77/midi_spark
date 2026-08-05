@@ -272,10 +272,12 @@ final class Router {
     // with the cell's colour transpose at the per-cell transpose local (a PLAYING control; 0 in stopped
     // audition). A note pushed past 0…127 by the sum is dropped by the per-emit guard (intended).
     private var inputOctave: UInt32 = 0
-    private func octaveShift(_ recv: Int8) -> Int {
+    private var inputSemitone: UInt32 = 0                    // receiver strip: per-receiver ±semitone NOTE nudge (composes with octave)
+    private func octaveShift(_ recv: Int8) -> Int {          // total input transpose = octave×12 + semitone
         guard recv >= 0 else { return 0 }
-        let byte = UInt8((inputOctave >> (UInt32(recv) * 8)) & 0xFF)
-        return Int(Int8(bitPattern: byte)) * 12
+        let oct = Int(Int8(bitPattern: UInt8((inputOctave >> (UInt32(recv) * 8)) & 0xFF)))
+        let semi = Int(Int8(bitPattern: UInt8((inputSemitone >> (UInt32(recv) * 8)) & 0xFF)))
+        return oct * 12 + semi
     }
     // receiver strip: the momentary-absolute INPUT-velocity override (the slider's ride), packed byte per
     // receiver (0 = none). Flattens a receiver's subscribers at the wire. `currentInputRecv` is the receiver
@@ -1123,6 +1125,7 @@ final class Router {
                  soloEmitterMask: UInt8 = 0,
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
+                 inputSemitone: UInt32 = 0,
                  inputVelOverride: UInt32 = 0,
                  emitterOctave: UInt32 = 0,
                  masterVelOverride: UInt8 = 0,
@@ -1140,6 +1143,7 @@ final class Router {
         self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
+        self.inputSemitone = inputSemitone         // receiver strip: per-receiver ±semitone NOTE nudge
         self.inputVelOverride = inputVelOverride   // receiver strip: per-receiver input-velocity override
         self.emitterOctave = emitterOctave         // emitter strip: per-emitter output ±octave nudge
         self.masterVelOverride = masterVelOverride // master panel: the momentary master fader

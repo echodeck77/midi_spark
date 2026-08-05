@@ -181,6 +181,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setSoloEmitterMask(_ mask: UInt8) { kernel.setSoloEmitterMask(mask) }
     func setSoloReceiverMask(_ mask: UInt8) { kernel.setSoloReceiverMask(mask) }   // receiver strip: input SOLO set
     func setInputOctave(_ recv: Int, _ oct: Int) { kernel.setInputOctave(recv, oct) }   // receiver strip: ±octave nudge
+    func setInputSemitone(_ recv: Int, _ n: Int) { kernel.setInputSemitone(recv, n) }   // receiver strip: ±semitone NOTE nudge
     func setInputVelOverride(_ recv: Int, _ value: Int?) { kernel.setInputVelOverride(recv, value) }   // receiver strip: slider
     func setLatchArm(_ mask: UInt8) { kernel.setLatchArm(mask) }   // receiver strip: per-receiver chord LATCH arm mask
     func setEmitterOctave(_ bus: Int, _ oct: Int) { kernel.setEmitterOctave(bus, oct) }   // emitter strip: output ±octave
