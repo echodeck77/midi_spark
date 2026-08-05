@@ -35,7 +35,10 @@ through `Router.closeVoice` (one `0x80` site).
 
 ---
 
-## B. FIXABLE BUGS / GAPS (no domain ruling needed — we can do these)
+## B. FIXABLE BUGS / GAPS (no domain ruling needed)
+**Status (commit `ac1f877`): B1 ✅ · B2 ✅ (+test) · B3 ✅ · B5 ✅ fixed. B6 = non-issue (comment already correct).
+B4 + B7 deferred (carry regression risk / need the design ruling below).**
+
 - **B1 · THRU channel filter drops channel-less System messages.** `thruAudible`→`receiverHears` (Derivations)
   passes a System status's low nibble as a "channel", so a THRU receiver set to any non-OMNI channel silently
   drops MIDI clock/start/stop/SysEx/active-sensing (their sub-type nibble ≠ filter−1). Fix: exempt `0xF0..0xFF`
