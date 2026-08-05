@@ -831,11 +831,11 @@ struct DiagView: View {
                                onClose: { showManual = false })
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
-                    CogPage(au: au, receivers: receivers, busChannels: busChannels, d: d,
-                            inAt: receiverPeakAt, outAt: emitPeakAt, mpeAt: mpeSeenAt, aboutLine: aboutLine,
+                    CogPage(au: au, busChannels: busChannels, d: d,
+                            outAt: emitPeakAt, aboutLine: aboutLine,
                             showScenes: $showScenes,
                             onSetEmitterChannel: setEmitterChannel,
-                            onChanged: { receivers = au?.uiReceivers() ?? receivers; busChannels = au?.uiBusChannels() ?? busChannels },
+                            onChanged: { busChannels = au?.uiBusChannels() ?? busChannels },
                             onClose: { showSettings = false })
                 }
                 if showPresets {                        // §3 the preset browser (overlay; the engine keeps running)
@@ -1069,7 +1069,8 @@ struct DiagView: View {
         case .emitters:
             rackMatrixView                    // the treatment matrix, now a full page
         case .receivers:
-            comingSoonPage(.receivers)        // Part 4 replaces this with the promoted per-door config
+            ReceiverConfigView(au: au, receivers: receivers, inAt: receiverPeakAt, mpeAt: mpeSeenAt,
+                               onChanged: { receivers = au?.uiReceivers() ?? receivers })
         case .macros, .automation:
             comingSoonPage(activeTab)
         }

@@ -2,21 +2,16 @@ import SwiftUI
 
 /// §5 THE COG PAGE — the one settings door (⚙, top-right of the arrangement bar). A full-screen overlay ON
 /// the running instrument: audio/render never stop, MIDI flows, latches hold; every edit applies live; dismiss
-/// returns to uninterrupted play. It hosts the MIDI I/O RIG CONFIG (set-once rarities), NOT performance roles.
+/// returns to uninterrupted play. It hosts the true GLOBALS, NOT performance roles.
 ///
-/// INPUT (4 receiver LENSES, one line each — COG SIMPLIFICATION 2026-08-03): channel (OMNI default) · MPE-merge
-/// toggle — each with a live IN dot + an auto-detect MPE dot. CABLES are retired (the plugin hears every cable;
-/// routing-in is the host's job); the LATCH mode (KEYS|CHORD) moved to the STRIP (§2). OUTPUT (4 emitters A–D):
-/// stamp channel — each with a live OUT dot.
+/// LAYOUT v2: the per-door MIDI INPUT config moved to its own RECEIVERS tab (`ReceiverConfigView`). The cog now
+/// holds OUTPUT (4 emitters A–D: stamp channel, each with a live OUT dot) · DISPLAY · HEALTH · about.
 struct CogPage: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
-    let receivers: [Receiver]
     let busChannels: [Int]
     let d: KernelDiag                 // health readout (voices / held / panics)
-    let inAt: [Date]                  // last input activity per receiver (for the IN dot fade)
     let outAt: [Date]                 // last output activity per emitter (for the OUT dot fade)
-    let mpeAt: [Date]                 // last MPE-detected per receiver (auto-detect dot)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
     let onSetEmitterChannel: (Int, Int) -> Void
@@ -35,12 +30,8 @@ struct CogPage: View {
                 header
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
-                        section("MIDI INPUT")
-                        Text("Four LENSES on one stream — the plugin hears every cable. Shape each door: channel · range · MPE. (Latch KEYS|CHORD lives on the strip.)")
-                            .font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
-                            .fixedSize(horizontal: false, vertical: true)
-                        ForEach(0..<4, id: \.self) { inputRow($0) }
-                        divider
+                        // LAYOUT v2: MIDI INPUT (the per-door config) moved to its own RECEIVERS tab. The cog keeps
+                        // the true globals below: MIDI OUTPUT · DISPLAY · HEALTH.
                         section("MIDI OUTPUT")
                         ForEach(0..<4, id: \.self) { outputRow($0) }
                         divider
@@ -85,26 +76,6 @@ struct CogPage: View {
         Text(t).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.55)).tracking(1.5)
     }
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
-
-    // MARK: INPUT — ONE line per door (COG SIMPLIFICATION 2026-08-03): hue·label · IN/MPE dots · CH chip
-    // (OMNI default) · RANGE chips (§2, note window, default ALL) · MPE toggle. Cables are RETIRED and the LATCH
-    // mode (KEYS|CHORD) moved to the strip (§2).
-
-    private func inputRow(_ i: Int) -> some View {
-        let r = i < receivers.count ? receivers[i] : Receiver()
-        return HStack(spacing: 8) {
-            Text("R\(i + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(i < receiverHues.count ? receiverHues[i] : ink.opacity(0.85)).frame(width: 26, alignment: .leading)   // hue · label
-            liveDot(inAt[safe: i], cyan)                                   // note-ons arriving
-            mpeDot(mpeAt[safe: i], on: r.mpeMerge)                         // auto-detected MPE spread
-            Spacer(minLength: 8)
-            channelMenu(current: r.channel) { au?.setReceiverChannel(i, $0); onChanged() }   // CH chip — OMNI default, the one optional decision
-            // (LATCH CHORD|ADD chip REMOVED 2026-08-03 — the mode is now KEYS|CHORD on the STRIP, per redesign §2.)
-            labeled("RANGE") { rangeChips(lo: r.rangeLoResolved, hi: r.rangeHiResolved) { lo, hi in au?.setReceiverRange(i, lo: lo, hi: hi); onChanged() } }   // §2 note window (default ALL)
-            labeled("BYP→") { bypassDestChips(mask: r.bypassDestResolved, active: r.bypassResolved) { d in au?.setReceiverBypassDest(i, Int(r.bypassDestResolved ^ (1 << UInt8(d)))); onChanged() } }   // §2 bypass destinations (default ALL)
-            labeled("MPE") { mpeToggle(on: r.mpeMerge) { au?.setReceiverMpeMerge(i, $0); onChanged() } }
-        }
-    }
 
     private func outputRow(_ i: Int) -> some View {
         HStack(spacing: 8) {
@@ -152,50 +123,6 @@ struct CogPage: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
         }
     }
-    // (CABLE toggles retired 2026-08-03 — cables are router-admin the host owns; the plugin always hears all cables.)
-    // (LATCH CHORD|ADD segments removed 2026-08-03 — the mode is now KEYS|CHORD on the strip, per redesign §2.)
-
-    // RANGE (§2): the door's note WINDOW — two note chips (lo – hi), default ALL. Each chip is a menu of octave
-    // submenus + a MIN/MAX (all) reset. The door admits only notes in [lo, hi], upstream of the latch.
-    private func rangeChips(lo: UInt8, hi: UInt8, _ set: @escaping (Int, Int) -> Void) -> some View {
-        HStack(spacing: 2) {
-            noteMenu(current: lo, isLo: true) { set(Int($0), Int(hi)) }
-            Text("–").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4))
-            noteMenu(current: hi, isLo: false) { set(Int(lo), Int($0)) }
-        }
-    }
-    private func noteMenu(current: UInt8, isLo: Bool, _ set: @escaping (UInt8) -> Void) -> some View {
-        Menu {
-            Button(isLo ? "MIN (all below)" : "MAX (all above)") { set(isLo ? 0 : 127) }
-            ForEach(0..<11, id: \.self) { oct in                    // octave submenus: index 0…10 ⇒ octave −1…9
-                Menu("Oct \(oct - 1)") {
-                    ForEach(0..<12, id: \.self) { pc in
-                        let n = oct * 12 + pc
-                        if n <= 127 { Button(midiNoteName(UInt8(n))) { set(UInt8(n)) } }
-                    }
-                }
-            }
-        } label: {
-            Text(midiNoteName(current))
-                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cyan)
-                .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
-        }
-    }
-    // BYPASS DESTINATIONS (§2): a per-door A–D multiselect — where the strip's BYPASS injects. Default ALL. Dimmed
-    // when the door isn't bypassed (a hint that they only bite once BYPASS is armed on the strip).
-    private func bypassDestChips(mask: UInt8, active: Bool, _ toggle: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 2) {
-            ForEach(0..<4, id: \.self) { d in
-                let on = mask & (1 << UInt8(d)) != 0
-                Text(["A", "B", "C", "D"][d]).font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? .black : ink.opacity(active ? 0.5 : 0.3))
-                    .frame(width: 15, height: 18)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(on ? amber.opacity(active ? 1 : 0.45) : ink.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { toggle(d) }
-            }
-        }
-    }
     private func mpeToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Text(on ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : ink.opacity(0.45))
@@ -211,15 +138,6 @@ struct CogPage: View {
             let lit = max(0, 1 - tl.date.timeIntervalSince(at) / 0.35)
             Circle().fill(hue.opacity(0.12 + 0.88 * lit)).frame(width: 8, height: 8)
                 .overlay(Circle().stroke(hue.opacity(0.35), lineWidth: 0.5))
-        }
-    }
-    // MPE dot: a small "M" — bright when MPE input is auto-detected now; dim outline when merge is toggled on
-    // but nothing MPE is arriving; invisible when both off.
-    private func mpeDot(_ at: Date, on: Bool) -> some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: animPaused)) { tl in
-            let lit = max(0, 1 - tl.date.timeIntervalSince(at) / 0.6)
-            Text("M").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                .foregroundColor(green.opacity(lit > 0.05 ? (0.3 + 0.7 * lit) : (on ? 0.28 : 0)))
         }
     }
 }
