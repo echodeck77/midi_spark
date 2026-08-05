@@ -452,6 +452,22 @@ struct Macro: Codable, Equatable {
     var fixed: Bool = false          // the padlock: false = SPRING (default) · true = FIXED (latched)
     var targets: [MacroTarget] = []  // CHAIN/INPUT: the A/B deltas on cell/slot params (empty = unbound)
     var emitterTargets: [MacroEmitterTarget] = []   // OUTPUT: the A/B deltas on per-emitter role amounts
+    // TIMELINE lane (overlay-rule-macro-lanes spec): the playhead drives the macro's value per column. `laneOn` OFF
+    // ⇒ today's manual macro. `lane` = 8 step values (0…1); `laneModes` = per-step 0 STEP · 1 SMOOTH · 2 BYPASS
+    // (BYPASS ⇒ the manual value governs that column — sparse automation with honest gaps); `laneRate` indexes the
+    // per-lane RATE (×8…÷8). Additive/Optional → old docs decode nil. Value = f(absolute beat × rate), replay-safe.
+    var laneOn: Bool = false
+    var lane: [Double]? = nil
+    var laneModes: [Int]? = nil
+    var laneRate: Int = 3            // index into Macro.laneRateMul (3 = ×1, the default: one step per column)
+
+    /// The 8 lane values (0…1), nil/short-array safe.
+    var laneResolved: [Double] { let a = lane ?? []; return (0..<8).map { $0 < a.count ? max(0, min(1, a[$0])) : 0 } }
+    /// The 8 per-step modes (0 STEP · 1 SMOOTH · 2 BYPASS), nil/short-array safe.
+    var laneModesResolved: [Int] { let a = laneModes ?? []; return (0..<8).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
+    /// The RATE multiplier for a lane-rate index: ×8 … ×1 … ÷8 (how many lane steps advance per column).
+    static let laneRateMul: [Double] = [8, 4, 2, 1, 0.5, 0.25, 0.125]
+    var laneRateMulResolved: Double { let i = max(0, min(Macro.laneRateMul.count - 1, laneRate)); return Macro.laneRateMul[i] }
 }
 
 struct PluginState: Codable, Equatable {

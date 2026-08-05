@@ -273,6 +273,55 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(SnapshotBuilder.build(from: doc).flattenAmount[0], 40)   // home = base
     }
 
+    // MARK: TIMELINE — the pure lane evaluator (value = f(column))
+
+    private func flat(_ v: Int) -> [Int] { Array(repeating: v, count: 8) }
+
+    func testLaneStepHoldsValueAcrossColumn() {
+        let lane = [0.2, 0.8] + Array(repeating: 0.0, count: 6)
+        let modes = flat(0)                                        // all STEP
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.0, stepBeats: 1, manual: 0.5), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.5, stepBeats: 1, manual: 0.5), 0.2, accuracy: 1e-9)  // holds mid-column
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 1.0, stepBeats: 1, manual: 0.5), 0.8, accuracy: 1e-9)  // next step
+    }
+
+    func testLaneSmoothGlidesTowardNextValue() {
+        var modes = flat(0); modes[0] = 1                          // step 0 SMOOTH
+        let lane = [0.0, 1.0] + Array(repeating: 0.0, count: 6)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.0, stepBeats: 1, manual: 0.5), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.5, stepBeats: 1, manual: 0.5), 0.5, accuracy: 1e-9)  // halfway glide
+    }
+
+    func testLaneBypassReturnsManual() {
+        var modes = flat(0); modes[0] = 2                          // step 0 BYPASS → the fader value governs
+        let lane = [0.9] + Array(repeating: 0.0, count: 7)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.3, stepBeats: 1, manual: 0.42), 0.42, accuracy: 1e-9)
+    }
+
+    func testLaneSmoothSkipsBypassedColumnsForTarget() {
+        var modes = flat(0); modes[0] = 1; modes[1] = 2            // 0 SMOOTH · 1 BYPASS · 2 STEP
+        let lane = [0.0, 0.3, 1.0] + Array(repeating: 0.0, count: 5)
+        // from step 0 the next non-bypassed target is step 2 (1.0), NOT the bypassed step 1 (0.3) → glide 0→1.
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.5, stepBeats: 1, manual: 0.5), 0.5, accuracy: 1e-9)
+    }
+
+    func testLaneRateScalesAndWraps() {
+        let lane = (0..<8).map { Double($0) / 10.0 }               // 0.0, 0.1, … 0.7
+        let modes = flat(0)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 2, absoluteBeat: 0.5, stepBeats: 1, manual: 0), 0.1, accuracy: 1e-9)  // ×2 → step 1 by half a column
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 8.0, stepBeats: 1, manual: 0), 0.0, accuracy: 1e-9)  // wraps to step 0
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 9.0, stepBeats: 1, manual: 0), 0.1, accuracy: 1e-9)  // step 9 → 1
+    }
+
+    func testMacroLaneResolversAreShortArraySafe() {
+        var m = Macro(); m.lane = [0.5]; m.laneModes = [2]
+        XCTAssertEqual(m.laneResolved.count, 8)
+        XCTAssertEqual(m.laneResolved[0], 0.5); XCTAssertEqual(m.laneResolved[1], 0.0)
+        XCTAssertEqual(m.laneModesResolved[0], 2); XCTAssertEqual(m.laneModesResolved[1], 0)
+        XCTAssertEqual(m.laneRateMulResolved, 1.0)                 // default index 3 = ×1
+        m.laneRate = 0; XCTAssertEqual(m.laneRateMulResolved, 8.0) // ×8
+    }
+
     /// Each OUTPUT amount clamps to its native range (LEAK/DUCK 0…100 · CURVE −100…100 · POCKET −50…50), summing
     /// overlaps ONCE. A half-value macro scales the delta.
     func testOutputAmountsSumThenClampToRanges() {

@@ -13,6 +13,35 @@ import Foundation
 /// engine's resolvers and the macro offset math — states the clamp INTENT once, no behaviour change.
 @inline(__always) func clamp<T: Comparable>(_ v: T, _ lo: T, _ hi: T) -> T { min(max(v, lo), hi) }
 
+/// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).
+/// PURE + replay-safe: the step position = `absoluteBeat / stepBeats × rateMul`, wrapped over the 8 steps.
+///  · STEP   (0) — hold this step's value across the column.
+///  · SMOOTH (1) — glide across the column from this step's value toward the NEXT NON-BYPASSED value (bypassed
+///                 columns are skipped when finding the target).
+///  · BYPASS (2) — the lane is ABSENT this column: the macro sits at its `manual` (fader) value — sparse automation
+///                 with honest gaps.
+/// `lane`/`modes` are the 8-wide resolved arrays; `rateMul` from `Macro.laneRateMulResolved`.
+func laneValue(lane: [Double], modes: [Int], rateMul: Double, absoluteBeat: Double, stepBeats: Double, manual: Double) -> Double {
+    let n = lane.count
+    guard n > 0, stepBeats > 0, rateMul > 0 else { return manual }
+    let pos = absoluteBeat / stepBeats * rateMul          // continuous step position
+    let idx = Int(pos.rounded(.down))
+    let phase = pos - Double(idx)                          // 0…1 within the current step
+    let s = ((idx % n) + n) % n                            // wrapped step (handles negatives)
+    let mode = s < modes.count ? modes[s] : 0
+    switch mode {
+    case 2:                                                // BYPASS → the manual/fader value governs this column
+        return manual
+    case 1:                                                // SMOOTH → glide toward the next non-bypassed value
+        var j = s
+        for _ in 0..<n { j = (j + 1) % n; if (j < modes.count ? modes[j] : 0) != 2 { break } }
+        let a = lane[s], b = lane[j]
+        return a + (b - a) * max(0, min(1, phase))
+    default:                                               // STEP → hold this step's value
+        return lane[s]
+    }
+}
+
 // MARK: - The source pool (§2.5): omni, keyed by note number
 
 /// The live held-note pool. All input channels merge (omni, §2.5) — note number is the key — but
