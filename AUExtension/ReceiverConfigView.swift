@@ -33,12 +33,12 @@ struct ReceiverConfigView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("MIDI RECEIVERS").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.75)).tracking(1.5)
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                LazyVGrid(columns: [GridItem(.fixed(400), spacing: 14), GridItem(.fixed(400))], spacing: 14) {
                     ForEach(0..<4, id: \.self) { block($0) }
                 }
             }
         }
-        .frame(width: 1024, alignment: .leading)                     // the two receivers per row total 1024 (user 2026-08-05)
+        .frame(width: 400 * 2 + 14, alignment: .leading)             // each receiver block 400 wide (user 2026-08-05)
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // centred horizontally on the tab
     }
@@ -128,27 +128,37 @@ struct ReceiverConfigView: View {
             .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
 
-    // "Bypass MIDI processors" — the four emitter destination toggles. Any selected ⇒ this door skips the grid and
-    // injects straight to those emitters; none selected ⇒ bypass off (kept in sync with the door's bypass flag).
+    // BYPASS — an explicit ON/OFF toggle (left), and the destination emitters (right, DIMMED while off). The two are
+    // DECOUPLED (user 2026-08-05): you can pick the destination emitter without turning bypass on. Destination
+    // defaults to A. Bypass ON ⇒ this door skips the MIDI processors and injects straight to the chosen emitters.
     private func bypassSection(_ i: Int, _ r: Receiver) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Bypass MIDI processors").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
-            HStack(spacing: 5) {
-                ForEach(0..<4, id: \.self) { d in
-                    let on = Int(r.bypassDestResolved) & (1 << d) != 0
-                    Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : ink.opacity(0.6))
-                        .frame(width: 38, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? cyan : ink.opacity(0.1)))
-                        .contentShape(Rectangle()).onTapGesture {
-                            let newDest = Int(r.bypassDestResolved) ^ (1 << d)
-                            au?.setReceiverBypassDest(i, newDest)
-                            if (newDest != 0) != r.bypassResolved { onToggleBypass(i) }   // sync the door's bypass on/off
-                            onChanged()
-                        }
-                }
-                Spacer(minLength: 0)
+        let on = r.bypassResolved
+        return HStack(alignment: .bottom, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Bypass").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
+                Text(on ? "ON" : "OFF").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(on ? .black : ink.opacity(0.5))
+                    .frame(width: 54, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(on ? cyan : ink.opacity(0.1)))
+                    .contentShape(Rectangle()).onTapGesture { onToggleBypass(i); onChanged() }
             }
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Bypass to Emitters").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
+                HStack(spacing: 5) {
+                    ForEach(0..<4, id: \.self) { d in
+                        let sel = Int(r.bypassDestResolved) & (1 << d) != 0
+                        Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(sel ? .black : ink.opacity(0.6))
+                            .frame(width: 34, height: 30)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(sel ? cyan : ink.opacity(0.1)))
+                            .contentShape(Rectangle()).onTapGesture {   // sets the destination only — never toggles bypass
+                                au?.setReceiverBypassDest(i, Int(r.bypassDestResolved) ^ (1 << d)); onChanged()
+                            }
+                    }
+                }
+            }
+            .opacity(on ? 1 : 0.4)   // dimmed while bypass is OFF (still tappable — pick the emitter ahead of time)
+            Spacer(minLength: 0)
         }
     }
 

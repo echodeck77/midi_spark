@@ -340,7 +340,7 @@ struct Receiver: Codable, Equatable {
     var bypassDest: Int? = nil
     var bypassResolved: Bool { bypass ?? false }
     /// The destination emitter mask, nil-safe: missing ⇒ ALL four (A–D). Non-persisting read helper.
-    var bypassDestResolved: UInt8 { UInt8((bypassDest ?? 0b1111) & 0b1111) }
+    var bypassDestResolved: UInt8 { UInt8((bypassDest ?? 0b0001) & 0b1111) }   // default = emitter A (user 2026-08-05)
     // §item 11 INPUT CABLES (amendment 2026-07-26): the input cable(s) this receiver reads, as a BITMASK
     // (bit i = cable i+1; cables 1–4). Optional so pre-cable docs decode as nil ⇒ ANY (all cables) — a
     // migration no-op. The v1 stepper writes ANY or a single bit; the bitmask reserves subset-multi later.
