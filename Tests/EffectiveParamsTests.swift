@@ -182,4 +182,70 @@ final class EffectiveParamsTests: XCTestCase {
         doc.macros?[0].value = 0.5
         XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.6, accuracy: 1e-9)   // halfway
     }
+
+    // MARK: M1 — builder fold edge cases (guards + summing + multi-cell)
+
+    /// A gold ARP chain cell at (col,row) with the given head gate, ready for macro targeting.
+    private func chainCellDoc(gate: Double, at pos: (Int, Int) = (0, 0)) -> PluginState {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold")
+        var slot = ProcessorSlot(type: .arp); slot.params.gate = gate
+        cell.processors = [slot]
+        s.cells[pos.0][pos.1] = cell
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        return doc
+    }
+
+    /// An out-of-range macro index in the values array contributes no offset (no crash, treated as 0).
+    func testApplyMacrosIgnoresOutOfRangeMacroIndex() {
+        var base = SnapParams(); base.gate = 0.5
+        let out = applyMacros(base, mods: [MacroMod(macro: 99, param: .gate, delta: 0.4),
+                                           MacroMod(macro: -1, param: .gate, delta: 0.4)], values: [1.0])
+        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
+    }
+
+    /// The builder SKIPS a target with an unknown param string (forward-compat) — no crash, no change.
+    func testBuilderSkipsUnknownParamString() {
+        var doc = chainCellDoc(gate: 0.5)
+        doc.macros?[0] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "bogus", delta: 0.4)])
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.5, accuracy: 1e-9)
+    }
+
+    /// The builder SKIPS out-of-bounds cell/slot targets (a stale binding after a resize) — no crash, no change.
+    func testBuilderSkipsOutOfBoundsTarget() {
+        var doc = chainCellDoc(gate: 0.5)
+        doc.macros?[0] = Macro(value: 1.0, targets: [
+            MacroTarget(col: 99, row: 0, slot: 0, param: "gate", delta: 0.4),   // col out of range
+            MacroTarget(col: 0, row: 0, slot: 7, param: "gate", delta: 0.4),    // slot past the 1-slot chain
+        ])
+        let box = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(box.cells[0].procs[0].gate, 0.5, accuracy: 1e-9)          // unchanged; no trap
+    }
+
+    /// Two macros bound to the SAME (cell,slot,param) SUM through the full build, then clamp once.
+    func testBuilderTwoMacrosOnSameParamSumEndToEnd() {
+        var doc = chainCellDoc(gate: 0.4)
+        doc.macros?[0] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.2)])
+        doc.macros?[1] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3)])
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.9, accuracy: 1e-9)   // 0.4+0.2+0.3
+    }
+
+    /// One macro bound to TWO cells (a twin set) modulates BOTH — the multi-cell write law.
+    func testBuilderMacroModulatesEveryTargetedCell() {
+        var s = SceneState.empty()
+        for pos in [(0, 0), (3, 5)] {
+            var cell = Cell(colourID: "gold"); var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
+            cell.processors = [slot]; s.cells[pos.0][pos.1] = cell
+        }
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(value: 1.0, targets: [
+            MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3),
+            MacroTarget(col: 3, row: 5, slot: 0, param: "gate", delta: 0.3),
+        ])
+        let box = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(box.cells[0 * 8 + 0].procs[0].gate, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(box.cells[3 * 8 + 5].procs[0].gate, 0.8, accuracy: 1e-9)
+    }
 }
