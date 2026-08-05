@@ -3233,4 +3233,100 @@ final class RouterTests: XCTestCase {
         // FREE (0): B is unaffected by the lead.
         XCTAssertGreaterThan(convOut(stance: [0, 0, 0, 0]).1, 0, "FREE → B always admitted")
     }
+
+    // MARK: - the render-side parameter route (invariant 6)
+
+    /// The SECOND param route: a render-side `.parameter` event overrides a value until the NEXT snapshot
+    /// generation clears it (a real document edit is the new truth). CLAUDE.md invariant 6 says both routes must
+    /// keep working; this drives a transpose event (address 100 = gold's transpose) end-to-end and asserts the
+    /// wire pitch shifts, then reverts on a new generation. Previously untested at the Router level.
+    func testRenderParamEventTransposesUntilNextGenerationClearsIt() {
+        let cs = arpColours()
+        func gen(_ g: UInt64) -> SnapshotBox {
+            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // identity HOLD → emits the held note
+            var st = PluginState(colours: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            return SnapshotBuilder.build(from: st, generation: g)
+        }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        var beat = 0.0
+        func win(_ box: SnapshotBox) {
+            router.refreshOverrides(forGeneration: box.generation)   // the Kernel calls this each render, before events
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000,
+                           timestampSample: beat * 24_000, frameCount: 512, out: e, diag: &diag)
+            beat += 0.25
+        }
+        win(gen(1))                                                  // baseline — no override
+        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "baseline sounds the held note")
+        router.applyParamEvent(100, 12, diag: &diag)                // +12 on gold (address 100 = colour 0 transpose)
+        let mark = e.events.count
+        win(gen(1))                                                 // same generation → the override persists
+        XCTAssertTrue(e.events[mark...].contains { $0.status == 0x90 && $0.note == 72 }, "the param event shifts gold +12")
+        XCTAssertFalse(e.events[mark...].contains { $0.status == 0x90 && $0.note == 60 }, "…and 60 no longer sounds")
+        let mark2 = e.events.count
+        win(gen(2))                                                 // a NEW generation clears the override
+        XCTAssertTrue(e.events[mark2...].contains { $0.status == 0x90 && $0.note == 60 }, "a new snapshot generation reverts to 60")
+        XCTAssertGreaterThan(diag.paramEventCount, 0, "the event was counted")
+        // release + stop to leave nothing stuck
+        router.process(box: gen(2), pool: NotePool(), playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000,
+                       timestampSample: beat * 24_000, frameCount: 512, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
+
+    /// An UNMAPPED param address (no slot) is a silent no-op — it never traps, never writes an override.
+    func testUnmappedParamEventIsANoOp() {
+        let router = Router(); var diag = KernelDiag()
+        router.applyParamEvent(9_999, 42, diag: &diag)
+        XCTAssertEqual(diag.paramEventCount, 0, "an unmapped address applies nothing")
+    }
+
+    // MARK: - the PLAYING CHANCE chord-hold path (distinct from audition/preview)
+
+    /// The live emitColumnHolds CHANCE branch: probability 1 passes the whole chord, probability 0 silences it.
+    /// Previously only the audition + preview chance paths were covered, not the playing one.
+    func testPlayingChanceGatesOnProbability() {
+        func chanceBox(_ p: Double) -> SnapshotBox {
+            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+            cs[gi] = Colour(colourID: "gold", type: .chance); cs[gi].paramsA.probability = p
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let on = RecordingEmitter(); run(chanceBox(1), chord([60, 64]), beats: 8, into: on)
+        XCTAssertGreaterThan(on.ons.count, 0, "probability 1 → the chance chord sounds while playing")
+        assertNothingLeftSounding(on)
+        let off = RecordingEmitter(); run(chanceBox(0), chord([60, 64]), beats: 8, into: off)
+        XCTAssertTrue(off.ons.isEmpty, "probability 0 → the chance cell is silent")
+    }
+
+    // MARK: - scene FLUSH closes the outgoing scene's voices
+
+    /// A scene switch flushes the OLD scene's sounding voices at the switch sample — no stuck note straddling the
+    /// change. Switch INTO an empty scene so the flush is observable in isolation. `sceneFlush` was only incidentally
+    /// exercised by the fuzzer's quiescence check; this asserts the flush behaviour directly.
+    func testSceneFlushClosesSoundingVoices() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // identity hold
+        let empty = box(colours: arpColours()) { _ in }                                               // the incoming (empty) scene
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        router.process(box: b, pool: chord([60]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 0, frameCount: 512, out: e, diag: &diag)
+        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "the hold is sounding before the switch")
+        router.process(box: empty, pool: chord([60]), playing: true, beatPos: 0.25, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 12_000, frameCount: 512, sceneFlush: true, out: e, diag: &diag)
+        XCTAssertTrue(e.offs.contains { $0.note == 60 }, "the scene flush closes the old voice")
+        assertNothingLeftSounding(e)   // nothing survives the switch into an empty scene
+    }
+
+    // MARK: - bypass: multiple destinations
+
+    /// A bypassed door with a MULTI-emitter dest injects the held note on EACH selected cable (+ ALL), and
+    /// releasing the key closes them all — the multi-dest case existing bypass tests (single dest) never cover.
+    func testBypassInjectsToMultipleDests() {
+        let b = bypassBox(dest: 0b0011)   // emitters A + B → cables 1 and 2
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 }, "injected on emitter A")
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 2 }, "injected on emitter B")
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "and on the ALL cable")
+        stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)   // release the key
+        XCTAssertTrue(e.offs.contains { $0.cable == 1 } && e.offs.contains { $0.cable == 2 }, "release closes both dests")
+        assertNothingLeftSounding(e)
+    }
 }
