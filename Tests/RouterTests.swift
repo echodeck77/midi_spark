@@ -3075,6 +3075,36 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(fenceOut(policy: 0, lo: 64, hi: 72, rack: 0b1110), [60], "rack out of path ⇒ FENCE suspended (raw)")
     }
 
+    /// FENCE FOLD edges: folds DOWN (note above hi), FALLS BACK to clamp when the window can't fit an octave, and
+    /// an INVERTED window (lo > hi) fences nothing (a stray narrow/reversed window must never leak an out-of-range note).
+    func testFenceFoldDownwardNarrowFallbackAndInvertedWindow() {
+        XCTAssertEqual(fenceOut(policy: 2, lo: 36, hi: 48), [48], "FOLD down: 60 → 48 (above hi folds by −12)")
+        XCTAssertEqual(fenceOut(policy: 2, lo: 64, hi: 66), [64], "FOLD in a sub-octave window can't fold → clamps to 64")
+        XCTAssertEqual(fenceOut(policy: 2, lo: 72, hi: 48), [60], "inverted window (lo>hi) fences nothing → 60 passes")
+    }
+
+    /// CURVE never floors a note-on to velocity 0 (synths read vel-0 note-on as note-off → a stuck/ghost note).
+    func testCurveNeverEmitsVelocityZero() {
+        let e = RecordingEmitter()
+        let p = NotePool(); p.noteOn(60, velocity: 2, channel: 0)     // a barely-there note
+        run(curveBox(amount: -100), p, beats: 16, into: e)            // maximal softening → toward 0
+        let vels = e.ons.filter { $0.cable == 1 }.map { $0.vel }
+        XCTAssertFalse(vels.isEmpty, "the note still sounds")
+        XCTAssertTrue(vels.allSatisfy { $0 >= 1 }, "output velocity is floored to 1, never 0")
+    }
+
+    /// POCKET push (−ms) can't schedule a note-on before the render window's first sample (an invalid negative time).
+    func testPocketPushDoesNotScheduleBeforeWindowStart() {
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.pocketMask = 0b0001; st.pocketMs = [-30, 0, 0, 0]          // a strong push, at the column start
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
+                       tempo: 120, sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        let onset = e.ons.first { $0.cable == 1 }!.sample
+        XCTAssertGreaterThanOrEqual(onset, 0, "a push clamps to renderStart — never a negative sample time")
+    }
+
     // MARK: - THE RACK — MONO (per-emitter monophony)
 
     /// The notes left SOUNDING on A (last event = note-on) after ONE window holding a chord under MONO/priority.
