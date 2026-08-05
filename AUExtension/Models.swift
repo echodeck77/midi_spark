@@ -476,21 +476,26 @@ struct PluginState: Codable, Equatable {
     // scaled velocity (0 = full suppression = v1; the hole becomes a SHADOW). Persisted. Optional → nil = all 0.
     var claimLeak: [Int]? = nil
     /// The four LEAK amounts (0…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
-    var claimLeakResolved: [Int] { let a = claimLeak ?? []; return (0..<4).map { $0 < a.count ? max(0, min(100, a[$0])) : 0 } }
+    /// Resolve a persisted per-emitter (4-wide) Int array: clamp each element to [lo, hi], pad missing slots with
+    /// `dflt`. The nil-safe read shape shared by every rack amount (claimLeak · fenceLo · pocketMs · …).
+    static func resolved4(_ arr: [Int]?, _ dflt: Int, _ lo: Int, _ hi: Int) -> [Int] {
+        let a = arr ?? []; return (0..<4).map { $0 < a.count ? max(lo, min(hi, a[$0])) : dflt }
+    }
+    var claimLeakResolved: [Int] { Self.resolved4(claimLeak, 0, 0, 100) }
     // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter has anything sounding, OTHER
     // emitters' NEW note-ons arrive velocity-scaled by its amount (0…100%). Persisted (structure). Optional →
     // old docs decode nil (off). `flattenMask` = which emitters duck; `flattenAmount` = per-emitter amount.
     var flattenMask: UInt8? = nil
     var flattenAmount: [Int]? = nil
     /// The four FLATTEN amounts (0…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
-    var flattenAmountResolved: [Int] { let a = flattenAmount ?? []; return (0..<4).map { $0 < a.count ? max(0, min(100, a[$0])) : 0 } }
+    var flattenAmountResolved: [Int] { Self.resolved4(flattenAmount, 0, 0, 100) }
     // emitter role family: ALT — turn-taking. ALT-lit emitters form ONE group; notes fanning to the group
     // alternate among its members in position order (2 = ping-pong, 3–4 = round-robin). Persisted. `altMask`
     // = the group; `altCount` = per-emitter notes-per-turn (1…8, default 1). Optional → old docs decode nil.
     var altMask: UInt8? = nil
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
-    var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    var altCountResolved: [Int] { Self.resolved4(altCount, 1, 1, 8) }
     // TURNS hand-off MODE (user 2026-08-05): false/nil = PER-MOMENT (simultaneous notes all sound on the one
     // turn-holder); true = PER-NOTE (the group's emitters are TIME-EXCLUSIVE — simultaneous notes DROP all but the
     // first/leftmost, never delayed; successive onsets rotate). Document-level global; Optional → old docs decode nil.
@@ -503,7 +508,7 @@ struct PluginState: Codable, Equatable {
     var curveMask: UInt8? = nil
     var curveAmount: [Int]? = nil
     /// The four CURVE amounts (−100…100), nil/short-array safe (missing ⇒ 0). Non-persisting read helper.
-    var curveAmountResolved: [Int] { let a = curveAmount ?? []; return (0..<4).map { $0 < a.count ? max(-100, min(100, a[$0])) : 0 } }
+    var curveAmountResolved: [Int] { Self.resolved4(curveAmount, 0, -100, 100) }
     // THE RACK — FENCE (design-the-rack §6, THIS VOICE family): a per-emitter note-RANGE policy. Notes outside
     // [lo, hi] are handled by `fencePolicy` — 0 = DROP (suppress), 1 = CLAMP (to the nearest bound), 2 = FOLD
     // (octave-fold back in). `fenceMask` = which emitters fence; lo/hi = the window (0/127 default = no-op).
@@ -512,25 +517,25 @@ struct PluginState: Codable, Equatable {
     var fencePolicy: [Int]? = nil          // per-emitter 0=DROP · 1=CLAMP · 2=FOLD
     var fenceLo: [Int]? = nil              // per-emitter window low (0…127)
     var fenceHi: [Int]? = nil              // per-emitter window high (0…127)
-    var fencePolicyResolved: [Int] { let a = fencePolicy ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
-    var fenceLoResolved: [Int] { let a = fenceLo ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 0 } }
-    var fenceHiResolved: [Int] { let a = fenceHi ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 127 } }
+    var fencePolicyResolved: [Int] { Self.resolved4(fencePolicy, 0, 0, 2) }
+    var fenceLoResolved: [Int] { Self.resolved4(fenceLo, 0, 0, 127) }
+    var fenceHiResolved: [Int] { Self.resolved4(fenceHi, 127, 0, 127) }
     // THE RACK — MONO (design-the-rack §6, THIS VOICE): force monophony at this output; a new note steals per
     // PRIORITY (0 = LAST · 1 = LOW · 2 = HIGH). Persisted; Optional → old docs nil (off). Self-affecting → rack-gated.
     var monoMask: UInt8? = nil
     var monoPriority: [Int]? = nil
-    var monoPriorityResolved: [Int] { let a = monoPriority ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
+    var monoPriorityResolved: [Int] { Self.resolved4(monoPriority, 0, 0, 2) }
     // THE RACK — POCKET (design-the-rack §6, THIS VOICE): per-output timing feel — shift this output's notes a few
     // ms ahead (push, −) or behind (lay-back, +). Persisted; Optional → nil (off). Self-affecting → rack-gated.
     var pocketMask: UInt8? = nil
     var pocketMs: [Int]? = nil          // per-emitter −50…50 ms
-    var pocketMsResolved: [Int] { let a = pocketMs ?? []; return (0..<4).map { $0 < a.count ? max(-50, min(50, a[$0])) : 0 } }
+    var pocketMsResolved: [Int] { Self.resolved4(pocketMs, 0, -50, 50) }
     // THE RACK — CONVERSATION / LEAD·STANCE (design-the-rack §6, TOGETHER): one emitter LEADs; each other emitter's
     // STANCE admits its new notes only WITH the lead's sound (1) or AGAINST its silences (2), or FREE (0). Persisted.
     var convLead: Int? = nil            // nil/−1 = no lead; else emitter 0–3
     var convStance: [Int]? = nil        // per-emitter 0 FREE · 1 WITH · 2 AGAINST
     var convLeadResolved: Int { let l = convLead ?? -1; return (l >= 0 && l < 4) ? l : -1 }
-    var convStanceResolved: [Int] { let a = convStance ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
+    var convStanceResolved: [Int] { Self.resolved4(convStance, 0, 0, 2) }
     // THE RACK (design-the-rack §3, the two-tier law): the per-emitter "is the board in the signal path" gate.
     // The matrix toggles (claim/duck/alt/…) say which pedals are ARMED; this mask says whether the board is
     // patched in. Bit i clear ⇒ emitter i's whole rack is bypassed → its output is the raw wire regardless of the

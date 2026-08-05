@@ -60,9 +60,7 @@ enum SnapshotBuilder {
                 let override = cell.processors.flatMap { $0.isEmpty ? nil : $0 }
                 let template = (colourIndex < doc.colours.count ? doc.colours[colourIndex].templateChain : nil).flatMap { $0.isEmpty ? nil : $0 }
                 if cell.processors?.isEmpty == true {
-                    sc.procs = [SnapParams()]             // identity params (ignored — the slot is bypassed)
-                    sc.slotBypass = [true]                // true-bypass → the source passes through as a hold-tail
-                    sc.bypassed = true
+                    markPassthrough(&sc)                  // EXPLICIT empty chain → source-only hold-tail (bypassed identity slot)
                 } else if let chain = override ?? template, !chain.allSatisfy({ $0.bypassed }) {
                     sc.procs = chain.map { resolve($0.params, type: $0.type, fallback: nil) }
                     sc.slotBypass = chain.map { $0.bypassed }
@@ -72,9 +70,7 @@ enum SnapshotBuilder {
                     // → the born-audible identity passthrough (the source plays untreated), ONE rule. Collapsing
                     // here means the Router keeps a single hold-tail path instead of relying on the fragile,
                     // count-dependent `cell.bypassed` / `isHoldTailChain` classifiers agreeing for every depth.
-                    sc.procs = [SnapParams()]
-                    sc.slotBypass = [true]
-                    sc.bypassed = true
+                    markPassthrough(&sc)                  // all-bypassed chain ≡ empty ⇒ the same one passthrough rule
                 } else {
                     sc.procs = [colours[colourIndex].a]   // legacy: 1-slot head = the Colour's A face
                     sc.slotBypass = [cell.bypassed]
@@ -143,14 +139,17 @@ enum SnapshotBuilder {
             busCh[i] = UInt8(max(1, min(16, v)))
         }
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
-        var busEnabledMask: UInt8 = 0
-        for (i, on) in doc.busEnabledResolved.enumerated() where on { busEnabledMask |= 1 << UInt8(i) }
+        func packMask(_ flags: [Bool]) -> UInt8 { var m: UInt8 = 0; for (i, on) in flags.prefix(4).enumerated() where on { m |= 1 << UInt8(i) }; return m }
+        // The ONE passthrough rule: a bypassed identity slot = the source plays untreated as a hold-tail.
+        func markPassthrough(_ sc: inout SnapCell) { sc.procs = [SnapParams()]; sc.slotBypass = [true]; sc.bypassed = true }
+        let busEnabledMask = packMask(doc.busEnabledResolved)
         // THE RACK (design-the-rack §3, the two-tier law): pre-AND the per-emitter "board in the signal path"
         // gate into every treatment mask. A rack-off emitter drops out of claim/duck/alt entirely → its output is
         // the raw wire regardless of the matrix (no claim ghost/reservation, no duck, no alt turn). The raw doc
         // masks stay the "armed" truth the matrix UI reads directly; only the RENDER sees the gated masks. nil/old
         // docs ⇒ 0b1111 (all racks in path) so existing claim/duck/alt keep applying unchanged.
         let rackMask = doc.rackEnabledResolved
+        func gated(_ m: UInt8?) -> UInt8 { (m ?? 0) & rackMask }   // the two-tier law: a treatment mask is off wherever its emitter's rack is out of path
         // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
         // per-claimant LEAK % (0 = full suppression = v1). Gated by the rack.
         let claimMask = doc.claimMaskResolved & rackMask
@@ -167,18 +166,15 @@ enum SnapshotBuilder {
         }
         let recvCable = doc.receiversResolved.map { _ in UInt8(0b1111) }   // COG SIMPLIFICATION: always accept ALL input cables (union)
         // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
-        var latchAddMask: UInt8 = 0
-        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.latchAddResolved { latchAddMask |= 1 << UInt8(i) }
+        let latchAddMask = packMask(doc.receiversResolved.map { $0.latchAddResolved })
         // INPUT ENABLE: bit i = receiver i is NOT listening (door closed) — the Router blocks its cells' LIVE read.
-        var receiverDisabledMask: UInt8 = 0
-        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && !r.inputEnabledResolved { receiverDisabledMask |= 1 << UInt8(i) }
+        let receiverDisabledMask = packMask(doc.receiversResolved.map { !$0.inputEnabledResolved })
         // RANGE (§2): the 4 receivers' note windows, for the latch capture (upstream of latch — the grid feed reads
         // the per-cell window resolved above).
         let receiverRangeLo = doc.receiversResolved.map { $0.rangeLoResolved }
         let receiverRangeHi = doc.receiversResolved.map { $0.rangeHiResolved }
         // BYPASS (§1/§2): which doors inject straight to emitters + each door's destination emitter mask (A–D).
-        var receiverBypassMask: UInt8 = 0
-        for (i, r) in doc.receiversResolved.enumerated() where i < 4 && r.bypassResolved { receiverBypassMask |= 1 << UInt8(i) }
+        let receiverBypassMask = packMask(doc.receiversResolved.map { $0.bypassResolved })
         let receiverBypassDest = doc.receiversResolved.map { $0.bypassDestResolved }
 
         return SnapshotBox(generation: generation,
@@ -191,20 +187,20 @@ enum SnapshotBuilder {
                            busEnabledMask: busEnabledMask,
                            claimMask: claimMask,
                            claimLeak: claimLeak,
-                           flattenMask: (doc.flattenMask ?? 0) & rackMask,
+                           flattenMask: gated(doc.flattenMask),
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
-                           altMask: (doc.altMask ?? 0) & rackMask,
+                           altMask: gated(doc.altMask),
                            altCount: doc.altCountResolved.map { UInt8($0) },
                            turnsPerNote: doc.turnsPerNoteResolved,
-                           curveMask: (doc.curveMask ?? 0) & rackMask,
+                           curveMask: gated(doc.curveMask),
                            curveAmount: doc.curveAmountResolved.map { Int8($0) },
-                           fenceMask: (doc.fenceMask ?? 0) & rackMask,
+                           fenceMask: gated(doc.fenceMask),
                            fencePolicy: doc.fencePolicyResolved.map { UInt8($0) },
                            fenceLo: doc.fenceLoResolved.map { UInt8($0) },
                            fenceHi: doc.fenceHiResolved.map { UInt8($0) },
-                           monoMask: (doc.monoMask ?? 0) & rackMask,
+                           monoMask: gated(doc.monoMask),
                            monoPriority: doc.monoPriorityResolved.map { UInt8($0) },
-                           pocketMask: (doc.pocketMask ?? 0) & rackMask,
+                           pocketMask: gated(doc.pocketMask),
                            pocketMs: doc.pocketMsResolved.map { Int8($0) },
                            convLead: Int8(doc.convLeadResolved),
                            convStance: doc.convStanceResolved.enumerated().map { (i, s) in (rackMask & (1 << UInt8(i)) != 0) ? UInt8(s) : 0 },
@@ -220,7 +216,7 @@ enum SnapshotBuilder {
                            receiverRangeHi: receiverRangeHi,
                            receiverBypassMask: receiverBypassMask,
                            receiverBypassDest: receiverBypassDest,
-                           macroValues: doc.macrosResolved.map { max(0, min(1, $0.value)) })
+                           macroValues: macroVals)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
