@@ -32,6 +32,10 @@ struct ArrangementBar: View {
     var onSetTab: (AppTab) -> Void = { _ in }
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
     var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
+    var stepIndex: Int = 4                  // LAYOUT v2: the clock (STEP rate + SWING) moved into the header from ControlsView
+    var swing: Int = 50
+    var onStep: (Int) -> Void = { _ in }     // AUParameter 0 (step rate index)
+    var onSwing: (Int) -> Void = { _ in }    // AUParameter 1 (swing %)
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -42,6 +46,8 @@ struct ArrangementBar: View {
     @State private var dragSceneTarget: Int? = nil    // chip under the finger (drop = MOVE/SWAP)
     @State private var dragOverTrash = false          // finger dragged onto the ⚙/can = TRASH
     @State private var sceneShakeX: CGFloat = 0       // the active-refuses-trash shake offset
+    @State private var showClock = false              // LAYOUT v2: the header clock chip's popover (STEP + SWING)
+    private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]
 
     private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
     private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
@@ -57,6 +63,7 @@ struct ArrangementBar: View {
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
+                clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate + SWING (was the grid's CONTROLS panel)
                 if d.playing {
                     Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
                         .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
@@ -106,6 +113,43 @@ struct ArrangementBar: View {
         case .processors: return editHue
         default:          return sceneAmber
         }
+    }
+
+    // THE CLOCK — a compact header chip reading the STEP rate (+ SWING when swung); tap opens a popover with the
+    // full STEP grid + SWING slider. Moved out of the grid's CONTROLS panel so the timing lives with the transport.
+    private var clockControl: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "metronome").font(.system(size: 10, weight: .semibold))
+            Text(stepLabels[min(max(stepIndex, 0), stepLabels.count - 1)] + (swing > 50 ? "·\(swing)" : ""))
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+        }
+        .foregroundColor(barCyan)
+        .padding(.horizontal, 8).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+        .contentShape(Rectangle()).onTapGesture { showClock = true }
+        .popover(isPresented: $showClock) { clockPopover }
+    }
+    private var clockPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("STEP").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            ForEach(0..<2, id: \.self) { row in
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { col in
+                        let i = row * 3 + col
+                        Text(stepLabels[i]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(i == stepIndex ? .black : .white.opacity(0.7))
+                            .frame(width: 44, height: 26)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(i == stepIndex ? barCyan : Color.white.opacity(0.1)))
+                            .contentShape(Rectangle()).onTapGesture { onStep(i) }
+                    }
+                }
+            }
+            Text("SWING \(swing)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).padding(.top, 2)
+            Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(barCyan).frame(width: 160)
+        }
+        .padding(14)
+        .frame(width: 188)
+        .background(Color(red: 0.10, green: 0.11, blue: 0.13))
     }
 
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.

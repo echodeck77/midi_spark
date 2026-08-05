@@ -1093,8 +1093,8 @@ struct DiagView: View {
             let cell = max(18, min(48, (g.size.height - recvBandH - 30) / 15))
             let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
             VStack(spacing: 3) {
-                HStack(spacing: 4) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION] — gutters tightened (SPACE-FILL)
-                    controlsView.frame(maxWidth: .infinity).helpAnchor("#clock")
+                HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
+                    Color.clear.frame(maxWidth: .infinity)    // the empty left flank keeps RECEIVERS centred + grid-aligned with the EMITTERS band below
                     receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: recvBandH)                    // FIXED input-controls height
@@ -1261,14 +1261,6 @@ struct DiagView: View {
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
-    // CONTROLS panel: the top-left flank tenant (beside the receivers) — STEP · SWING · HOLD, moved out of
-    // the (now slimmed) header.
-    var controlsView: some View {
-        ControlsView(stepIndex: stepIndex, swing: swing,
-                     onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                     onSwing: { au?.setSwing($0); refreshTiming() })
-    }
-
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
     var masterView: some View {
         MasterView(mute: masterMute, key: masterKey,
@@ -1383,7 +1375,10 @@ struct DiagView: View {
                        activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
                        onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
-                       onOpenManual: { showManual = true })                     // "?" → the in-app manual
+                       onOpenManual: { showManual = true },                     // "?" → the in-app manual
+                       stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
+                       onStep: { au?.setStepRateIndex($0); refreshTiming() },
+                       onSwing: { au?.setSwing($0); refreshTiming() })
     }
     // §3 PRESETS wiring
     func openPresets() {

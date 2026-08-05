@@ -1295,47 +1295,6 @@ struct MasterView: View {
     }
 }
 
-/// CONTROLS PANEL (design item 2) — the top-left flank tenant, "how time runs," beside the MIDI INPUT band.
-/// STEP rate + SWING (the scene-level timing, AUParameters 0/1) + HOLD (the §5c gesture latch — big, "it's a
-/// mode; modes get corners"). Moved out of the header, which slims to logo · EDIT/PERFORM · undo/redo.
-struct ControlsView: View {
-    let stepIndex: Int
-    let swing: Int
-    let onStep: (Int) -> Void
-    let onSwing: (Int) -> Void
-    private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]
-    private let accent = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("CONTROLS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("STEP").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                ForEach(0..<2, id: \.self) { row in
-                    HStack(spacing: 3) {
-                        ForEach(0..<3, id: \.self) { col in
-                            let i = row * 3 + col
-                            Text(stepLabels[i]).font(.system(size: 8, weight: .heavy, design: .monospaced))
-                                .foregroundColor(i == stepIndex ? .black : .white.opacity(0.6))
-                                .frame(maxWidth: .infinity).frame(height: 20)
-                                .background(RoundedRectangle(cornerRadius: 3).fill(i == stepIndex ? accent : Color.white.opacity(0.08)))
-                                .contentShape(Rectangle()).onTapGesture { onStep(i) }
-                        }
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SWING \(swing)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(accent)
-            }
-            Spacer(minLength: 0)   // HOLD moved to the verb cluster (PERFORM)
-        }
-        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-}
-
 /// HEADER (delta §6): logotype · STEP rate · SWING · PASS/transport readout. STEP/SWING are the
 /// scene-level timing controls (AUParameters 0/1) — the only in-plugin way to set them.
 /// §5b COLUMN-SUBSET LAP — the multi-column HOLD gesture. A `UIView` (not a SwiftUI gesture) because
