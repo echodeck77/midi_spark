@@ -1112,6 +1112,30 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // BUG FIX (Paul, device 2026-08-05): a chain whose slots are ALL bypassed ≡ an EMPTY chain → the born-audible
+    // passthrough (raw held chord), for ANY depth. Mirrors testEmptyChainIsBornAudiblePassthrough.
+    func testAllBypassedChainIsPassthroughAtAnyDepth() {
+        let cs = arpColours()   // gold = ARP → proves all-bypassed does NOT arp
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func bypassedChain(_ n: Int) -> [ProcessorSlot] {
+            (0..<n).map { _ in var s = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); s.bypassed = true; return s }
+        }
+        for depth in [1, 8] {
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = bypassedChain(depth); return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+            XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67],
+                           "a \(depth)-slot all-bypassed chain passes the raw held chord (identity passthrough)")
+            assertNothingLeftSounding(e)
+        }
+        // Partial bypass is UNAFFECTED — one active arp among bypassed slots still drives (an arp, not the raw chord).
+        let arp = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA)   // active ARP tail
+        var byp = ProcessorSlot(type: cs[gi].type, params: cs[gi].paramsA); byp.bypassed = true
+        let bp = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [byp, arp]; return c }() }
+        let ep = RecordingEmitter(); run(bp, chord([60, 64, 67]), beats: 16, into: ep)
+        XCTAssertGreaterThan(ep.ons.filter { $0.cable == 1 }.count, 3, "partial bypass unaffected — the active arp still drives")
+        assertNothingLeftSounding(ep)
+    }
+
     // CELL MACHINE stage-2 (serial execution, tick-tail slice): a 2-slot chain [open passgate → ARP] arps the
     // held chord — the intra-cell echo of the grid PASS→ARP routing (cf. testOpenPassgateParentFeedsArpChild).
     func testChainGateToArpArpsTheHeldChord() {
@@ -2977,6 +3001,29 @@ final class RouterTests: XCTestCase {
             return e.ons.map { $0.sample }.sorted()
         }
         XCTAssertEqual(onsetTimes(0b0011), onsetTimes(0), "TURNS (count 1) must not change note timing — only the emitter")
+    }
+
+    func testTurnsPerNoteDropsSimultaneousNoteNotDelayed() {
+        // PER-NOTE TURNS (user 2026-08-05): the group's emitters are time-exclusive. Two cells fire at the SAME
+        // onset (holds in column 0): only the FIRST plays (leftmost A); the simultaneous one is DROPPED — not
+        // delayed. A single render window proves no delay (a delayed note would land in a later window, absent here).
+        func onsPerCable(perNote: Bool) -> (a: Int, b: Int) {
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // hold → A
+            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])   // hold → B (both strike at colStart)
+            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            st.altMask = 0b0011; st.altCount = [1, 1, 1, 1]; st.turnsPerNote = perNote
+            let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+            router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
+                           tempo: 120, sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+            return (e.ons.filter { $0.cable == 1 }.count, e.ons.filter { $0.cable == 2 }.count)
+        }
+        let moment = onsPerCable(perNote: false)   // PER-MOMENT: both cells route to the one holder (A)
+        let note = onsPerCable(perNote: true)      // PER-NOTE: only the first plays; the simultaneous note DROPS
+        XCTAssertEqual(moment.b, 0, "per-moment: B silent (both routed to the holder A)")
+        XCTAssertEqual(note.b, 0, "per-note: B silent too — never two group emitters at once")
+        XCTAssertGreaterThan(note.a, 0, "per-note: the first note still plays on the leftmost (A)")
+        XCTAssertGreaterThan(moment.a, note.a, "per-note DROPS the simultaneous note (fewer ons than per-moment) — not delayed")
     }
 
     // MARK: - THE RACK — CURVE (per-emitter velocity re-map)

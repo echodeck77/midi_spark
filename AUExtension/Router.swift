@@ -143,6 +143,7 @@ final class Router {
     private var altSequence: [UInt8] = []
     private var altLastOnset: Int64 = .min   // onset sample of the current articulation moment (sentinel = fresh)
     private var altMomentIndex = -1          // moments elapsed; advances once per new onset time → picks the holder
+    private var turnsPerNote = false         // TURNS mode: true = PER-NOTE exclusive (drop a simultaneous group note)
     // master panel: per-scene KEY (transpose, from the box), global MUTE (from the box), and the ephemeral
     // master velocity FADER (from process(), like the emitter override) — all applied in emitOneBus.
     private var masterKey: Int = 0
@@ -730,18 +731,24 @@ final class Router {
                            windowEnd: Int64, velocity: UInt8 = 96,
                            out: MIDIEmitter?, diag: inout KernelDiag) {
         var lastCh: UInt8 = 0
-        // role family ALT / TURNS (user 2026-08-04 — the true intent): the TURNS emitters take turns IN TIME playing
-        // the INCOMING notes from ANY cell. The turn advances once per ARTICULATION MOMENT (a new onset sample); all
-        // notes at the same moment route to the SAME holder = altSequence[altMomentIndex % len]. Any note destined
-        // for the group (touches any group member) routes there; non-group emitters in the fan-out are untouched.
-        // So two independent cells firing at the SAME instant both sound on ONE emitter this moment and hand off to
-        // the next at the following moment (no simultaneous split), while a single fan-out cell whose notes land at
+        // role family ALT / TURNS (user 2026-08-04/05): the TURNS emitters take turns playing the INCOMING notes
+        // from ANY cell. The turn advances once per ARTICULATION MOMENT (a new onset sample). Two MODES:
+        //  · PER-MOMENT (default): all notes at one moment route to the SAME holder = altSequence[momentIndex]
+        //    (two independent cells firing together both sound on ONE emitter, then hand off next moment).
+        //  · PER-NOTE (turnsPerNote, user 2026-08-05): the group's emitters are TIME-EXCLUSIVE — only the FIRST note
+        //    of each moment plays (on the turn-holder; altSequence[0] = leftmost on the first strike), and every
+        //    other note at that exact onset is DROPPED (busMask cleared of group bits — never delayed a tick).
+        // Non-group emitters in the fan-out are untouched either way. A single fan-out cell whose notes land at
         // distinct times still ping-pongs per note. COUNT = moments of dwell. previewMode bypasses.
         var busMask = busMask
         if (busMask & altMask) != 0 && !previewMode && !altSequence.isEmpty {
-            if onSample != altLastOnset { altLastOnset = onSample; altMomentIndex &+= 1 }   // a new moment → advance the turn
-            let entry = altSequence[altMomentIndex % altSequence.count]
-            busMask = (busMask & ~altMask) | (1 << entry)
+            let newMoment = (onSample != altLastOnset)
+            if newMoment { altLastOnset = onSample; altMomentIndex &+= 1 }   // a new moment → advance the turn
+            if turnsPerNote && !newMoment {
+                busMask &= ~altMask                                          // PER-NOTE: drop the simultaneous group note (leftmost/first survives, no delay)
+            } else {
+                busMask = (busMask & ~altMask) | (1 << altSequence[altMomentIndex % altSequence.count])
+            }
         }
         // §6a CLAIM v2: emit ALL claimant buses in this fan-out FIRST (any order among them), so every
         // claimant's ownership trace (the silent ghost opened in emitOneBus) is in the table before any
@@ -1160,6 +1167,7 @@ final class Router {
         convLead = Int(box.convLead)                // THE RACK CONVERSATION: lead + per-emitter stance, this render
         convStance = box.convStance
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
+        turnsPerNote = box.turnsPerNote             // TURNS mode: per-note exclusive vs per-moment
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
         masterMute = box.masterMute

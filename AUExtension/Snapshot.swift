@@ -106,6 +106,7 @@ final class SnapshotBox {
     let flattenAmount: [UInt8]       // 4 per-emitter FLATTEN amounts (0…100 %)
     let altMask: UInt8               // emitter role family: the ALT turn-taking group (bits A–D)
     let altCount: [UInt8]            // 4 per-emitter ALT notes-per-turn (1…8)
+    let turnsPerNote: Bool           // TURNS mode: true = PER-NOTE exclusive (drop simultaneous); false = PER-MOMENT
     let curveMask: UInt8             // THE RACK CURVE: bit i = emitter i re-maps its output velocity (rack-gated)
     let curveAmount: [Int8]          // 4 per-emitter CURVE amounts (−100…100; 0 = linear, + harder, − softer)
     let fenceMask: UInt8             // THE RACK FENCE: bit i = emitter i applies a note-range policy (rack-gated)
@@ -135,7 +136,7 @@ final class SnapshotBox {
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
          claimMask: UInt8 = 0, claimLeak: [UInt8] = [0, 0, 0, 0],
          flattenMask: UInt8 = 0, flattenAmount: [UInt8] = [0, 0, 0, 0],
-         altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
+         altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1], turnsPerNote: Bool = false,
          curveMask: UInt8 = 0, curveAmount: [Int8] = [0, 0, 0, 0],
          fenceMask: UInt8 = 0, fencePolicy: [UInt8] = [0, 0, 0, 0],
          fenceLo: [UInt8] = [0, 0, 0, 0], fenceHi: [UInt8] = [127, 127, 127, 127],
@@ -162,6 +163,7 @@ final class SnapshotBox {
         self.flattenAmount = flattenAmount
         self.altMask = altMask
         self.altCount = altCount
+        self.turnsPerNote = turnsPerNote
         self.curveMask = curveMask
         self.curveAmount = curveAmount
         self.fenceMask = fenceMask

@@ -340,6 +340,18 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             var m = d.fenceMask ?? 0
             if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
             d.fenceMask = m
+            // FENCE UX (user 2026-08-05): a full-range window is a no-op, so on ENABLE seed a SENSIBLE default —
+            // policy CLAMP + window C2…C6 — so FENCE immediately, audibly acts (CLAMP pulls stray notes in rather
+            // than silently dropping them). Only when the window is still the full default (untouched).
+            if on {
+                let loFull = d.fenceLoResolved[bus] == 0, hiFull = d.fenceHiResolved[bus] == 127
+                if loFull && hiFull {
+                    var pol = d.fencePolicy ?? d.fencePolicyResolved; while pol.count < 4 { pol.append(0) }; pol[bus] = 1   // CLAMP
+                    var lo = d.fenceLo ?? d.fenceLoResolved; while lo.count < 4 { lo.append(0) }; lo[bus] = 36            // C2
+                    var hi = d.fenceHi ?? d.fenceHiResolved; while hi.count < 4 { hi.append(127) }; hi[bus] = 84         // C6
+                    d.fencePolicy = pol; d.fenceLo = lo; d.fenceHi = hi
+                }
+            }
         }
     }
     func cycleFencePolicy(_ bus: Int) {
@@ -453,6 +465,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             d.altCount = c
         }
     }
+    /// TURNS hand-off mode (persisted, global): false = PER-MOMENT, true = PER-NOTE (exclusive, drop simultaneous).
+    func uiTurnsPerNote() -> Bool { document.turnsPerNoteResolved }
+    func setTurnsPerNote(_ on: Bool) { editDocument { $0.turnsPerNote = on } }
 
     // MASTER PANEL. KEY = per-scene transpose (persisted); MUTE = global emission kill (persisted); the FADER
     // = the momentary master velocity override (ephemeral kernel feed); PANIC = the one-shot hard flush.

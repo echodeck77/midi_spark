@@ -1133,6 +1133,23 @@ final class DerivationsTests: XCTestCase {
         var chopChanged = a; chopChanged.chop?.muteMask = 0b0001_0000
         XCTAssertNotEqual(sealHash(a, colours: []), sealHash(chopChanged, colours: []), "a chop-mask change ⇒ different seal")
     }
+    // BUG (design ferry 2026-08-05): "identical chain + different OUTPUTS must draw DIFFERENT seals." The hash
+    // ALREADY covers the full behavioural contract — this locks every twin-equality field the seal must track
+    // (output emitter mask · chop ALT-destination "alt set" · input source · source-shaping), so twins + seals can
+    // never silently diverge on what "identical" means. (Colour/mute/position stay excluded — tested separately.)
+    func testSealHashCoversTheFullTwinContract() {
+        let a = sealCell()
+        var altDest = a; altDest.chop?.altDest = [.d]                        // OUTPUT: the chop ALT-destination set
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(altDest, colours: []), "the chop ALT destination is part of the output contract")
+        var altMask = a; altMask.chop?.altMask = 0b0000_1000                 // OUTPUT: the chop ALT slice mask
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(altMask, colours: []), "the chop ALT mask is part of the output contract")
+        var inRow = a; inRow.inputRow = 3                                    // SOURCE: input row reference
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(inRow, colours: []), "the input row is part of the source contract")
+        var split = a; split.chordSplit = { var cs = ChordSplit(); cs.n = 3; return cs }()   // SOURCE: chord split
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(split, colours: []), "the chord split is part of the source contract")
+        var vw = a; vw.velWindow = VelWindow(floor: 40, ceil: 100)          // SOURCE: velocity window
+        XCTAssertNotEqual(sealHash(a, colours: []), sealHash(vw, colours: []), "the velocity window is part of the source contract")
+    }
     func testSealHashExcludesColourNameMutePosition() {
         let a = sealCell()
         var recoloured = a; recoloured.colourID = "cyan"

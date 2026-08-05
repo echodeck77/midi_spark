@@ -126,8 +126,8 @@ struct DiagView: View {
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
     @State var clearedStash: [GridView.GridPos: Cell] = [:]
-    // MODE ROW — the edit-page column-loop set (bit i = column i), driven into the same laneMask path as PERFORM.
-    @State var editLoopMask: UInt8 = 0
+    // MODE ROW — the edit-page column loop drives the SAME `laneMask` as PERFORM (one engine field, one UI mirror);
+    // BUG FIX 2026-08-05: no separate `editLoopMask`, so the loop survives the EDIT↔GRID page switch.
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
     static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State var busChannels: [Int] = [1, 2, 3, 4]
@@ -139,6 +139,7 @@ struct DiagView: View {
     @State var flattenAmount: [Int] = [0, 0, 0, 0]           // role family: per-emitter FLATTEN amount %
     @State var altMask: UInt8 = 0                            // role family: ALT turn-taking group (persisted)
     @State var altCount: [Int] = [1, 1, 1, 1]               // role family: per-emitter ALT notes-per-turn
+    @State var turnsPerNote = false                        // TURNS hand-off mode: false = per-moment, true = per-note (exclusive)
     @State var curveMask: UInt8 = 0                         // THE RACK CURVE: per-emitter velocity-remap set (persisted)
     @State var curveAmount: [Int] = [0, 0, 0, 0]            // THE RACK CURVE: per-emitter −100…100 bend
     @State var fenceMask: UInt8 = 0                         // THE RACK FENCE: per-emitter note-range policy set (persisted)
@@ -593,6 +594,7 @@ struct DiagView: View {
         flattenAmount = au.uiFlattenAmount()
         altMask = au.uiAltMask()
         altCount = au.uiAltCount()
+        turnsPerNote = au.uiTurnsPerNote()
         curveMask = au.uiCurveMask()
         curveAmount = au.uiCurveAmount()
         fenceMask = au.uiFenceMask()
@@ -775,6 +777,7 @@ struct DiagView: View {
         au?.setAltCount(i, count)
         altCount = au?.uiAltCount() ?? altCount
     }
+    func setTurnsPerNoteMode(_ on: Bool) { au?.setTurnsPerNote(on); turnsPerNote = au?.uiTurnsPerNote() ?? turnsPerNote }
     // master panel: MUTE (persisted, tap) / PANIC (long-press) / KEY ± (persisted per-scene) / the momentary fader.
     func toggleMasterMute() { au?.setMasterMute(!masterMute); masterMute = au?.uiMasterMute() ?? masterMute }
     func masterPanic() { au?.masterPanic() }
@@ -864,7 +867,8 @@ struct DiagView: View {
             } else {
                 au?.applyEditSession()
                 editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
-                if editLoopMask != 0 { setEditLoop(0) }
+                // BUG FIX 2026-08-05: leaving EDIT must NOT clear the column loop — it's one page-independent engine
+                // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
             }
         }
         .onChange(of: selection) { sel in
@@ -911,6 +915,7 @@ struct DiagView: View {
             let fa = au.uiFlattenAmount(); if fa != flattenAmount { flattenAmount = fa }
             let am = au.uiAltMask();       if am != altMask { altMask = am }
             let ac = au.uiAltCount();      if ac != altCount { altCount = ac }
+            let tpn = au.uiTurnsPerNote(); if tpn != turnsPerNote { turnsPerNote = tpn }
             let cvm = au.uiCurveMask();    if cvm != curveMask { curveMask = cvm }
             let cva = au.uiCurveAmount();  if cva != curveAmount { curveAmount = cva }
             let fnm = au.uiFenceMask();    if fnm != fenceMask { fenceMask = fnm }
@@ -1250,7 +1255,7 @@ struct DiagView: View {
         RackMatrix(busChannels: busChannels, busEnabled: busEnabled, rackMask: rackMask,
                    claimMask: claimMask, claimLeak: claimLeak,
                    flattenMask: flattenMask, flattenAmount: flattenAmount,
-                   altMask: altMask, altCount: altCount,
+                   altMask: altMask, altCount: altCount, turnsPerNote: turnsPerNote,
                    curveMask: curveMask, curveAmount: curveAmount,
                    fenceMask: fenceMask, fencePolicy: fencePolicy, fenceLo: fenceLo, fenceHi: fenceHi,
                    monoMask: monoMask, monoPriority: monoPriority,
@@ -1259,7 +1264,7 @@ struct DiagView: View {
                    emitPeak: emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
-                   onToggleAlt: toggleAlt, onAltCount: setAltCnt,
+                   onToggleAlt: toggleAlt, onAltCount: setAltCnt, onSetTurnsPerNote: setTurnsPerNoteMode,
                    onToggleCurve: toggleCurve, onCurveAmount: setCurveAmt,
                    onToggleFence: toggleFence, onCycleFence: cycleFence,
                    onFenceLo: setFenceLoNote, onFenceHi: setFenceHiNote,

@@ -177,10 +177,10 @@ extension DiagView {
     }
 
     // MODE ROW §5 — the grid's own column keys ARE the loop control (one row, not two): a TAP toggles the column in
-    // the SAME laneMask the PERFORM column-hold drives (au.setLaneMask → Derivations.lapColumn), so the engine loops
-    // exactly the toggled subset — one loop mechanism, two surfaces. Toggled keys show the LOOP glyph. Cleared on DONE.
-    func setEditLoop(_ mask: UInt8) { editLoopMask = mask; au?.setLaneMask(mask) }
-    func toggleLoopColumn(_ c: Int) { setEditLoop(editLoopMask ^ (1 << UInt8(c))) }
+    // the SAME `laneMask` the PERFORM column-hold drives (one loop mechanism, two surfaces). BUG FIX (Paul, device
+    // 2026-08-05): the EDIT page drives the ONE perform mirror `setLane` (was a separate `editLoopMask`), so the loop
+    // is page-independent — it keeps playing and shows its glyph on the GRID page too. Toggled keys show the LOOP glyph.
+    func toggleLoopColumn(_ c: Int) { setLane(laneMask ^ (1 << UInt8(c))) }
 
     // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
     // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
@@ -191,7 +191,7 @@ extension DiagView {
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
-                 laneMask: editLoopMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
+                 laneMask: laneMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  showAddPlus: editMode == .addEdit && !editSel.isEmpty,
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed

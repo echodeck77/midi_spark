@@ -464,6 +464,11 @@ struct PluginState: Codable, Equatable {
     var altCount: [Int]? = nil
     /// The four ALT counts (1…8), nil/short-array safe (missing ⇒ 1). Non-persisting read helper.
     var altCountResolved: [Int] { let c = altCount ?? []; return (0..<4).map { $0 < c.count ? max(1, min(8, c[$0])) : 1 } }
+    // TURNS hand-off MODE (user 2026-08-05): false/nil = PER-MOMENT (simultaneous notes all sound on the one
+    // turn-holder); true = PER-NOTE (the group's emitters are TIME-EXCLUSIVE — simultaneous notes DROP all but the
+    // first/leftmost, never delayed; successive onsets rotate). Document-level global; Optional → old docs decode nil.
+    var turnsPerNote: Bool? = nil
+    var turnsPerNoteResolved: Bool { turnsPerNote ?? false }
     // THE RACK — CURVE (design-the-rack §6, THIS VOICE family): a per-emitter velocity RE-MAP — the matching knob
     // between the grid's dynamics and the synth's response. `curveMask` = which emitters curve; `curveAmount` =
     // per-emitter −100…+100 (0 = linear, + = harder/boosts low velocities, − = softer). Persisted; Optional → old

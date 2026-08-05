@@ -21,6 +21,7 @@ struct RackMatrix: View {
     let flattenAmount: [Int]
     let altMask: UInt8          // TURNS
     let altCount: [Int]
+    let turnsPerNote: Bool      // TURNS hand-off mode: false = per-moment, true = per-note (exclusive)
     let curveMask: UInt8        // CURVE (velocity re-map)
     let curveAmount: [Int]      // −100…100 per emitter
     let fenceMask: UInt8        // FENCE (note-range policy)
@@ -40,6 +41,7 @@ struct RackMatrix: View {
     let onDuckAmount: (Int, Int) -> Void
     let onToggleAlt: (Int) -> Void
     let onAltCount: (Int, Int) -> Void
+    let onSetTurnsPerNote: (Bool) -> Void
     let onToggleCurve: (Int) -> Void
     let onCurveAmount: (Int, Int) -> Void
     let onToggleFence: (Int) -> Void
@@ -322,6 +324,13 @@ struct RackMatrix: View {
                         .frame(maxWidth: .infinity).frame(height: 18)
                         .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
                         .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE"; onCycleFence(i) }
+                    // INLINE RANGE (user 2026-08-05: the LO/HI were hard to find) — the active window shows right on
+                    // the row; tap to focus the row so the detail-strip LO/HI steppers appear.
+                    Text(on ? "\(noteName(at(fenceLo, i, 0)))–\(noteName(at(fenceHi, i, 127)))" : "—")
+                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundColor(on ? cyan.opacity(0.75) : ink.opacity(0.25))
+                        .frame(maxWidth: .infinity).frame(height: 14)
+                        .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE" }
                 }
                 .frame(maxWidth: .infinity).opacity(inPath ? 1 : 0.4)
             }
@@ -359,6 +368,25 @@ struct RackMatrix: View {
         return "\(names[((n % 12) + 12) % 12])\(n / 12 - 1)"
     }
 
+    // TURNS detail — the global HAND-OFF mode (user 2026-08-05): PER MOMENT (simultaneous notes all sound on the
+    // one turn-holder) vs PER NOTE (the group is time-exclusive — a simultaneous note is DROPPED, leftmost wins).
+    private var turnsDetail: some View {
+        HStack(spacing: 8) {
+            Text("HAND-OFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.5))
+            modeChip("PER MOMENT", on: !turnsPerNote) { onSetTurnsPerNote(false) }
+            modeChip("PER NOTE", on: turnsPerNote) { onSetTurnsPerNote(true) }
+            Spacer(minLength: 0)
+            Text(turnsPerNote ? "one plays, simultaneous dropped" : "simultaneous → one emitter")
+                .font(.system(size: 8, design: .monospaced)).foregroundColor(ink.opacity(0.3)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+    }
+    private func modeChip(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : ink.opacity(0.6)).padding(.horizontal, 8).frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? amber.opacity(0.85) : ink.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+
     // MARK: a DIMMED future treatment row — present so the matrix never reflows when its engine lands.
     private func dimRow(_ label: String) -> some View {
         HStack(spacing: 4) {
@@ -379,6 +407,8 @@ struct RackMatrix: View {
             Divider().overlay(ink.opacity(0.12))
             if lastRow == "FENCE" {
                 fenceDetail    // FENCE's LO/HI window is LIVE detail (the range is what makes FENCE do anything)
+            } else if lastRow == "TURNS" {
+                turnsDetail    // TURNS hand-off MODE is LIVE detail (per-moment vs per-note)
             } else {
                 Text(detailText).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.32))
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -49,10 +49,18 @@ enum SnapshotBuilder {
                     sc.procs = [SnapParams()]             // identity params (ignored — the slot is bypassed)
                     sc.slotBypass = [true]                // true-bypass → the source passes through as a hold-tail
                     sc.bypassed = true
-                } else if let chain = override ?? template {
+                } else if let chain = override ?? template, !chain.allSatisfy({ $0.bypassed }) {
                     sc.procs = chain.map { resolve($0.params, type: $0.type, fallback: nil) }
                     sc.slotBypass = chain.map { $0.bypassed }
                     sc.bypassed = chain[0].bypassed
+                } else if override != nil || template != nil {
+                    // BUG FIX (2026-08-05, Paul on device): a chain whose slots are ALL bypassed ≡ an EMPTY chain
+                    // → the born-audible identity passthrough (the source plays untreated), ONE rule. Collapsing
+                    // here means the Router keeps a single hold-tail path instead of relying on the fragile,
+                    // count-dependent `cell.bypassed` / `isHoldTailChain` classifiers agreeing for every depth.
+                    sc.procs = [SnapParams()]
+                    sc.slotBypass = [true]
+                    sc.bypassed = true
                 } else {
                     sc.procs = [colours[colourIndex].a]   // legacy: 1-slot head = the Colour's A face
                     sc.slotBypass = [cell.bypassed]
@@ -165,6 +173,7 @@ enum SnapshotBuilder {
                            flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
                            altMask: (doc.altMask ?? 0) & rackMask,
                            altCount: doc.altCountResolved.map { UInt8($0) },
+                           turnsPerNote: doc.turnsPerNoteResolved,
                            curveMask: (doc.curveMask ?? 0) & rackMask,
                            curveAmount: doc.curveAmountResolved.map { Int8($0) },
                            fenceMask: (doc.fenceMask ?? 0) & rackMask,
