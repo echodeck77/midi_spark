@@ -84,17 +84,32 @@ extension DiagView {
         let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
-        // EDIT-PAGE REARRANGE (Paul's spec 2026-08-05): grid LEFT-aligned + slightly smaller, freeing a right
-        // column for the MODE RAIL (vertical ADD/EDIT·MOVE·MUTE·CLEAR + helper + APPLY/CANCEL at the grid's bottom).
-        let railW: CGFloat = 150
-        let gridW = min(size.width - 24 - railW - 12, max(240, gridH * 1.3))
+        // EDIT-PAGE REARRANGE (Paul 2026-08-05): grid + the vertical MODE buttons CENTERED as a unit, the mode
+        // buttons TOP-ALIGNED with the grid; the helper + APPLY/CANCEL (one line) centered below.
+        let railW: CGFloat = 130
+        let gridW = min(size.width - 24 - railW - 24, max(240, gridH * 1.3))
+        let canCommit = !editSel.isEmpty
         VStack(spacing: 8) {
             arrangementBar                                          // the SHARED header + scenes bar (consistent with PERFORM;
                                                                     // the PERFORM/EDIT toggle here replaces the old DONE button)
-            HStack(alignment: .top, spacing: 12) {
-                spikeGrid(cellH).frame(width: gridW, height: gridH)  // LEFT-aligned, smaller
-                modeRail(gridH)                                      // the freed right column: mode buttons ↓ · helper · APPLY/CANCEL at the bottom
+            HStack(alignment: .top, spacing: 12) {                  // CENTERED grid + mode buttons; buttons line up with the grid's top
                 Spacer(minLength: 0)
+                spikeGrid(cellH).frame(width: gridW, height: gridH)
+                VStack(spacing: 6) {                                // ADD/EDIT · MOVE · MUTE · CLEAR — vertical, top-aligned with the grid
+                    modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
+                }.frame(width: railW, alignment: .top)
+                Spacer(minLength: 0)
+            }
+            Text(modeGuidance)                                      // the helper for the armed mode — centered under the grid
+                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+            if editMode == .addEdit {                               // APPLY · CANCEL on ONE line, centered (the one staging mode)
+                HStack(spacing: 10) {
+                    Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
+                        .buttonStyle(.plain).disabled(!canCommit)
+                    Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
+                        .buttonStyle(.plain).disabled(!canCommit)
+                }.frame(maxWidth: .infinity)
             }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
@@ -118,29 +133,10 @@ extension DiagView {
     }
     private func sectionSeam() -> some View { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.vertical, 2) }
 
-    // MODE RAIL (Paul's rearrange 2026-08-05): the mode buttons as a VERTICAL stack beside the grid, the helper text
-    // directly under them, and APPLY/CANCEL anchored at the grid's BOTTOM edge (the rail's height == the grid's).
-    // ADD/EDIT is the one staging mode (APPLY/CANCEL live here); MOVE/MUTE/CLEAR are immediate + undo/redo.
-    @ViewBuilder func modeRail(_ gridH: CGFloat) -> some View {
-        let canCommit = !editSel.isEmpty
-        VStack(alignment: .leading, spacing: 6) {
-            modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
-            Text(modeGuidance)                                       // the helper for the armed mode, right under its buttons
-                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
-            Spacer(minLength: 6)                                     // pushes APPLY/CANCEL to the grid's bottom edge
-            if editMode == .addEdit {
-                Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
-                    .buttonStyle(.plain).disabled(!canCommit)
-                Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
-                    .buttonStyle(.plain).disabled(!canCommit)
-            }
-        }.frame(width: 150, height: gridH, alignment: .topLeading)
-    }
     /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
     var modeGuidance: String {
         switch editMode {
-        case .addEdit: return "Select 1 cell, then choose more to edit them as a group"
+        case .addEdit: return "Choose one cell, then choose more to duplicate and edit as a group. Flashing cells are duplicates, so select them if you want them to stay in sync"
         case .move:    return "Drag and drop a cell to a new position"
         case .mute:    return "Choose cells to mute"
         case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
