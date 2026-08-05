@@ -500,19 +500,11 @@ extension DiagView {
 
     // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
 
-    /// The pointed cell's input source in words: a receiver (nil ⇒ unrouted). (Grid-chaining retired.)
-    func inputSourceLabel(_ cell: Cell) -> String {
-        if let rcv = cell.inputReceiver { return "MIDI-IN · R\(rcv + 1)" }
-        return "NONE"                                        // null input (no receiver)
-    }
     /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
     /// The edit applies to every selected cell; with a single cell selected it's just that cell.
     func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
         guard let au, !editSel.isEmpty else { return }
         au.editCells(editSelTargets, mutate); refreshFromDocument()
-    }
-    func setEditSourceNone() {
-        editPointedCell { $0.inputRow = nil; $0.inputReceiver = nil }
     }
     /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
     /// (−24…+24 st, already applied engine-wide via `setBrushTranspose`). OCTAVE = a ±12 convenience, SEMITONE =

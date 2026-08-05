@@ -111,10 +111,8 @@ struct DiagView: View {
     @State var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
     @State var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
     @State var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
-    @State var holdSeq = 0                             // /btw ④: bumps each PLACE hold → seeds the mid-hold recolour coalesce key
     @State var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
     @State var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
-    @State var selectionSnapshot: Set<GridView.GridPos>? = nil   // the selection before this SELECT hold — CANCEL reverts
     var activeVerb: Verb? { heldVerb }
     var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
     @State var selCol = -1
@@ -205,10 +203,6 @@ struct DiagView: View {
     // MODELESS (2026-07-27): GRID CONTROLS — the verb palette. Radio-armed; INSPECT is functional in 1b, the
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
     @State var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
-    @State var vizIntensity = 1        // VISUALIZATION tenant: 0 = OFF · 1 = SUBTLE · 2 = SHOWCASE
-    #if DEBUG
-    @State var vizShowDiag = false     // dev: the VIZ slot flips to the DIAG face (design item 2)
-    #endif
     @State var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
     @State var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
@@ -502,7 +496,7 @@ struct DiagView: View {
     func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
-        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells; holdSeq += 1
+        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells
         case .delete: gridSnapshot = scene.cells
         default: break
         }
@@ -539,19 +533,6 @@ struct DiagView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(v.hue)
-    }
-    func roundVerb(label: String, hue: Color, active: Bool, badge: String?) -> some View {
-        RoundedRectangle(cornerRadius: 12).fill(active ? hue : Color.white.opacity(0.06))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(active ? 0 : 0.4), lineWidth: 1.5))
-            .overlay(Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(active ? .black : hue.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.6).padding(3))
-            .overlay(alignment: .topTrailing) {
-                if let b = badge {
-                    Text(b).font(.system(size: 8, weight: .heavy)).foregroundColor(.black)
-                        .frame(width: 15, height: 15).background(Circle().fill(hue)).offset(x: 3, y: -3)
-                }
-            }
-            .frame(height: 42).frame(maxWidth: .infinity).contentShape(RoundedRectangle(cornerRadius: 12))
     }
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
@@ -625,11 +606,6 @@ struct DiagView: View {
     var brushIndex: Int { colourIDs.firstIndex(of: brush) ?? 0 }
     var brushColour: Colour? { docColours.first { $0.colourID == brush } }
 
-    func editBrushColour(_ f: @escaping (inout Colour) -> Void) {
-        guard let au else { return }
-        au.editColour(brushIndex, f)
-        docColours = au.uiColours()
-    }
     func setBrushTranspose(_ v: Int) { au?.setColourTranspose(brushIndex, v); docColours = au?.uiColours() ?? docColours }
     // (setBrushMorph/setBrushType + the A/B processor CLIPBOARD removed with the retired shared-Colour desk.)
     func refreshTiming() { stepIndex = au?.uiStepRateIndex() ?? stepIndex; swing = au?.uiSwing() ?? swing }
@@ -1286,13 +1262,6 @@ struct DiagView: View {
         case .copy, .paste: break                           // row-scope copy/paste is deferred (ambiguous)
         }
     }
-    // §11 SELECT "touching edits": recolour every selected cell to `id` (the Colour edit propagates per-Colour).
-    func recolorSelection(_ id: String) {
-        guard let au, !selection.isEmpty else { return }
-        au.editScene { s in for p in selection { if var c = s.cellAt(p.col, p.row) { c.colourID = id; s.setCell(p.col, p.row, c) } } }
-        brush = id                                          // desk re-point: the recoloured (single-Colour) set points the desk at it
-        refreshFromDocument()
-    }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
     var strokeActive: Bool { heldVerb == .place || heldVerb == .delete }
@@ -1335,44 +1304,6 @@ struct DiagView: View {
     // `colourFlowBand` below the emitter band. The RECEIVERS/EMITTERS bands live on the SIGNAL flow (above/
     // below the grid), not here.
     // VISUALIZATION tenant (design item 2): the top-right flank — the picture IS the button. A compact live
-    // FLOW thumbnail (intensity OFF/SUBTLE/SHOWCASE); TAP = open/close full FLOW, LONG-PRESS = cycle the view.
-    // The header FLOW button retired into this. In DEBUG the slot flips to the DIAG face.
-    var vizView: some View {
-        // CONTENTS REMOVED (user 2026-08-03) — the FLOW thumbnail/label/cycle button are gone; the BOX stays in
-        // place (a parked slot for a future visualisation tenant). FlowView + vizContent/vizPicture stay defined.
-        Color.clear
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-    @ViewBuilder var vizContent: some View {
-        #if DEBUG
-        if vizShowDiag { diagBox } else { vizPicture }
-        #else
-        vizPicture
-        #endif
-    }
-    @ViewBuilder var vizPicture: some View {
-        if vizIntensity == 0 {                       // OFF: a static door, still tappable
-            ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.04))
-                Text("FLOW ▸").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-            }
-        } else {                                     // SUBTLE/SHOWCASE: the live mini visualiser (watch-only)
-            FlowView(variation: max(1, flowVariation), thumbnail: true, scene: scene, colours: docColours, receivers: receivers,
-                     busChannels: busChannels, busEnabled: busEnabled,
-                     playColumn: d.effColumn, playing: d.playing, beat: d.beat, tempo: d.tempo,
-                     stepBeats: stepBeats, emitPeak: emitPeak, receiverPeak: receiverPeak, emitMarks: emitMarks, recvMarks: recvMarks, receiverSounding: recvHeld.map { $0.max() ?? 0 })
-                .allowsHitTesting(false)
-        }
-    }
-    func vizChip(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-            .foregroundColor(lit ? .black : .white.opacity(0.5))
-            .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? Color(red: 0.98, green: 0.72, blue: 0.12) : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-
     // master panel: the bottom-right flank tenant (beside the emitters). Sum meter = the loudest emitter peak.
     var masterView: some View {
         MasterView(mute: masterMute, key: masterKey,
@@ -1443,22 +1374,6 @@ struct DiagView: View {
     }
 
     // The dev diagnostics (a8 stuck-note monitor) as a compact VERTICAL box — sits to the RIGHT of RECEIVERS.
-    var diagBox: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("DIAG").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.35))
-            Text("VOICES \(d.activeVoiceCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("HELD \(d.poolCount)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("ECHO \(d.passthroughHeld)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("PANICS \(d.panics)").font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(d.panics > 0 ? .black : .white.opacity(0.5))
-                .padding(.horizontal, 4).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(d.panics > 0 ? Color(red: 0.98, green: 0.35, blue: 0.3) : .clear))
-            Spacer(minLength: 0)
-        }
-        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
-    }
-
     // delta item 8 PROCESSOR PANELS — procA and procB side by side, each a self-contained face editor with
     // its own COPY (+ PASTE when the clipboard holds a processor).
     // §6d: the two PROCESSOR panels (A/B). PORTRAIT stacks them VERTICALLY (A above B, shorter) so each gets

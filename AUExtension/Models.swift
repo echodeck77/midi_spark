@@ -108,7 +108,6 @@ struct Colour: Codable, Equatable {
     // scene. Optional (append-only §12.0) → old docs decode nil; the builder then falls back to the legacy
     // single-processor type+paramsA. Editing it in the "ALL <colour>" scope changes every following cell at once.
     var templateChain: [ProcessorSlot]? = nil
-    var hasTemplate: Bool { !(templateChain?.isEmpty ?? true) }
 
     /// delta item 8: does this Colour have a second processor (procB)? Drives morph/ALT availability + greying.
     var hasProcB: Bool { typeB != nil }
@@ -279,7 +278,6 @@ struct Cell: Codable, Equatable {
     // Colour's A face (the cell can't see its Colour here, so resolution lives builder-side). Stage 1 renders
     // the HEAD slot + per-slot bypass; slots 2…8 are stored but not yet executed (serial chain = a later stage).
     var processors: [ProcessorSlot]? = nil
-    var hasChain: Bool { !(processors?.isEmpty ?? true) }
 
     /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's colour +
     /// source-shaping (chord-split · velocity window · chop) + the given MATERIALISED chain, with ALL routing

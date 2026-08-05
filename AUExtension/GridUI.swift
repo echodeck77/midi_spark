@@ -715,7 +715,6 @@ struct ReceiversView: View {
     var routeCurrent: Int? = nil                       // the focus cell's current receiver (nil ⇒ row-fed/none — no ring)
     var onRouteIn: (Int) -> Void = { _ in }
 
-    @State private var faderVel: [Int?] = [nil, nil, nil, nil]   // the touched slider value (nil = released → springs back)
 
     static let controlHeight: CGFloat = 61             // fixed control region (−20%, user 2026-08-05) — faces swap within it (§6a static-frame law)
 
@@ -831,38 +830,6 @@ struct ReceiversView: View {
             .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
 
-    // BYPASS toggle (§1) — compact, in the header where the THRU pip used to be. Lit = this door skips the grid and
-    // injects straight to its destination emitters (chosen in the cog). Cyan, to distinguish it from the amber LATCH.
-    private func bypassToggle(_ i: Int) -> some View {
-        let on = bit(bypassMask, i)
-        let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-        return HStack(spacing: 2) {
-            Image(systemName: on ? "arrow.turn.down.right" : "arrow.right").font(.system(size: 7, weight: .heavy))
-            Text("BYP").font(.system(size: 7, weight: .heavy, design: .monospaced))
-        }
-        .foregroundColor(on ? .black : .white.opacity(0.85))   // WHITE unless selected (user 2026-08-03); cyan fill when armed
-        .padding(.horizontal, 4).frame(height: 15)
-        .background(RoundedRectangle(cornerRadius: 3).fill(on ? cyan.opacity(0.9) : Color.white.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(on ? .clear : Color.white.opacity(0.35), lineWidth: 1))
-        .contentShape(Rectangle()).onTapGesture { onToggleBypass(i) }
-    }
-
-    // LATCH + KEYS|CHORD as ONE related cluster (user 2026-08-03): the LATCH button on the LEFT (padlock latched to
-    // its side), the KEYS (top) / CHORD (bottom) mode stack on the RIGHT — both the same height so the three read as
-    // a set. LATCH height = the two mode segments stacked (no longer the oversized headline).
-    private func latchRow(_ i: Int) -> some View {
-        let keys = bit(latchAddMask, i)
-        return HStack(spacing: 3) {
-            latchArm(i)
-            VStack(spacing: 2) {
-                modeSeg("KEYS", on: keys) { onSetLatchKeys(i, true) }
-                modeSeg("CHORD", on: !keys) { onSetLatchKeys(i, false) }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(height: 30)   // = two 14pt segments + 2pt spacing; the LATCH button matches this
-    }
-
     // The LATCH ARM — the receiver's performance control. Padlock glyph LATCHED to the LEFT of the "LATCH" label
     // (horizontal), hue-tinted at rest, a solid glow when armed so it's legible across the band. Fills the row
     // height so it equals the KEYS/CHORD stack beside it.
@@ -879,72 +846,6 @@ struct ReceiversView: View {
         .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
     }
 
-    // KEYS | CHORD segments — the latch update rule (moved off the cog per §1). KEYS (default) = each key toggles
-    // frozen-pool membership; CHORD = a detected chord clears & replaces the pool. Switching NEVER clears the pool.
-    private func modeSeg(_ t: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        Text(t).font(.system(size: 7, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? .black : .white.opacity(0.5))
-            .frame(maxWidth: .infinity).frame(height: 14)
-            .background(RoundedRectangle(cornerRadius: 3).fill(on ? soloHue.opacity(0.85) : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-
-    private func featBtn(_ label: String, lit: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
-            .foregroundColor(lit ? .black : .white.opacity(0.7))
-            .frame(maxWidth: .infinity).frame(height: 16)
-            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? soloHue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-
-    private func footBtn(_ label: String, lit: Bool, hue: Color, dim: Bool, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced))
-            .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.7))
-            .frame(maxWidth: .infinity).frame(height: 15)
-            .background(RoundedRectangle(cornerRadius: 3).fill(lit ? hue.opacity(0.72) : Color.white.opacity(0.06)))   // ④ chrome quiet: the default LIVE pad recedes a step
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-
-
-    // The SLIDER — the emitter fader's INPUT twin. Idle: the live input meter (held-note ticks — LATCH velocities
-    // when armed). Touched: a FIXED absolute velocity override (drag = whisper/slam the receiver's subscribers) that
-    // HOLDS where it's left (no spring-back). A glow marks the forced value while set.
-    private func slider(_ i: Int) -> some View {
-        let touched = (i < faderVel.count ? faderVel[i] : nil) != nil
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-            let level = touched ? Double(faderVel[i] ?? 0) / 127.0 : decayed(i, now: tl.date)
-            GeometryReader { g in
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.05))
-                    if touched {                                   // OVERRIDE: a glow brightest at the set velocity, fading above/below
-                        velocityGlow(level: level, hue: hues[i])
-                    } else {                                       // ③ VELOCITY MARKS: a steady tick per currently-HELD input
-                        // note (holds while sounding, strip hue) + a FADING mark for each just-released note (~250ms).
-                        ForEach(Array((i < heldVels.count ? heldVels[i] : []).enumerated()), id: \.offset) { _, v in
-                            Rectangle().fill(hues[i].opacity(0.9)).frame(height: 2)
-                                .position(x: g.size.width / 2, y: g.size.height * (1 - CGFloat(max(0, min(1, v)))))
-                        }
-                        velMarkLayer(i < releaseMarks.count ? releaseMarks[i] : [], now: tl.date) { _ in hues[i] }
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
-                    let frac = 1.0 - min(1, max(0, v.location.y / g.size.height))
-                    let val = max(1, Int(frac * 127))
-                    if i < faderVel.count { faderVel[i] = val }; onVelOverride(i, val)
-                }.onEnded { _ in
-                    // FIXED position (user 2026-08-03): the fader HOLDS where it's left — no spring-back. The forced
-                    // velocity persists (the engine keeps the override until it's moved again). Untouched = no override.
-                })
-            }
-        }
-    }
-
-    private func decayed(_ i: Int, now: Date) -> Double {
-        guard i < peak.count, i < peakAt.count else { return 0 }
-        return peakHoldLevel(peak: peak[i], since: peakAt[i], now: now)
-    }
 }
 
 /// OUTPUTS panel (delta §7/§7b): the fixed cable identities + each bus's stamp channel. Tap a bus's
@@ -1762,7 +1663,6 @@ struct RoutingVizOverlay: View {
 // The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.
 
 private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-private let stagingAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
 
 /// A 0→1→0 breathing fraction for the staging pulses (chip, empty-cell border, placed-cell fill) — one
 /// cosine so every pulse shares the same rhythm. `period` in seconds.
@@ -1770,31 +1670,3 @@ func stagingPulseFraction(_ date: Date, period: Double) -> Double {
     0.5 - 0.5 * cos(date.timeIntervalSinceReferenceDate * 2 * .pi / period)
 }
 
-/// Marching-ants animated dashed border — the "prominent moving outline" marking a panel in cell-edit
-/// state. Pure UI (an animated dashPhase); no render-path involvement.
-struct MarchingAnts: ViewModifier {
-    @Environment(\.animationsPaused) private var animPaused
-    var active: Bool
-    var color: Color
-    var cornerRadius: CGFloat = 6
-    var lineWidth: CGFloat = 2
-    func body(content: Content) -> some View {
-        content.overlay {
-            if active {
-                // Drive the dash phase off the clock (TimelineView), not withAnimation — animating
-                // StrokeStyle.dashPhase via withAnimation doesn't march reliably; a per-frame phase does.
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-                    let period = 0.6                                   // seconds per 11pt dash cycle (7 on + 4 off)
-                    let phase = -11 * CGFloat(tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period)
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .strokeBorder(color, style: StrokeStyle(lineWidth: lineWidth, dash: [7, 4], dashPhase: phase))
-                }
-            }
-        }
-    }
-}
-extension View {
-    func marchingAnts(_ active: Bool, color: Color = stagingCyan, cornerRadius: CGFloat = 6, lineWidth: CGFloat = 2) -> some View {
-        modifier(MarchingAnts(active: active, color: color, cornerRadius: cornerRadius, lineWidth: lineWidth))
-    }
-}
