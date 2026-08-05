@@ -84,47 +84,58 @@ extension DiagView {
         let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
+        // EDIT-PAGE REARRANGE (Paul's spec 2026-08-05): grid LEFT-aligned + slightly smaller, freeing a right
+        // column for the MODE RAIL (vertical ADD/EDIT·MOVE·MUTE·CLEAR + helper + APPLY/CANCEL at the grid's bottom).
+        let railW: CGFloat = 150
+        let gridW = min(size.width - 24 - railW - 12, max(240, gridH * 1.3))
         VStack(spacing: 8) {
             arrangementBar                                          // the SHARED header + scenes bar (consistent with PERFORM;
                                                                     // the PERFORM/EDIT toggle here replaces the old DONE button)
-            spikeGrid(cellH).frame(width: min(size.width - 24, 560), height: gridH)   // narrower grid (user 2026-08-03), aligned to the inspector width
-            modeRow()                                                // MODE ROW: ADD/EDIT · MOVE · MUTE · CLEAR ‖ APPLY · CANCEL
-            Text(modeGuidance)                                       // the ALWAYS-VISIBLE guidance for the current mode
-                .font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
-                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 12) {
+                spikeGrid(cellH).frame(width: gridW, height: gridH)  // LEFT-aligned, smaller
+                modeRail(gridH)                                      // the freed right column: mode buttons ↓ · helper · APPLY/CANCEL at the bottom
+                Spacer(minLength: 0)
+            }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {       // §4 sparse: ~2× vertical rhythm
+                    VStack(alignment: .leading, spacing: 22) {       // §4 sparse: clear seams between sections
                         sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
+                        sectionSeam()
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
+                        sectionSeam()
                         chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
                         chainStack(cell, boxWidth: min(540, size.width - 48))
+                        sectionSeam()
                         sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
                     }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
                 }.frame(maxWidth: .infinity)
             } else {
-                Spacer(minLength: 0)                                  // grid + guidance only (nothing selected, or a non-edit mode)
+                Spacer(minLength: 0)                                  // grid only (nothing selected, or a non-edit mode)
             }
         }
         .padding(12)
     }
+    private func sectionSeam() -> some View { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.vertical, 2) }
 
-    // MODE ROW: big, left-justified ADD/EDIT · MOVE · MUTE · CLEAR radio + right-justified APPLY·CANCEL (shown ONLY
-    // in ADD/EDIT — the one staging mode; MOVE/MUTE/CLEAR are immediate + undo/redo). APPLY commits the staged
-    // edits/births as ONE undo step; CANCEL reverts them.
-    @ViewBuilder func modeRow() -> some View {
-        let canCommit = !editSel.isEmpty                     // APPLY/CANCEL are available whenever ≥1 cell is selected
-        HStack(spacing: 6) {
+    // MODE RAIL (Paul's rearrange 2026-08-05): the mode buttons as a VERTICAL stack beside the grid, the helper text
+    // directly under them, and APPLY/CANCEL anchored at the grid's BOTTOM edge (the rail's height == the grid's).
+    // ADD/EDIT is the one staging mode (APPLY/CANCEL live here); MOVE/MUTE/CLEAR are immediate + undo/redo.
+    @ViewBuilder func modeRail(_ gridH: CGFloat) -> some View {
+        let canCommit = !editSel.isEmpty
+        VStack(alignment: .leading, spacing: 6) {
             modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
-            Spacer(minLength: 10)
+            Text(modeGuidance)                                       // the helper for the armed mode, right under its buttons
+                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+            Spacer(minLength: 6)                                     // pushes APPLY/CANCEL to the grid's bottom edge
             if editMode == .addEdit {
                 Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
                     .buttonStyle(.plain).disabled(!canCommit)
                 Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
                     .buttonStyle(.plain).disabled(!canCommit)
             }
-        }.padding(.vertical, 4)
+        }.frame(width: 150, height: gridH, alignment: .topLeading)
     }
     /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
     var modeGuidance: String {
@@ -243,11 +254,15 @@ extension DiagView {
                         .font(.system(size: 11, design: .monospaced)).foregroundColor(.white.opacity(0.4))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if chain.count < 8 {                             // ADD MORE — the same big, bold TYPE selector as the empty state
-                    VStack(alignment: .leading, spacing: 8) {
+                if chain.count < 8 {                             // ADD MORE — a GHOST SLOT: a dim outlined box the width of a
+                    VStack(alignment: .leading, spacing: 8) {    // processor window (the invitation grammar — the next empty slot waiting)
                         Text("+ ADD PROCESSOR").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
-                        processorTypeRow(boxWidth: boxWidth)
-                    }.padding(.top, 4)
+                        processorTypeRow(boxWidth: boxWidth - 20)
+                    }
+                    .padding(10).frame(width: boxWidth, alignment: .leading)
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(mainDestHue.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+                    .padding(.top, 4)
                 }
             }
         }

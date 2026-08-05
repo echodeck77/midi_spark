@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MERGED `feat/multiple_features` → `main` + EDIT-PAGE REARRANGE + 6 design captures (2026-08-05; iOS builds,
+  427 green). The whole branch (FENCE UX · per-note TURNS · bypass + loop bug fixes · seal lock · in-app manual ·
+  manual Why-merge · macro capture) fast-forwarded onto `main`. Design **endorsed the RACK full-bypass** ruling
+  (rack-off = whole board out, as built). NEW: EDIT-PAGE REARRANGE (`INSTRUCTIONS-edit-page-rearrange`, on `main`) —
+  `EditPage.editSpikePage`: grid LEFT-aligned + smaller; a VERTICAL `modeRail` beside it (ADD/EDIT·MOVE·MUTE·CLEAR +
+  the mode helper under the buttons + APPLY/CANCEL anchored at the grid's bottom, rail height == grid height);
+  `sectionSeam()` faint dividers between IDENTITY/FROM/CHAIN/TO; "+ ADD PROCESSOR" is a dim dashed GHOST BOX the
+  width of a processor window. CAPTURED (spec-of-record, NOT built — large): `AcceptanceCriteria-split-processor`
+  (SPLIT chain stage — membership law, [SPLIT→ARP] re-pool vs [ARP→SPLIT] punch-holes) · `-shape-arp` (fixed
+  LENGTH + OVERFLOW) · `-dice-authoring` (randomization authoring) · `-pool-aware-family` (set-awareness roster) ·
+  `-layout-v2-tabs` (THE TAB ERA — supersedes PERFORM|EDIT + verb cluster + global HOLD; SELECT → RETIRE implied,
+  still on Paul's word) · `-edit-page-rearrange`. Ferry inbox cleared; the bugs/macro/manual + specs replies await
+  the design side's ack. Device pass owed for the whole RACK + the edit-page rearrange.**
 - **▶ IN-APP MANUAL — the "?" reader (2026-08-05, branch `feat/multiple_features`; 427 green, iOS builds; DEVICE
   pass owed). User: a "?" in the top-right that opens the manual scrolled to the LAST-TOUCHED control. Built native
   (no WKWebView): `AUExtension/ManualView.swift` = `HelpTracker` (ObservableObject, lastAnchor NOT @Published — a
