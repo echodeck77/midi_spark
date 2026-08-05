@@ -376,16 +376,16 @@ struct SceneState: Codable, Equatable {
     // mode is on. Optional (append-only) → old scenes decode nil; per-column nil = "use the gentle default".
     // Scenes CAPTURE rung choices (arranged intensity). The LADDER on/off toggle itself is document-level.
     var activeRow: [Int?]? = nil
-    /// The resolved rung for `col` (SINGLE / LADDER). If a rung was CHOSEN for this column (activeRow[col] set):
-    /// −1 = explicitly DESELECTED → nothing speaks; a valid row → it if still occupied, else nothing (the chosen
-    /// cell was deleted — user 2026-08-05). If NO rung was chosen (nil) → the TOPMOST occupied cell (the gentle
-    /// default). An empty column → nil. Bounds-safe throughout.
+    /// The resolved rung for `col` (SINGLE / LADDER): −1 = EXPLICITLY deselected → nothing speaks (user 2026-08-05,
+    /// the only "nothing" case); a chosen row that is still occupied → it; otherwise (no choice, OR a chosen rung
+    /// whose cell was since deleted) → the TOPMOST occupied cell (the gentle default — a stale preset curve never
+    /// silences a column); an empty column → nil. Bounds-safe throughout.
     func ladderActiveRow(_ col: Int) -> Int? {
         if let ar = activeRow, col >= 0, col < ar.count, let r = ar[col] {
-            if r < 0 { return nil }                              // explicitly deselected → nothing
-            return cellAt(col, r) != nil ? r : nil              // chosen rung: occupied → it; now-empty → nothing
+            if r < 0 { return nil }                                      // explicitly deselected → nothing
+            if r < 8, cellAt(col, r) != nil { return r }                // chosen rung still occupied → it
         }
-        for r in 0..<8 where cellAt(col, r) != nil { return r }  // no choice → topmost occupied (the gentle default)
+        for r in 0..<8 where cellAt(col, r) != nil { return r }          // else the topmost occupied (chosen-but-empty falls here)
         return nil
     }
 

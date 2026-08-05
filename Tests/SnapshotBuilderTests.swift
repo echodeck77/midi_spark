@@ -238,14 +238,15 @@ final class SnapshotBuilderTests: XCTestCase {
     }
 
     /// SINGLE (LADDER) active-rung resolution (user 2026-08-05): no choice → topmost occupied; a chosen occupied
-    /// rung → it; a chosen rung whose cell is now EMPTY → nothing; explicit −1 deselect → nothing; empty column → nothing.
+    /// rung → it; a chosen rung whose cell is now EMPTY → topmost (a stale preset curve never silences); ONLY an
+    /// explicit −1 deselect → nothing; empty column → nothing.
     func testLadderActiveRowResolution() {
         var s = SceneState.empty()
         s.cells[0][2] = Cell(colourID: "gold"); s.cells[0][5] = Cell(colourID: "gold")
         XCTAssertEqual(s.ladderActiveRow(0), 2, "no choice → topmost occupied")
         s.activeRow = [Int?](repeating: nil, count: 8)
         s.activeRow?[0] = 5; XCTAssertEqual(s.ladderActiveRow(0), 5, "chosen occupied rung")
-        s.activeRow?[0] = 3; XCTAssertNil(s.ladderActiveRow(0), "chosen rung now empty → nothing (not topmost)")
+        s.activeRow?[0] = 3; XCTAssertEqual(s.ladderActiveRow(0), 2, "chosen rung now empty → topmost (a stale curve never silences)")
         s.activeRow?[0] = -1; XCTAssertNil(s.ladderActiveRow(0), "explicit deselect → nothing")
         XCTAssertNil(s.ladderActiveRow(1), "empty column → nothing")
     }
