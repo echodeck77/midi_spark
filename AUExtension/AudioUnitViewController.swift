@@ -1130,6 +1130,7 @@ struct DiagView: View {
             let landscapeFixed = !isPortrait && flowVariation == 0
             let cell = landscapeFixed ? (335 - 24) / 9 : max(minCell, min(48, fitCell))
             let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
+            let recvW = min(g.size.width, 512)                // RECEIVERS section: fixed 512 wide, centred (user 2026-08-05)
             let contentH = recvBandH + 15 * cell + 30         // the column's natural height at this cell size
             let overflow = contentH > g.size.height + 0.5     // reduced window: the flow no longer fits → scroll
             let gridBlockW = landscapeFixed ? min(g.size.width, 1024) : g.size.width   // landscape: fixed 1024 wide, centred
@@ -1137,7 +1138,7 @@ struct DiagView: View {
                 VStack(spacing: 3) {
                     HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
                         Color.clear.frame(maxWidth: .infinity)    // the empty left flank keeps RECEIVERS centred + grid-aligned with the EMITTERS band below
-                        receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
+                        receiversBox(isPortrait).frame(width: recvW).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
                         vizView.frame(maxWidth: .infinity)
                     }.frame(height: recvBandH)                    // FIXED input-controls height
                     gridBlock(cell, half).frame(width: gridBlockW).frame(maxWidth: .infinity).helpAnchor("#grid")   // narrowed + centred in landscape

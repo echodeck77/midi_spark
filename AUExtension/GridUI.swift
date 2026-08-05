@@ -812,11 +812,12 @@ struct ReceiversView: View {
         let muted = r(i).muted, soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
         return HStack(spacing: 3) {
-            latchArm(i).frame(width: 34)     // the padlock arm, spans both buttons
+            latchArm(i).frame(maxWidth: .infinity)     // the padlock arm — SAME width as the solo/mute column (user 2026-08-05)
             VStack(spacing: 3) {
                 perfBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }   // where NOTE± was
                 perfBtn("MUTE", lit: muted, hue: cyan, dim: false) { onToggleMute(i) }           // where OCT± was
             }
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
