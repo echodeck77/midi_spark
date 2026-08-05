@@ -1150,6 +1150,21 @@ final class DerivationsTests: XCTestCase {
         var vw = a; vw.velWindow = VelWindow(floor: 40, ceil: 100)          // SOURCE: velocity window
         XCTAssertNotEqual(sealHash(a, colours: []), sealHash(vw, colours: []), "the velocity window is part of the source contract")
     }
+    // DEVICE REPORT (Paul, 2026-08-05): cell→A and cell→B (same COUNT of emitters, DIFFERENT which one) drew the
+    // SAME seal, while A+B vs A differed. Pin that different SINGLE emitters ⇒ a different hash AND a different DRAWN
+    // seal (geometry), for all of A/B/C/D — the count-invariant case the earlier tests missed.
+    func testSealDistinguishesWhichSingleEmitter() {
+        func cell(_ b: Bus) -> Cell { var c = Cell(colourID: "gold", buses: [b]); c.processors = []; return c }
+        let hA = sealHash(cell(.a), colours: []), hB = sealHash(cell(.b), colours: [])
+        XCTAssertNotEqual(hA, hB, "A vs B (same count, different emitter) ⇒ different seal HASH")
+        XCTAssertNotEqual(sealGeometry(hA), sealGeometry(hB), "A vs B ⇒ different DRAWN seal (geometry), not just hash")
+        let hs = [Bus.a, .b, .c, .d].map { sealHash(cell($0), colours: []) }
+        XCTAssertEqual(Set(hs).count, 4, "A/B/C/D each ⇒ a distinct seal hash")
+        let geos = hs.map { sealGeometry($0) }
+        for i in 0..<4 { for j in (i + 1)..<4 {
+            XCTAssertNotEqual(geos[i], geos[j], "single emitters \(i) vs \(j) ⇒ visibly distinct seals")
+        } }
+    }
     func testSealHashExcludesColourNameMutePosition() {
         let a = sealCell()
         var recoloured = a; recoloured.colourID = "cyan"
