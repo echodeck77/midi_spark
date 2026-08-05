@@ -31,6 +31,7 @@ struct ArrangementBar: View {
     var isEditMode: Bool = false            // the prominent PERFORM/EDIT toggle — reflected on BOTH pages (shared bar)
     var onSetEditMode: (Bool) -> Void = { _ in }
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
+    var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -53,15 +54,18 @@ struct ArrangementBar: View {
                 Text("8×8").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2)
                     .foregroundColor(.white.opacity(0.85)).fixedSize()
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
-                presetButton                                                       // §3 PRESETS: right of the logo (user 2026-08-03)
-                modeToggle                                                         // PERFORM/EDIT toggle: right of the preset button
+                    .helpAnchor("#logo")
+                presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
+                modeToggle.helpAnchor("#perform-edit-toggle")                      // PERFORM/EDIT toggle: right of the preset button
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 if d.playing {
                     Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
                         .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
+                        .helpAnchor("#transport-readout")
                 }
-                undoRedo                                                           // labelled UNDO/REDO, moved to the right (user 2026-08-03)
-                cogOrCan                                                           // ⚙ ⇄ 🗑 (the can in place during a drag)
+                undoRedo.helpAnchor("#undo")                                       // labelled UNDO/REDO, moved to the right (user 2026-08-03)
+                helpButton                                                         // "?" → the in-app manual at the last-touched control
+                cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
             if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }
@@ -152,6 +156,13 @@ struct ArrangementBar: View {
             }
         }
         .frame(width: 34, height: 26).contentShape(Rectangle())
+    }
+    // "?" — opens the in-app manual scrolled to whatever control you last touched.
+    private var helpButton: some View {
+        Image(systemName: "questionmark.circle").font(.system(size: 15, weight: .semibold))
+            .foregroundColor(.white.opacity(0.6))
+            .frame(width: 30, height: 26).contentShape(Rectangle())
+            .onTapGesture { onOpenManual() }
     }
     private func sceneChip(_ i: Int, chipW: CGFloat, rowWidth: CGFloat) -> some View {
         let empty = i >= sceneEmpty.count || sceneEmpty[i]

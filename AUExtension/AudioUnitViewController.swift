@@ -75,6 +75,9 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
+    @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
+    static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
     @State var rackMatrixOpen = false            // THE RACK: the treatment matrix overlay is open (drawn INSIDE the grid's cell area; chevron row + rails stay)
     @State var showPresets = false             // §3 PRESETS: the browser sheet
@@ -831,6 +834,10 @@ struct DiagView: View {
                 }
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
+                if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
+                    ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
+                               onClose: { showManual = false })
+                }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, receivers: receivers, busChannels: busChannels, d: d,
                             inAt: receiverPeakAt, outAt: emitPeakAt, mpeAt: mpeSeenAt, aboutLine: aboutLine,
@@ -858,6 +865,7 @@ struct DiagView: View {
                 #endif
             }
         }
+        .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
             // commits whatever was staged (live-previewed edits persist as one undo step) + clears transient state.
@@ -1059,16 +1067,16 @@ struct DiagView: View {
             let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
             VStack(spacing: 3) {
                 HStack(spacing: 4) {                          // [CONTROLS] · RECEIVERS · [VISUALIZATION] — gutters tightened (SPACE-FILL)
-                    controlsView.frame(maxWidth: .infinity)
-                    receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers"))   // §10 strips wear ROUTE IN faces
+                    controlsView.frame(maxWidth: .infinity).helpAnchor("#clock")
+                    receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: recvBandH)                    // FIXED input-controls height
-                gridBlock(cell, half)                         // THE RACK draws INSIDE this (cellAreaOverride) — chevron row + rails stay; `half` = emitter width
+                gridBlock(cell, half).helpAnchor("#grid")     // THE RACK draws INSIDE this (cellAreaOverride) — chevron row + rails stay; `half` = emitter width
 
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
-                    verbCluster.frame(maxWidth: .infinity)
-                    emittersBox.frame(width: half).background(routeProbe("emitters"))     // §10 strips wear ROUTE OUT faces
-                    masterView.frame(maxWidth: .infinity)
+                    verbCluster.frame(maxWidth: .infinity).helpAnchor("#verbs")
+                    emittersBox.frame(width: half).background(routeProbe("emitters")).helpAnchor("#emitters")     // §10 strips wear ROUTE OUT faces
+                    masterView.frame(maxWidth: .infinity).helpAnchor("#master")
                 }.frame(height: bandH)
             }
             .coordinateSpace(name: "signal")
@@ -1354,7 +1362,8 @@ struct DiagView: View {
                        onUndo: undo, onRedo: redo,
                        isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
                        onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on; rackMatrixOpen = false },   // EDIT closes the rack matrix
-                       showScenes: showScenes)                                  // scene row visibility (cog toggle)
+                       showScenes: showScenes,                                  // scene row visibility (cog toggle)
+                       onOpenManual: { showManual = true })                     // "?" → the in-app manual
     }
     // §3 PRESETS wiring
     func openPresets() {

@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ IN-APP MANUAL — the "?" reader (2026-08-05, branch `feat/multiple_features`; 427 green, iOS builds; DEVICE
+  pass owed). User: a "?" in the top-right that opens the manual scrolled to the LAST-TOUCHED control. Built native
+  (no WKWebView): `AUExtension/ManualView.swift` = `HelpTracker` (ObservableObject, lastAnchor NOT @Published — a
+  silent reference read on open, no per-touch re-render) + a `.helpAnchor("#id")` view modifier (simultaneous
+  TapGesture → never steals the control's gesture) + `ManualDoc.load()/parse()` (loads the BUNDLED
+  `Docs/manual/manual-skeleton.md` — added as a `buildPhase: resources` source in `project.yml`; renders line-based
+  markdown to blocks, inline via `AttributedString(markdown:)`) + `ManualView` (a `ScrollViewReader` that
+  `scrollTo`s the anchor; the target block highlights). The "?" is in `ArrangementBar` (`helpButton`, by the cog) →
+  VC `showManual` overlay reading `helpTracker.lastAnchor`; `helpTracker` injected via `.environmentObject` at the
+  VC root; `Self.manualBlocks` parsed once (static). WIRING v1: per-control on the HEADER (#logo · #presets-open ·
+  #perform-edit-toggle · #transport-readout · #undo · #cog-open) + SECTION-level on the surfaces (#receivers · #grid
+  · #emitters · #master · #verbs · #clock) — all anchors that exist in the skeleton. DEFERRED: per-control depth
+  inside the strips/grid (section-level for now); manual entries for the RACK (touching it lands on #grid); the
+  docs-test (registry ⇔ anchors). Project regenerated via xcodegen (new file + resource).**
 - **▶ BRANCH `feat/multiple_features` — FENCE UX · per-note TURNS · 3 device bugs · manual merge · macro capture
   (2026-08-05; NOT on `main` — user merges; 427 green, iOS builds). Batched the user's asks + Paul's device-session
   ferry. (1) **FENCE UX**: `setFence` on-ENABLE now seeds a sensible window when it's still full-range — policy
