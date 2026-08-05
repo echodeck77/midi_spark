@@ -1112,15 +1112,14 @@ struct DiagView: View {
             let recvBandH: CGFloat = 134              // MIDI INPUT box −20% (user 2026-08-05)
             let minCell: CGFloat = 30                         // scroll kicks in when the viewport < 198 + 15·minCell (~648pt) — reduced windows only
             let fitCell = (g.size.height - recvBandH - 30) / 15
-            let cell = max(minCell, min(48, fitCell))
+            // LANDSCAPE (non-flow): the main grid is a FIXED 1024 × 335 (user 2026-08-05) — cell height derived so the
+            // grid block (key row + 8 rows + gaps = 9·cell + 24) is 335. Portrait + the FLOW theater fit the height.
+            let landscapeFixed = !isPortrait && flowVariation == 0
+            let cell = landscapeFixed ? (335 - 24) / 9 : max(minCell, min(48, fitCell))
             let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
             let contentH = recvBandH + 15 * cell + 30         // the column's natural height at this cell size
             let overflow = contentH > g.size.height + 0.5     // reduced window: the flow no longer fits → scroll
-            // LANDSCAPE: the grid no longer spans the full width — cap it to near-square cells so it reads compact
-            // (user 2026-08-05). Portrait (and the FLOW theater) keep the full width; the cap is then centred.
-            let railTotal: CGFloat = 40 * 2 + 3 * 2           // two 40pt row rails + their two 3pt gaps
-            let gridBlockW = (isPortrait || flowVariation > 0)
-                ? g.size.width : min(g.size.width, cell * 8 + GridGeometry.vGap * 7 + railTotal)
+            let gridBlockW = landscapeFixed ? min(g.size.width, 1024) : g.size.width   // landscape: fixed 1024 wide, centred
             ScrollView(.vertical, showsIndicators: overflow) {
                 VStack(spacing: 3) {
                     HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
