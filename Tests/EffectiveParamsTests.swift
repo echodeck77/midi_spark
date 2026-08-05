@@ -257,4 +257,39 @@ final class EffectiveParamsTests: XCTestCase {
         doc.macros?[8] = Macro(value: 1.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.3)])
         XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.8, accuracy: 1e-9)   // 0.5 + 1×0.3
     }
+
+    // MARK: OUTPUT — macros modulate the per-emitter role amounts (LEAK/DUCK/CURVE/POCKET)
+
+    /// A macro bound to an emitter's DUCK amount shifts the RESOLVED amount; the document base is untouched, and a
+    /// macro at 0 is home. The amount lives per-emitter (folded in the builder, not through applyMacros).
+    func testOutputMacroModulatesEmitterAmountAndLeavesBaseUntouched() {
+        var doc = self.doc()
+        doc.flattenAmount = [40, 0, 0, 0]                    // base DUCK 40% on emitter A
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(value: 1.0, emitterTargets: [MacroEmitterTarget(emitter: 0, param: "duck", delta: 50)])
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).flattenAmount[0], 90)   // 40 + 1×50
+        XCTAssertEqual(doc.flattenAmountResolved[0], 40)                        // document base untouched
+        doc.macros?[0].value = 0.0
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).flattenAmount[0], 40)   // home = base
+    }
+
+    /// Each OUTPUT amount clamps to its native range (LEAK/DUCK 0…100 · CURVE −100…100 · POCKET −50…50), summing
+    /// overlaps ONCE. A half-value macro scales the delta.
+    func testOutputAmountsSumThenClampToRanges() {
+        var doc = self.doc()
+        doc.flattenAmount = [40, 0, 0, 0]; doc.curveAmount = [0, 0, 0, 0]; doc.pocketMs = [0, 0, 0, 0]
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(value: 1.0, emitterTargets: [
+            MacroEmitterTarget(emitter: 0, param: "duck", delta: 80),     // 40 + 80 = 120 (before the 2nd) …
+            MacroEmitterTarget(emitter: 0, param: "duck", delta: -30),    // … + −30 = 90 (sum first, not clamp-per-mod)
+            MacroEmitterTarget(emitter: 1, param: "curve", delta: 200),   // 0 + 200 → clamp 100
+            MacroEmitterTarget(emitter: 2, param: "pocket", delta: -80),  // 0 − 80 → clamp −50
+        ])
+        doc.macros?[1] = Macro(value: 0.5, emitterTargets: [MacroEmitterTarget(emitter: 3, param: "leak", delta: 40)])  // 0.5×40 = 20
+        let box = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(box.flattenAmount[0], 90)      // sum then clamp (proves not clamped per-mod)
+        XCTAssertEqual(box.curveAmount[1], 100)       // clamped to +100
+        XCTAssertEqual(box.pocketMs[2], -50)          // clamped to −50
+        XCTAssertEqual(box.claimLeak[3], 20)          // half-value scales the delta
+    }
 }

@@ -153,7 +153,31 @@ enum SnapshotBuilder {
         // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
         // per-claimant LEAK % (0 = full suppression = v1). Gated by the rack.
         let claimMask = doc.claimMaskResolved & rackMask
-        let claimLeak = doc.claimLeakResolved.map { UInt8($0) }
+        // MACRO OUTPUT (macro-panel spec §3): fold each macro's A→B deltas into the per-emitter role AMOUNTS —
+        // effective = base + Σ value×delta, summed then clamped ONCE per amount (the offset law). Bases (the
+        // document) untouched. These amounts are per-emitter, so they fold HERE (not through applyMacros, which is
+        // per-slot). Same v1 bake-at-publish boundary as M1.
+        var leakOff = [0.0, 0, 0, 0], duckOff = [0.0, 0, 0, 0], curveOff = [0.0, 0, 0, 0], pocketOff = [0.0, 0, 0, 0]
+        for (mi, macro) in doc.macrosResolved.enumerated() {
+            for t in macro.emitterTargets where t.emitter >= 0 && t.emitter < 4 && t.delta != 0 {
+                let off = macroVals[mi] * t.delta
+                switch MacroEmitterParam(rawValue: t.param) {
+                case .leak:   leakOff[t.emitter] += off
+                case .duck:   duckOff[t.emitter] += off
+                case .curve:  curveOff[t.emitter] += off
+                case .pocket: pocketOff[t.emitter] += off
+                case .none:   break
+                }
+            }
+        }
+        func modAmount(_ base: [Int], _ off: [Double], _ lo: Int, _ hi: Int) -> [Int] {
+            base.enumerated().map { clamp(Int((Double($1) + off[$0]).rounded()), lo, hi) }
+        }
+        let claimLeakM  = modAmount(doc.claimLeakResolved, leakOff, 0, 100)      // LEAK %
+        let flattenM    = modAmount(doc.flattenAmountResolved, duckOff, 0, 100)  // DUCK %
+        let curveM      = modAmount(doc.curveAmountResolved, curveOff, -100, 100)
+        let pocketM     = modAmount(doc.pocketMsResolved, pocketOff, -50, 50)
+        let claimLeak = claimLeakM.map { UInt8($0) }
         // delta §9 item 11: receiver channel filters (0 = OMNI, 1–16) — for input metering attribution.
         // A MUTED receiver resolves to the match-nothing filter (like a muted cell) so metering goes dark AND
         // the R1 passthrough gate blocks it (mute ruling 2026-07-26) — one representation, both consumers.
@@ -188,12 +212,12 @@ enum SnapshotBuilder {
                            claimMask: claimMask,
                            claimLeak: claimLeak,
                            flattenMask: gated(doc.flattenMask),
-                           flattenAmount: doc.flattenAmountResolved.map { UInt8($0) },
+                           flattenAmount: flattenM.map { UInt8($0) },
                            altMask: gated(doc.altMask),
                            altCount: doc.altCountResolved.map { UInt8($0) },
                            turnsPerNote: doc.turnsPerNoteResolved,
                            curveMask: gated(doc.curveMask),
-                           curveAmount: doc.curveAmountResolved.map { Int8($0) },
+                           curveAmount: curveM.map { Int8($0) },
                            fenceMask: gated(doc.fenceMask),
                            fencePolicy: doc.fencePolicyResolved.map { UInt8($0) },
                            fenceLo: doc.fenceLoResolved.map { UInt8($0) },
@@ -201,7 +225,7 @@ enum SnapshotBuilder {
                            monoMask: gated(doc.monoMask),
                            monoPriority: doc.monoPriorityResolved.map { UInt8($0) },
                            pocketMask: gated(doc.pocketMask),
-                           pocketMs: doc.pocketMsResolved.map { Int8($0) },
+                           pocketMs: pocketM.map { Int8($0) },
                            convLead: Int8(doc.convLeadResolved),
                            convStance: doc.convStanceResolved.enumerated().map { (i, s) in (rackMask & (1 << UInt8(i)) != 0) ? UInt8(s) : 0 },
                            rackMask: rackMask,

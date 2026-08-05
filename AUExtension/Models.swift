@@ -433,13 +433,25 @@ struct MacroTarget: Codable, Equatable {
     var delta: Double        // B − A, in the param's native units (may be negative = an inverted B)
 }
 
+/// The per-emitter OUTPUT role amounts a macro may modulate (the RACK's continuous amounts). Append-only.
+enum MacroEmitterParam: String, Codable { case leak, duck, curve, pocket }
+
+/// An OUTPUT binding target: a per-emitter (A–D) role amount carrying its A→B delta. Distinct from `MacroTarget`
+/// (a cell/slot param) because these amounts are per-emitter GLOBAL state, folded in the builder, not per-slot.
+struct MacroEmitterTarget: Codable, Equatable {
+    var emitter: Int         // 0–3 (A–D)
+    var param: String        // a `MacroEmitterParam` raw value
+    var delta: Double        // B − A, in the amount's native units (LEAK/DUCK %, CURVE −100…100, POCKET ms)
+}
+
 /// One macro slot: a modulator that OFFSETS its targets (never rewrites their bases). Value 0 = home (nothing to
 /// revert). `fixed` toggles the padlock: false = SPRING (release returns home / to the lane), true = FIXED (latched).
 struct Macro: Codable, Equatable {
     var name: String = ""            // "" = unset/unnamed → renders as an INVITATION (dim/dashed +), not a dead control
     var value: Double = 0            // 0…1, unipolar; home at the foot (the offset model's soul)
     var fixed: Bool = false          // the padlock: false = SPRING (default) · true = FIXED (latched)
-    var targets: [MacroTarget] = []  // the A/B deltas bound here (empty = unbound)
+    var targets: [MacroTarget] = []  // CHAIN/INPUT: the A/B deltas on cell/slot params (empty = unbound)
+    var emitterTargets: [MacroEmitterTarget] = []   // OUTPUT: the A/B deltas on per-emitter role amounts
 }
 
 struct PluginState: Codable, Equatable {
