@@ -13,7 +13,12 @@ Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-over
   **M4 A/B authoring** (the [AB] popup on the Edit page's CHAIN header → live B demonstration → bind delta to a
   SLIDER macro; base restored to A on close). **MACROS ARE USABLE END-TO-END.** Device pass owed.
 - [x] BUTTON bank completed end-to-end (values via a direct document setter for 8–23; [AB] popup SLD|BTN selector).
-- [ ] Deferred within macros: INPUT/OUTPUT [AB] groups (extend the offset to receiver/emitter-amount params) ·
+- [x] OUTPUT group done end-to-end: the offset extended to the per-emitter role amounts (LEAK/DUCK/CURVE/POCKET,
+  MacroEmitterTarget, folded in the builder) + the [AB] popup's CHAIN|OUTPUT selector + OUTPUT authoring.
+- [ ] INPUT group — the source shaping. **Underspecified**: the panel spec lists INPUT as a group but doesn't name
+  its continuous targets. Candidates: the velocity window (floor/ceil) · the note range (lo/hi). Needs a pick before
+  building (SnapCell-field fold + an INPUT group in the popup).
+- [ ] Deferred within macros: TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time
   TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time per-column path, which replaces M1's
   bake-at-build for lanes) · BUTTON/TIMELINE binding + mover-eligibility live-dim · the A↔B morph-audition slider ·
   the CC rail · the perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) · announce/
