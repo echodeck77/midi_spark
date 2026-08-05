@@ -549,6 +549,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.morph(index))?.value = AUValue(max(0, min(1, value)))
     }
 
+    /// Macro slider m (AUParameter 400+m, m∈0…7) — the automatable macro fader. Set via the tree so host
+    /// automation / the CC rail / the in-app panel stay in sync; the observer folds it into the document (offset).
+    func setMacroValue(_ index: Int, _ value: Double) {
+        guard index >= 0 && index < ParamAddress.macroSliderCount else { return }
+        _parameterTree.parameter(withAddress: ParamAddress.macro(index))?.value = AUValue(max(0, min(1, value)))
+    }
+    /// The 24 macros for the UI (panel / A/B authoring). Read-back; the values mirror the automatable sliders.
+    func uiMacros() -> [Macro] { document.macrosResolved }
+
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
     func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2 }
@@ -615,12 +624,17 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     //   100 + i      transpose per colour i (−24…+24)
     //   200 + i      morph per colour i (0…1)          ← the macro (§3.2)
     //   300          MORPH MASTER (0…1)                ← #35, reserved & functional (§13.5)
+    //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
+    //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
+    //                                                     spec §5). A future transposeB must pick a base ≥ 500.
     enum ParamAddress {
         static let stepRate: AUParameterAddress = 0
         static let swing: AUParameterAddress = 1
         static func transpose(_ i: Int) -> AUParameterAddress { 100 + AUParameterAddress(i) }
         static func morph(_ i: Int) -> AUParameterAddress { 200 + AUParameterAddress(i) }
         static let morphMaster: AUParameterAddress = 300
+        static func macro(_ i: Int) -> AUParameterAddress { 400 + AUParameterAddress(i) }
+        static let macroSliderCount = 8   // the automatable bank (0–7); buttons/timelines aren't single-value AU params
     }
 
     private static func buildParameterTree() -> AUParameterTree {
@@ -654,6 +668,15 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             withIdentifier: "morphMaster", name: "Morph Master", address: ParamAddress.morphMaster,
             min: 0, max: 1, unit: .generic, unitName: nil,
             flags: smooth, valueStrings: nil, dependentParameters: nil))
+        // MACRO SLIDERS (macro-panel spec §5): the 8 slider macros as host-automatable params — the reborn
+        // automation story (AUM lanes · host MIDI-learn · the CC rail all ride these; no MIDI-learn code of ours).
+        for i in 0..<ParamAddress.macroSliderCount {
+            params.append(AUParameterTree.createParameter(
+                withIdentifier: "macro_\(i + 1)", name: "Macro \(i + 1)",
+                address: ParamAddress.macro(i),
+                min: 0, max: 1, unit: .generic, unitName: nil,
+                flags: smooth, valueStrings: nil, dependentParameters: nil))
+        }
         return AUParameterTree.createTree(withChildren: params)
     }
 
@@ -674,6 +697,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 self.document.colours[Int(a - 200)].morph = Double(value)
             case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
                 self.document.colours[Int(a - 100)].transpose = Int(value)
+            case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
+                // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
+                if self.document.macros == nil { self.document.macros = self.document.macrosResolved }
+                self.document.macros?[Int(a - 400)].value = max(0, min(1, Double(value)))
             default: break
             }
         }
@@ -688,6 +715,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 return AUValue(self.document.colours[Int(a - 200)].morph)
             case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
                 return AUValue(self.document.colours[Int(a - 100)].transpose)
+            case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
+                return AUValue(self.document.macrosResolved[Int(a - 400)].value)
             default: return 0
             }
         }
@@ -889,6 +918,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 AUValue(document.colours[i].morph)
             _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
                 AUValue(document.colours[i].transpose)
+        }
+        let macros = document.macrosResolved
+        for i in 0..<ParamAddress.macroSliderCount {
+            _parameterTree.parameter(withAddress: ParamAddress.macro(i))?.value = AUValue(macros[i].value)
         }
     }
 
