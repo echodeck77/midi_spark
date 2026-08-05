@@ -36,6 +36,8 @@ struct ArrangementBar: View {
     var swing: Int = 50
     var onStep: (Int) -> Void = { _ in }     // AUParameter 0 (step rate index)
     var onSwing: (Int) -> Void = { _ in }    // AUParameter 1 (swing %)
+    var ladderMode: Bool = false             // GRID mode: SINGLE (ladder) | MULTI — moved to the title bar (user 2026-08-05)
+    var onSetSingle: (Bool) -> Void = { _ in }
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -50,6 +52,7 @@ struct ArrangementBar: View {
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]
 
     private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let ladderGreen = Color(red: 0.25, green: 0.82, blue: 0.55)   // GRID SINGLE mode (matches DiagView.ladderHue)
     private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
     private let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — the EDIT segment (matches DiagView.editHue)
     private let sceneStripSpace = "sceneStripRow"     // one name for the chip-row coordinate space + its drag gesture
@@ -62,6 +65,7 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
+                singleMultiSeg                                                     // GRID mode SINGLE|MULTI — moved to the title bar (user 2026-08-05)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate + SWING (was the grid's CONTROLS panel)
                 if d.playing {
@@ -152,6 +156,24 @@ struct ArrangementBar: View {
         .background(Color(red: 0.10, green: 0.11, blue: 0.13))
     }
 
+    // GRID mode SINGLE|MULTI — the two-segment toggle, in the title bar (user 2026-08-05). SINGLE = the ladder
+    // (exclusive columns), tinted green; MULTI = normal layering, tinted scene-amber (the radio-button yellow).
+    private var singleMultiSeg: some View {
+        HStack(spacing: 0) {
+            modeSeg("SINGLE", active: ladderMode, hue: ladderGreen) { onSetSingle(true) }
+            modeSeg("MULTI", active: !ladderMode, hue: sceneAmber) { onSetSingle(false) }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
+    }
+    private func modeSeg(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(active ? .black : .white.opacity(0.5))
+            .padding(.horizontal, 8).frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 4).fill(active ? hue : Color.clear))
+            .contentShape(Rectangle()).onTapGesture { tap() }
+    }
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.
     // /btw ②: ENLARGED — bigger type + hit target (it's a headline control, not a footnote).
     private var presetButton: some View {

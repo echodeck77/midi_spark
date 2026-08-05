@@ -40,6 +40,43 @@ struct GridMacroRotary: View {
     }
 }
 
+/// One macro slider — a compact VERTICAL fader (absolute: the touch position sets the value, drag to trim). Replaces
+/// the grid-band rotary (user 2026-08-05); drives the macro value through the AU param tree like the MACROS-tab bank.
+struct GridMacroSlider: View {
+    let index: Int
+    let value: Double
+    let onSet: (Int, Double) -> Void
+
+    @State private var v: Double = 0
+    @GestureState private var dragging = false
+    private let hue = Color(red: 0.15, green: 0.88, blue: 0.94)
+
+    var body: some View {
+        VStack(spacing: 2) {
+            GeometryReader { g in
+                let h = g.size.height
+                ZStack(alignment: .bottom) {
+                    Capsule().fill(Color.white.opacity(0.10)).frame(width: 5)
+                    Capsule().fill(hue.opacity(0.9)).frame(width: 5, height: max(4, h * CGFloat(v)))
+                    RoundedRectangle(cornerRadius: 2).fill(hue).frame(width: 16, height: 4)
+                        .offset(y: -(h - 4) * CGFloat(v))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).updating($dragging) { _, s, _ in s = true }
+                    .onChanged { gg in
+                        let nv = max(0, min(1, 1 - Double(gg.location.y / max(1, h))))   // ABSOLUTE: touch position = value
+                        v = nv; onSet(index, nv)
+                    })
+            }
+            .frame(height: 40)
+            Text("M\(index + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+        }
+        .onAppear { v = value }
+        .onChange(of: value) { nv in if !dragging { v = nv } }
+    }
+}
+
 /// One macro button — SPRING (momentary: press = B, release = A) or FIXED (toggle) per the macro's padlock.
 struct GridMacroButton: View {
     let index: Int          // 8…15 (the button bank)

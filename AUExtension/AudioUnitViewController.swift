@@ -174,6 +174,7 @@ struct DiagView: View {
     @State var receiverNote: [Int] = [0, 0, 0, 0]           // receiver strip: per-receiver ±semitone NOTE nudge (ephemeral)
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (button removed 2026-08-05; localized holds pending)
+    @State private var contentOverflows = false   // whole-UI scroll: the content column is taller than the viewport → wrap header+tabs+body in ONE ScrollView
     @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode)
     @State var ladderPending: [Int: Int] = [:]   // LADDER: armed rung switches (column → row) — fire at the column's next entry
     @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
@@ -489,33 +490,8 @@ struct DiagView: View {
         if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
     }
 
-    // THE GRID-MODE CLUSTER (bottom-left, thumb reach) — a SINGLE | MULTI toggle (layout-v2, user 2026-08-05).
-    // Replaces the old HOLD · MUTE · LADDER verbs: LADDER → SINGLE, the MUTE-tap → MULTI's default, HOLD removed
-    // (its localised per-slider replacements are pending). While a spring verb is held a tap does the verb.
-    var verbCluster: some View {
-        VStack(spacing: 6) {
-            // SINGLE | MULTI — the grid's layering mode (user 2026-08-05; replaces MUTE + LADDER, and HOLD is
-            // removed). SINGLE = one cell speaks per column (LADDER's exclusive columns; a tap switches/arms the
-            // rung). MULTI = normal layering; the default tap mutes/unmutes the cell. Default is MULTI.
-            HStack(spacing: 0) {
-                gridModeSeg("SINGLE", active: ladderMode, hue: ladderHue) { setSingle(true) }
-                gridModeSeg("MULTI", active: !ladderMode, hue: sceneAmberHue) { setSingle(false) }
-            }
-            .padding(2)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
-            Spacer(minLength: 0)
-        }
-        .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-    private func gridModeSeg(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1)
-            .foregroundColor(active ? .black : .white.opacity(0.55))
-            .padding(.vertical, 7).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.clear))
-            .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-    // SINGLE (true) = LADDER's exclusive-columns engine on; MULTI (false) = normal layering.
+    // SINGLE (true) = LADDER's exclusive-columns engine on; MULTI (false) = normal layering. The SINGLE|MULTI
+    // toggle itself now lives in the title bar (ArrangementBar); this is the shared setter it drives.
     private func setSingle(_ on: Bool) {
         guard ladderMode != on else { return }
         ladderMode = on; au?.setLadderMode(on)
@@ -837,12 +813,12 @@ struct DiagView: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                // LAYOUT v2: ONE header (with the tab bar), then the selected tab's body below.
-                VStack(spacing: 8) {
-                    arrangementBar.frame(maxWidth: 1024)       // §2: LOGO · header · TAB BAR · scene row — capped to the grid's 1024 width, centred (user 2026-08-05)
-                    tabBody(geo)                               // the surface for the active tab
-                }
-                .padding(12)
+                // LAYOUT v2: ONE header (with the tab bar), then the selected tab's body below. WHOLE-UI SCROLL
+                // (user 2026-08-05): the header + tabs live INSIDE the scroll region so everything scrolls as one
+                // unit when a reduced window can't fit it (the header no longer stays pinned as a "separate
+                // window"). When the content FITS we render it RAW — a SwiftUI ScrollView delays/swallows the
+                // UIKit ColumnHoldOverlay's multi-touch, so the lap gesture only works un-wrapped.
+                mainContent(geo)
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
@@ -1092,6 +1068,30 @@ struct DiagView: View {
     // LAYOUT v2: the active tab's body. Every surface has ONE permanent address — no in-grid overlays, no
     // PERFORM/EDIT toggle. GRID = the perform desk; PROCESSORS = the edit page; EMITTERS = the full rack matrix;
     // RECEIVERS = per-door config (Part 4); MACROS/AUTOMATION = coming-soon placeholders (later phase).
+    // THE MAIN CONTENT COLUMN — header (+ tab bar) then the active tab's body. WHOLE-UI SCROLL (user 2026-08-05):
+    // measure the column's natural height and, when it overflows the viewport, wrap the WHOLE thing (header + tabs
+    // + body) in ONE ScrollView so it all scrolls together. When it fits, render RAW so the UIKit ColumnHoldOverlay
+    // multi-touch stays alive (a ScrollView swallows those touches even with scrolling disabled).
+    @ViewBuilder func mainContent(_ geo: GeometryProxy) -> some View {
+        let column = VStack(spacing: 8) {
+            arrangementBar.frame(maxWidth: 1024)       // §2: LOGO · header · TAB BAR · scene row — capped to the grid's 1024 width, centred
+            tabBody(geo)                               // the surface for the active tab
+        }
+        .padding(12)
+        .background(GeometryReader { g in Color.clear.preference(key: ContentHeightKey.self, value: g.size.height) })
+        Group {
+            if contentOverflows {
+                ScrollView(.vertical, showsIndicators: true) { column }
+            } else {
+                column
+            }
+        }
+        .onPreferenceChange(ContentHeightKey.self) { h in
+            let over = h > geo.size.height + 0.5
+            if over != contentOverflows { contentOverflows = over }
+        }
+    }
+
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
         switch activeTab {
         case .grid:
@@ -1128,75 +1128,65 @@ struct DiagView: View {
     }
 
     func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
-        GeometryReader { g in
-            // LAYOUT v2 (user 2026-08-05): the GRID on top; then the CONTROL BAND (SINGLE|MULTI + RANDOMIZE +
-            // AUTOMATION · 8 macro ROTARIES · 8 macro BUTTONS); the reinstated MIDI INPUT label; then the MIDI ROW
-            // (receivers · emitters · master). All bands share the grid's width (1024 in landscape), centred; the
-            // column SCROLLS when a reduced window can't fit it.
-            let controlH: CGFloat = 150
-            let midiH: CGFloat = 172
-            let labelH: CGFloat = 18
-            let minCell: CGFloat = 30
-            let landscapeFixed = !isPortrait && flowVariation == 0
-            let fitCell = (g.size.height - controlH - midiH - labelH - 34) / 9
-            let cell = landscapeFixed ? (335 - 24) / 9 : max(minCell, min(48, fitCell))
-            let gridH = 9 * cell + 24
-            let bandW = landscapeFixed ? min(g.size.width, 1024) : g.size.width
-            let contentH = gridH + controlH + labelH + midiH + 34
-            let overflow = contentH > g.size.height + 0.5
-            let inner = VStack(spacing: 6) {
-                gridBlock(cell, bandW).frame(width: bandW).frame(maxWidth: .infinity).helpAnchor("#grid")   // THE GRID
-                controlBand.frame(width: bandW, height: controlH).frame(maxWidth: .infinity)                // SINGLE|MULTI · MACRO rotaries · MACRO buttons
-                Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                    .frame(width: bandW, alignment: .leading).frame(maxWidth: .infinity)   // reinstated (user 2026-08-05)
-                midiRow(isPortrait).frame(width: bandW, height: midiH).frame(maxWidth: .infinity)           // receivers · emitters · master
-            }
-            .frame(minHeight: overflow ? nil : g.size.height, alignment: .top)
-            .coordinateSpace(name: "signal")
-            .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
-                if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
-            }
-            // Only wrap in a ScrollView when the page genuinely OVERFLOWS a reduced window. A SwiftUI ScrollView
-            // delays/swallows touches to the UIKit ColumnHoldOverlay (the column-key row) even when scrolling is off,
-            // making the lap gesture non-responsive — so when it fits (the normal landscape case) render it raw.
-            if overflow {
-                ScrollView(.vertical, showsIndicators: true) { inner }
-            } else {
-                inner
-            }
+        // LAYOUT v2 (user 2026-08-05): PROCESSOR GRID title → the GRID → the CONTROL BAND (CONTROLS · MACROS ·
+        // MACROS) → the MIDI INPUT label → the MIDI ROW (receivers · emitters · master). All bands share the grid's
+        // width (1024 in landscape), centred. FIXED heights, rendered RAW — the whole UI scrolls as ONE via the
+        // outer ScrollView in `body` when a reduced window can't fit it, which keeps the UIKit ColumnHoldOverlay's
+        // multi-touch alive whenever the window DOES fit.
+        let controlH: CGFloat = 150
+        let landscapeFixed = !isPortrait && flowVariation == 0
+        let cell: CGFloat = landscapeFixed ? (335 - 24) / 9 : 40
+        let bandW = landscapeFixed ? min(appWidth - 24, 1024) : (appWidth - 24)
+        return VStack(spacing: 6) {
+            bandLabel("PROCESSOR GRID", bandW)                                                              // NEW section title (user 2026-08-05)
+            gridBlock(cell, bandW).frame(width: bandW).frame(maxWidth: .infinity).helpAnchor("#grid")       // THE GRID
+            controlBand.frame(width: bandW, height: controlH).frame(maxWidth: .infinity)                    // CONTROLS · MACRO rotaries · MACRO buttons
+            bandLabel("MIDI INPUT", bandW)                                                                  // reinstated (user 2026-08-05)
+            midiRow(isPortrait).frame(width: bandW, height: 172).frame(maxWidth: .infinity)                 // receivers · emitters · master
+        }
+        .coordinateSpace(name: "signal")
+        .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
+            if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
         }
     }
+    // A section label in the shared "MIDI INPUT" style (user 2026-08-05): left-aligned, above the section it names.
+    // The one consistent panel-header treatment — PROCESSOR GRID · MIDI INPUT and the CONTROLS/MACROS control-band
+    // panels all use it, so every header reads the same.
+    private func bandLabel(_ s: String, _ width: CGFloat) -> some View {
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            .frame(width: width, alignment: .leading).frame(maxWidth: .infinity)
+    }
 
-    // THE CONTROL BAND — three equal sections under the grid (user 2026-08-05).
+    // THE CONTROL BAND — three equal sections under the grid (user 2026-08-05). Each carries a header ABOVE it in
+    // the shared "MIDI INPUT" style (CONTROLS · MACROS · MACROS), so every panel reads consistently.
     var controlBand: some View {
         let macros = au?.uiMacros() ?? []
-        return HStack(spacing: 6) {
-            VStack(spacing: 8) {                              // LEFT: SINGLE|MULTI + placeholders
-                HStack(spacing: 0) {
-                    gridModeSeg("SINGLE", active: ladderMode, hue: ladderHue) { setSingle(true) }
-                    gridModeSeg("MULTI", active: !ladderMode, hue: sceneAmberHue) { setSingle(false) }
+        return HStack(alignment: .top, spacing: 6) {
+            labeledPanel("CONTROLS") {                         // LEFT: the placeholder engines (SINGLE|MULTI moved to the title bar)
+                panelBox {
+                    placeholderBtn("RANDOMIZE")
+                    placeholderBtn("AUTOMATION")
+                    placeholderBtn("MUTATE")                   // under AUTOMATION (user 2026-08-05)
+                    placeholderBtn("AUTOPLAY")
                 }
-                .padding(2)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
-                placeholderBtn("RANDOMIZE")
-                placeholderBtn("AUTOMATION")
-                Spacer(minLength: 0)
+                .helpAnchor("#verbs")
             }
-            .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))).helpAnchor("#verbs")
-            controlBox("MACROS") {                            // CENTRE: 8 macro rotaries (slider bank)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
-                    ForEach(0..<8, id: \.self) { i in
-                        GridMacroRotary(index: i, value: i < macros.count ? macros[i].value : 0) { idx, v in au?.setMacroValue(idx, v) }
+            labeledPanel("MACROS") {                           // CENTRE: 8 macro SLIDERS (slider bank)
+                panelBox {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                        ForEach(0..<8, id: \.self) { i in
+                            GridMacroSlider(index: i, value: i < macros.count ? macros[i].value : 0) { idx, v in au?.setMacroValue(idx, v) }
+                        }
                     }
                 }
             }
-            controlBox("MACROS") {                            // RIGHT: 8 macro buttons (button bank)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
-                    ForEach(8..<16, id: \.self) { i in
-                        GridMacroButton(index: i, value: i < macros.count ? macros[i].value : 0,
-                                        fixed: i < macros.count ? macros[i].fixed : false) { idx, v in au?.setMacroValue(idx, v) }
+            labeledPanel("MACROS") {                           // RIGHT: 8 macro buttons (button bank)
+                panelBox {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                        ForEach(8..<16, id: \.self) { i in
+                            GridMacroButton(index: i, value: i < macros.count ? macros[i].value : 0,
+                                            fixed: i < macros.count ? macros[i].fixed : false) { idx, v in au?.setMacroValue(idx, v) }
+                        }
                     }
                 }
             }
@@ -1208,13 +1198,21 @@ struct DiagView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 1))
     }
-    private func controlBox<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
+    // A control-band section: the shared header ABOVE its panel body (matches the PROCESSOR GRID / MIDI INPUT labels).
+    private func labeledPanel<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+            content()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+    // The panel body — a rounded translucent card that fills its section (no title inside; the title rides above).
+    private func panelBox<V: View>(@ViewBuilder _ content: () -> V) -> some View {
         VStack(spacing: 6) {
-            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45)).tracking(1.5)
             content()
             Spacer(minLength: 0)
         }
-        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }
     // THE MIDI ROW — receivers · emitters · master, three equal sections across the grid's width.
@@ -1242,7 +1240,7 @@ struct DiagView: View {
                      cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
                      selCol: selCol, selRow: selRow, onTap: tapCell,
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                     laneMask: laneMask, onLaneMask: setLane, holdLatch: holdLatch,
+                     laneMask: laneMask, laneHue: ladderMode ? ladderHue : sceneAmberHue, onLaneMask: setLane, holdLatch: holdLatch,
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      selection: selection,
@@ -1262,8 +1260,10 @@ struct DiagView: View {
     // right rail points left, the left rail points right — both point INTO the grid. `chevron` picks which.
     func rowRail(_ cellHeight: CGFloat, chevron: String) -> some View {
         // PLACE lights the chevrons in the BRUSH colour (the cell to be placed); other verbs use the verb hue.
-        // LADDER: the rail ENABLES a whole row as the active rung (tinted ladder-green).
-        let hue = ladderMode ? ladderHue : (activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? Color.white.opacity(0.35)))
+        // Otherwise the rail wears the GRID MODE colour — SINGLE = green, MULTI = yellow (matching the column
+        // selector + the SINGLE|MULTI radios; user 2026-08-05).
+        let modeHue = ladderMode ? ladderHue : sceneAmberHue
+        let hue = activeVerb == .place ? (colourColor(brush) ?? .white) : (activeVerb?.hue ?? modeHue)
         return VStack(spacing: GridGeometry.vGap) {
             Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
@@ -1491,7 +1491,8 @@ struct DiagView: View {
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                       onSwing: { au?.setSwing($0); refreshTiming() })
+                       onSwing: { au?.setSwing($0); refreshTiming() },
+                       ladderMode: ladderMode, onSetSingle: setSingle)             // GRID mode SINGLE|MULTI in the title bar (user 2026-08-05)
     }
     // §3 PRESETS wiring
     func openPresets() {

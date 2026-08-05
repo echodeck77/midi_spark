@@ -158,6 +158,7 @@ struct GridView: View {
     var onAuditionEnd: (() -> Void)? = nil
     var onLongPressStageCell: ((Int, Int) -> Void)? = nil   // EDIT: long-press a populated cell → put it in cell-edit (+ armed for relocate)
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
+    var laneHue: Color = accentCyan                  // the COLUMN SELECTOR tint — GRID mode colour (SINGLE green · MULTI yellow), user 2026-08-05
     var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var onColumnKey: ((Int) -> Void)? = nil          // MODE ROW · EDIT page: TAP a column key → toggle it in the loop set
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
@@ -262,12 +263,12 @@ struct GridView: View {
                 let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held (loop) set
                 Image(systemName: held ? "repeat" : "chevron.down")   // column key — LOOP glyph when in the set, else a down chevron
                     .font(.system(size: held ? 12 : 15, weight: .heavy))
-                    .foregroundColor(active ? .black : (held ? accentCyan : .white.opacity(0.45)))
+                    .foregroundColor(active ? .black : laneHue)            // GRID mode tint (SINGLE green · MULTI yellow); playhead = black
                     .frame(maxWidth: .infinity).frame(height: cellHeight)   // key row = a cell's height (user 2026-07-26)
                     .background(RoundedRectangle(cornerRadius: 6)
-                        .fill(active ? accentCyan : Color.white.opacity(0.06)))
+                        .fill(active ? accentCyan : laneHue.opacity(0.10)))   // active playhead = cyan; idle/held = the mode tint
                     .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
-                        .stroke(held ? accentCyan : .clear, lineWidth: 2).padding(1))
+                        .stroke(held ? laneHue : .clear, lineWidth: 2).padding(1))
                     .contentShape(Rectangle())
                     .onTapGesture { onColumnKey?(col) }             // MODE ROW · EDIT page: tap toggles this column in the loop
             }
@@ -1632,6 +1633,14 @@ struct ProcessorBox: View {
 struct RouteFramesKey: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
+}
+
+/// The natural (unscrolled) height of the main content column. The body compares it to the viewport to decide
+/// whether the WHOLE UI (header + tabs + tab body) needs to scroll — so the header/tabs scroll WITH the grid
+/// instead of staying pinned, while a window that FITS renders raw (keeping the UIKit ColumnHoldOverlay alive).
+struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Curved white béziers for the routing graph, spanning receivers → grid → emitters. A path that runs through
