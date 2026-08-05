@@ -415,6 +415,33 @@ struct SceneState: Codable, Equatable {
     }
 }
 
+// MARK: - MACRO MODULATION (macro-panel + macro-ab-authoring specs)
+
+/// Which bank a macro lives in. 24 macros total, banked by index: 0–7 SLIDERS · 8–15 BUTTONS · 16–23 TIMELINES.
+/// SLIDER = continuous morph A→B · BUTTON = snap A|B (may carry switch/enum flips) · TIMELINE = an 8-step lane
+/// drives the morph value per column (deferred). The SLIDER bank is the AU-automatable one (M1–M8).
+enum MacroKind: Int, Codable { case slider = 0, button, timeline }
+
+/// One binding target: a param on a (cell, slot) carrying its A→B **delta** (B − A, the authored depth). Deltas
+/// are stored ON the binding (macro × target) so two macros can hold different B states of the same param; at
+/// derivation the offsets SUM and clamp. `param` is a `MacroParam` raw value (append-only string for forward-compat).
+struct MacroTarget: Codable, Equatable {
+    var col: Int             // the target cell's column (0–7)
+    var row: Int             // the target cell's row (0–7)
+    var slot: Int            // the chain-slot index (0-based)
+    var param: String        // the modulated param — a `MacroParam` raw value
+    var delta: Double        // B − A, in the param's native units (may be negative = an inverted B)
+}
+
+/// One macro slot: a modulator that OFFSETS its targets (never rewrites their bases). Value 0 = home (nothing to
+/// revert). `fixed` toggles the padlock: false = SPRING (release returns home / to the lane), true = FIXED (latched).
+struct Macro: Codable, Equatable {
+    var name: String = ""            // "" = unset/unnamed → renders as an INVITATION (dim/dashed +), not a dead control
+    var value: Double = 0            // 0…1, unipolar; home at the foot (the offset model's soul)
+    var fixed: Bool = false          // the padlock: false = SPRING (default) · true = FIXED (latched)
+    var targets: [MacroTarget] = []  // the A/B deltas bound here (empty = unbound)
+}
+
 struct PluginState: Codable, Equatable {
     var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
     var colours: [Colour]
@@ -513,6 +540,15 @@ struct PluginState: Codable, Equatable {
     var rackEnabledMask: UInt8? = nil
     /// The rack gate (bits A–D); missing ⇒ 0b1111 (all racks in path). Non-persisting read helper.
     var rackEnabledResolved: UInt8 { (rackEnabledMask ?? 0b1111) & 0b1111 }
+    // MACRO MODULATION (macro-panel spec): 24 macros in three banks (0–7 sliders · 8–15 buttons · 16–23 timelines).
+    // Macros MODULATE (offset) targets at derivation; bases are NEVER rewritten, so identity/seals are unaffected
+    // (performance, not edit). Values are GLOBAL v1 (not per-scene). Persisted; Optional → old docs decode nil (no
+    // macros), a clean instrument gets 24 unset macros via `macrosResolved`.
+    var macros: [Macro]? = nil
+    /// The 24 macros, nil/short-array safe (missing ⇒ an unset `Macro`). Non-persisting read helper.
+    var macrosResolved: [Macro] { let a = macros ?? []; return (0..<24).map { $0 < a.count ? a[$0] : Macro() } }
+    /// The bank a macro index belongs to (0–7 sliders · 8–15 buttons · 16–23 timelines).
+    static func macroKind(_ i: Int) -> MacroKind { i < 8 ? .slider : (i < 16 ? .button : .timeline) }
     // master panel: MUTE — global emission kill (PERSISTED, document-level unlike the per-scene KEY). Optional
     // → old docs decode nil (not muted). The gate lives at the emission boundary (seam rule 3).
     var masterMute: Bool? = nil

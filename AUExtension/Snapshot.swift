@@ -131,6 +131,7 @@ final class SnapshotBox {
     let receiverRangeHi: [UInt8]     // RANGE (§2): the 4 receivers' note-window high bound (0…127)
     let receiverBypassMask: UInt8    // BYPASS (§1/§2): bit i = receiver i bypasses the grid (its stream injects straight to emitters)
     let receiverBypassDest: [UInt8]  // BYPASS: the 4 receivers' destination emitter masks (A–D), default ALL
+    let macroValues: [Double]        // MACRO MODULATION: the 24 live macro values (0…1), index = macro slot. The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -148,7 +149,8 @@ final class SnapshotBox {
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
          receiverDisabledMask: UInt8 = 0,
          receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127],
-         receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]) {
+         receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
+         macroValues: [Double] = Array(repeating: 0, count: 24)) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -188,6 +190,7 @@ final class SnapshotBox {
         self.receiverRangeHi = receiverRangeHi
         self.receiverBypassMask = receiverBypassMask
         self.receiverBypassDest = receiverBypassDest
+        self.macroValues = macroValues
     }
 }
 

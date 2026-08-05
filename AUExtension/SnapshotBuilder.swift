@@ -197,7 +197,8 @@ enum SnapshotBuilder {
                            receiverRangeLo: receiverRangeLo,
                            receiverRangeHi: receiverRangeHi,
                            receiverBypassMask: receiverBypassMask,
-                           receiverBypassDest: receiverBypassDest)
+                           receiverBypassDest: receiverBypassDest,
+                           macroValues: doc.macrosResolved.map { max(0, min(1, $0.value)) })
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
