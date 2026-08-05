@@ -341,4 +341,72 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(box.pocketMs[2], -50)          // clamped to −50
         XCTAssertEqual(box.claimLeak[3], 20)          // half-value scales the delta
     }
+
+    // MARK: applyMacros — guard edges (negative index · zero-offset short-circuit)
+
+    /// A NEGATIVE macro index contributes nothing (the guard's lower half) and a zero-value/zero-delta mod leaves
+    /// the base bit-identical (the `off == 0` short-circuit — never a needless re-clamp).
+    func testApplyMacrosNegativeIndexAndZeroOffsetLeaveBaseUntouched() {
+        var base = SnapParams(); base.gate = 0.5; base.spread = 0.3
+        let out = applyMacros(base, mods: [
+            MacroMod(macro: -1, param: .gate, delta: 0.5),     // negative index → skipped
+            MacroMod(macro: 0, param: .spread, delta: 0.0),    // zero delta → off == 0 → skipped
+        ], values: [1.0])
+        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(out.spread, 0.3, accuracy: 1e-9)
+    }
+
+    // MARK: Snapshot effective* — the quantize/clamp helpers (render-side, §3.2)
+
+    private func snapColour(_ mutate: (inout SnapParams) -> Void) -> SnapColour {
+        var sc = SnapColour(); mutate(&sc.a); return sc
+    }
+
+    /// RATCHET repeats quantize to the nearest LEGAL count in [2,3,4,6,8], first-wins on a tie.
+    func testEffectiveRepeatsQuantizesToLegalCount() {
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 2 }, t: 0), 2)
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 5 }, t: 0), 4, "5 is equidistant 4/6 → first (4) wins")
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 7 }, t: 0), 6, "7 is equidistant 6/8 → first (6) wins")
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 8 }, t: 0), 8)
+    }
+
+    /// The scalar effective* helpers saturate at their native bounds — no trap, no off-by-one in the voice switch.
+    func testEffectiveScalarClamps() {
+        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 9 }, t: 0), 4, "octaves clamp 1…4")
+        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 0 }, t: 0), 1)
+        // harmIntervals voice select: 0/1 pick .0/.1, any other index picks .2; each clamps ±24.
+        let c = snapColour { $0.harmIntervals = (100, -100, 7) }
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 0, t: 0), 24)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 1, t: 0), -24)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 2, t: 0), 7)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 99, t: 0), 7, "an out-of-range voice falls to the 3rd interval")
+        // rateIndex saturates into the arpRateBeats ladder rather than trapping.
+        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = 127 }, t: 0), Snap.arpRateBeats.last!)
+        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = -5 }, t: 0), Snap.arpRateBeats.first!)
+    }
+
+    // MARK: laneValue — guard + wrap + all-bypass-smooth edges
+
+    /// The guard returns the manual value for a degenerate lane (empty, zero step, zero rate) — no divide-by-zero.
+    func testLaneValueGuardReturnsManual() {
+        XCTAssertEqual(laneValue(lane: [], modes: [], rateMul: 1, absoluteBeat: 2, stepBeats: 1, manual: 0.7), 0.7)
+        let lane = [0.2] + Array(repeating: 0.0, count: 7), modes = Array(repeating: 0, count: 8)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 2, stepBeats: 0, manual: 0.7), 0.7)   // stepBeats 0
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 0, absoluteBeat: 2, stepBeats: 1, manual: 0.7), 0.7)   // rateMul 0
+    }
+
+    /// A NEGATIVE absoluteBeat wraps into a valid step (the ((idx%n)+n)%n fold) — no negative index trap.
+    func testLaneValueNegativeBeatWraps() {
+        let lane = (0..<8).map { Double($0) / 10.0 }               // 0.0 … 0.7
+        let modes = Array(repeating: 0, count: 8)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: -1.0, stepBeats: 1, manual: 0), 0.7, accuracy: 1e-9)  // step -1 → 7
+    }
+
+    /// SMOOTH when EVERY other step is BYPASS: the target search wraps back to `s`, so it holds `lane[s]` — no glide
+    /// to a stale index.
+    func testLaneValueSmoothWithAllOthersBypassedHolds() {
+        var modes = Array(repeating: 2, count: 8); modes[0] = 1     // only step 0 is SMOOTH; the rest BYPASS
+        let lane = [0.3] + Array(repeating: 0.0, count: 7)
+        XCTAssertEqual(laneValue(lane: lane, modes: modes, rateMul: 1, absoluteBeat: 0.5, stepBeats: 1, manual: 0.9), 0.3, accuracy: 1e-9)
+    }
 }

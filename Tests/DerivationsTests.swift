@@ -1270,4 +1270,102 @@ final class DerivationsTests: XCTestCase {
         XCTAssertTrue(sealFit(vert).fractions.allSatisfy { $0.x == 0.5 }, "a vertical run centres horizontally")
         XCTAssertEqual(sealFit(sealGeometry(1234)), sealFit(sealGeometry(1234)), "deterministic — twins share the fit")
     }
+
+    // MARK: - midiNoteName — non-negative octaves (user 2026-08-03: "no more -1")
+
+    /// Note → name uses a 0-based octave (note 0 = C0 … 127 = G10). Locked so a future "C4=60" convention
+    /// change (RackMatrix uses a different one, deliberately) can't silently drift THIS shared helper.
+    func testMidiNoteNameUsesNonNegativeOctaves() {
+        XCTAssertEqual(midiNoteName(0), "C0")
+        XCTAssertEqual(midiNoteName(60), "C5")       // NOT C4 — this helper is 0-based on purpose
+        XCTAssertEqual(midiNoteName(61), "C#5")
+        XCTAssertEqual(midiNoteName(69), "A5")
+        XCTAssertEqual(midiNoteName(127), "G10")
+    }
+
+    // MARK: - chopSlice — wrap + guards (§cell-edit F)
+
+    /// The onset→slice map divides a column into 8; it wraps NEGATIVE beats (a lay-back onset) into the prior
+    /// column and guards a zero-length column. All in-range slices are 0…7.
+    func testChopSliceWrapsNegativeAndGuardsZeroColumn() {
+        XCTAssertEqual(chopSlice(0.0, columnBeats: 1), 0)
+        XCTAssertEqual(chopSlice(0.5, columnBeats: 1), 4)
+        XCTAssertEqual(chopSlice(0.99, columnBeats: 1), 7)
+        XCTAssertEqual(chopSlice(1.0, columnBeats: 1), 0)      // wraps to the next column's slice 0
+        XCTAssertEqual(chopSlice(-0.1, columnBeats: 1), 7)     // a negative onset folds into the prior column's last slice
+        XCTAssertEqual(chopSlice(5.0, columnBeats: 0), 0)      // S <= 0 guard → slice 0, no divide-by-zero
+    }
+
+    // MARK: - tapOverlayMasks — only ARRIVED overlays contribute; future ones survive
+
+    /// An armed-but-future overlay (onset > now) is KEPT in `surviving` (it hasn't expired) yet contributes
+    /// NOTHING to alt/mute/solo until its onset arrives; an expired overlay is dropped entirely.
+    func testTapOverlayMasksFutureOnsetSurvivesButDoesNotContribute() {
+        var a: [TapOverlay] = []
+        a = applyTapOverlay(a, cell: 5, kind: .alt,  busMask: 0, onset: 0,  expiry: .infinity, retap: false)  // arrived
+        a = applyTapOverlay(a, cell: 6, kind: .mute, busMask: 0, onset: 10, expiry: .infinity, retap: false)  // future
+        a = applyTapOverlay(a, cell: 7, kind: .solo, busMask: 0b0010, onset: 0, expiry: 3, retap: false)      // will expire
+        let m = tapOverlayMasks(a, now: 5)
+        XCTAssertEqual(m.surviving.count, 2, "the future overlay survives; the expired one (expiry 3 < 5) is dropped")
+        XCTAssertEqual(m.alt, 1 << UInt64(5), "only the arrived alt contributes")
+        XCTAssertEqual(m.mute, 0, "the future mute (onset 10 > 5) contributes nothing yet")
+        XCTAssertEqual(m.solo, 0, "the expired solo is gone")
+    }
+
+    /// The foot SOLO seeds the solo union even with no overlays.
+    func testTapOverlayMasksSeedsFootSolo() {
+        XCTAssertEqual(tapOverlayMasks([], now: 0, footSolo: 0b0101).solo, 0b0101)
+    }
+
+    // MARK: - colourCensus — empty / all-nil edge (D3 deletion-protection boundary)
+
+    /// A census over empty/all-nil scenes is EMPTY (every Colour has count 0 → deletable) — the boundary the
+    /// scenes-are-precious deletion guard rides on.
+    func testColourCensusEmptyWhenNoPaintedCells() {
+        XCTAssertTrue(colourCensus([]).isEmpty)
+        XCTAssertTrue(colourCensus([SceneState.empty()]).isEmpty, "all-nil cells → no Colour is in use")
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold"); s.cells[1][1] = Cell(colourID: "gold")
+        XCTAssertEqual(colourCensus([s])["gold"], 2)
+    }
+
+    // MARK: - trigger glyphs — per-case totality + hold-only ring
+
+    /// Every ON-TAP / ON-HOLD case yields a glyph EXCEPT `.none` (which is nil) — totality, so a new case
+    /// can't silently render blank (mirrors the emblemSymbol totality lock).
+    func testTriggerGlyphTotality() {
+        for t in OnTap.allCases {
+            let g = triggerTapGlyph(t)
+            XCTAssertEqual(g == nil, t == .none, "only .none has no tap glyph")
+            if t != .none { XCTAssertFalse(g!.isEmpty) }
+        }
+        for h in OnHold.allCases {
+            let g = triggerHoldGlyph(h)
+            XCTAssertEqual(g == nil, h == .none, "only .none has no hold glyph")
+            if h != .none { XCTAssertFalse(g!.isEmpty) }
+        }
+    }
+
+    /// The single cell-face mark: a tap glyph is ringed only if a hold is ALSO set; a HOLD-ONLY config shows the
+    /// HOLD glyph, always ringed; both default → no mark.
+    func testTriggerMarkTapRingAndHoldOnly() {
+        XCTAssertNil(triggerMark(OnConfig()))                                   // unassigned → no mark
+        let tapOnly = triggerMark(OnConfig(tap: .mute))
+        XCTAssertEqual(tapOnly?.glyph, "speaker.slash.fill"); XCTAssertEqual(tapOnly?.ring, false)
+        let tapAndHold = triggerMark(OnConfig(tap: .mute, hold: .oct))
+        XCTAssertEqual(tapAndHold?.glyph, "speaker.slash.fill"); XCTAssertEqual(tapAndHold?.ring, true)   // hold rings the tap glyph
+        let holdOnly = triggerMark(OnConfig(hold: .oct))
+        XCTAssertEqual(holdOnly?.glyph, "arrow.up.arrow.down"); XCTAssertEqual(holdOnly?.ring, true)      // hold-only → hold glyph, ringed
+    }
+
+    // MARK: - NotePool.heldVelocity — the BYPASS direct-injection read
+
+    /// heldVelocity returns the held velocity (0 when not held) — the read the bypass injection pass keys on.
+    func testHeldVelocityReadsPoolVelocity() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 111, channel: 0)
+        XCTAssertEqual(p.heldVelocity(60), 111)
+        XCTAssertEqual(p.heldVelocity(64), 0, "an un-held note reads 0")
+        p.noteOff(60)
+        XCTAssertEqual(p.heldVelocity(60), 0, "released → 0")
+    }
 }

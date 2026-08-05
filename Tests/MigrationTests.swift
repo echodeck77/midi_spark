@@ -247,6 +247,73 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
     }
 
+    /// The RACK + modulation additive-Optional document fields (curve/fence/mono/pocket/conversation gates,
+    /// rackEnabled, turnsPerNote, ladderMode, masterMute) all survive a JSON round-trip. Invariant 5 (schema
+    /// stability): these shipped over the last few days and had no round-trip lock.
+    func testRackAndModulationOptionalFieldsRoundTrip() throws {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 3
+        d.curveMask = 0b0001;  d.curveAmount = [50, 0, 0, 0]
+        d.fenceMask = 0b0010;  d.fencePolicy = [0, 2, 0, 0]; d.fenceLo = [0, 48, 0, 0]; d.fenceHi = [127, 72, 127, 127]
+        d.monoMask = 0b0100;   d.monoPriority = [0, 0, 2, 0]
+        d.pocketMask = 0b1000; d.pocketMs = [0, 0, 0, -20]
+        d.convLead = 1;        d.convStance = [1, 0, 2, 0]
+        d.rackEnabledMask = 0b1011
+        d.turnsPerNote = true; d.ladderMode = true; d.masterMute = true
+        let r = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(r.curveMask, 0b0001);  XCTAssertEqual(r.curveAmount, [50, 0, 0, 0])
+        XCTAssertEqual(r.fencePolicy, [0, 2, 0, 0]); XCTAssertEqual(r.fenceLo, [0, 48, 0, 0]); XCTAssertEqual(r.fenceHi, [127, 72, 127, 127])
+        XCTAssertEqual(r.monoPriority, [0, 0, 2, 0])
+        XCTAssertEqual(r.pocketMs, [0, 0, 0, -20])
+        XCTAssertEqual(r.convLead, 1); XCTAssertEqual(r.convStance, [1, 0, 2, 0])
+        XCTAssertEqual(r.rackEnabledMask, 0b1011)
+        XCTAssertEqual(r.turnsPerNote, true); XCTAssertEqual(r.ladderMode, true); XCTAssertEqual(r.masterMute, true)
+    }
+
+    /// An OLD doc lacking every rack/modulation key decodes each to nil and every `…Resolved` helper returns the
+    /// documented default (off / all-in-path / 1 / no-lead / full window) — the "old docs decode nil" contract.
+    func testRackFieldsOldDocDecodeNilAndResolveToDefaults() throws {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        d.formatVersion = 3
+        var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
+        for k in ["curveMask", "curveAmount", "fenceMask", "fencePolicy", "fenceLo", "fenceHi", "monoMask",
+                  "monoPriority", "pocketMask", "pocketMs", "convLead", "convStance", "rackEnabledMask",
+                  "turnsPerNote", "ladderMode", "masterMute", "altCount", "flattenAmount", "claimLeak"] {
+            root.removeValue(forKey: k)
+        }
+        let r = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: root))
+        XCTAssertNil(r.curveMask); XCTAssertNil(r.masterMute); XCTAssertNil(r.ladderMode); XCTAssertNil(r.turnsPerNote)
+        XCTAssertEqual(r.curveAmountResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.fencePolicyResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.fenceLoResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.fenceHiResolved, [127, 127, 127, 127], "the high bound defaults to a full window")
+        XCTAssertEqual(r.monoPriorityResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.pocketMsResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.convLeadResolved, -1, "no lead")
+        XCTAssertEqual(r.convStanceResolved, [0, 0, 0, 0])
+        XCTAssertEqual(r.rackEnabledResolved, 0b1111, "nil ⇒ every rack in path")
+        XCTAssertEqual(r.altCountResolved, [1, 1, 1, 1], "nil ⇒ 1 note per turn")
+        XCTAssertEqual(r.turnsPerNoteResolved, false); XCTAssertEqual(r.ladderModeResolved, false)
+    }
+
+    /// `resolved4` — the shared nil-safe per-emitter resolver behind ~11 rack helpers. Its four branches:
+    /// nil→all-default · short→pad-with-default · out-of-range→clamp · over-long→truncate to exactly 4.
+    func testResolved4ResolverBranches() {
+        XCTAssertEqual(PluginState.resolved4(nil, 1, 1, 8), [1, 1, 1, 1], "nil → all default")
+        XCTAssertEqual(PluginState.resolved4([5, 5], 0, 0, 100), [5, 5, 0, 0], "short → pad the tail with the default")
+        XCTAssertEqual(PluginState.resolved4([999, -5, 50, 50], 0, 0, 100), [100, 0, 50, 50], "each element clamps to [lo,hi]")
+        XCTAssertEqual(PluginState.resolved4([1, 2, 3, 4, 5, 6], 0, 0, 100), [1, 2, 3, 4], "over-long → exactly 4")
+    }
+
+    /// `macrosResolved` truncates an over-long persisted array to exactly 24 (the short/nil path is covered in
+    /// EffectiveParamsTests; this locks the tail-drop).
+    func testMacrosResolvedTruncatesOverLong() {
+        var d = PluginState(colours: [], scenes: [SceneState.empty()])
+        d.macros = (0..<30).map { Macro(name: "M\($0)") }
+        XCTAssertEqual(d.macrosResolved.count, 24)
+        XCTAssertEqual(d.macrosResolved[23].name, "M23", "keeps the first 24, drops 24…29")
+    }
+
     func testOldSchemaDocDecodesDefaultsNewFieldsAndIgnoresRemovedKeys() throws {
         // Forward-compat guard for the refactor: an OLD save lacks busEnabled and still carries the
         // now-removed rowBypass/stackMute/stackSolo scene keys — it must decode without error, default
