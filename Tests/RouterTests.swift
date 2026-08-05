@@ -2832,6 +2832,36 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(r.ons, 6, "struck exactly ONCE (3 notes × 2 cables) — no re-strike at any boundary")
     }
 
+    /// §2 CONTINUITY × THE RACK FENCE: a legato drone into a FENCE-CLAMP emitter. The note is clamped into the
+    /// window, but it's the SAME clamped pitch in every column, so adoption must keep ONE voice — the drone flows.
+    /// The adoption pitch prediction has to apply FENCE too, or it predicts the un-fenced pitch, fails to match the
+    /// (fenced) sounding voice, and re-strikes every boundary (machine-guns). Regression lock for that.
+    private func fencedDroneOffs(policy: Int, lo: Int, hi: Int) -> (offs: Int, ons: Int) {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!] = { var c = Colour(colourID: "gold", type: .passgate)
+            c.paramsA.passes = [true, true, true, true]; c.paramsA.phase = .legato; return c }()
+        var st = PluginState(colours: cs, scenes: [{ var s = SceneState.empty()
+            for c in 0..<8 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }; return s }()])
+        st.busChannels = [1, 2, 3, 4]
+        st.fenceMask = 0b0001; st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
+        let b = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<48 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        return (e.offs.count, e.ons.count)
+    }
+
+    func testFencedLegatoDroneStillDronesAcrossBoundaries() {
+        let clamped = fencedDroneOffs(policy: 1, lo: 72, hi: 84)   // note 60 clamps up to 72, the same every column
+        XCTAssertEqual(clamped.offs, 0, "a fenced legato drone adopts across boundaries — no re-strike")
+        XCTAssertEqual(clamped.ons, 2, "struck once: 1 note × 2 cables (own A + All)")
+    }
+
     func testRetrigDroneReStrikesAtEachColumnEntry() {
         // §2 the complement: under RETRIG the chord RE-STRIKES each column — off/on pairs cross every boundary.
         // (Currently the engine re-strikes regardless of phase; this pins the re-strike side of the pair.)

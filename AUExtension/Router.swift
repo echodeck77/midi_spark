@@ -117,6 +117,21 @@ final class Router {
         while n < l { n += 12 }
         return UInt8(min(max(n, l), h))
     }
+    /// Apply emitter `bus`'s FENCE policy to an already octave/key-shifted output note (0…127): returns the fenced
+    /// note, or `nil` when the policy DROPS it. A no-op when the emitter isn't fenced or the note is in-window.
+    /// ONE source of truth so the emit path (`emitOneBus`) and the LEGATO adoption pitch prediction agree on the
+    /// wire pitch — a mismatch there re-struck a fenced drone every column boundary.
+    @inline(__always)
+    private func fencedNote(_ note: UInt8, bus: Int) -> UInt8? {
+        guard bit(fenceMask, bus) else { return note }
+        let lo = fenceLo[bus], hi = fenceHi[bus]
+        guard lo <= hi, note < lo || note > hi else { return note }   // no window / in-window → unchanged
+        switch fencePolicy[bus] {
+        case 0:  return nil                                  // DROP
+        case 1:  return min(max(note, lo), hi)               // CLAMP
+        default: return fenceFold(note, lo: lo, hi: hi)      // FOLD
+        }
+    }
     // THE RACK — MONO (design-the-rack §6): per-emitter monophony. A new note-on STEALS the emitter's current note
     // per PRIORITY (0 LAST always · 1 LOW keeps the lower · 2 HIGH keeps the higher). Scan-based (no tracker to
     // clean up): the current holder is read live from the voice table, so transport/column flushes stay unaware.
@@ -807,16 +822,11 @@ final class Router {
         var note = UInt8(sn)
         // THE RACK FENCE: a per-emitter note-RANGE policy on the OUTPUT pitch — DROP (suppress), CLAMP (to the
         // nearest bound), or FOLD (octave-fold in). Applied here so CLAIM/metering/refcount all key on the fenced
-        // pitch, and the note-off (opened on this same note) pairs cleanly. previewMode bypasses.
-        if bit(fenceMask, bus) && !previewMode {
-            let lo = fenceLo[bus], hi = fenceHi[bus]
-            if lo <= hi && (note < lo || note > hi) {
-                switch fencePolicy[bus] {
-                case 0: return -1                                      // DROP
-                case 1: note = min(max(note, lo), hi)                  // CLAMP
-                default: note = fenceFold(note, lo: lo, hi: hi)        // FOLD
-                }
-            }
+        // pitch, and the note-off (opened on this same note) pairs cleanly. previewMode bypasses. `fencedNote` is
+        // the shared transform (the legato adoption prediction applies the SAME one).
+        if !previewMode {
+            guard let fenced = fencedNote(note, bus: bus) else { return -1 }   // nil = DROP
+            note = fenced
         }
         var leakScale = 100   // 100 = no attenuation; a leaked (shadow) non-claimant sets this < 100 below
         if claimMask != 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
@@ -1043,9 +1053,10 @@ final class Router {
                     // never truncates it and only the next boundary's reconcile can close it.
                     var emitMask: UInt8 = 0
                     for b in UInt8(0)..<4 where hbm & (1 << b) != 0 {
-                        let w = n + emitterOctaveShift(Int(b)) + masterKey   // the wire pitch emitOneBus will open
-                        guard w >= 0 && w <= 127 else { continue }           // out of range → emitOneBus would drop it
-                        if !adoptLegatoBus(wire: UInt8(w), bus: b, ci: Int8(ci), alt: altFlag) { emitMask |= (1 << b) }
+                        let sw = n + emitterOctaveShift(Int(b)) + masterKey  // the octave/key-shifted pitch…
+                        guard sw >= 0 && sw <= 127 else { continue }         // out of range → emitOneBus would drop it
+                        guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }  // …then FENCE — the exact wire pitch emitOneBus will open (DROP → no bus)
+                        if !adoptLegatoBus(wire: w, bus: b, ci: Int8(ci), alt: altFlag) { emitMask |= (1 << b) }
                     }
                     if emitMask != 0 {
                         emitArtic(note: UInt8(n), busMask: emitMask,
