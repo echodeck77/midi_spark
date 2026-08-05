@@ -38,9 +38,9 @@ struct ReceiverConfigView: View {
                 }
             }
         }
-        .padding(20)
-        .frame(maxWidth: 1000, maxHeight: .infinity, alignment: .topLeading)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(width: 1024, alignment: .leading)                     // the two receivers per row total 1024 (user 2026-08-05)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // centred horizontally on the tab
     }
 
     private func block(_ i: Int) -> some View {
