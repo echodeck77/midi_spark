@@ -1068,7 +1068,12 @@ struct DiagView: View {
         case .receivers:
             ReceiverConfigView(au: au, receivers: receivers, inAt: receiverPeakAt, mpeAt: mpeSeenAt,
                                onChanged: { receivers = au?.uiReceivers() ?? receivers })
-        case .macros, .automation:
+        case .macros:
+            MacroPanel(macros: au?.uiMacros() ?? [],
+                       onSetValue: { i, v in au?.setMacroValue(i, v) },
+                       onSetFixed: { i, f in au?.setMacroFixed(i, f); refreshFromDocument() },
+                       onSetName: { i, n in au?.setMacroName(i, n); refreshFromDocument() })
+        case .automation:
             comingSoonPage(activeTab)
         }
     }

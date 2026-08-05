@@ -44,6 +44,7 @@
 		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
+		C95B6625D3731B37A7544BE9 /* MacroPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E45476DD423F0A8E3C364 /* MacroPanel.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
@@ -109,6 +110,7 @@
 		948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaosDriver.swift; sourceTree = "<group>"; };
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
+		A24E45476DD423F0A8E3C364 /* MacroPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroPanel.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -205,6 +207,7 @@
 				52D6A2BAD52CA71E5145C36A /* FlowView.swift */,
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
+				A24E45476DD423F0A8E3C364 /* MacroPanel.swift */,
 				FB579E7A98D1755158B6B0DE /* ManualView.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
 				A7CF2D5A9C7DD040BAE1C80F /* Models.swift */,
@@ -374,6 +377,7 @@
 				EBC5332C1664AA1E31A065D5 /* FlowView.swift in Sources */,
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
+				C95B6625D3731B37A7544BE9 /* MacroPanel.swift in Sources */,
 				14001737F3526E61A6910D74 /* ManualView.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
 				34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */,

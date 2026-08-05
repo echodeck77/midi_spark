@@ -557,6 +557,22 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// The 24 macros for the UI (panel / A/B authoring). Read-back; the values mirror the automatable sliders.
     func uiMacros() -> [Macro] { document.macrosResolved }
+    /// Macro NAME (document-level, not an AU param) — 12 chars max; "" = unset/invitation.
+    func setMacroName(_ index: Int, _ name: String) {
+        guard (0..<24).contains(index) else { return }
+        editDocument { d in
+            if d.macros == nil { d.macros = d.macrosResolved }
+            d.macros?[index].name = String(name.prefix(12))
+        }
+    }
+    /// Macro PADLOCK — false = SPRING (release returns home) · true = FIXED (latched). Document-level.
+    func setMacroFixed(_ index: Int, _ fixed: Bool) {
+        guard (0..<24).contains(index) else { return }
+        editDocument { d in
+            if d.macros == nil { d.macros = d.macrosResolved }
+            d.macros?[index].fixed = fixed
+        }
+    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
