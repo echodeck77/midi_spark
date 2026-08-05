@@ -937,6 +937,7 @@ struct DiagView: View {
             let nd = au.kernelDiagnostics()
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
+                if laneMask != 0 { setLane(0) }                           // clear the LAP set on stop (HOLD used to do this; HOLD removed 2026-08-05)
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
