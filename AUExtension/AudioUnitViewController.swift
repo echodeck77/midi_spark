@@ -1144,21 +1144,26 @@ struct DiagView: View {
             let bandW = landscapeFixed ? min(g.size.width, 1024) : g.size.width
             let contentH = gridH + controlH + labelH + midiH + 34
             let overflow = contentH > g.size.height + 0.5
-            ScrollView(.vertical, showsIndicators: overflow) {
-                VStack(spacing: 6) {
-                    gridBlock(cell, bandW).frame(width: bandW).frame(maxWidth: .infinity).helpAnchor("#grid")   // THE GRID
-                    controlBand.frame(width: bandW, height: controlH).frame(maxWidth: .infinity)                // SINGLE|MULTI · MACRO rotaries · MACRO buttons
-                    Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                        .frame(width: bandW, alignment: .leading).frame(maxWidth: .infinity)   // reinstated (user 2026-08-05)
-                    midiRow(isPortrait).frame(width: bandW, height: midiH).frame(maxWidth: .infinity)           // receivers · emitters · master
-                }
-                .frame(minHeight: g.size.height, alignment: .top)
-                .coordinateSpace(name: "signal")
-                .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
-                    if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
-                }
+            let inner = VStack(spacing: 6) {
+                gridBlock(cell, bandW).frame(width: bandW).frame(maxWidth: .infinity).helpAnchor("#grid")   // THE GRID
+                controlBand.frame(width: bandW, height: controlH).frame(maxWidth: .infinity)                // SINGLE|MULTI · MACRO rotaries · MACRO buttons
+                Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                    .frame(width: bandW, alignment: .leading).frame(maxWidth: .infinity)   // reinstated (user 2026-08-05)
+                midiRow(isPortrait).frame(width: bandW, height: midiH).frame(maxWidth: .infinity)           // receivers · emitters · master
             }
-            .scrollDisabled(!overflow)
+            .frame(minHeight: overflow ? nil : g.size.height, alignment: .top)
+            .coordinateSpace(name: "signal")
+            .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
+                if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
+            }
+            // Only wrap in a ScrollView when the page genuinely OVERFLOWS a reduced window. A SwiftUI ScrollView
+            // delays/swallows touches to the UIKit ColumnHoldOverlay (the column-key row) even when scrolling is off,
+            // making the lap gesture non-responsive — so when it fits (the normal landscape case) render it raw.
+            if overflow {
+                ScrollView(.vertical, showsIndicators: true) { inner }
+            } else {
+                inner
+            }
         }
     }
 
