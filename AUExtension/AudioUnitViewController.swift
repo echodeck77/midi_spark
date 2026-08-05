@@ -88,7 +88,6 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
-    @State var rackMatrixOpen = false            // THE RACK: the treatment matrix overlay is open (drawn INSIDE the grid's cell area; chevron row + rails stay)
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -823,7 +822,6 @@ struct DiagView: View {
                     tabBody(geo)                               // the surface for the active tab
                 }
                 .padding(12)
-                .onChange(of: activeSceneIdx) { _ in rackMatrixOpen = false }   // THE RACK: a scene switch closes the matrix
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
@@ -864,7 +862,6 @@ struct DiagView: View {
             // gestures (a held verb, MUTE arm) so state can't leak across tabs.
             editArmed = (tab == .processors)
             if tab != .grid { heldVerb = nil; muteArmed = false }
-            rackMatrixOpen = false
         }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
@@ -1099,7 +1096,7 @@ struct DiagView: View {
                     receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
                     vizView.frame(maxWidth: .infinity)
                 }.frame(height: recvBandH)                    // FIXED input-controls height
-                gridBlock(cell, half).helpAnchor("#grid")     // THE RACK draws INSIDE this (cellAreaOverride) — chevron row + rails stay; `half` = emitter width
+                gridBlock(cell, half).helpAnchor("#grid")     // the 8×8 perform grid; `half` = the emitter-band width (bands grid-aligned)
 
                 HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
                     verbCluster.frame(maxWidth: .infinity).helpAnchor("#verbs")
@@ -1115,7 +1112,7 @@ struct DiagView: View {
     }
 
     @ViewBuilder func gridBlock(_ cellHeight: CGFloat, _ emitterWidth: CGFloat) -> some View {
-        if flowVariation > 0 && !rackMatrixOpen {
+        if flowVariation > 0 {
             // FLOW view (item 10): the grid region becomes the flow theater. Watch-only; the desk stays live.
             FlowView(variation: flowVariation, scene: scene, colours: docColours, receivers: receivers,
                      busChannels: busChannels, busEnabled: busEnabled,
@@ -1139,8 +1136,7 @@ struct DiagView: View {
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
                      tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
-                     strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke,
-                     cellAreaOverride: rackMatrixOpen ? AnyView(rackMatrixView) : nil)   // THE RACK: the matrix takes the cell area; chevron row + rails stay
+                     strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
                 .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
             rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
         }
@@ -1270,8 +1266,8 @@ struct DiagView: View {
                    onMute: toggleMasterMute, onPanic: masterPanic, onKey: nudgeMasterKey, onVelOverride: setMasterVel)
     }
 
-    // THE RACK (pass 1) — the treatment matrix, drawn INSIDE the grid's cell area (chevron row + rails stay).
-    // Reuses the strips' own callbacks (live + undoable). DONE / EDIT toggle / scene switch close it.
+    // THE RACK (pass 1) — the treatment matrix, now the full-page EMITTERS tab body (LAYOUT v2). Reuses the
+    // strips' own callbacks (live + undoable). DONE returns to the GRID tab.
     var rackMatrixView: some View {
         RackMatrix(busChannels: busChannels, busEnabled: busEnabled, rackMask: rackMask,
                    claimMask: claimMask, claimLeak: claimLeak,
@@ -1292,7 +1288,7 @@ struct DiagView: View {
                    onToggleMono: toggleMono, onCycleMono: cycleMono,
                    onTogglePocket: togglePocket, onPocketMs: setPocketMsAmt,
                    onConvLead: setConvLeadSel, onConvStance: cycleConvStanceSel,
-                   onClose: { rackMatrixOpen = false })
+                   onClose: { activeTab = .grid })          // DONE returns to the GRID tab
     }
 
     var emittersBox: some View {
@@ -1307,7 +1303,7 @@ struct DiagView: View {
                     rackMask: rackMask, onToggleRack: toggleRack,           // THE RACK: strip tap toggles the board in/out of path
                     wiring: !routeFoci.isEmpty, routeOn: routeOutBusesOn,     // §10 ROUTE OUT session face
                     onRouteOut: { toggleFocusEmitter(Bus.allCases[$0]) },
-                    onOpenPage: { _, _ in rackMatrixOpen = true })          // THE RACK: long-press opens the matrix (all emitters at once)
+                    onOpenPage: { _, _ in activeTab = .emitters })          // THE RACK: long-press jumps to the EMITTERS tab
             .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)   // SPACE-FILL: fill the band
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
     }

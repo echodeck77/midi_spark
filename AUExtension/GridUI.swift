@@ -193,11 +193,6 @@ struct GridView: View {
     var strokeActive: Bool = false                   // a verb is held → drags stroke instead of doing nothing
     var onStroke: ((Int, Int) -> Void)? = nil        // called once per newly-entered cell during a stroke
     var onStrokeEnd: (() -> Void)? = nil             // drag ended → commit the swathe (close its one undo)
-    // THE RACK (design-the-rack): when set, this view REPLACES the 8×8 cell body while the chevron column-key row
-    // stays as the VStack's first row (the user's "keep the chevron row + selectors, draw the panel inside"). The
-    // L/R row rails live OUTSIDE GridView (in gridBlock), so they stay put too. nil ⇒ the normal cell grid.
-    var cellAreaOverride: AnyView? = nil
-
     @State private var breathe = false     // shared ALT-ring breathe phase (§6.5); decorative, not beat-locked
     @State private var strokeVisited: Set<GridPos> = []   // cells already painted THIS stroke (fire once each)
     @State private var lastBeat: Double = 0
@@ -243,17 +238,13 @@ struct GridView: View {
     var body: some View {
         VStack(spacing: Self.vGap) {
             columnKeys                                   // v57 prominent column keys + sweeping arrow
-            if let override = cellAreaOverride {         // THE RACK: the panel takes the cell area; column keys stay above
-                override
-            } else {
-                ForEach(0..<8, id: \.self) { row in
-                    HStack(spacing: Self.vGap) {
-                        ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
-                    }
+            ForEach(0..<8, id: \.self) { row in
+                HStack(spacing: Self.vGap) {
+                    ForEach(0..<8, id: \.self) { col in cellView(col: col, row: row) }
                 }
             }
         }
-        .overlay { if cellAreaOverride == nil { mutationLines } }   // per-cell falling lines in the active column (grid only)
+        .overlay { mutationLines }                        // per-cell falling lines in the active column
         .coordinateSpace(name: "grid")                   // §5 drag-and-drop: maps a drag location → a cell
         .simultaneousGesture(strokeGesture)              // STROKES: drag-paint while a verb is held
         .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
