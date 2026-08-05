@@ -3154,6 +3154,30 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(onset(ms: 10, rack: 0b1110), onset(ms: 0), "rack out of path ⇒ POCKET suspended")
     }
 
+    // MARK: - WIRE ARTICULATION — same-note overlap on one emitter (design ASK 2026-08-05)
+
+    /// Two holders of note 60 on emitter A (a "drone" + a same-note strike sharing the wire). Documents the CURRENT
+    /// wire behaviour for the articulation ASK: §7 clause 1 (note-ons ALWAYS emit) means the wire does NOT
+    /// consolidate — BOTH holders' note-ons reach A in one window (so a same-note strike is AUDIBLE, not silent as
+    /// the ASK's premise assumed). The proposed off-before-on re-articulation would ADD a paired off; not built —
+    /// awaits Paul's RESTRIKE | MERGE word. And across a full run the shared note still pairs off with no stuck note.
+    func testSameNoteOverlapOnOneEmitterEmitsBothNoteOns() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+        s.cells[0][1] = Cell(colourID: "gold", buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+        // ONE window: both holders strike note 60 → two note-ons on A (no consolidation).
+        let e1 = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120,
+                       sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e1, diag: &diag)
+        XCTAssertEqual(e1.ons.filter { $0.cable == 1 && $0.note == 60 }.count, 2,
+                       "both holders' note-ons emit — the wire does NOT consolidate same-note (clause 1)")
+        // A full hold→release run pairs the shared note off exactly, no stuck note.
+        let e2 = RecordingEmitter()
+        run(box, chord([60]), beats: 16, into: e2)
+        assertNothingLeftSounding(e2)
+    }
+
     // MARK: - THE RACK — CONVERSATION (LEAD / STANCE)
 
     /// (A-count, B-count) when A is the lead (present unless `leadPresent` false) and B follows with the given stance.
