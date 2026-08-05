@@ -83,8 +83,8 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   RE-STRIKE RETRIG|LEGATO detail = coming; chords churn re-strikes at onset (accepted v1).]**
 - **FENCE** — a per-emitter note-RANGE policy on the OUTPUT pitch: notes outside [lo, hi] are DROPped (suppressed),
   CLAMPed (to the nearest bound), or octave-FOLDed back in. Primary = a **POLICY cycle chip** (DROP→CLAMP→FOLD);
-  LO/HI note-steppers live in the DETAIL strip (live — the window is what makes FENCE act); the active range shows
-  INLINE on the row ("C2–C6", user 2026-08-05 — the LO/HI were undiscoverable). **[LIVE 2026-08-05: backed by
+  LO/HI note-steppers sit in a RANGE sub-row directly UNDER the FENCE row (user 2026-08-05 — the range belongs next
+  to its control, not the bottom detail strip; shown whenever any FENCE is on, per-column dimmed where FENCE is off). **[LIVE 2026-08-05: backed by
   `fenceMask`/`fencePolicy`/`fenceLo`/`fenceHi`, rack-gated, applied in `Router.emitOneBus` on the fenced pitch.
   On ENABLE, a still-full window seeds a SENSIBLE default — policy CLAMP + C2…C6 — so FENCE audibly acts (user:
   "the defaults should be something more sensible"). readout "FENCE CLAMP C2–C6".]**

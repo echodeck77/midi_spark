@@ -80,6 +80,7 @@ struct RackMatrix: View {
                              isOn: { bit(monoMask, $0) }, index: { at(monoPriority, $0, 0) },
                              onToggle: onToggleMono, onCycle: onCycleMono)
                     fenceRow
+                    if fenceMask != 0 { fenceDetail }   // the LO/HI window sits RIGHT UNDER FENCE (user 2026-08-05: it belongs next to its control, not the bottom strip)
                     liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
                             isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
                             unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
@@ -324,19 +325,13 @@ struct RackMatrix: View {
                         .frame(maxWidth: .infinity).frame(height: 18)
                         .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
                         .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE"; onCycleFence(i) }
-                    // INLINE RANGE (user 2026-08-05: the LO/HI were hard to find) — the active window shows right on
-                    // the row; tap to focus the row so the detail-strip LO/HI steppers appear.
-                    Text(on ? "\(noteName(at(fenceLo, i, 0)))–\(noteName(at(fenceHi, i, 127)))" : "—")
-                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundColor(on ? cyan.opacity(0.75) : ink.opacity(0.25))
-                        .frame(maxWidth: .infinity).frame(height: 14)
-                        .contentShape(Rectangle()).onTapGesture { lastRow = "FENCE" }
                 }
                 .frame(maxWidth: .infinity).opacity(inPath ? 1 : 0.4)
             }
         }
     }
-    // FENCE detail — per-column LO/HI window note-steppers (shown in the detail strip when FENCE is touched).
+    // FENCE detail — per-column LO/HI window note-steppers, shown RIGHT UNDER the FENCE row (user 2026-08-05: the
+    // range belongs next to its control). Each column dims where that emitter's FENCE is off (or its rack is out).
     private var fenceDetail: some View {
         HStack(alignment: .top, spacing: 4) {
             Text("RANGE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.5))
@@ -345,7 +340,7 @@ struct RackMatrix: View {
                 VStack(spacing: 3) {
                     noteStepper("LO", value: at(fenceLo, i, 0)) { onFenceLo(i, $0) }
                     noteStepper("HI", value: at(fenceHi, i, 127)) { onFenceHi(i, $0) }
-                }.frame(maxWidth: .infinity).opacity(bit(rackMask, i) ? 1 : 0.4)
+                }.frame(maxWidth: .infinity).opacity(bit(fenceMask, i) && bit(rackMask, i) ? 1 : 0.4)
             }
         }
     }
@@ -405,9 +400,7 @@ struct RackMatrix: View {
     @ViewBuilder private var detailStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             Divider().overlay(ink.opacity(0.12))
-            if lastRow == "FENCE" {
-                fenceDetail    // FENCE's LO/HI window is LIVE detail (the range is what makes FENCE do anything)
-            } else if lastRow == "TURNS" {
+            if lastRow == "TURNS" {
                 turnsDetail    // TURNS hand-off MODE is LIVE detail (per-moment vs per-note)
             } else {
                 Text(detailText).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.32))
@@ -421,6 +414,7 @@ struct RackMatrix: View {
         case "KEY":   return "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
         case "TURNS": return "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
         case "CURVE": return "CURVE detail — FLOOR · CEILING — coming"
+        case "FENCE": return "FENCE — set the LO/HI window in the RANGE row above; DROP | CLAMP | FOLD on the chip"
         case "MONO":  return "MONO — priority LAST | LOW | HIGH (tap the chip). RE-STRIKE (RETRIG | LEGATO) — coming"
         case "POCKET": return "POCKET — − pushes ahead · + lays back. HUMANIZE — coming"
         case "CONV":  return "CONVERSATION — tap a column to make it the LEAD; others cycle FREE | WITH | AGAINST"

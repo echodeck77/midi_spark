@@ -320,8 +320,8 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   narrower than your part. Play notes above/below it and confirm on the monitor: DROP = out-of-range notes vanish;
   CLAMP = they snap to the nearest bound; FOLD = they jump by octaves back inside the window. The readout shows
   "FENCE FOLD C2–C4". Confirm RACK-off suspends it (raw pitch) and watch for stuck notes on the boundary.
-  2026-08-05: turning FENCE ON now seeds a sensible default (CLAMP · C2–C6) so it acts immediately, and each column
-  shows its active range inline ("C2–C6") — tap it, then edit LO/HI in the detail strip.
+  2026-08-05: turning FENCE ON now seeds a sensible default (CLAMP · C2–C6) so it acts immediately, and the LO/HI
+  note-steppers appear in a RANGE row DIRECTLY UNDER the FENCE row (each column under its emitter) — not the bottom.
 - **RK-MONO (live — monophony, THIS VOICE):** the MONO row ("One note at a time"). Tap ON for an emitter fed a
   CHORD; only ONE note should sound at a time on that output (ideal for glide synths). Tap the PRIORITY chip to
   cycle **LAST → LOW → HIGH**: LAST = the newest note wins, LOW = the lowest, HIGH = the highest. Monitor that the
