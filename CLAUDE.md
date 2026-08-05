@@ -157,6 +157,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MACROS (phase 2 track) — engine + AU params + tab panel, on branch `feat/macros` (NOT on `main`), 2026-08-05;
+  iOS builds, macOS 438 green; DEVICE pass owed. The macro MODULATION layer per the macro-panel + macro-ab-authoring
+  + overlay-rule-macro-lanes specs. Commits `1c23fad`→`895f8c9` (M0–M3). **M0** `1c23fad`: the state model —
+  `Macro { name·value 0…1·fixed(padlock)·targets[] }` + `MacroTarget { col·row·slot·param·delta(B−A) }` + `MacroKind`;
+  `PluginState.macros: [Macro]?` (additive-Optional) + `macrosResolved` (24, banked 0–7 sliders·8–15 buttons·16–23
+  timelines) + `macroKind(i)`; `SnapshotBox.macroValues: [Double]`. **M1** `fe814f8`: the offset term
+  `Snapshot.applyMacros(base, mods, values)` = `clamp(base + Σ vₖ×deltaₖ)` (overlaps SUM then clamp once; clamps
+  match `resolve`), FOLDED into each cell's resolved `procs` in `SnapshotBuilder`'s cell loop (grouped by
+  (col,row,slot)). Bases/document/seals (sealHash reads the document, not procs) are UNTOUCHED → twins stay twins.
+  **KNOWN v1 BOUNDARY: values bake at publish (a macro move = a rebuild); the render-time per-column path that
+  TIMELINE lanes need lands with that bank.** **M2** `921bbc6`: `ParamAddress.macro(i)=400+i` — the 8 SLIDERS
+  (400–407) as host-automatable AU params (block 400–423 reserved for the 24; a future transposeB must use base
+  ≥500); observer folds a write into `document.macros` as an offset, provider + on-load sync mirror doc→tree;
+  `setMacroValue` UI twin. **M3** `895f8c9`: `MacroPanel.swift` = the MACROS tab — BTN|SLD|TML selector; SLIDER bank
+  = 8 vertical faders (drive values via the tree; name-chip rename; foot padlock SPRING-releases-home / FIXED-latches);
+  BUTTON bank = A|B pads (momentary/toggle); TIMELINE = placeholder; unset slots recede as invitations. AU
+  `setMacroName`/`setMacroFixed`/`uiMacros`. **NEXT = M4** (task #82): the A/B authoring popup on the Edit page
+  ([AB] per INPUT·CHAIN(one popup, all slots)·OUTPUT → live morph slider auto-set to B → bind the delta to a macro
+  row; mover-eligibility live-dim) — until M4, macros have no way to acquire bindings (the sliders drive nothing).
+  Tests re-homed in `Tests/EffectiveParamsTests.swift` (M0 state + M1 offset math + builder end-to-end + seal
+  stability). Plan/specs: `Docs/AcceptanceCriteria/AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` ·
+  `-overlay-rule-macro-lanes.md`.**
 - **▶ LAYOUT v2 — THE TAB ERA, phase 1 (the tab shell); all on `main`, 2026-08-05; iOS builds, 428 green; DEVICE
   pass owed. Six commits `41aa233`→`8504957` (Parts 0-5). Replaces the PERFORM/EDIT toggle + in-grid overlays with
   ONE permanent address per surface — a six-tab bar (`enum AppTab`: GRID · PROCESSORS · RECEIVERS · EMITTERS ·

@@ -5,6 +5,17 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-07-29._
 
+## ◐ IN PROGRESS (2026-08-05) — MACROS (phase 2 track, branch `feat/macros`)
+Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. iOS builds,
+438 green; commit refs in CLAUDE.md status; **device pass owed**; NOT on `main`.
+- [x] M0 state model · M1 offset term (base ⊕ Σ value×delta, folded at build; seals stable) + tests · M2 the 8
+  slider macros as automatable AU params · M3 the MACROS tab panel (BTN|SLD|TML; sliders drive values + padlock).
+- [ ] **M4 — A/B authoring** (the [AB] popup on the Edit page: INPUT·CHAIN·OUTPUT groups → live morph-to-B → bind
+  the delta to a macro row; mover-eligibility live-dim). **Blocks macros being usable — no bindings without it.**
+- [ ] Deferred within macros: TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time
+  per-column path, which replaces M1's bake-at-build for lanes) · button/enum-flip targets · the CC rail · the
+  perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) · announce/ghost-thumb tells.
+
 ## ★ DONE (2026-08-05) — LAYOUT v2 tab shell (phase 1)
 Spec of record: **`Docs/AcceptanceCriteria/layout-v2-tabs.md`**; plan `~/.claude/plans/resilient-imagining-truffle.md`.
 On `main`, iOS builds, 428 green; commit refs in CLAUDE.md status; **device pass owed**.
