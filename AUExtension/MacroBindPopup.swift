@@ -10,13 +10,20 @@ struct MacroBindPopup: View {
     let anchor: (col: Int, row: Int)           // the selection anchor (for the existing-binding chips)
     let selected: [(col: Int, row: Int)]       // all targets (twins) — each gets its own target tag
     let macros: [Macro]                        // the 24 (polled) — the SLIDER bank (0…7) binds here
-    let onEditParam: (Int, MacroParam, Double) -> Void   // live-write B to all targets (slot, param, value)
-    let onBind: (Int, [MacroTarget]) -> Void   // add the delta targets to macro `index`
-    let onRemove: (Int) -> Void                // remove macro `index`'s binding on the anchor cell
+    let amounts: (leak: [Int], duck: [Int], curve: [Int], pocket: [Int])   // OUTPUT group A-state (the current per-emitter role amounts)
+    let onEditParam: (Int, MacroParam, Double) -> Void   // CHAIN: live-write B to all targets (slot, param, value)
+    let onBind: (Int, [MacroTarget]) -> Void   // CHAIN: add the delta targets to macro `index`
+    let onRemove: (Int) -> Void                // CHAIN: remove macro `index`'s binding on the anchor cell
+    let onBindEmitter: (Int, [MacroEmitterTarget]) -> Void   // OUTPUT: bind per-emitter amount deltas
+    let onRemoveEmitter: (Int) -> Void                       // OUTPUT: clear macro's OUTPUT bindings
     let onClose: () -> Void                    // restore A + dismiss
 
-    @State private var aVals: [String: Double] = [:]   // captured A per "slot.param"
-    @State private var bVals: [String: Double] = [:]   // the demonstrated B (live)
+    enum EditGroup { case chain, output }
+    @State private var group: EditGroup = .chain       // which [AB] group (INPUT deferred)
+    @State private var aVals: [String: Double] = [:]   // CHAIN captured A per "slot.param"
+    @State private var bVals: [String: Double] = [:]   // CHAIN demonstrated B (live)
+    @State private var outA: [String: Double] = [:]    // OUTPUT captured A per "emitter.param"
+    @State private var outB: [String: Double] = [:]    // OUTPUT demonstrated B (local — bound as a delta on close)
     @State private var toast: String? = nil
     @State private var bindBank: MacroKind = .slider   // which bank the binding list shows (SLD default; TML deferred)
 
@@ -37,7 +44,22 @@ struct MacroBindPopup: View {
     }
     private func key(_ slot: Int, _ p: MacroParam) -> String { "\(slot).\(p.rawValue)" }
 
-    /// The touched params (B ≠ A) as targets, replicated across every selected cell.
+    // The per-emitter OUTPUT amounts (label + native range, matching the builder's clamps).
+    private let amountDefs: [(param: MacroEmitterParam, label: String, lo: Double, hi: Double)] =
+        [(.leak, "LEAK", 0, 100), (.duck, "DUCK", 0, 100), (.curve, "CURVE", -100, 100), (.pocket, "POCKET", -50, 50)]
+    private func okey(_ e: Int, _ p: MacroEmitterParam) -> String { "\(e).\(p.rawValue)" }
+    private func amountA(_ e: Int, _ p: MacroEmitterParam) -> Double {
+        let arr: [Int]
+        switch p {
+        case .leak:   arr = amounts.leak
+        case .duck:   arr = amounts.duck
+        case .curve:  arr = amounts.curve
+        case .pocket: arr = amounts.pocket
+        }
+        return (e >= 0 && e < arr.count) ? Double(arr[e]) : 0
+    }
+
+    /// CHAIN: the touched params (B ≠ A) as targets, replicated across every selected cell.
     private var deltaTargets: [MacroTarget] {
         var out: [MacroTarget] = []
         for (i, slot) in chain.enumerated() where !slot.bypassed {
@@ -51,27 +73,42 @@ struct MacroBindPopup: View {
         }
         return out
     }
-    private var anyTouched: Bool { !deltaTargets.isEmpty }
+    /// OUTPUT: the touched per-emitter amounts (B ≠ A) as emitter targets.
+    private var deltaEmitterTargets: [MacroEmitterTarget] {
+        var out: [MacroEmitterTarget] = []
+        for e in 0..<4 {
+            for d in amountDefs {
+                let k = okey(e, d.param); let a = outA[k] ?? 0, b = outB[k] ?? a
+                if abs(b - a) < 1e-6 { continue }
+                out.append(MacroEmitterTarget(emitter: e, param: d.param.rawValue, delta: b - a))
+            }
+        }
+        return out
+    }
+    private var anyTouched: Bool { group == .output ? !deltaEmitterTargets.isEmpty : !deltaTargets.isEmpty }
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.82).ignoresSafeArea().onTapGesture { onClose() }
             VStack(alignment: .leading, spacing: 0) {
                 header
-                if chain.contains(where: { !$0.bypassed && !contParams($0.type).isEmpty }) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            bSection
-                            Divider().overlay(ink.opacity(0.12))
-                            bindSection
-                        }.padding(.vertical, 6)
-                    }
-                } else {
-                    Spacer()
-                    Text("Add a processor with a continuous control (GATE · SPREAD · CHANCE · …) to author a B state.")
-                        .font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.4))
-                        .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding()
-                    Spacer()
+                groupSelector.padding(.bottom, 8)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if group == .chain {
+                            if chain.contains(where: { !$0.bypassed && !contParams($0.type).isEmpty }) {
+                                bSection
+                            } else {
+                                Text("Add a processor with a continuous control (GATE · SPREAD · CHANCE · …) to author a CHAIN B.")
+                                    .font(.system(size: 10, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        } else {
+                            outputSection
+                        }
+                        Divider().overlay(ink.opacity(0.12))
+                        bindSection
+                    }.padding(.vertical, 6)
                 }
             }
             .padding(20)
@@ -90,6 +127,48 @@ struct MacroBindPopup: View {
                 let v = slot.params.macroValue(cp.param)
                 aVals[key(i, cp.param)] = v; bVals[key(i, cp.param)] = v
             }
+        }
+        for e in 0..<4 {
+            for d in amountDefs { let v = amountA(e, d.param); outA[okey(e, d.param)] = v; outB[okey(e, d.param)] = v }
+        }
+    }
+
+    private var groupSelector: some View {
+        HStack(spacing: 0) { groupChip("CHAIN", .chain); groupChip("OUTPUT", .output) }
+            .background(RoundedRectangle(cornerRadius: 7).fill(ink.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(ink.opacity(0.1)))
+    }
+    private func groupChip(_ label: String, _ g: EditGroup) -> some View {
+        let on = group == g
+        return Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
+            .foregroundColor(on ? .black : ink.opacity(0.5))
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? editHue : Color.clear))
+            .contentShape(Rectangle()).onTapGesture { group = g }
+    }
+
+    // OUTPUT group — demonstrate a per-emitter role-amount change; the delta binds to a macro (local B, no live write).
+    private var outputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Set a per-emitter amount to define B; bind the change to a macro. LEAK/DUCK % · CURVE ±100 · POCKET ±ms.")
+                .font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
+            ForEach(0..<4, id: \.self) { e in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("EMITTER \(["A", "B", "C", "D"][e])").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.45))
+                    ForEach(amountDefs, id: \.param) { d in amountRow(e, d) }
+                }
+            }
+        }
+    }
+    private func amountRow(_ e: Int, _ d: (param: MacroEmitterParam, label: String, lo: Double, hi: Double)) -> some View {
+        let k = okey(e, d.param); let a = outA[k] ?? d.lo
+        let touched = abs((outB[k] ?? a) - a) > 1e-6
+        return HStack(spacing: 8) {
+            Text(d.label).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(touched ? cyan : ink.opacity(0.55)).frame(width: 58, alignment: .leading)
+            Slider(value: Binding(get: { outB[k] ?? a }, set: { outB[k] = $0 }), in: d.lo...d.hi).tint(cyan)
+            Text(String(format: "%+.0f", (outB[k] ?? a) - a)).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(touched ? cyan : ink.opacity(0.3)).frame(width: 44, alignment: .trailing)
         }
     }
 
@@ -162,15 +241,19 @@ struct MacroBindPopup: View {
     }
     private func macroRow(_ i: Int) -> some View {
         let m = i < macros.count ? macros[i] : Macro()
-        let boundHere = m.targets.contains { $0.col == anchor.col && $0.row == anchor.row }
+        let boundHere = group == .output ? !m.emitterTargets.isEmpty
+                                         : m.targets.contains { $0.col == anchor.col && $0.row == anchor.row }
         return HStack(spacing: 8) {
             Text(macroLabel(i, m)).font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(m.name.isEmpty ? ink.opacity(0.4) : cyan).frame(width: 64, alignment: .leading).lineLimit(1)
             if boundHere {
-                Text("THIS CELL ✕").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                Text(group == .output ? "OUTPUT ✕" : "THIS CELL ✕").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: 3).fill(cyan))
-                    .contentShape(Rectangle()).onTapGesture { onRemove(i); toast = "removed from \(macroLabel(i, m))" }
+                    .contentShape(Rectangle()).onTapGesture {
+                        if group == .output { onRemoveEmitter(i) } else { onRemove(i) }
+                        toast = "removed from \(macroLabel(i, m))"
+                    }
             }
             Spacer()
             Text("BIND").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -178,7 +261,11 @@ struct MacroBindPopup: View {
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 4).fill(anyTouched ? cyan : ink.opacity(0.05)))
                 .contentShape(Rectangle())
-                .onTapGesture { guard anyTouched else { return }; onBind(i, deltaTargets); toast = "bound → \(macroLabel(i, m))" }
+                .onTapGesture {
+                    guard anyTouched else { return }
+                    if group == .output { onBindEmitter(i, deltaEmitterTargets) } else { onBind(i, deltaTargets) }
+                    toast = "bound → \(macroLabel(i, m))"
+                }
         }
         .padding(.vertical, 3)
     }

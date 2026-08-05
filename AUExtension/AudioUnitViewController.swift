@@ -834,11 +834,14 @@ struct DiagView: View {
                 if macroBindOpen, let a = editSel.first, let anchorCell = scene.cellAt(a.col, a.row) {
                     MacroBindPopup(chain: cellChain(anchorCell), anchor: (col: a.col, row: a.row),
                                    selected: editSelTargets, macros: au?.uiMacros() ?? [],
+                                   amounts: (leak: claimLeak, duck: flattenAmount, curve: curveAmount, pocket: pocketMs),
                                    onEditParam: { slot, param, v in
                                        au?.editSlotCells(editSelTargets, slot: slot) { $0.params.setMacroValue(param, v) }
                                    },
                                    onBind: { i, targets in au?.addMacroTargets(i, targets); refreshFromDocument() },
                                    onRemove: { i in au?.removeMacroTargets(i, col: a.col, row: a.row); refreshFromDocument() },
+                                   onBindEmitter: { i, targets in au?.addMacroEmitterTargets(i, targets); refreshFromDocument() },
+                                   onRemoveEmitter: { i in au?.removeMacroEmitterTargets(i); refreshFromDocument() },
                                    onClose: closeMacroBind)
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)

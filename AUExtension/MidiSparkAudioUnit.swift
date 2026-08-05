@@ -601,6 +601,19 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard (0..<24).contains(index), document.macros != nil else { return }
         editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row } }
     }
+    /// A/B AUTHORING (OUTPUT group): bind (append) per-emitter role-amount deltas to a macro.
+    func addMacroEmitterTargets(_ index: Int, _ targets: [MacroEmitterTarget]) {
+        guard (0..<24).contains(index), !targets.isEmpty else { return }
+        editDocument { d in
+            if d.macros == nil { d.macros = d.macrosResolved }
+            d.macros?[index].emitterTargets.append(contentsOf: targets)
+        }
+    }
+    /// A/B AUTHORING (OUTPUT group): clear a macro's OUTPUT bindings (the "remove OUTPUT" chip).
+    func removeMacroEmitterTargets(_ index: Int) {
+        guard (0..<24).contains(index), document.macros != nil else { return }
+        editDocument { d in d.macros?[index].emitterTargets.removeAll() }
+    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.
