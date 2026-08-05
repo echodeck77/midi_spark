@@ -839,7 +839,7 @@ struct DiagView: View {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
                 // LAYOUT v2: ONE header (with the tab bar), then the selected tab's body below.
                 VStack(spacing: 8) {
-                    arrangementBar                             // §2: LOGO · header · TAB BAR · the 16-scene row
+                    arrangementBar.frame(maxWidth: 1024)       // §2: LOGO · header · TAB BAR · scene row — capped to the grid's 1024 width, centred (user 2026-08-05)
                     tabBody(geo)                               // the surface for the active tab
                 }
                 .padding(12)
