@@ -302,13 +302,16 @@ struct DiagView: View {
     /// the dormant rungs; tap again restores). Tapping a DORMANT rung makes it the active one — but BLINK-arm (commit
     /// at the column's next entry) ONLY if the playhead is sounding this column right now; otherwise flip instantly.
     func armLadderRung(_ col: Int, _ row: Int) {
-        if row == scene.ladderActiveRow(col) {           // the active rung → mute/unmute the column
-            au?.editScene(record: false) { $0.cells[col][row]?.muted.toggle() }; refreshFromDocument(); return
+        if row == scene.ladderActiveRow(col) {           // re-tap the active rung → DESELECT: nothing speaks this column
+            au?.editScene(record: false) { s in          // (a −1 sentinel — SINGLE never touches `muted`, so MULTI's mutes are preserved)
+                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                ar[col] = -1; s.activeRow = ar
+            }
+            ladderPending[col] = nil; refreshFromDocument(); return
         }
         let armed = d.playing && d.effColumn == col      // playhead on THIS column → arm (avoid cutting the sounding note); else instant
-        au?.editScene(record: false) { s in
-            s.cells[col][row]?.muted = false             // the new rung must sound
-            if !armed {                                  // instant flip — set the active rung now
+        au?.editScene(record: false) { s in              // set the active rung ONLY — `muted` stays MULTI's domain (a MULTI-muted rung stays silent)
+            if !armed {
                 var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
                 ar[col] = row; s.activeRow = ar
             }
@@ -323,9 +326,8 @@ struct DiagView: View {
         au?.editScene(record: false) { s in
             var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
             for c in 0..<8 where s.cellAt(c, row) != nil {
-                s.cells[c][row]?.muted = false               // the enabled row must sound
                 if c != playingCol { ar[c] = row }           // instant flip for every column EXCEPT the one currently playing
-            }
+            }                                                // (no `muted` change — SINGLE is selection-only; MULTI owns mute)
             s.activeRow = ar
         }
         ladderPending = [:]                                  // an explicit row enable supersedes any prior armed per-column switch…

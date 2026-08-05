@@ -376,11 +376,16 @@ struct SceneState: Codable, Equatable {
     // mode is on. Optional (append-only) → old scenes decode nil; per-column nil = "use the gentle default".
     // Scenes CAPTURE rung choices (arranged intensity). The LADDER on/off toggle itself is document-level.
     var activeRow: [Int?]? = nil
-    /// The resolved rung for `col`: the committed row if it points at an occupied cell, else the TOPMOST occupied
-    /// cell (the gentlest default, per spec), else nil (an empty column — nothing speaks). Bounds-safe throughout.
+    /// The resolved rung for `col` (SINGLE / LADDER). If a rung was CHOSEN for this column (activeRow[col] set):
+    /// −1 = explicitly DESELECTED → nothing speaks; a valid row → it if still occupied, else nothing (the chosen
+    /// cell was deleted — user 2026-08-05). If NO rung was chosen (nil) → the TOPMOST occupied cell (the gentle
+    /// default). An empty column → nil. Bounds-safe throughout.
     func ladderActiveRow(_ col: Int) -> Int? {
-        if let ar = activeRow, col >= 0, col < ar.count, let r = ar[col], cellAt(col, r) != nil { return r }
-        for r in 0..<8 where cellAt(col, r) != nil { return r }   // topmost occupied
+        if let ar = activeRow, col >= 0, col < ar.count, let r = ar[col] {
+            if r < 0 { return nil }                              // explicitly deselected → nothing
+            return cellAt(col, r) != nil ? r : nil              // chosen rung: occupied → it; now-empty → nothing
+        }
+        for r in 0..<8 where cellAt(col, r) != nil { return r }  // no choice → topmost occupied (the gentle default)
         return nil
     }
 
