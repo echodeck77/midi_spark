@@ -157,9 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ MACROS (phase 2 track) — engine + AU params + tab panel, on branch `feat/macros` (NOT on `main`), 2026-08-05;
-  iOS builds, macOS 438 green; DEVICE pass owed. The macro MODULATION layer per the macro-panel + macro-ab-authoring
-  + overlay-rule-macro-lanes specs. Commits `1c23fad`→`895f8c9` (M0–M3). **M0** `1c23fad`: the state model —
+- **▶ MERGED `feat/macros` → `main` (fast-forward, PUSHED, `c661025..6b2d609`, 2026-08-05). Banked: the whole MACROS
+  feature (M0–M4 + BUTTON bank + OUTPUT engine/authoring) · the MIDI compliance audit + its fixes (B1 THRU-system ·
+  B2 stuck k=1-lap drone · B3 fullState flush · B5 altSequence prealloc; B4/B7 deferred) · a test/refactor hardening
+  pass (clamp/gated/packMask/resolved4/bit helpers) · ferry captures. macOS 453 green, iOS builds. DEVICE pass owed
+  (macros + the audit fixes + the tab era). All other feature branches (EditPageSpike/emitter-page/flow-view/step3/
+  multiple_features) are already contained in main's history. NEXT macro: TIMELINE bank (needs the render-time
+  per-column path); INPUT [AB] group skipped as underspecified.**
+- **▶ MACROS (phase 2 track) — engine + AU params + tab panel + A/B authoring; NOW ON `main` (see the merge line
+  above), 2026-08-05. The macro MODULATION layer per the macro-panel + macro-ab-authoring + overlay-rule-macro-lanes
+  specs. Commits `1c23fad`→`895f8c9` (M0–M3). **M0** `1c23fad`: the state model —
   `Macro { name·value 0…1·fixed(padlock)·targets[] }` + `MacroTarget { col·row·slot·param·delta(B−A) }` + `MacroKind`;
   `PluginState.macros: [Macro]?` (additive-Optional) + `macrosResolved` (24, banked 0–7 sliders·8–15 buttons·16–23
   timelines) + `macroKind(i)`; `SnapshotBox.macroValues: [Double]`. **M1** `fe814f8`: the offset term
