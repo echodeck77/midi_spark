@@ -1084,30 +1084,44 @@ struct DiagView: View {
 
     func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
         GeometryReader { g in
-            // RECEIVERS (input controls) are now a FIXED height (user 2026-08-03 — estimate; the strips no longer
-            // stretch with the grid). The GRID + EMITTERS share the rest as 15 rows (9 grid + 6 emitter); +30 for the
-            // grid's own pad + the two VStack gaps.
+            // RECEIVERS (input controls) are a FIXED height (user 2026-08-03). The GRID + EMITTERS share the rest as
+            // 15 rows (9 grid + 6 emitter); +30 for the grid's own pad + the two VStack gaps. Cells fit the height
+            // down to `minCell`; BELOW that (a reduced window) the column SCROLLS instead of shrinking further
+            // (user 2026-08-05). `minCell` (>18 floor) makes the scroll kick in while cells are still usable.
             let recvBandH: CGFloat = 168
-            let cell = max(18, min(48, (g.size.height - recvBandH - 30) / 15))
+            let minCell: CGFloat = 30                         // scroll kicks in when the viewport < 198 + 15·minCell (~648pt) — reduced windows only
+            let fitCell = (g.size.height - recvBandH - 30) / 15
+            let cell = max(minCell, min(48, fitCell))
             let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
-            VStack(spacing: 3) {
-                HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
-                    Color.clear.frame(maxWidth: .infinity)    // the empty left flank keeps RECEIVERS centred + grid-aligned with the EMITTERS band below
-                    receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
-                    vizView.frame(maxWidth: .infinity)
-                }.frame(height: recvBandH)                    // FIXED input-controls height
-                gridBlock(cell, half).helpAnchor("#grid")     // the 8×8 perform grid; `half` = the emitter-band width (bands grid-aligned)
+            let contentH = recvBandH + 15 * cell + 30         // the column's natural height at this cell size
+            let overflow = contentH > g.size.height + 0.5     // reduced window: the flow no longer fits → scroll
+            // LANDSCAPE: the grid no longer spans the full width — cap it to near-square cells so it reads compact
+            // (user 2026-08-05). Portrait (and the FLOW theater) keep the full width; the cap is then centred.
+            let railTotal: CGFloat = 40 * 2 + 3 * 2           // two 40pt row rails + their two 3pt gaps
+            let gridBlockW = (isPortrait || flowVariation > 0)
+                ? g.size.width : min(g.size.width, cell * 8 + GridGeometry.vGap * 7 + railTotal)
+            ScrollView(.vertical, showsIndicators: overflow) {
+                VStack(spacing: 3) {
+                    HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
+                        Color.clear.frame(maxWidth: .infinity)    // the empty left flank keeps RECEIVERS centred + grid-aligned with the EMITTERS band below
+                        receiversBox(isPortrait).frame(width: half).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
+                        vizView.frame(maxWidth: .infinity)
+                    }.frame(height: recvBandH)                    // FIXED input-controls height
+                    gridBlock(cell, half).frame(width: gridBlockW).frame(maxWidth: .infinity).helpAnchor("#grid")   // narrowed + centred in landscape
 
-                HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
-                    verbCluster.frame(maxWidth: .infinity).helpAnchor("#verbs")
-                    emittersBox.frame(width: half).background(routeProbe("emitters")).helpAnchor("#emitters")     // §10 strips wear ROUTE OUT faces
-                    masterView.frame(maxWidth: .infinity).helpAnchor("#master")
-                }.frame(height: bandH)
+                    HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
+                        verbCluster.frame(maxWidth: .infinity).helpAnchor("#verbs")
+                        emittersBox.frame(width: half).background(routeProbe("emitters")).helpAnchor("#emitters")     // §10 strips wear ROUTE OUT faces
+                        masterView.frame(maxWidth: .infinity).helpAnchor("#master")
+                    }.frame(height: bandH)
+                }
+                .frame(minHeight: g.size.height, alignment: .top)   // fill the viewport when it fits; grow (scroll) when reduced
+                .coordinateSpace(name: "signal")
+                .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
+                    if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
+                }
             }
-            .coordinateSpace(name: "signal")
-            .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
-                if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
-            }
+            .scrollDisabled(!overflow)                          // when everything fits, no scroll (and no drag hijack of grid gestures)
         }
     }
 
