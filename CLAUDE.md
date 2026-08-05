@@ -173,12 +173,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `setMacroValue` UI twin. **M3** `895f8c9`: `MacroPanel.swift` = the MACROS tab — BTN|SLD|TML selector; SLIDER bank
   = 8 vertical faders (drive values via the tree; name-chip rename; foot padlock SPRING-releases-home / FIXED-latches);
   BUTTON bank = A|B pads (momentary/toggle); TIMELINE = placeholder; unset slots recede as invitations. AU
-  `setMacroName`/`setMacroFixed`/`uiMacros`. **NEXT = M4** (task #82): the A/B authoring popup on the Edit page
-  ([AB] per INPUT·CHAIN(one popup, all slots)·OUTPUT → live morph slider auto-set to B → bind the delta to a macro
-  row; mover-eligibility live-dim) — until M4, macros have no way to acquire bindings (the sliders drive nothing).
-  Tests re-homed in `Tests/EffectiveParamsTests.swift` (M0 state + M1 offset math + builder end-to-end + seal
-  stability). Plan/specs: `Docs/AcceptanceCriteria/AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` ·
-  `-overlay-rule-macro-lanes.md`.**
+  `setMacroName`/`setMacroFixed`/`uiMacros`. **M4** `03a7015`: A/B AUTHORING — `MacroBindPopup.swift`, opened by an
+  `[AB]` button on the Edit page's CHAIN header. Captures A on open; per-slot continuous-param sliders live-write B
+  to every selected cell (twin write law, heard live); binding a macro slider stores delta = B−A per touched param
+  (`addMacroTargets`); close restores A (`setCellChain`) so the macro holds B as an offset. `ColourParams.macroValue/
+  setMacroValue`; `removeMacroTargets` (the "THIS CELL ✕" chip). **v1 scope: CHAIN group + SLIDER bank only.**
+  MACROS ARE NOW USABLE END-TO-END (author on Edit → drive from the MACROS tab / host automation). DEFERRED (honest
+  boundaries): INPUT/OUTPUT [AB] groups (need the offset extended to receiver/emitter-amount param families) ·
+  BUTTON/TIMELINE binding + mover-eligibility live-dim · the A↔B morph-audition slider (v1 auditions by editing B
+  directly). Tests in `Tests/EffectiveParamsTests.swift` (M0 state · M1 offset math · builder end-to-end · seal
+  stability · M4 A/B-reconstructs-B-at-1/A-at-0). Plan/specs: `Docs/AcceptanceCriteria/AcceptanceCriteria-macro-panel.md`
+  · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. **NEXT: device pass; then either the TIMELINE bank
+  (needs the render-time per-column path, replacing M1's bake-at-build) or extend the offset to INPUT/OUTPUT.**
 - **▶ LAYOUT v2 — THE TAB ERA, phase 1 (the tab shell); all on `main`, 2026-08-05; iOS builds, 428 green; DEVICE
   pass owed. Six commits `41aa233`→`8504957` (Parts 0-5). Replaces the PERFORM/EDIT toggle + in-grid overlays with
   ONE permanent address per surface — a six-tab bar (`enum AppTab`: GRID · PROCESSORS · RECEIVERS · EMITTERS ·

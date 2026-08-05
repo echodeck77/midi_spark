@@ -9,12 +9,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-07-2
 Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. iOS builds,
 438 green; commit refs in CLAUDE.md status; **device pass owed**; NOT on `main`.
 - [x] M0 state model · M1 offset term (base ⊕ Σ value×delta, folded at build; seals stable) + tests · M2 the 8
-  slider macros as automatable AU params · M3 the MACROS tab panel (BTN|SLD|TML; sliders drive values + padlock).
-- [ ] **M4 — A/B authoring** (the [AB] popup on the Edit page: INPUT·CHAIN·OUTPUT groups → live morph-to-B → bind
-  the delta to a macro row; mover-eligibility live-dim). **Blocks macros being usable — no bindings without it.**
-- [ ] Deferred within macros: TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time
-  per-column path, which replaces M1's bake-at-build for lanes) · button/enum-flip targets · the CC rail · the
-  perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) · announce/ghost-thumb tells.
+  slider macros as automatable AU params · M3 the MACROS tab panel (BTN|SLD|TML; sliders drive values + padlock) ·
+  **M4 A/B authoring** (the [AB] popup on the Edit page's CHAIN header → live B demonstration → bind delta to a
+  SLIDER macro; base restored to A on close). **MACROS ARE USABLE END-TO-END.** Device pass owed.
+- [ ] Deferred within macros: INPUT/OUTPUT [AB] groups (extend the offset to receiver/emitter-amount params) ·
+  TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time per-column path, which replaces M1's
+  bake-at-build for lanes) · BUTTON/TIMELINE binding + mover-eligibility live-dim · the A↔B morph-audition slider ·
+  the CC rail · the perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) · announce/
+  ghost-thumb tells.
 
 ## ★ DONE (2026-08-05) — LAYOUT v2 tab shell (phase 1)
 Spec of record: **`Docs/AcceptanceCriteria/layout-v2-tabs.md`**; plan `~/.claude/plans/resilient-imagining-truffle.md`.
