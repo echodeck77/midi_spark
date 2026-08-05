@@ -1271,6 +1271,28 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(sealFit(sealGeometry(1234)), sealFit(sealGeometry(1234)), "deterministic — twins share the fit")
     }
 
+    // MARK: - shared pure helpers (extracted dedup — clampVel · positiveFract · splitmix64Mix)
+
+    func testClampVelClampsToOneToOneTwentySeven() {
+        XCTAssertEqual(clampVel(0), 1, "never 0 (a note-off)")
+        XCTAssertEqual(clampVel(-9), 1)
+        XCTAssertEqual(clampVel(64), 64)
+        XCTAssertEqual(clampVel(200), 127)
+    }
+
+    func testPositiveFractFoldsNegativesForward() {
+        XCTAssertEqual(positiveFract(0.25), 0.25, accuracy: 1e-12)
+        XCTAssertEqual(positiveFract(1.25), 0.25, accuracy: 1e-12)
+        XCTAssertEqual(positiveFract(-0.1), 0.9, accuracy: 1e-12, "a negative folds into [0,1)")
+        XCTAssertEqual(positiveFract(-2.75), 0.25, accuracy: 1e-12)
+    }
+
+    func testSplitmix64MixIsDeterministicAndDiffuses() {
+        XCTAssertEqual(splitmix64Mix(0x1234), splitmix64Mix(0x1234), "deterministic")
+        XCTAssertNotEqual(splitmix64Mix(1), splitmix64Mix(2), "adjacent seeds diverge")
+        XCTAssertNotEqual(splitmix64Mix(1), 1, "a nonzero seed avalanches away from itself")
+    }
+
     // MARK: - midiNoteName — non-negative octaves (user 2026-08-03: "no more -1")
 
     /// Note → name uses a 0-based octave (note 0 = C0 … 127 = G10). Locked so a future "C4=60" convention

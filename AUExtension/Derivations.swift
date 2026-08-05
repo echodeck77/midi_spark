@@ -13,6 +13,26 @@ import Foundation
 /// engine's resolvers and the macro offset math — states the clamp INTENT once, no behaviour change.
 @inline(__always) func clamp<T: Comparable>(_ v: T, _ lo: T, _ hi: T) -> T { min(max(v, lo), hi) }
 
+/// A velocity clamped to the legal 1…127 and narrowed to UInt8 — the shape every processor's output-velocity
+/// scaling shares (never 0 = a note-off, never > 127). One name for `UInt8(max(1, min(127, v)))`.
+@inline(__always) func clampVel(_ v: Int) -> UInt8 { UInt8(clamp(v, 1, 127)) }
+
+/// The POSITIVE fractional part of `x` in [0, 1) — folds negatives forward (e.g. −0.1 → 0.9). One spelling of
+/// the `(x.trunc(1) + 1).trunc(1)` idiom the chop/sweep column-time maths share.
+@inline(__always) func positiveFract(_ x: Double) -> Double {
+    (x.truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
+}
+
+/// The splitmix64 finalizing avalanche — mixes a seed into a well-distributed 64-bit hash. Shared by the
+/// loop-consistent RANDOM arp position and the per-note CHANCE gate so the two can't drift.
+@inline(__always) func splitmix64Mix(_ x: UInt64) -> UInt64 {
+    var h = x
+    h = (h ^ (h >> 30)) &* 0xBF58476D1CE4E5B9
+    h = (h ^ (h >> 27)) &* 0x94D049BB133111EB
+    h ^= (h >> 31)
+    return h
+}
+
 /// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).
 /// PURE + replay-safe: the step position = `absoluteBeat / stepBeats × rateMul`, wrapped over the 8 steps.
 ///  · STEP   (0) — hold this step's value across the column.
@@ -113,9 +133,9 @@ final class NotePool {
             && receiverHearsCable(mask: cableMask, eventCable: Int(cbl[Int(note)]))
     }
 
-    /// Count of held notes passing the filter.
     /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
     func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
+    /// Count of held notes passing the filter.
     func srcCount(filter: UInt8, cableMask: Int = 0b1111) -> Int {
         if filter == 0 && cableMask == 0b1111 { return count }
         var n = 0
@@ -372,7 +392,7 @@ func chopBusMask(_ base: UInt8, main: Bool, alt: Bool, mute: Bool, altMask: UInt
 /// Pure/testable.
 func chopSlice(_ mBeat: Double, columnBeats S: Double) -> Int {
     guard S > 0 else { return 0 }
-    let frac = ((mBeat / S).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)   // 0..<1 within the column
+    let frac = positiveFract(mBeat / S)   // 0..<1 within the column
     return min(7, max(0, Int(frac * 8)))
 }
 
@@ -402,7 +422,7 @@ func columnSweepFraction(realBeat: Double, stepBeats: Double, swing: Int) -> Dou
     let a = Double(min(75, max(50, swing))) / 50.0
     let S = max(0.001, stepBeats)
     let m = musicalOf(realBeat, stepBeats: S, a: a)
-    return ((m / S).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
+    return positiveFract(m / S)
 }
 
 /// COLUMN-SUBSET LAP (delta §5b) — the whole perform-v2 feature in one function. With `laneMask` the
@@ -482,10 +502,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         pos = tri < span ? tri : period - tri
     case .random:
         // deterministic hash of the tick → position (loop-consistent, not accumulated)
-        var h = UInt64(bitPattern: phaseIndex) &+ 0x9E3779B97F4A7C15
-        h = (h ^ (h >> 30)) &* 0xBF58476D1CE4E5B9
-        h = (h ^ (h >> 27)) &* 0x94D049BB133111EB
-        h ^= (h >> 31)
+        let h = splitmix64Mix(UInt64(bitPattern: phaseIndex) &+ 0x9E3779B97F4A7C15)
         pos = Int(h % UInt64(span))
     case .asPlayed:
         pos = asc   // ascending through the press sequence (below), not the sorted set
@@ -705,7 +722,7 @@ func umpToLegacy(_ w0: UInt32, _ w1: UInt32) -> (b0: UInt8, b1: UInt8, b2: UInt8
     let idx = UInt8((w0 >> 8) & 0x7F)
     switch (w0 >> 20) & 0xF {               // status nibble
     case 0x8: return (0x80 | chan, idx, 0, 3, group)                                     // note-off
-    case 0x9: return (0x90 | chan, idx, UInt8(max(1, min(127, Int((w1 >> 16) & 0xFFFF) >> 9))), 3, group)  // note-on (16→7, min 1)
+    case 0x9: return (0x90 | chan, idx, clampVel(Int((w1 >> 16) & 0xFFFF) >> 9), 3, group)  // note-on (16→7, min 1)
     case 0xB: return (0xB0 | chan, idx, UInt8((w1 >> 25) & 0x7F), 3, group)              // CC (32→7)
     case 0xD: return (0xD0 | chan, UInt8((w1 >> 25) & 0x7F), 0, 2, group)                // channel pressure
     case 0xE: let v14 = (w1 >> 18) & 0x3FFF                                              // pitch bend (32→14)
@@ -746,7 +763,7 @@ func harmonizeVoices(base: Int, intervals: (Int8, Int8, Int8),
         out[n] = note; vels[n] = v; n += 1
     }
     add(base, baseVel)                                     // root at full velocity
-    let addedVel = UInt8(max(1, min(127, Int((Double(baseVel) * velScale).rounded()))))
+    let addedVel = clampVel(Int((Double(baseVel) * velScale).rounded()))
     for iv in [intervals.0, intervals.1, intervals.2] where iv != 0 { add(base + Int(iv), addedVel) }
     return n
 }
@@ -763,10 +780,7 @@ func chancePasses(beat: Double, note: Int, probability: Double) -> Bool {
     if probability >= 1 { return true }
     if probability <= 0 { return false }
     let q = Int64((beat * 64).rounded())
-    var h = UInt64(bitPattern: q) &* 0x9E3779B97F4A7C15 &+ UInt64(bitPattern: Int64(note &* 2654435761))
-    h = (h ^ (h >> 30)) &* 0xBF58476D1CE4E5B9
-    h = (h ^ (h >> 27)) &* 0x94D049BB133111EB
-    h ^= (h >> 31)
+    let h = splitmix64Mix(UInt64(bitPattern: q) &* 0x9E3779B97F4A7C15 &+ UInt64(bitPattern: Int64(note &* 2654435761)))
     return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < probability
 }
 
@@ -787,10 +801,10 @@ func strumOffset(index j: Int, count: Int, spread: Double, curve: Double) -> Dou
 /// (first softer, last louder), tilt<0 decrescendos. ASSUMPTION: linear tilt around the base.
 @inline(__always)
 func strumVelocity(index j: Int, count: Int, tilt: Double, base: Int) -> UInt8 {
-    guard count > 1 else { return UInt8(max(1, min(127, base))) }
+    guard count > 1 else { return clampVel(base) }
     let frac = Double(j) / Double(count - 1)              // 0 … 1
     let scale = 1 + tilt * (frac - 0.5)                  // [1 − tilt/2 … 1 + tilt/2]
-    return UInt8(max(1, min(127, Int((Double(base) * scale).rounded()))))
+    return clampVel(Int((Double(base) * scale).rounded()))
 }
 
 /// Which SORTED-pool index strum position `j` maps to, per direction. ALTERNATE flips per pass
@@ -813,10 +827,10 @@ func strumSortedIndex(position j: Int, count: Int, direction: StrumDir, pass: In
 /// feel should accent the first hit instead.
 @inline(__always)
 func ratchetVelocity(base: Int, ramp: Double, index: Int, count: Int) -> UInt8 {
-    guard count > 1 else { return UInt8(max(1, min(127, base))) }
+    guard count > 1 else { return clampVel(base) }
     let frac = Double(index) / Double(count - 1)          // 0 (first) … 1 (last)
     let scale = (1.0 - ramp) + ramp * frac                // ramp 0 → 1; ramp 1 → frac
-    return UInt8(max(1, min(127, Int((Double(base) * scale).rounded()))))
+    return clampVel(Int((Double(base) * scale).rounded()))
 }
 
 // MARK: - Authoring: PLACE per-hold one-per-column (/btw ⑥)
