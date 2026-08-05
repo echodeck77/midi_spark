@@ -238,7 +238,9 @@ struct RackMatrix: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { v in
                 if dragKey != key { dragKey = key; dragBase = value; lastRow = rowKey }
-                onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 14))))   // less sensitive (user 2026-08-05): ~14px per unit
+                // RANGE-RELATIVE (user 2026-08-05): the FULL range spans ~160px of finger travel regardless of the
+                // param's range (was a fixed ~14px/unit → 1400px for a 0–100 knob). Much less distance, same feel per knob.
+                onSet(col, max(minV, min(maxV, dragBase + Int((-v.translation.height * CGFloat(span) / 160).rounded()))))
             }
             .onEnded { _ in dragKey = nil })
     }

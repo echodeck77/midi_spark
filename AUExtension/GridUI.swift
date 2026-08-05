@@ -560,9 +560,13 @@ struct GridView: View {
             Canvas { ctx, size in
                 let strikeAge = tl.date.timeIntervalSince(hitAt)
                 let releaseAge = tl.date.timeIntervalSince(releasedAt)
-                // 1 while the note SOUNDS (held), else fade from release (~0.45s) OR the strike tail (~1.1s, for a
-                // pluck too short for the gate) — whichever leaves the spark more alive.
-                let life = sounding ? 1.0 : max(max(0.0, 1 - releaseAge / 0.45), max(0.0, 1 - strikeAge / 1.1))
+                // STOP when the playhead leaves the column (user 2026-08-05). A TRACKED release (releasedAt after the
+                // strike) fades FAST (~0.45s) — no extra pass. The ~1.1s strike-tail free-run is kept ONLY for a pluck
+                // so short the 4Hz gate never recorded a release (no tracked release), so plucks still register.
+                let hasRelease = releasedAt > hitAt
+                let life = sounding ? 1.0
+                                    : (hasRelease ? max(0.0, 1 - releaseAge / 0.45)
+                                                  : max(0.0, 1 - strikeAge / 1.1))
                 guard life > 0 else { return }
                 let pts = sealNodePoints(geo, size: size, padFraction: 0.16)
                 guard pts.count > 1 else { return }
@@ -581,8 +585,11 @@ struct GridView: View {
                 if glow > 0 {                                                   // §5: the wire brightens on strike
                     drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: .white.opacity(0.35 * glow))
                 }
-                // FREE-RUN position — a continuous clock, independent of the strike, so notes don't reset the spark
-                let prog = (tl.date.timeIntervalSinceReferenceDate * 0.9).truncatingRemainder(dividingBy: 1.0)
+                // FREE-RUN while the note sounds (a new strike never resets it); FREEZE at the release position once
+                // it lets go (a tracked release) so it fades IN PLACE instead of running an extra fraction of the path.
+                let clock = (sounding || !hasRelease) ? tl.date.timeIntervalSinceReferenceDate
+                                                      : releasedAt.timeIntervalSinceReferenceDate
+                let prog = (clock * 0.9).truncatingRemainder(dividingBy: 1.0)
                 let head = Int(prog * Double(dense.count - 1))                  // loops the path at ~0.9 lengths/s
                 let trailLen = max(2, Int(vel * 12))                           // trail length ∝ velocity (§5)
                 for k in 0..<trailLen {
@@ -677,7 +684,7 @@ struct ReceiversView: View {
     var heldVels: [[Double]] = [[], [], [], []]         // duration: currently-held input velocities (steady marks while held)
     var releaseMarks: [[VelMark]] = [[], [], [], []]    // ③ notes just RELEASED — fading marks (~250ms), strip hue
     var liveHeld: [Bool] = [false, false, false, false] // header dot: a LIVE (never latch) accepted note is held per receiver
-    var isPortrait: Bool = false                        // PORTRAIT: tighten the strip — padlock-only LATCH, channel-only header
+    var isPortrait: Bool = false                        // PORTRAIT: tighten the strip — channel-only header (LATCH is padlock-only in every orientation now)
     var thruReceiver: Int = 0                           // receiver strip: the THRU pip (passthrough source) — retired from the header (bypass took its place)
     let onToggleMute: (Int) -> Void
     var onToggleEnable: (Int) -> Void = { _ in }        // INPUT ENABLE: the header toggles the door's listening
@@ -705,7 +712,7 @@ struct ReceiversView: View {
 
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]   // the touched slider value (nil = released → springs back)
 
-    static let controlHeight: CGFloat = 76             // fixed control region — faces swap within it (§6a static-frame law)
+    static let controlHeight: CGFloat = 61             // fixed control region (−20%, user 2026-08-05) — faces swap within it (§6a static-frame law)
 
     private var hues: [Color] { receiverHues }
     private func r(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver(name: "\(i + 1)") }
@@ -865,7 +872,7 @@ struct ReceiversView: View {
         let armed = bit(latchMask, i)
         return HStack(spacing: 4) {
             Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 12, weight: .heavy))
-            if !isPortrait { Text("LATCH").font(.system(size: 9, weight: .heavy, design: .monospaced)) }   // PORTRAIT: padlock only
+            // PADLOCK ONLY in every orientation (user 2026-08-05: the "LATCH" word removed from landscape too).
         }
         .foregroundColor(armed ? .black : soloHue.opacity(0.95))
         .frame(maxWidth: .infinity, maxHeight: .infinity)

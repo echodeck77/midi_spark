@@ -1109,7 +1109,7 @@ struct DiagView: View {
             // 15 rows (9 grid + 6 emitter); +30 for the grid's own pad + the two VStack gaps. Cells fit the height
             // down to `minCell`; BELOW that (a reduced window) the column SCROLLS instead of shrinking further
             // (user 2026-08-05). `minCell` (>18 floor) makes the scroll kick in while cells are still usable.
-            let recvBandH: CGFloat = 168
+            let recvBandH: CGFloat = 134              // MIDI INPUT box −20% (user 2026-08-05)
             let minCell: CGFloat = 30                         // scroll kicks in when the viewport < 198 + 15·minCell (~648pt) — reduced windows only
             let fitCell = (g.size.height - recvBandH - 30) / 15
             let cell = max(minCell, min(48, fitCell))
