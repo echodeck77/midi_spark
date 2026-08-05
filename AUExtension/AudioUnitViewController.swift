@@ -46,13 +46,12 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 enum Verb: String, CaseIterable {
     // /btw ①: COPY · PASTE replace MOVE · COPY. COPY captures a cell into a session clipboard that PERSISTS
     // after release; PASTE stamps it (enabled once the clipboard is non-empty). Relocation = COPY→PASTE→DELETE.
-    case place = "PLACE", delete = "DELETE", select = "SELECT", copy = "COPY", paste = "PASTE"
+    case place = "PLACE", delete = "DELETE", copy = "COPY", paste = "PASTE"   // SELECT retired 2026-08-05 (layout-v2)
     var label: String { self == .place ? "PLACE CELL(S)" : rawValue }
     var hue: Color {
         switch self {
         case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
         case .delete: return Color(red: 0.98, green: 0.35, blue: 0.30)   // red — destructive
-        case .select: return Color(red: 0.15, green: 0.88, blue: 0.94)   // cyan — inspect/edit
         case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet — capture
         case .paste:  return Color(red: 0.98, green: 0.72, blue: 0.12)   // amber — stamp
         }
@@ -345,7 +344,6 @@ struct DiagView: View {
     var routeFoci: [Int: Int] {                  // col → focus row (≤ one per column) — PLACE: cells placed
         let cells: [GridView.GridPos]                    // this hold (incl. a whole row); SELECT: the selection.
         if heldVerb == .place { cells = Array(placedThisHold) }
-        else if heldVerb == .select { cells = Array(selection) }
         else { return [:] }
         let occupied = cells.filter { $0.col < scene.cells.count && $0.row < scene.cells[$0.col].count && scene.cells[$0.col][$0.row] != nil }
         return routeFociByColumn(occupied.map { (col: $0.col, row: $0.row) })
@@ -356,7 +354,7 @@ struct DiagView: View {
     // §viz — the routing graph drawn while ANY verb is held, and the "selected" set that lights the paths
     // through it (PLACE = this hold's placed cells, SELECT = the selection).
     var vizSelectedCells: Set<RouteCell> {
-        let src: Set<GridView.GridPos> = heldVerb == .place ? placedThisHold : (heldVerb == .select ? selection : [])
+        let src: Set<GridView.GridPos> = heldVerb == .place ? placedThisHold : []
         return Set(src.map { RouteCell(col: $0.col, row: $0.row) })
     }
     var vizEdges: [RouteEdge] { routingEdges(cells: scene.cells, selected: vizSelectedCells) }
@@ -404,10 +402,6 @@ struct DiagView: View {
             guard scene.cells[col][row] != nil else { return }
             au.editScene { $0.deleteCellSever(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
-        case .select:                                       // tapping a SRC/DEST candidate WIRES it (per column);
-            if !selection.contains(pos) && wireRouteCandidate(pos) { return }   // else tapping toggles membership
-            guard scene.cells[col][row] != nil else { return }            // an empty tap does NOTHING (spec: nothing changes)
-            if selection.contains(pos) { selection.remove(pos) } else { selection.insert(pos) }
         case .copy:                                         // capture the tapped cell into the session clipboard (persists after release)
             if let cell = scene.cells[col][row] { clipboard = cell }
         case .paste:                                        // stamp the clipboard cell wherever tapped (every tap while held)
@@ -490,17 +484,13 @@ struct DiagView: View {
     // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
     var verbCluster: some View {
         VStack(spacing: 6) {
-            // Two rows (user 2026-08-03): HOLD · MUTE on one line, SELECT · LADDER on the next. EDIT is the header
-            // PERFORM/EDIT toggle now. HOLD = the §5c sustain latch; MUTE = arm-then-tap; LADDER = exclusive columns.
+            // HOLD · MUTE · LADDER (SELECT retired 2026-08-05). HOLD = the §5c sustain latch; MUTE = arm-then-tap;
+            // LADDER = exclusive columns. EDIT is now the PROCESSORS tab.
             HStack(spacing: 6) {
                 roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
                     .contentShape(Rectangle()).onTapGesture { toggleHold() }
                 roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
                     .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
-            }
-            HStack(spacing: 6) {
-                roundVerb(label: "SELECT", hue: Verb.select.hue, active: false, badge: "soon")   // SELECT — to be implemented
-                    .opacity(0.4).allowsHitTesting(false)
                 roundVerb(label: "LADDER", hue: ladderHue, active: ladderMode, badge: nil)   // LADDER: exclusive columns (global arm)
                     .contentShape(Rectangle()).onTapGesture { let on = !ladderMode; ladderMode = on; au?.setLadderMode(on); if on { heldVerb = nil } }
             }
@@ -509,22 +499,21 @@ struct DiagView: View {
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
-    let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE/SELECT)
+    let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
     func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
         switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
         case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells; holdSeq += 1
         case .delete: gridSnapshot = scene.cells
-        case .select: gridSnapshot = scene.cells; selectionSnapshot = selection   // routing edits + the stack both revert
         default: break
         }
     }
     // §11 CANCEL (user 2026-07-28): revert the in-progress changes to the state when the verb was engaged AND
     // END the held status (release the button). PLACE/DELETE revert the grid; SELECT reverts the built selection.
-    var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete || activeVerb == .select }
+    var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete }
     func cancelVerb() {
         switch heldVerb {
-        case .place, .delete, .select:                      // SELECT reverts its routing edits too (grid → prior state)
+        case .place, .delete:
             if let au, let snap = gridSnapshot { au.editScene { $0.cells = snap }; refreshFromDocument() }
             placeFresh = []; placeUndo = [:]
         default: break
@@ -538,7 +527,6 @@ struct DiagView: View {
         switch v {
         case .place:  text = "Place cell(s) — tap the grid or a row · Choose one route in and multiple out"
         case .delete: text = "Delete cell(s) — tap the grid or a row · links cut"
-        case .select: text = "Select cell(s) — tap to toggle · recolour with the palette"
         default:      text = ""
         }
         return HStack(spacing: 12) {
@@ -1144,11 +1132,6 @@ struct DiagView: View {
         case .place: au.editScene { for c in 0..<8 { placeToggle(&$0, c, row) } }; refreshFromDocument()   // row toggle-with-memory
         case .delete: au.editScene { for c in 0..<8 { $0.deleteCellSever(col: c, row: row) } }
                       for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
-        case .select:
-            for c in 0..<8 where scene.cellAt(c, row) != nil {
-                let p = GridView.GridPos(col: c, row: row)
-                if selection.contains(p) { selection.remove(p) } else { selection.insert(p) }
-            }
         case .copy, .paste: break                           // row-scope copy/paste is deferred (ambiguous)
         }
     }
@@ -1161,7 +1144,7 @@ struct DiagView: View {
     }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
-    var strokeActive: Bool { heldVerb == .place || heldVerb == .delete || heldVerb == .select }
+    var strokeActive: Bool { heldVerb == .place || heldVerb == .delete }
     // Apply the HELD verb to one cell entered mid-drag. PLACE paints via placeToggle (⑥ enforced inside),
     // DELETE severs, SELECT lassos (additive; the visited-guard blocks re-toggle). The whole swathe coalesces
     // into ONE undo via strokeKey (opened on the first cell, closed by endStroke).
@@ -1177,8 +1160,6 @@ struct DiagView: View {
             guard scene.cells[col][row] != nil else { return }
             au.editScene(coalesceKey: strokeKey) { $0.deleteCellSever(col: col, row: row) }
             selection.remove(pos); refreshFromDocument()
-        case .select:
-            if scene.cells[col][row] != nil { selection.insert(pos) }
         default: break
         }
     }
