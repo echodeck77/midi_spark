@@ -225,27 +225,27 @@ enum SnapshotBuilder {
         out.type = type
         if let v = p.pattern { out.patternIndex = UInt8(ArpPattern.allCases.firstIndex(of: v) ?? 0) }
         if let v = p.rate { out.rateIndex = Int8(ArpRate.allCases.firstIndex(of: v) ?? 3) }
-        if let v = p.octaves { out.octaves = UInt8(max(1, min(4, v))) }
-        if let v = p.gate { out.gate = max(0.05, min(1, v)) }
+        if let v = p.octaves { out.octaves = UInt8(clamp(v, 1, 4)) }
+        if let v = p.gate { out.gate = clamp(v, 0.05, 1) }
         if let v = p.phase { out.phase = v }
-        if let v = p.count { out.count = UInt8(max(2, min(8, v))) }
-        if let v = p.ramp { out.ramp = max(0, min(1, v)) }
+        if let v = p.count { out.count = UInt8(clamp(v, 2, 8)) }
+        if let v = p.ramp { out.ramp = clamp(v, 0, 1) }
         if let v = p.passes {
             out.passMask = 0
             for (i, on) in v.prefix(4).enumerated() where on { out.passMask |= UInt8(1 << i) }
         }
         if let v = p.strumDir { out.strumDir = v }
-        if let v = p.spread { out.spread = max(0, min(1, v)) }
-        if let v = p.curve { out.curve = max(-1, min(1, v)) }
-        if let v = p.velTilt { out.velTilt = max(-1, min(1, v)) }
-        if let v = p.probability { out.probability = max(0, min(1, v)) }
+        if let v = p.spread { out.spread = clamp(v, 0, 1) }
+        if let v = p.curve { out.curve = clamp(v, -1, 1) }
+        if let v = p.velTilt { out.velTilt = clamp(v, -1, 1) }
+        if let v = p.probability { out.probability = clamp(v, 0, 1) }
         if let v = p.harmIntervals {
-            func clampInt(_ i: Int) -> Int8 { Int8(max(-24, min(24, i))) }
+            func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),
                                  clampInt(v.count > 1 ? v[1] : 0),
                                  clampInt(v.count > 2 ? v[2] : 0))
         }
-        if let v = p.harmVelScale { out.harmVelScale = max(0.1, min(1, v)) }
+        if let v = p.harmVelScale { out.harmVelScale = clamp(v, 0.1, 1) }
         return out
     }
 }

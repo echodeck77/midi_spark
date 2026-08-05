@@ -9,6 +9,10 @@
 
 import Foundation
 
+/// Clamp `v` into [lo, hi] (assumes lo ≤ hi). One name for the `max(lo, min(hi, v))` idiom repeated across the
+/// engine's resolvers and the macro offset math — states the clamp INTENT once, no behaviour change.
+@inline(__always) func clamp<T: Comparable>(_ v: T, _ lo: T, _ hi: T) -> T { min(max(v, lo), hi) }
+
 // MARK: - The source pool (§2.5): omni, keyed by note number
 
 /// The live held-note pool. All input channels merge (omni, §2.5) — note number is the key — but

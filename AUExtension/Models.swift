@@ -479,7 +479,7 @@ struct PluginState: Codable, Equatable {
     /// Resolve a persisted per-emitter (4-wide) Int array: clamp each element to [lo, hi], pad missing slots with
     /// `dflt`. The nil-safe read shape shared by every rack amount (claimLeak · fenceLo · pocketMs · …).
     static func resolved4(_ arr: [Int]?, _ dflt: Int, _ lo: Int, _ hi: Int) -> [Int] {
-        let a = arr ?? []; return (0..<4).map { $0 < a.count ? max(lo, min(hi, a[$0])) : dflt }
+        let a = arr ?? []; return (0..<4).map { $0 < a.count ? clamp(a[$0], lo, hi) : dflt }
     }
     var claimLeakResolved: [Int] { Self.resolved4(claimLeak, 0, 0, 100) }
     // emitter role family: FLATTEN — activity ducking. While a FLATTEN emitter has anything sounding, OTHER

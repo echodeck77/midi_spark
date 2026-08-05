@@ -224,13 +224,13 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
         }
     }
     var r = p
-    if dGate != 0 { r.gate = max(0.05, min(1, r.gate + dGate)) }
-    if dRamp != 0 { r.ramp = max(0, min(1, r.ramp + dRamp)) }
-    if dSpread != 0 { r.spread = max(0, min(1, r.spread + dSpread)) }
-    if dCurve != 0 { r.curve = max(-1, min(1, r.curve + dCurve)) }
-    if dTilt != 0 { r.velTilt = max(-1, min(1, r.velTilt + dTilt)) }
-    if dProb != 0 { r.probability = max(0, min(1, r.probability + dProb)) }
-    if dHarm != 0 { r.harmVelScale = max(0.1, min(1, r.harmVelScale + dHarm)) }
+    if dGate != 0 { r.gate = clamp(r.gate + dGate, 0.05, 1) }
+    if dRamp != 0 { r.ramp = clamp(r.ramp + dRamp, 0, 1) }
+    if dSpread != 0 { r.spread = clamp(r.spread + dSpread, 0, 1) }
+    if dCurve != 0 { r.curve = clamp(r.curve + dCurve, -1, 1) }
+    if dTilt != 0 { r.velTilt = clamp(r.velTilt + dTilt, -1, 1) }
+    if dProb != 0 { r.probability = clamp(r.probability + dProb, 0, 1) }
+    if dHarm != 0 { r.harmVelScale = clamp(r.harmVelScale + dHarm, 0.1, 1) }
     return r
 }
 

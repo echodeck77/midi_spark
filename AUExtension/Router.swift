@@ -92,6 +92,9 @@ final class Router {
     // the builder. Applied per note-on in emitOneBus (a pure transform of the outgoing velocity).
     private var curveMask: UInt8 = 0
     private var curveAmount: [Int8] = [0, 0, 0, 0]
+    /// Is bit `bus` (0–3) set in a per-emitter mask? One name for the repeated `mask & (1 << UInt8(bus)) != 0`
+    /// treatment-on test (previewMode stays explicit at each site — it isn't uniform).
+    @inline(__always) private func bit(_ mask: UInt8, _ bus: Int) -> Bool { mask & (1 << UInt8(bus)) != 0 }
     /// The velocity re-map for one emitter: u' = u^gamma, gamma = 2^(−amount/100) (a smooth soft↔hard bend).
     private func curveVelocity(_ v: UInt8, _ amount: Int8) -> UInt8 {
         if amount == 0 { return v }
@@ -151,7 +154,7 @@ final class Router {
     private var masterVelOverride: UInt8 = 0
     private func rebuildAltSequence(_ count: [UInt8]) {
         altSequence.removeAll(keepingCapacity: true)
-        for bus in 0..<4 where altMask & (1 << UInt8(bus)) != 0 {
+        for bus in 0..<4 where bit(altMask, bus) {
             for _ in 0..<Int(max(1, count[bus])) { altSequence.append(UInt8(bus)) }
         }
     }
@@ -795,7 +798,7 @@ final class Router {
         // THE RACK FENCE: a per-emitter note-RANGE policy on the OUTPUT pitch — DROP (suppress), CLAMP (to the
         // nearest bound), or FOLD (octave-fold in). Applied here so CLAIM/metering/refcount all key on the fenced
         // pitch, and the note-off (opened on this same note) pairs cleanly. previewMode bypasses.
-        if fenceMask & (1 << UInt8(bus)) != 0 && !previewMode {
+        if bit(fenceMask, bus) && !previewMode {
             let lo = fenceLo[bus], hi = fenceHi[bus]
             if lo <= hi && (note < lo || note > hi) {
                 switch fencePolicy[bus] {
@@ -807,7 +810,7 @@ final class Router {
         }
         var leakScale = 100   // 100 = no attenuation; a leaked (shadow) non-claimant sets this < 100 below
         if claimMask != 0 && !previewMode {   // PREVIEW bypasses CLAIM (solo — no other-emitter context)
-            if (claimMask & (1 << UInt8(bus))) != 0 {
+            if bit(claimMask, bus) {
                 // §6a CLAIM ownership trace: a PERSISTENT silent ghost (no wire, no refcount) marks this
                 // claimant as sounding the pitch for the note's whole life. It is what non-claimants check
                 // (`claimedPitchLeak`), decoupled from the AUDIBLE voice below — which is immediate-closed
@@ -835,10 +838,10 @@ final class Router {
         }
         // delta §6a: a DISABLED emitter emits nothing audible (its claim ghost, if any, was opened above,
         // so a muted claimant still reserves). All is then exactly the sum of ENABLED emitters.
-        guard busEnabledMask & (1 << UInt8(bus)) != 0 else { return -1 }
+        guard bit(busEnabledMask, bus) else { return -1 }
         // §9 ON TAP = SOLO EMITTERS: while a solo set is held, sibling emitters fall silent (own cable + its
         // All contribution). previewMode bypasses (solo audition has no other-emitter context).
-        if soloEmitterMask != 0 && !previewMode && (soloEmitterMask & (1 << UInt8(bus))) == 0 { return -1 }
+        if soloEmitterMask != 0 && !previewMode && !bit(soloEmitterMask, bus) { return -1 }
         // THE RACK CONVERSATION: a follower emitter admits its NEW note-ons only WITH the lead's sound (stance 1)
         // or AGAINST its silences (stance 2). A live query of the lead's voices (like FLATTEN). The lead itself and
         // FREE (stance 0) emitters are unaffected. previewMode bypasses (no other-emitter context).
@@ -873,7 +876,7 @@ final class Router {
         if leakScale < 100 { v = UInt8(max(1, Int(v) * leakScale / 100)) }
         // THE RACK CURVE: per-emitter output-velocity re-map (soft↔hard). A per-note transform of the shaped
         // velocity, before the master fader (which still wins absolutely). previewMode bypasses (raw audition).
-        if curveMask & (1 << UInt8(bus)) != 0 && !previewMode { v = curveVelocity(v, curveAmount[bus]) }
+        if bit(curveMask, bus) && !previewMode { v = curveVelocity(v, curveAmount[bus]) }
         // master panel FADER: a momentary-absolute override over ALL output — applied LAST so it wins over the
         // per-emitter/input overrides and FLATTEN (the whisper-drop). 0 = untouched. previewMode bypasses.
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
@@ -881,7 +884,7 @@ final class Router {
         // decide by PRIORITY whether the new note wins; if it loses, suppress it (return −1 before metering); if it
         // wins, STEAL — close the holder's voices (own + its All copy) at this onSample, then fall through to open
         // the new note (RETRIG: old off, new on). Same-note re-articulation isn't a steal (refcount handles it).
-        if monoMask & (1 << UInt8(bus)) != 0 && !previewMode {
+        if bit(monoMask, bus) && !previewMode {
             var holder = -1
             for vv in voices where vv.active && !vv.silent && vv.bus == UInt8(bus) && vv.cable == UInt8(bus + 1) { holder = Int(vv.note); break }
             if holder >= 0 && holder != Int(note) {
@@ -910,7 +913,7 @@ final class Router {
         // the duration is preserved; the on is clamped into [renderStart, windowEnd] (can't play in the past or
         // beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
         var onS = onSample, offS = offSample
-        if pocketMask & (1 << UInt8(bus)) != 0 && !previewMode && pocketSamples[bus] != 0 {
+        if bit(pocketMask, bus) && !previewMode && pocketSamples[bus] != 0 {
             let target = onSample + pocketSamples[bus]
             onS = max(renderStart, min(windowEnd, target))
             if offSample != .max { offS = max(onS + 1, offSample + (onS - onSample)) }
