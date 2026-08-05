@@ -1128,44 +1128,95 @@ struct DiagView: View {
 
     func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
         GeometryReader { g in
-            // RECEIVERS (input controls) are a FIXED height (user 2026-08-03). The GRID + EMITTERS share the rest as
-            // 15 rows (9 grid + 6 emitter); +30 for the grid's own pad + the two VStack gaps. Cells fit the height
-            // down to `minCell`; BELOW that (a reduced window) the column SCROLLS instead of shrinking further
-            // (user 2026-08-05). `minCell` (>18 floor) makes the scroll kick in while cells are still usable.
-            let recvBandH: CGFloat = 134              // MIDI INPUT box −20% (user 2026-08-05)
-            let minCell: CGFloat = 30                         // scroll kicks in when the viewport < 198 + 15·minCell (~648pt) — reduced windows only
-            let fitCell = (g.size.height - recvBandH - 30) / 15
-            // LANDSCAPE (non-flow): the main grid is a FIXED 1024 × 335 (user 2026-08-05) — cell height derived so the
-            // grid block (key row + 8 rows + gaps = 9·cell + 24) is 335. Portrait + the FLOW theater fit the height.
+            // LAYOUT v2 (user 2026-08-05): the GRID on top; then the CONTROL BAND (SINGLE|MULTI + RANDOMIZE +
+            // AUTOMATION · 8 macro ROTARIES · 8 macro BUTTONS); the reinstated MIDI INPUT label; then the MIDI ROW
+            // (receivers · emitters · master). All bands share the grid's width (1024 in landscape), centred; the
+            // column SCROLLS when a reduced window can't fit it.
+            let controlH: CGFloat = 150
+            let midiH: CGFloat = 172
+            let labelH: CGFloat = 18
+            let minCell: CGFloat = 30
             let landscapeFixed = !isPortrait && flowVariation == 0
+            let fitCell = (g.size.height - controlH - midiH - labelH - 34) / 9
             let cell = landscapeFixed ? (335 - 24) / 9 : max(minCell, min(48, fitCell))
-            let bandH = cell * 6, half = g.size.width * 0.5   // emitter band stays grid-aligned (6 rows); 50% width, centred
-            let recvW = min(g.size.width, 512)                // RECEIVERS section: fixed 512 wide, centred (user 2026-08-05)
-            let contentH = recvBandH + 15 * cell + 30         // the column's natural height at this cell size
-            let overflow = contentH > g.size.height + 0.5     // reduced window: the flow no longer fits → scroll
-            let gridBlockW = landscapeFixed ? min(g.size.width, 1024) : g.size.width   // landscape: fixed 1024 wide, centred
+            let gridH = 9 * cell + 24
+            let bandW = landscapeFixed ? min(g.size.width, 1024) : g.size.width
+            let contentH = gridH + controlH + labelH + midiH + 34
+            let overflow = contentH > g.size.height + 0.5
             ScrollView(.vertical, showsIndicators: overflow) {
-                VStack(spacing: 3) {
-                    HStack(spacing: 4) {                          // [·] · RECEIVERS · [VISUALIZATION] — the clock moved to the header (LAYOUT v2);
-                        Color.clear.frame(maxWidth: .infinity)    // the empty left flank keeps RECEIVERS centred + grid-aligned with the EMITTERS band below
-                        receiversBox(isPortrait).frame(width: recvW).background(routeProbe("receivers")).helpAnchor("#receivers")   // §10 strips wear ROUTE IN faces
-                        vizView.frame(maxWidth: .infinity)
-                    }.frame(height: recvBandH)                    // FIXED input-controls height
-                    gridBlock(cell, half).frame(width: gridBlockW).frame(maxWidth: .infinity).helpAnchor("#grid")   // narrowed + centred in landscape
-
-                    HStack(spacing: 4) {                          // [VERB CLUSTER] · EMITTERS · MASTER
-                        verbCluster.frame(maxWidth: .infinity).helpAnchor("#verbs")
-                        emittersBox.frame(width: half).background(routeProbe("emitters")).helpAnchor("#emitters")     // §10 strips wear ROUTE OUT faces
-                        masterView.frame(maxWidth: .infinity).helpAnchor("#master")
-                    }.frame(height: bandH)
+                VStack(spacing: 6) {
+                    gridBlock(cell, bandW).frame(width: bandW).frame(maxWidth: .infinity).helpAnchor("#grid")   // THE GRID
+                    controlBand.frame(width: bandW, height: controlH).frame(maxWidth: .infinity)                // SINGLE|MULTI · MACRO rotaries · MACRO buttons
+                    Text("MIDI INPUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                        .frame(width: bandW, alignment: .leading).frame(maxWidth: .infinity)   // reinstated (user 2026-08-05)
+                    midiRow(isPortrait).frame(width: bandW, height: midiH).frame(maxWidth: .infinity)           // receivers · emitters · master
                 }
-                .frame(minHeight: g.size.height, alignment: .top)   // fill the viewport when it fits; grow (scroll) when reduced
+                .frame(minHeight: g.size.height, alignment: .top)
                 .coordinateSpace(name: "signal")
                 .overlayPreferenceValue(RouteFramesKey.self) { frames in                      // §viz routing lines while a verb is held
                     if heldVerb != nil { RoutingVizOverlay(edges: vizEdges, frames: frames, cellHeight: cell) }
                 }
             }
-            .scrollDisabled(!overflow)                          // when everything fits, no scroll (and no drag hijack of grid gestures)
+            .scrollDisabled(!overflow)
+        }
+    }
+
+    // THE CONTROL BAND — three equal sections under the grid (user 2026-08-05).
+    var controlBand: some View {
+        let macros = au?.uiMacros() ?? []
+        return HStack(spacing: 6) {
+            VStack(spacing: 8) {                              // LEFT: SINGLE|MULTI + placeholders
+                HStack(spacing: 0) {
+                    gridModeSeg("SINGLE", active: ladderMode, hue: ladderHue) { setSingle(true) }
+                    gridModeSeg("MULTI", active: !ladderMode, hue: sceneAmberHue) { setSingle(false) }
+                }
+                .padding(2)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
+                placeholderBtn("RANDOMIZE")
+                placeholderBtn("AUTOMATION")
+                Spacer(minLength: 0)
+            }
+            .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))).helpAnchor("#verbs")
+            controlBox("MACROS") {                            // CENTRE: 8 macro rotaries (slider bank)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                    ForEach(0..<8, id: \.self) { i in
+                        GridMacroRotary(index: i, value: i < macros.count ? macros[i].value : 0) { idx, v in au?.setMacroValue(idx, v) }
+                    }
+                }
+            }
+            controlBox("MACROS") {                            // RIGHT: 8 macro buttons (button bank)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                    ForEach(8..<16, id: \.self) { i in
+                        GridMacroButton(index: i, value: i < macros.count ? macros[i].value : 0,
+                                        fixed: i < macros.count ? macros[i].fixed : false) { idx, v in au?.setMacroValue(idx, v) }
+                    }
+                }
+            }
+        }
+    }
+    private func placeholderBtn(_ label: String) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).tracking(1)
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 1))
+    }
+    private func controlBox<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
+        VStack(spacing: 6) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45)).tracking(1.5)
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+    // THE MIDI ROW — receivers · emitters · master, three equal sections across the grid's width.
+    @ViewBuilder func midiRow(_ isPortrait: Bool) -> some View {
+        HStack(spacing: 6) {
+            receiversBox(isPortrait).frame(maxWidth: .infinity).background(routeProbe("receivers")).helpAnchor("#receivers")
+            emittersBox.frame(maxWidth: .infinity).background(routeProbe("emitters")).helpAnchor("#emitters")
+            masterView.frame(maxWidth: .infinity).helpAnchor("#master")
         }
     }
 
