@@ -8,9 +8,9 @@ import SwiftUI
 /// tap/drag/sweep logic live in one cohesive place. The VC still owns the 4 Hz poll and the grid's scene/
 /// colours: it passes the polled `sceneEmpty`/`activeSceneIdx` DOWN and gets `onSceneOpDone` back after any op.
 ///
-/// The bar hosts the prominent PERFORM/EDIT toggle (`modeToggle`) + undo/redo, and is now rendered at the top of
-/// BOTH the perform page and the edit page — one consistent header/scenes surface. The toggle replaces the old
-/// verbs-box EDIT button and the edit page's DONE close button.
+/// LAYOUT v2: the bar hosts the six-tab bar (`tabBar`) + undo/redo, rendered ONCE at the top of the whole app —
+/// every surface (GRID · PROCESSORS · RECEIVERS · EMITTERS · MACROS · AUTOMATION) is a tab, so the bar replaces the
+/// old PERFORM/EDIT toggle, the verbs-box EDIT button, and the edit page's DONE close button.
 struct ArrangementBar: View {
     @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
@@ -28,8 +28,8 @@ struct ArrangementBar: View {
     var canRedo: Bool = false
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
-    var isEditMode: Bool = false            // the prominent PERFORM/EDIT toggle — reflected on BOTH pages (shared bar)
-    var onSetEditMode: (Bool) -> Void = { _ in }
+    var activeTab: AppTab = .grid           // LAYOUT v2: which surface is showing — the six-tab bar drives everything
+    var onSetTab: (AppTab) -> Void = { _ in }
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
     var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
 
@@ -56,7 +56,6 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
-                modeToggle.helpAnchor("#perform-edit-toggle")                      // PERFORM/EDIT toggle: right of the preset button
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 if d.playing {
                     Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
@@ -67,6 +66,7 @@ struct ArrangementBar: View {
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
+            tabBar.helpAnchor("#tab-bar")                                           // LAYOUT v2: the six-tab bar on its own row under the header
             if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }
         .offset(x: sceneShakeX)                              // shake when the active scene refuses the trash
@@ -78,25 +78,34 @@ struct ArrangementBar: View {
         }
     }
 
-    // THE PERFORM/EDIT TOGGLE — a prominent two-segment control, present on BOTH pages (the shared bar). PERFORM
-    // lights cyan, EDIT lights orchid. Replaces the verbs-box EDIT button + the edit page's DONE close button.
-    private var modeToggle: some View {
-        HStack(spacing: 0) {
-            modeSeg("PERFORM", active: !isEditMode, hue: barCyan)
-            modeSeg("EDIT", active: isEditMode, hue: editHue)
+    // THE TAB BAR — the six permanent addresses on their own full-width row. The four LIVE tabs (GRID · PROCESSORS ·
+    // RECEIVERS · EMITTERS) select on tap; MACROS/AUTOMATION render dimmed + inert (a later phase builds them).
+    // Replaces the PERFORM/EDIT toggle, the verbs-box EDIT button, and the edit page's DONE close button.
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(AppTab.allCases, id: \.self) { tab in tabChip(tab) }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
-        .fixedSize()
     }
-    private func modeSeg(_ label: String, active: Bool, hue: Color) -> some View {
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1)
-            .foregroundColor(active ? .black : .white.opacity(0.55))
-            .padding(.horizontal, 13).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.clear))
+    private func tabChip(_ tab: AppTab) -> some View {
+        let active = tab == activeTab
+        let live = tab.live
+        let hue = tabHue(tab)
+        return Text(tab.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(active ? .black : .white.opacity(live ? 0.62 : 0.24))
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity).frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.white.opacity(live ? 0.06 : 0.02)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(active ? 0 : 0.08), lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { onSetEditMode(label == "EDIT") }
+            .onTapGesture { if live { onSetTab(tab) } }
+    }
+    // GRID keeps the perform cyan; PROCESSORS the orchid (matches the old EDIT segment); the rest wear scene amber.
+    private func tabHue(_ tab: AppTab) -> Color {
+        switch tab {
+        case .grid:       return barCyan
+        case .processors: return editHue
+        default:          return sceneAmber
+        }
     }
 
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.

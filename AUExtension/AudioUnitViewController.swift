@@ -63,6 +63,15 @@ enum Verb: String, CaseIterable {
 /// empty slot to reinstate, while still in CLEAR). Everything except ADD/EDIT is IMMEDIATE + undo/redo.
 enum EditPageMode { case addEdit, move, mute, clear }
 
+/// LAYOUT v2 (2026-08-05): the permanent surface addresses — a tab per surface, replacing the PERFORM/EDIT toggle
+/// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
+/// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
+enum AppTab: String, CaseIterable {
+    case grid = "GRID", processors = "PROCESSORS", receivers = "RECEIVERS", emitters = "EMITTERS"
+    case macros = "MACROS", automation = "AUTOMATION"
+    var live: Bool { self != .macros && self != .automation }
+}
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -74,6 +83,7 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
+    @State var activeTab: AppTab = .grid      // LAYOUT v2: the selected tab (replaces the PERFORM/EDIT toggle)
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
@@ -807,19 +817,13 @@ struct DiagView: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                if editArmed {
-                    editSpikePage(geo.size)   // feat/EditPageSpike: alt grid-setup surface (grid on top + inspector)
-                } else {
-                    // §6d ONE FLOW: the layout IS the signal path — RECEIVERS band above → the GRID → EMITTERS band
-                    // below, grid-aligned. The COLOUR flow (palette + processor desk) is RETIRED — colour + chains
-                    // are edited on the EDIT page now; the signal flow fills the width. Landscape/portrait identical.
-                    VStack(spacing: 8) {
-                        arrangementBar                         // §2: LOGO · undo/redo · ⚙ header, then the 16-scene row below
-                        signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)   // RECEIVERS → GRID → EMITTERS
-                    }
-                    .padding(12)
-                    .onChange(of: activeSceneIdx) { _ in rackMatrixOpen = false }   // THE RACK: a scene switch closes the matrix
+                // LAYOUT v2: ONE header (with the tab bar), then the selected tab's body below.
+                VStack(spacing: 8) {
+                    arrangementBar                             // §2: LOGO · header · TAB BAR · the 16-scene row
+                    tabBody(geo)                               // the surface for the active tab
                 }
+                .padding(12)
+                .onChange(of: activeSceneIdx) { _ in rackMatrixOpen = false }   // THE RACK: a scene switch closes the matrix
                 // (§6c popup dropped — processor SETTINGS are inline in the §6d layout; the floating window
                 //  survives only as the future EXTERNAL AUv3-view host, added when EXTERNAL Colours arrive.)
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
@@ -854,6 +858,14 @@ struct DiagView: View {
             }
         }
         .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
+        .onChange(of: activeTab) { tab in
+            // LAYOUT v2: the PROCESSORS tab IS the old EDIT mode — `editArmed` still drives the begin/apply session
+            // logic below, so entering/leaving PROCESSORS opens/commits it. Any tab switch clears transient GRID
+            // gestures (a held verb, MUTE arm) so state can't leak across tabs.
+            editArmed = (tab == .processors)
+            if tab != .grid { heldVerb = nil; muteArmed = false }
+            rackMatrixOpen = false
+        }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
             // commits whatever was staged (live-previewed edits persist as one undo step) + clears transient state.
@@ -1045,6 +1057,33 @@ struct DiagView: View {
     // §6d TWO FLOWS signal column: RECEIVERS (4 grid-rows tall, 50% width, centred) → GRID → EMITTERS (same),
     // filling the available height as 17 equal rows (4 receiver + 9 grid [key + 8] + 4 emitter). The bands are
     // half-width and centred (user 2026-07-26); GridView height = 9·cell + 24, so total = 17·cell + 30.
+    // LAYOUT v2: the active tab's body. Every surface has ONE permanent address — no in-grid overlays, no
+    // PERFORM/EDIT toggle. GRID = the perform desk; PROCESSORS = the edit page; EMITTERS = the full rack matrix;
+    // RECEIVERS = per-door config (Part 4); MACROS/AUTOMATION = coming-soon placeholders (later phase).
+    @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
+        switch activeTab {
+        case .grid:
+            signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)
+        case .processors:
+            editSpikePage(geo.size)          // the edit page CONTENT (its own header dropped — parent renders the bar)
+        case .emitters:
+            rackMatrixView                    // the treatment matrix, now a full page
+        case .receivers:
+            comingSoonPage(.receivers)        // Part 4 replaces this with the promoted per-door config
+        case .macros, .automation:
+            comingSoonPage(activeTab)
+        }
+    }
+
+    @ViewBuilder func comingSoonPage(_ tab: AppTab) -> some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Text(tab.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Text("coming").font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(.white.opacity(0.3)).tracking(2)
+            Spacer()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
         GeometryReader { g in
             // RECEIVERS (input controls) are now a FIXED height (user 2026-08-03 — estimate; the strips no longer
@@ -1341,8 +1380,8 @@ struct DiagView: View {
                        currentPreset: currentPreset, onOpenPresets: openPresets,
                        canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
                        onUndo: undo, onRedo: redo,
-                       isEditMode: editArmed,                                   // the shared PERFORM/EDIT toggle
-                       onSetEditMode: { on in if on { heldVerb = nil; muteArmed = false }; editArmed = on; rackMatrixOpen = false },   // EDIT closes the rack matrix
+                       activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
+                       onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
                        onOpenManual: { showManual = true })                     // "?" → the in-app manual
     }

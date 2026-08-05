@@ -90,8 +90,8 @@ extension DiagView {
         let gridW = min(size.width - 24 - railW - 24, max(240, gridH * 1.3))
         let canCommit = !editSel.isEmpty
         VStack(spacing: 8) {
-            arrangementBar                                          // the SHARED header + scenes bar (consistent with PERFORM;
-                                                                    // the PERFORM/EDIT toggle here replaces the old DONE button)
+            // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
+            // body only (no arrangementBar of its own).
             HStack(alignment: .top, spacing: 12) {                  // CENTERED grid + mode buttons; buttons line up with the grid's top
                 Spacer(minLength: 0)
                 spikeGrid(cellH).frame(width: gridW, height: gridH)
