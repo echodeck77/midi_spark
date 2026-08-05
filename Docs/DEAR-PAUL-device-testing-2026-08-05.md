@@ -147,6 +147,25 @@ minutes and confirm no crash and stable memory (Xcode gauge). Not a visible feat
 
 ---
 
+## 6. FOLLOW-UP CHECK OWED — the SEAL vs different emitters [main]
+
+**Background:** you reported that a cell → **A** and a cell → **B** (same emitter *count*, different one) drew the
+**same seal**, while A+B vs A differed as expected. I added a unit test — `testSealDistinguishesWhichSingleEmitter`
+— and it **passes**: A/B/C/D each produce a distinct hash *and* a distinct drawn maze, and the live-edit path
+(changing the emitter) does refresh the seal. So in the current code the encoding + redraw are both correct; the
+build you saw it on likely predated the fix, or the mazes differ but read alike at cell size.
+
+**Your task (next time you have the device):**
+1. On a fresh `main` build, make **one cell → A** and **another cell → B** (same everything else), and eyeball their
+   seal glyphs.
+2. If they now look **different** → resolved, nothing more to do (tell me and I'll close it).
+3. If they **still look identical**, note:
+   - **which surface** — the small grid-cell face, the big EDIT-page identity plate, or both;
+   - whether it **self-corrects** if you tap away and back, or switch PERFORM↔EDIT / pages;
+   - (handy check) do the **bus dots** on the cell change between A and B? Those are the direct "which output"
+     indicator, separate from the maze.
+4. Send me that, and I'll either chase the specific renderer or make the output difference more visually pronounced.
+
 ## Commits with NO device-visible change (for completeness)
 Internal only — nothing to test on device: the `feat/multiple_features` **docs** commit + the manual-Why merge +
 macro-panel capture + CLAUDE.md flags; the **CELL TURNS** experiment that was reverted the same day (net zero); and
