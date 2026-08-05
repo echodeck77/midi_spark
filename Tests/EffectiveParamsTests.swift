@@ -161,4 +161,25 @@ final class EffectiveParamsTests: XCTestCase {
         doc.macros?[0] = Macro(value: 0.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
         XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, plain, accuracy: 1e-9)
     }
+
+    /// M4 A/B semantic: a binding stores delta = B − A; the macro at 1 reconstructs B, at 0 returns to A. The base
+    /// (A) is what the document holds — authoring never rewrites it (this is the offset model's contract end-to-end).
+    func testABBindingReconstructsBAtOneAndAAtZero() {
+        let A = 0.3, B = 0.9
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold")
+        var slot = ProcessorSlot(type: .arp); slot.params.gate = A     // the A state lives in the document
+        cell.processors = [slot]
+        s.cells[0][0] = cell
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        doc.macros?[0].targets = [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: B - A)]   // the authored delta
+
+        doc.macros?[0].value = 1.0
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, B, accuracy: 1e-9)     // full = B
+        doc.macros?[0].value = 0.0
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, A, accuracy: 1e-9)     // home = A
+        doc.macros?[0].value = 0.5
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, 0.6, accuracy: 1e-9)   // halfway
+    }
 }

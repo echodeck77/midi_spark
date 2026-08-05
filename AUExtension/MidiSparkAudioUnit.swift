@@ -573,6 +573,25 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             d.macros?[index].fixed = fixed
         }
     }
+    /// A/B AUTHORING: replace a cell's chain wholesale — used to RESTORE the A state after a live B demonstration
+    /// (the demonstration is heard at full while authoring; committing binds the delta, then the base returns to A).
+    func setCellChain(_ col: Int, _ row: Int, _ chain: [ProcessorSlot]) {
+        withChainCells([(col: col, row: row)]) { $0 = chain }
+    }
+    /// A/B AUTHORING: bind (append) offset targets to a macro — the delta vector (B − A per touched param). Overlaps
+    /// on the same param SUM at derivation (the offset law), so appending is correct even across sections/cells.
+    func addMacroTargets(_ index: Int, _ targets: [MacroTarget]) {
+        guard (0..<24).contains(index), !targets.isEmpty else { return }
+        editDocument { d in
+            if d.macros == nil { d.macros = d.macrosResolved }
+            d.macros?[index].targets.append(contentsOf: targets)
+        }
+    }
+    /// A/B AUTHORING: remove a macro's binding to a cell — every target it holds on (col,row) (the "remove chip").
+    func removeMacroTargets(_ index: Int, col: Int, row: Int) {
+        guard (0..<24).contains(index), document.macros != nil else { return }
+        editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row } }
+    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.

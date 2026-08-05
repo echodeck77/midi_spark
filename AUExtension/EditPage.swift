@@ -336,6 +336,11 @@ extension DiagView {
         HStack(spacing: 8) {
             Text("CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
             Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
+            Button { openMacroBind() } label: {   // MACRO A/B AUTHORING: bind the chain's A→B change to a macro
+                Text("[AB]").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
+            }.buttonStyle(.plain).disabled(editSel.isEmpty)
             Button { openCellLibrary() } label: {
                 Text("LIBRARY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
                     .padding(.horizontal, 10).padding(.vertical, 6)
@@ -535,6 +540,20 @@ extension DiagView {
 
     // CELL MACHINE stage-4 — the CELL LIBRARY: save the selected cell, browse, stamp saved cells.
     func openCellLibrary() { cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
+    // MACRO A/B AUTHORING (M4): stash each selected cell's materialised chain (the A state) so the live B
+    // demonstration can be restored on close — the macro keeps B as an offset; the base returns to A.
+    func openMacroBind() {
+        guard !editSel.isEmpty else { return }
+        macroBindStash = editSelTargets.compactMap { t in
+            guard let cell = scene.cellAt(t.col, t.row) else { return nil }
+            return (col: t.col, row: t.row, chain: cellChain(cell))
+        }
+        macroBindOpen = true
+    }
+    func closeMacroBind() {
+        for s in macroBindStash { au?.setCellChain(s.col, s.row, s.chain) }   // restore A
+        macroBindStash = []; macroBindOpen = false; refreshFromDocument()
+    }
     func saveCellNamed(_ name: String) {
         au?.saveCellToLibrary(col: selCol, row: selRow, name: name)
         cellLibraryList = au?.listLibraryCells() ?? []

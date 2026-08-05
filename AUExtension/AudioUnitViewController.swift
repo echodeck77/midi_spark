@@ -94,6 +94,9 @@ struct DiagView: View {
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State var showCellLibrary = false
     @State var cellLibraryList: [String] = []
+    // MACRO A/B AUTHORING (M4): the [AB] popup + the A-state stash (per selected cell) to restore on close.
+    @State var macroBindOpen = false
+    @State var macroBindStash: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -827,6 +830,16 @@ struct DiagView: View {
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
+                }
+                if macroBindOpen, let a = editSel.first, let anchorCell = scene.cellAt(a.col, a.row) {
+                    MacroBindPopup(chain: cellChain(anchorCell), anchor: (col: a.col, row: a.row),
+                                   selected: editSelTargets, macros: au?.uiMacros() ?? [],
+                                   onEditParam: { slot, param, v in
+                                       au?.editSlotCells(editSelTargets, slot: slot) { $0.params.setMacroValue(param, v) }
+                                   },
+                                   onBind: { i, targets in au?.addMacroTargets(i, targets); refreshFromDocument() },
+                                   onRemove: { i in au?.removeMacroTargets(i, col: a.col, row: a.row); refreshFromDocument() },
+                                   onClose: closeMacroBind)
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
