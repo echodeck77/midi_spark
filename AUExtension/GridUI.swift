@@ -805,42 +805,28 @@ struct ReceiversView: View {
     // (THRU pip retired 2026-08-03 — BYPASS replaced it in the header; `thruReceiver`/`onSetThru` stay wired but
     // the strip no longer surfaces the passthrough radio.)
 
-    // PERFORM features (right of the slider): the LATCH + KEYS/CHORD cluster, the OCT−/OCT+ nudges + deviation
-    // readout, and LIVE·SOLO (moved here from the foot). Single-face forever — channel/range config lives in the cog.
+    // PERFORM features: the LATCH arm (left) beside SOLO (top) / MUTE (bottom) — the buttons where NOTE±/OCT± were
+    // (user 2026-08-05). Everything fills the control region so there's no empty space below the buttons. (NOTE±/OCT±
+    // and the latch KEYS|CHORD mode live on the RECEIVERS tab now.)
     private func performFeatures(_ i: Int) -> some View {
         let muted = r(i).muted, soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
         let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-        return VStack(spacing: 4) {
-            latchCluster(i)          // LATCH arm (left) + NOTE± (top, where KEYS was) / OCT± (bottom, where CHORD was)
-            HStack(spacing: 3) {     // MUTE · SOLO — directly under the latch controls (user 2026-08-05)
-                footBtn("MUTE", lit: muted, hue: cyan, dim: false) { onToggleMute(i) }
-                footBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }
+        return HStack(spacing: 3) {
+            latchArm(i).frame(width: 34)     // the padlock arm, spans both buttons
+            VStack(spacing: 3) {
+                perfBtn("SOLO", lit: soloed, hue: soloHue, dim: excluded) { onToggleSolo(i) }   // where NOTE± was
+                perfBtn("MUTE", lit: muted, hue: cyan, dim: false) { onToggleMute(i) }           // where OCT± was
             }
-            Spacer(minLength: 0)
-        }.frame(maxWidth: .infinity)
-    }
-
-    // The LATCH cluster: the padlock ARM on the LEFT (spans both rows), and — where KEYS|CHORD used to be — the NOTE±
-    // (top) and OCT± (bottom) semitone/octave nudges (user 2026-08-05: latch mode moved to the RECEIVERS tab).
-    private func latchCluster(_ i: Int) -> some View {
-        HStack(spacing: 3) {
-            latchArm(i)
-            VStack(spacing: 2) {
-                nudgeRow("NOTE", value: i < note.count ? note[i] : 0) { onNote(i, $0) }
-                nudgeRow("OCT", value: i < octave.count ? octave[i] : 0) { onOct(i, $0) }
-            }.frame(maxWidth: .infinity)
         }
-        .frame(height: 44)   // two nudge rows; the padlock arm matches this height
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    private func nudgeRow(_ label: String, value: Int, _ act: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 2) {
-            Text(value == 0 ? label : "\(label)\(value > 0 ? "+\(value)" : "\(value)")")
-                .font(.system(size: 6, weight: .heavy, design: .monospaced))
-                .foregroundColor(value != 0 ? soloHue : .white.opacity(0.5))
-                .frame(minWidth: 30).lineLimit(1).minimumScaleFactor(0.7)
-            featBtn("−", lit: false) { act(-1) }
-            featBtn("+", lit: false) { act(+1) }
-        }
+    // A perform button that FILLS its cell (so SOLO/MUTE spend the control region's full height — no empty space).
+    private func perfBtn(_ label: String, lit: Bool, hue: Color, dim: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(lit ? .black : .white.opacity(dim ? 0.4 : 0.75))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? hue : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
 
     // BYPASS toggle (§1) — compact, in the header where the THRU pip used to be. Lit = this door skips the grid and
