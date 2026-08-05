@@ -143,7 +143,9 @@ final class Router {
     // off in time (A this moment, B the next) instead of splitting simultaneously (user 2026-08-04). `altMomentIndex`
     // % len picks the holder. previewMode bypasses (no role context).
     private var altMask: UInt8 = 0
-    private var altSequence: [UInt8] = []
+    // Preallocated to its max (4 buses × 8 count = 32) so `rebuildAltSequence`'s append loop never reallocates on
+    // the render thread — even the first window that grows it (audit B5). removeAll(keepingCapacity:) holds it.
+    private var altSequence: [UInt8] = { var a = [UInt8](); a.reserveCapacity(32); return a }()
     private var altLastOnset: Int64 = .min   // onset sample of the current articulation moment (sentinel = fresh)
     private var altMomentIndex = -1          // moments elapsed; advances once per new onset time → picks the holder
     private var turnsPerNote = false         // TURNS mode: true = PER-NOTE exclusive (drop a simultaneous group note)
@@ -649,6 +651,12 @@ final class Router {
 
     private func anyVoiceActive() -> Bool {
         for v in voices where v.active { return true }
+        return false
+    }
+    /// Any active IMMORTAL legato GRID hold (a sustained drone) — offSample .max, not a BYPASS voice. Used by the
+    /// single-column-lap release fix (audit B2): a pinned effColumn never fires the column-change reconcile.
+    private func anyLegatoHold() -> Bool {
+        for v in voices where v.active && v.offSample == .max && v.bypassRecv < 0 { return true }
         return false
     }
 
@@ -1321,6 +1329,14 @@ final class Router {
             }
             prevEffColumn = effColumn
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+        } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
+            // AUDIT B2: a SINGLE-COLUMN lap pins effColumn, so the column-change reconcile above never fires — a
+            // source release then strands the legato drone (immortal) until the ~1s Kernel self-heal (+ a spurious
+            // panic count). Run the reconcile now: with an empty pool it re-holds nothing and closes every orphaned
+            // drone at the boundary. Scoped to an active lap (heldColumns != 0) so normal playback is untouched.
             emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)

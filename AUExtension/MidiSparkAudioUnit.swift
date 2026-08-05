@@ -983,6 +983,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
                 document = doc
+                kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
+                                                     // session restore must not strand the outgoing document's voices
                 scheduleRebuild()
             }
         }

@@ -205,15 +205,27 @@ final class DerivationsTests: XCTestCase {
     func testThruAudiblePassthroughGate() {
         let any = 0b1111
         // Un-muted THRU on OMNI/ANY forwards a non-note event (today's default R1 behaviour).
-        XCTAssertTrue(thruAudible(isNote: false, filter: 0, cableMask: any, eventCable: 1, channel: 5))
+        XCTAssertTrue(thruAudible(isNote: false, isSystem: false, filter: 0, cableMask: any, eventCable: 1, channel: 5))
         // A non-note event on the WRONG channel is blocked; a note soundcheck ignores channel (mute-gated only).
-        XCTAssertFalse(thruAudible(isNote: false, filter: 3, cableMask: any, eventCable: 1, channel: 5))  // filter 3 = wire ch 2
-        XCTAssertTrue(thruAudible(isNote: true, filter: 3, cableMask: any, eventCable: 1, channel: 5))    // note ignores channel
+        XCTAssertFalse(thruAudible(isNote: false, isSystem: false, filter: 3, cableMask: any, eventCable: 1, channel: 5))  // filter 3 = wire ch 2
+        XCTAssertTrue(thruAudible(isNote: true, isSystem: false, filter: 3, cableMask: any, eventCable: 1, channel: 5))    // note ignores channel
         // A non-note event on the wrong CABLE is blocked.
-        XCTAssertFalse(thruAudible(isNote: false, filter: 0, cableMask: 0b0010, eventCable: 1, channel: 5))
+        XCTAssertFalse(thruAudible(isNote: false, isSystem: false, filter: 0, cableMask: 0b0010, eventCable: 1, channel: 5))
         // A MUTED THRU (filter ≥ mutedSourceFilter) blocks EVERYTHING — non-note AND the note soundcheck.
-        XCTAssertFalse(thruAudible(isNote: false, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
-        XCTAssertFalse(thruAudible(isNote: true, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
+        XCTAssertFalse(thruAudible(isNote: false, isSystem: false, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
+        XCTAssertFalse(thruAudible(isNote: true, isSystem: false, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 5))
+    }
+
+    /// SYSTEM messages (clock/start/stop/SysEx/active-sensing) are channel-LESS — a non-OMNI THRU filter must NOT
+    /// drop them (audit B1). Their status low-nibble is a sub-type, not a channel; only mute + cable gate them.
+    func testThruAudibleNeverChannelFiltersSystemMessages() {
+        let any = 0b1111
+        // A clock byte (0xF8 → low nibble 8, would look like "channel 8") on a THRU set to filter 3 STILL passes.
+        XCTAssertTrue(thruAudible(isNote: false, isSystem: true, filter: 3, cableMask: any, eventCable: 1, channel: 8))
+        XCTAssertTrue(thruAudible(isNote: false, isSystem: true, filter: 5, cableMask: any, eventCable: 1, channel: 0))  // SysEx 0xF0
+        // Mute still blocks system; a wrong CABLE still blocks (a legitimate port distinction).
+        XCTAssertFalse(thruAudible(isNote: false, isSystem: true, filter: Snap.mutedSourceFilter, cableMask: any, eventCable: 1, channel: 8))
+        XCTAssertFalse(thruAudible(isNote: false, isSystem: true, filter: 0, cableMask: 0b0010, eventCable: 1, channel: 8))
     }
 
     // MARK: UMP → legacy (§item 11 INPUT CABLES — the eventList path)

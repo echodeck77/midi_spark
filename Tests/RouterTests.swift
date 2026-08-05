@@ -3178,6 +3178,36 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e2)
     }
 
+    /// AUDIT B2: releasing the chord under a SINGLE-COLUMN lap must close the legato drone immediately — not strand
+    /// it (immortal, offSample .max) until the ~1s Kernel self-heal. A k=1 lap pins effColumn, so the column-change
+    /// reconcile never fires; the fix runs the reconcile when the lap's pool empties. Transport stays PLAYING (no
+    /// stop-flush) so the test isolates the release, not the stop.
+    func testSingleColumnLapReleaseClosesDrone() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // a LEGATO drone → A (immortal hold, offSample .max)
+        var gold = passgateColour("gold"); gold.paramsA.phase = .legato
+        let cs = colourIDs.map { $0 == "gold" ? gold : Colour(colourID: $0, type: .arp) }
+        let box = SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        let held = chord([60])
+        for _ in 0..<4 {                                          // hold the chord under a k=1 lap on column 0
+            router.process(box: box, pool: held, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, laneMask: 0b1, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let empty = NotePool()
+        for _ in 0..<4 {                                          // RELEASE (empty pool), lap still on, still PLAYING
+            router.process(box: box, pool: empty, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, laneMask: 0b1, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        assertNothingLeftSounding(e)                             // the drone closed from the release, not a stop/self-heal
+        XCTAssertTrue(router.quiescent, "no voice/refcount left after a k=1-lap key release")
+    }
+
     // MARK: - THE RACK — CONVERSATION (LEAD / STANCE)
 
     /// (A-count, B-count) when A is the lead (present unless `leadPresent` false) and B follows with the given stance.

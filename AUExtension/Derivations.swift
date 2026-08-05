@@ -514,9 +514,13 @@ enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, identity
 /// note soundcheck included. A non-note event (CC/PB/AT) additionally requires the THRU receiver's
 /// cable+channel admission; a note (stopped-transport soundcheck) is mute-gated only. Supersedes the
 /// hardwired follows-R1 rule — same behaviour, now aimed by the movable pip.
-@inline(__always) func thruAudible(isNote: Bool, filter: UInt8, cableMask: Int, eventCable: Int, channel: UInt8) -> Bool {
+@inline(__always) func thruAudible(isNote: Bool, isSystem: Bool, filter: UInt8, cableMask: Int, eventCable: Int, channel: UInt8) -> Bool {
     if filter >= Snap.mutedSourceFilter { return false }        // muted THRU passes nothing
     if isNote { return true }                                   // note soundcheck: mute-gated only
+    // SYSTEM messages (0xF0–0xFF: clock/start/stop/SysEx/active-sensing) are channel-LESS — their status low nibble
+    // is a sub-type, not a channel. Cable-gate them (a legitimate port distinction) but NEVER channel-filter, else a
+    // non-OMNI THRU pip would silently swallow transport/clock. (audit 2026-08-05 B1.)
+    if isSystem { return receiverHearsCable(mask: cableMask, eventCable: eventCable) }
     return receiverHearsCable(mask: cableMask, eventCable: eventCable) && receiverHears(filter: filter, channel: channel)
 }
 

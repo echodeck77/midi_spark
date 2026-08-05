@@ -601,8 +601,8 @@ final class Kernel {
         // receiver strip: passthrough FOLLOWS THE THRU PIP's receiver (default R1) — supersedes follows-R1.
         // A non-note event forwards only if the THRU receiver hears it (cable + channel); a note soundcheck is
         // mute-gated only; a MUTED THRU passes NOTHING (note soundcheck included). See `thruAudible`.
-        if !thruAudible(isNote: isNote, filter: receiverChannels[thruReceiver], cableMask: Int(receiverCables[thruReceiver]),
-                        eventCable: cable, channel: channel) {
+        if !thruAudible(isNote: isNote, isSystem: bytes[0] >= 0xF0, filter: receiverChannels[thruReceiver],
+                        cableMask: Int(receiverCables[thruReceiver]), eventCable: cable, channel: channel) {
             mask = 0
         }
         if mask != 0, let out = midiOut {
