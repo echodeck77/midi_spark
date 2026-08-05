@@ -157,6 +157,29 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ BRANCH `feat/multiple_features` — FENCE UX · per-note TURNS · 3 device bugs · manual merge · macro capture
+  (2026-08-05; NOT on `main` — user merges; 427 green, iOS builds). Batched the user's asks + Paul's device-session
+  ferry. (1) **FENCE UX**: `setFence` on-ENABLE now seeds a sensible window when it's still full-range — policy
+  CLAMP + C2…C6 — so FENCE audibly acts instead of no-op'ing; `RackMatrix.fenceRow` shows the active range inline
+  ("C2–C6") beneath the policy chip (the LO/HI were undiscoverable in the detail strip). (2) **per-note TURNS** —
+  the selectable hand-off mode, refined by the user to be EXCLUSIVE: `PluginState.turnsPerNote` (+ box + builder);
+  `Router.emitArtic` — PER-MOMENT (default, simultaneous → one holder, both sound) vs PER-NOTE (the group is
+  TIME-EXCLUSIVE — a note at the same onset as an already-played group note is DROPPED, never delayed; leftmost
+  wins). AU `setTurnsPerNote`; a global HAND-OFF PER MOMENT|PER NOTE toggle in the TURNS detail strip. Test
+  `testTurnsPerNoteDropsSimultaneousNoteNotDelayed`. (3) **BUG bypass-passthrough** (Paul): `SnapshotBuilder` now
+  collapses an all-bypassed chain to the empty-chain passthrough (`chain.allSatisfy(\.bypassed)` ⇒ born-audible
+  identity), ONE rule instead of the fragile count-dependent Router paths. Test `testAllBypassedChainIsPassthrough
+  AtAnyDepth` (1-slot + 8-slot + partial-unaffected). (4) **BUG loop-persistence** (Paul): deleted the duplicate
+  `editLoopMask`; the EDIT page drives the one perform `laneMask` (`setLane`) + reads it, and leaving EDIT no
+  longer zeroes it — the column loop survives the EDIT↔GRID switch and shows on both pages. (5) **BUG seal/outputs**:
+  investigated — the reported premise is STALE (`sealHash` ALREADY covers buses/chop/altDest/input; a passing test
+  asserts emitter-change ⇒ different seal). Added `testSealHashCoversTheFullTwinContract` (altDest/altMask/inputRow/
+  chordSplit/velWindow) to LOCK it. Did NOT do the literal twin←sealHash unify: `sealHash` is JSONEncoder-based and
+  `twinCells` recomputes per render (128 encodes/frame = perf regression), and it would make twins colour-blind
+  (semantic change) — flagged to design for confirmation. (6) Captured `DESIGN-macro-panel.md` →
+  `AcceptanceCriteria-macro-panel.md` (build later, own branch). (7) Merged all 67 authored `_Why:_` fills into
+  `Docs/manual/manual-skeleton.md` (only `{#select}` + the template line remain TBD). DEVICE pass owed for the UI
+  items (FENCE range, TURNS mode toggle, loop persistence, bypass passthrough).**
 - **▶ THE RACK — MONO · POCKET · CONVERSATION un-dimmed (all 8 primary treatments now LIVE) (2026-08-05, on `main`;
   424 green, iOS builds; DEVICE pass owed). User: "implement all of these." Three new render-path treatments, each
   model (additive Optional) + box + builder (rack-gated) + `Router.emitOneBus` + AU + RackMatrix UI + tests.

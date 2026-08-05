@@ -70,10 +70,12 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   then the next moment hands off to the next member. So two independent cells firing at the SAME instant both sound
   on ONE emitter and alternate over successive moments (A then B, not both at once); a single fan-out cell whose
   notes land at distinct times still ping-pongs per note. Non-group emitters in a fan-out are untouched. Toggle
-  TURNS · chip **COUNT** = moments of DWELL before the turn passes (1 = hand off every moment) · readout "TURNS
-  (count 2)". **[LIVE: toggle+COUNT backed by altMask/altCount. REVISED TWICE 2026-08-04: (1) from per-fan-out-only
-  to whole-group dealing; (2) from a per-NOTE pointer to a per-MOMENT hand-off — the per-note pointer split
-  simultaneous cells at COUNT 1, the bug the user hit. detail = coming.]**
+  TURNS · chip **COUNT** = moments of DWELL before the turn passes (1 = hand off every moment) · **HAND-OFF mode**
+  (global, in the TURNS detail): **PER MOMENT** (default) vs **PER NOTE**. **[LIVE: toggle+COUNT backed by altMask/
+  altCount; mode = `turnsPerNote`. REVISED 2026-08-04: per-fan-out → whole-group; per-NOTE pointer → per-MOMENT
+  hand-off. 2026-08-05: the PER-NOTE mode returns as an explicit EXCLUSIVE option (user) — the group's emitters
+  never sound together; a note at the same onset as an already-played group note is DROPPED (leftmost wins), never
+  delayed. Per-moment sends simultaneous notes to the one holder (both sound).]**
 - **MONO** — forces monophony at this output; a new note STEALS per PRIORITY. Toggle MONO · chip **PRIORITY**
   (cycle LAST→LOW→HIGH). **[LIVE 2026-08-05: `monoMask`/`monoPriority`, rack-gated. `Router.emitOneBus` reads the
   emitter's current holder from the voice table; if the new note wins (LAST always / LOW keeps the lower / HIGH the
@@ -81,9 +83,11 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   RE-STRIKE RETRIG|LEGATO detail = coming; chords churn re-strikes at onset (accepted v1).]**
 - **FENCE** — a per-emitter note-RANGE policy on the OUTPUT pitch: notes outside [lo, hi] are DROPped (suppressed),
   CLAMPed (to the nearest bound), or octave-FOLDed back in. Primary = a **POLICY cycle chip** (DROP→CLAMP→FOLD);
-  LO/HI note-steppers live in the DETAIL strip (live — the window is what makes FENCE act). **[LIVE 2026-08-05:
-  backed by `fenceMask`/`fencePolicy`/`fenceLo`/`fenceHi`, rack-gated, applied in `Router.emitOneBus` on the fenced
-  pitch (so CLAIM/metering/refcount key on it and the note-off pairs). readout "FENCE FOLD C2–C4".]**
+  LO/HI note-steppers live in the DETAIL strip (live — the window is what makes FENCE act); the active range shows
+  INLINE on the row ("C2–C6", user 2026-08-05 — the LO/HI were undiscoverable). **[LIVE 2026-08-05: backed by
+  `fenceMask`/`fencePolicy`/`fenceLo`/`fenceHi`, rack-gated, applied in `Router.emitOneBus` on the fenced pitch.
+  On ENABLE, a still-full window seeds a SENSIBLE default — policy CLAMP + C2…C6 — so FENCE audibly acts (user:
+  "the defaults should be something more sensible"). readout "FENCE CLAMP C2–C6".]**
 - **CURVE** — per-output velocity re-map (soft↔hard). Toggle CURVE · chip **AMOUNT** (−100…+100 bipolar knob; 0 =
   linear, + boosts low velocities = harder, − softens; `u' = u^(2^(−amt/100))`). **[LIVE 2026-08-05: toggle+AMOUNT
   backed by `curveMask`/`curveAmount`, rack-gated, applied in `Router.emitOneBus` before the master fader; readout

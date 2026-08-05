@@ -304,6 +304,10 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   then B, then A — NOT play together (the count-1 simultaneity bug is fixed). Raise the COUNT knob → each emitter
   DWELLS for that many moments before the turn passes. Confirm the total note count is conserved (each note routes
   to ONE member) and nothing hangs across the hand-off. (A single fan-out cell → A+B still ping-pongs per note.)
+  The TURNS **detail strip** has a global **HAND-OFF: PER MOMENT | PER NOTE** toggle: PER MOMENT sends simultaneous
+  notes to the one holder (both sound on it); **PER NOTE** makes the group TIME-EXCLUSIVE — at a simultaneous
+  strike only one plays (leftmost) and the other is DROPPED (not delayed a tick). Confirm PER NOTE never sounds two
+  group emitters at once.
 - **RK-CURVE (live — velocity re-map, THIS VOICE):** in the matrix, the THIS VOICE family now has a live **CURVE**
   row ("Re-maps velocity (soft↔hard)"). Tap CURVE ON for an emitter and turn its knob: **+** (right) makes it hit
   HARDER (low-velocity notes boosted toward loud), **−** softens, 0 = linear (no change). Play a dynamic passage
@@ -316,6 +320,8 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   narrower than your part. Play notes above/below it and confirm on the monitor: DROP = out-of-range notes vanish;
   CLAMP = they snap to the nearest bound; FOLD = they jump by octaves back inside the window. The readout shows
   "FENCE FOLD C2–C4". Confirm RACK-off suspends it (raw pitch) and watch for stuck notes on the boundary.
+  2026-08-05: turning FENCE ON now seeds a sensible default (CLAMP · C2–C6) so it acts immediately, and each column
+  shows its active range inline ("C2–C6") — tap it, then edit LO/HI in the detail strip.
 - **RK-MONO (live — monophony, THIS VOICE):** the MONO row ("One note at a time"). Tap ON for an emitter fed a
   CHORD; only ONE note should sound at a time on that output (ideal for glide synths). Tap the PRIORITY chip to
   cycle **LAST → LOW → HIGH**: LAST = the newest note wins, LOW = the lowest, HIGH = the highest. Monitor that the
