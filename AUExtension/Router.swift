@@ -199,7 +199,7 @@ final class Router {
     private var soundVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
     private var soundCol = [[Int8]](repeating: [Int8](repeating: -1, count: 12), count: 4)
     private var soundCount = [Int](repeating: 0, count: 4)
-    private var currentColourIndex: Int8 = -1        // the emitting cell's colour (mirror of currentInputRecv)
+    private var currentColourIndex: Int8 = -1        // the emitting cell's colourIndex (for the SEAL comet feed)
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
@@ -1445,8 +1445,6 @@ final class Router {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
 
-    /// The "tick-tail" slice this build covers: a chain of ≥2 slots whose LAST slot is a (non-bypassed) ARP or
-    /// RATCHET. Everything else (strum/hold tail, 1 slot) falls back to the stage-1 head-only render. Signposted.
     /// The chain's TICK DRIVER — the index of the LAST non-bypassed arp/ratchet/strum slot. It sets the rhythm:
     /// slots BEFORE it compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a
     /// passgate gates the pass, chance drops, harmonize expands). -1 = no tick generator (a hold/plain cell). This

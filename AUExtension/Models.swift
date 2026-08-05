@@ -227,7 +227,6 @@ struct VelWindow: Codable, Equatable {
     var ceil: Int = 127      // 1…127 (≥ floor)
 }
 
-/// §cell-edit F — CHOP ("destination sequence"): per pass-column (8 slots = the 8 grid columns), where this
 /// §cell-edit F — per-slice output CHOP: each of a column's 8 slices can INDEPENDENTLY route to MAIN (own
 /// emitters), ALT (the shared `altDest` set), and/or be MUTED (silent — overrides). Three per-slice bitmasks
 /// (bit i = slice i). Default = all MAIN, no ALT, no MUTE (no effect). [Model + the routing ENGINE below.]

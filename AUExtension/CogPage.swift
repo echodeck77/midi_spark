@@ -40,7 +40,7 @@ struct CogPage: View {
                             Text("SCENES").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
                             Text("show the arrangement's 16-scene row").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
-                            mpeToggle(on: showScenes) { showScenes = $0 }
+                            onOffToggle(on: showScenes) { showScenes = $0 }
                         }
                         divider
                         section("HEALTH")
@@ -123,7 +123,7 @@ struct CogPage: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
         }
     }
-    private func mpeToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
+    private func onOffToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Text(on ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : ink.opacity(0.45))
             .frame(width: 34, height: 20)

@@ -11,9 +11,10 @@
 //  would silently colour every result. Tests start from a flat, explicit baseline so a
 //  failure means the engine, not the fixture.
 //
-//  IDENTITY TYPES: only ARP is implemented. Per docs/router-design.md, every other
-//  processor type behaves as identity (its sounding set = its input pool, articulated at
-//  step entry). T2/T3/T5/T7 rely on that — they use non-ARP types deliberately.
+//  IDENTITY TYPES (historical): these fixtures were authored when only ARP was implemented
+//  and every other processor behaved as identity. All six processor types now ship (see
+//  CLAUDE.md), so non-ARP cells articulate as their real type — T2/T3/T5/T7 predate that;
+//  read their expected output as historical.
 
 import Foundation
 
