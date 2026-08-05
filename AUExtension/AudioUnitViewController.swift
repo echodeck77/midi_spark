@@ -173,8 +173,7 @@ struct DiagView: View {
     @State var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
     @State var receiverNote: [Int] = [0, 0, 0, 0]           // receiver strip: per-receiver ±semitone NOTE nudge (ephemeral)
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
-    @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (PERFORM)
-    @State var muteArmed = false             // PERFORM: MUTE mode — while armed, a grid tap toggles the cell's mute
+    @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (button removed 2026-08-05; localized holds pending)
     @State var ladderMode = false            // LADDER: exclusive-columns mode (mirror of au.uiLadderMode)
     @State var ladderPending: [Int: Int] = [:]   // LADDER: armed rung switches (column → row) — fire at the column's next entry
     @State var ladderBlink = false           // LADDER: the armed-cell blink (beat-toggled, like the scene arm)
@@ -293,11 +292,7 @@ struct DiagView: View {
             syncAnchor()
             return
         }
-        if muteArmed {                                       // PERFORM · MUTE mode: a tap toggles the cell's mute
-            guard scene.cellAt(col, row) != nil else { return }
-            au?.editScene { $0.cells[col][row]?.muted.toggle() }; refreshFromDocument(); return
-        }
-        if ladderMode {                                      // LADDER: a tap ARMS this rung for its column (TAP is traded for switching)
+        if ladderMode {                                      // SINGLE: a tap ARMS this rung for its column (TAP is traded for switching)
             guard scene.cellAt(col, row) != nil else { return }   // only an occupied rung can be armed
             armLadderRung(col, row); return
         }
@@ -492,24 +487,37 @@ struct DiagView: View {
         if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
     }
 
-    // §11b THE VERB CLUSTER — six round buttons, bottom-left (thumb reach): PLACE·HOLD / DELETE·SELECT / MOVE·COPY.
-    // HELD quasimode: press-hold a verb = spring-active; long-press (0.5s) = LATCH (tap again releases). HOLD is
-    // the §5c gesture-latch (not a grid verb). While a verb is active a tap does the verb; else a tap is a TRIGGER.
+    // THE GRID-MODE CLUSTER (bottom-left, thumb reach) — a SINGLE | MULTI toggle (layout-v2, user 2026-08-05).
+    // Replaces the old HOLD · MUTE · LADDER verbs: LADDER → SINGLE, the MUTE-tap → MULTI's default, HOLD removed
+    // (its localised per-slider replacements are pending). While a spring verb is held a tap does the verb.
     var verbCluster: some View {
         VStack(spacing: 6) {
-            // HOLD · MUTE · LADDER (SELECT retired 2026-08-05). HOLD = the §5c sustain latch; MUTE = arm-then-tap;
-            // LADDER = exclusive columns. EDIT is now the PROCESSORS tab.
-            HStack(spacing: 6) {
-                roundVerb(label: "HOLD", hue: sceneAmberHue, active: holdLatch, badge: nil)
-                    .contentShape(Rectangle()).onTapGesture { toggleHold() }
-                roundVerb(label: muteArmed ? "MUTE ✕" : "MUTE", hue: Verb.delete.hue, active: muteArmed, badge: nil)
-                    .contentShape(Rectangle()).onTapGesture { muteArmed.toggle(); if muteArmed { heldVerb = nil; editArmed = false } }
-                roundVerb(label: "LADDER", hue: ladderHue, active: ladderMode, badge: nil)   // LADDER: exclusive columns (global arm)
-                    .contentShape(Rectangle()).onTapGesture { let on = !ladderMode; ladderMode = on; au?.setLadderMode(on); if on { heldVerb = nil } }
+            // SINGLE | MULTI — the grid's layering mode (user 2026-08-05; replaces MUTE + LADDER, and HOLD is
+            // removed). SINGLE = one cell speaks per column (LADDER's exclusive columns; a tap switches/arms the
+            // rung). MULTI = normal layering; the default tap mutes/unmutes the cell. Default is MULTI.
+            HStack(spacing: 0) {
+                gridModeSeg("SINGLE", active: ladderMode, hue: ladderHue) { setSingle(true) }
+                gridModeSeg("MULTI", active: !ladderMode, hue: sceneAmberHue) { setSingle(false) }
             }
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    private func gridModeSeg(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1)
+            .foregroundColor(active ? .black : .white.opacity(0.55))
+            .padding(.vertical, 7).frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.clear))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    // SINGLE (true) = LADDER's exclusive-columns engine on; MULTI (false) = normal layering.
+    private func setSingle(_ on: Bool) {
+        guard ladderMode != on else { return }
+        ladderMode = on; au?.setLadderMode(on)
+        if on { heldVerb = nil }
     }
     let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
     let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
@@ -885,7 +893,7 @@ struct DiagView: View {
             // logic below, so entering/leaving PROCESSORS opens/commits it. Any tab switch clears transient GRID
             // gestures (a held verb, MUTE arm) so state can't leak across tabs.
             editArmed = (tab == .processors)
-            if tab != .grid { heldVerb = nil; muteArmed = false }
+            if tab != .grid { heldVerb = nil }
         }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
