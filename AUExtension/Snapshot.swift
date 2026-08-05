@@ -194,6 +194,46 @@ final class SnapshotBox {
     }
 }
 
+// MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
+
+/// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
+enum MacroParam: String { case gate, ramp, spread, curve, velTilt, probability, harmVelScale }
+
+/// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
+/// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
+struct MacroMod { let macro: Int; let param: MacroParam; let delta: Double }
+
+/// Apply the macro OFFSET to a resolved param bag: for each targeted param, `effective = clamp(base + Σ vₖ×deltaₖ)`
+/// — overlaps SUM, then clamp ONCE (the offset law). Returns a COPY; `p` (the base) is never mutated, so identity/
+/// seals — which read the document, not this — stay stable, and value 0 ⇒ home (no offset). Clamps match `resolve`.
+func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapParams {
+    guard !mods.isEmpty else { return p }
+    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0
+    for m in mods {
+        let v = (m.macro >= 0 && m.macro < values.count) ? values[m.macro] : 0
+        let off = v * m.delta
+        if off == 0 { continue }
+        switch m.param {
+        case .gate:         dGate += off
+        case .ramp:         dRamp += off
+        case .spread:       dSpread += off
+        case .curve:        dCurve += off
+        case .velTilt:      dTilt += off
+        case .probability:  dProb += off
+        case .harmVelScale: dHarm += off
+        }
+    }
+    var r = p
+    if dGate != 0 { r.gate = max(0.05, min(1, r.gate + dGate)) }
+    if dRamp != 0 { r.ramp = max(0, min(1, r.ramp + dRamp)) }
+    if dSpread != 0 { r.spread = max(0, min(1, r.spread + dSpread)) }
+    if dCurve != 0 { r.curve = max(-1, min(1, r.curve + dCurve)) }
+    if dTilt != 0 { r.velTilt = max(-1, min(1, r.velTilt + dTilt)) }
+    if dProb != 0 { r.probability = max(0, min(1, r.probability + dProb)) }
+    if dHarm != 0 { r.harmVelScale = max(0.1, min(1, r.harmVelScale + dHarm)) }
+    return r
+}
+
 // MARK: - Effective params (render-side, §3.2: stepped fields quantize, never glide)
 
 /// The effective morph position for ONE CELL — the value every effective* helper takes as `t` to

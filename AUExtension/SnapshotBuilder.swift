@@ -25,6 +25,20 @@ enum SnapshotBuilder {
 
         // ---- cells ----
         let ladderOn = doc.ladderModeResolved                       // LADDER: exclusive columns (resolved here so render stays LADDER-unaware)
+        // MACRO MODULATION (macro-panel spec): fold each macro's A→B deltas into its target slots' resolved params
+        // below — effective = base + Σ value×delta (Snapshot.applyMacros). Bases (the document, and the seals that
+        // read it) are NEVER touched; value 0 = home. Grouped by (col,row,slot) so a slot folds every macro pointing
+        // at it in ONE clamp (overlaps sum). v1: values bake at publish → a macro move rebuilds; the render-time
+        // path (needed for TIMELINE lanes' per-column f(column)) lands with that bank.
+        let macroVals = doc.macrosResolved.map { max(0, min(1, $0.value)) }
+        var macroMods: [Int: [MacroMod]] = [:]
+        for (mi, macro) in doc.macrosResolved.enumerated() {
+            for t in macro.targets {
+                guard let param = MacroParam(rawValue: t.param), t.delta != 0,
+                      t.col >= 0, t.col < Snap.cols, t.row >= 0, t.row < Snap.rows, t.slot >= 0, t.slot < 64 else { continue }
+                macroMods[(t.col * Snap.rows + t.row) * 64 + t.slot, default: []].append(MacroMod(macro: mi, param: param, delta: t.delta))
+            }
+        }
         var cells = [SnapCell](repeating: SnapCell(), count: Snap.cols * Snap.rows)
         for c in 0..<Snap.cols {
             let ladderActive = ladderOn ? scene.ladderActiveRow(c) : nil   // the one speaking rung this column (topmost-occupied default)
@@ -90,6 +104,14 @@ enum SnapshotBuilder {
                     sc.inputRangeHi = recs[ri].rangeHiResolved
                 } else {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
+                }
+                // MACRO MODULATION: fold any macro offsets targeting this cell's slots into the resolved chain.
+                if !macroMods.isEmpty {
+                    for k in sc.procs.indices {
+                        if let mods = macroMods[(c * Snap.rows + r) * 64 + k] {
+                            sc.procs[k] = applyMacros(sc.procs[k], mods: mods, values: macroVals)
+                        }
+                    }
                 }
                 cells[c * Snap.rows + r] = sc
             }

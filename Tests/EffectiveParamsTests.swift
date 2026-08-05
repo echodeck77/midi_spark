@@ -78,4 +78,87 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(box.macroValues[1], 1.0, accuracy: 1e-9)
         XCTAssertEqual(box.macroValues[2], 0.0, accuracy: 1e-9)
     }
+
+    // MARK: M1 — the offset math (applyMacros)
+
+    /// effective = base + value × delta, and the base bag is returned UNMUTATED (a copy) — identity stays put.
+    func testApplyMacrosOffsetsAndLeavesBaseUntouched() {
+        var base = SnapParams(); base.gate = 0.5
+        let mods = [MacroMod(macro: 0, param: .gate, delta: 0.4)]
+        let out = applyMacros(base, mods: mods, values: [0.5])
+        XCTAssertEqual(out.gate, 0.7, accuracy: 1e-9)          // 0.5 + 0.5×0.4
+        XCTAssertEqual(base.gate, 0.5, accuracy: 1e-9)         // the base is never rewritten
+    }
+
+    /// A macro at 0 is HOME — no offset, byte-for-byte the base (nothing to revert).
+    func testMacroAtZeroIsHome() {
+        var base = SnapParams(); base.gate = 0.5; base.spread = 0.3
+        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .gate, delta: 0.4),
+                                           MacroMod(macro: 0, param: .spread, delta: -0.2)], values: [0.0])
+        XCTAssertEqual(out.gate, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(out.spread, 0.3, accuracy: 1e-9)
+    }
+
+    /// Two macros on the SAME param SUM, then clamp ONCE (the offset law) — not sequential per-macro clamping.
+    func testOverlappingOffsetsSumThenClamp() {
+        var base = SnapParams(); base.probability = 0.6
+        // 0.6 + 1.0×0.5 + 1.0×0.5 = 1.6 → clamps to 1 (sum first). Sequential clamping would also hit 1 here,
+        // so use a case where order matters: +0.6 then −0.5 = net +0.1 → 0.7 (sequential-with-clamp: 0.6+0.6=1.2→1, then 1−0.5=0.5 ≠ 0.7).
+        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .probability, delta: 0.6),
+                                           MacroMod(macro: 1, param: .probability, delta: -0.5)], values: [1.0, 1.0])
+        XCTAssertEqual(out.probability, 0.7, accuracy: 1e-9)   // sum (+0.1) then clamp — proves it's not clamped per-mod
+    }
+
+    /// Each param clamps to its resolve() range: probability/ramp/spread → [0,1]; curve/velTilt → [−1,1];
+    /// gate → [0.05,1]; harmVelScale → [0.1,1].
+    func testOffsetsClampToLegalRanges() {
+        var base = SnapParams(); base.curve = 0.8; base.gate = 0.9; base.harmVelScale = 0.9
+        let out = applyMacros(base, mods: [MacroMod(macro: 0, param: .curve, delta: 0.9),        // 0.8+0.9=1.7 → 1
+                                           MacroMod(macro: 0, param: .gate, delta: 0.5),          // 0.9+0.5=1.4 → 1
+                                           MacroMod(macro: 0, param: .harmVelScale, delta: -2)],  // 0.9−2=−1.1 → 0.1
+                              values: [1.0])
+        XCTAssertEqual(out.curve, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(out.gate, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(out.harmVelScale, 0.1, accuracy: 1e-9)
+    }
+
+    // MARK: M1 — end to end through the builder
+
+    /// A macro bound to a cell's chain-slot param shifts the RESOLVED param, while the document cell (and its seal)
+    /// are untouched — the whole point of the offset model (performance, not identity).
+    func testBuilderFoldsMacroOffsetIntoResolvedChainButNotTheDocument() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold")
+        var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
+        cell.processors = [slot]
+        s.cells[0][0] = cell
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(name: "GATE", value: 0.5, fixed: false,
+                               targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
+
+        let box = SnapshotBuilder.build(from: doc)
+        XCTAssertEqual(box.cells[0].procs[0].gate, 0.7, accuracy: 1e-9)   // 0.5 + 0.5×0.4, folded at build
+
+        // The base is untouched: the DOCUMENT slot param is still 0.5, and the seal (document-derived) is stable.
+        XCTAssertEqual(doc.scenes[0].cells[0][0]?.processors?[0].params.gate, 0.5)
+        let sealWith = sealHash(cell, colours: doc.colours)
+        var docNoMacro = doc; docNoMacro.macros = nil
+        XCTAssertEqual(sealHash(cell, colours: docNoMacro.colours), sealWith)   // macro presence never moves the seal
+    }
+
+    /// Macro at 0 through the builder is home — the resolved chain equals the un-macro'd build.
+    func testBuilderMacroAtZeroMatchesNoMacro() {
+        var s = SceneState.empty()
+        var cell = Cell(colourID: "gold")
+        var slot = ProcessorSlot(type: .arp); slot.params.gate = 0.5
+        cell.processors = [slot]
+        s.cells[0][0] = cell
+        var doc = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [s])
+        let plain = SnapshotBuilder.build(from: doc).cells[0].procs[0].gate
+
+        doc.macros = doc.macrosResolved
+        doc.macros?[0] = Macro(value: 0.0, targets: [MacroTarget(col: 0, row: 0, slot: 0, param: "gate", delta: 0.4)])
+        XCTAssertEqual(SnapshotBuilder.build(from: doc).cells[0].procs[0].gate, plain, accuracy: 1e-9)
+    }
 }
