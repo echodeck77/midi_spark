@@ -370,6 +370,68 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
     }
 
+    /// THE RACK — MONO (persisted): `setMono` toggles emitter monophony; `cycleMonoPriority` steps LAST→LOW→HIGH.
+    func uiMonoMask() -> UInt8 { document.monoMask ?? 0 }
+    func uiMonoPriority() -> [Int] { document.monoPriorityResolved }
+    func setMono(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.monoMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.monoMask = m
+        }
+    }
+    func cycleMonoPriority(_ bus: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.monoPriority ?? d.monoPriorityResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
+            d.monoPriority = a
+        }
+    }
+
+    /// THE RACK — POCKET (persisted): `setPocket` toggles the timing shift; `setPocketMs` sets −50…50 ms.
+    func uiPocketMask() -> UInt8 { document.pocketMask ?? 0 }
+    func uiPocketMs() -> [Int] { document.pocketMsResolved }
+    func setPocket(_ bus: Int, _ on: Bool) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var m = d.pocketMask ?? 0
+            if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
+            d.pocketMask = m
+        }
+    }
+    func setPocketMs(_ bus: Int, _ ms: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.pocketMs ?? d.pocketMsResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = max(-50, min(50, ms))
+            d.pocketMs = a
+        }
+    }
+
+    /// THE RACK — CONVERSATION (persisted): `setConvLead` sets/clears the LEAD (radio; passing the current lead
+    /// clears it); `cycleConvStance` steps a follower FREE→WITH→AGAINST.
+    func uiConvLead() -> Int { document.convLeadResolved }
+    func uiConvStance() -> [Int] { document.convStanceResolved }
+    func setConvLead(_ bus: Int) {
+        editDocument { d in
+            let cur = d.convLeadResolved
+            d.convLead = (cur == bus) ? -1 : ((0..<4).contains(bus) ? bus : -1)
+        }
+    }
+    func cycleConvStance(_ bus: Int) {
+        guard (0..<4).contains(bus) else { return }
+        editDocument { d in
+            var a = d.convStance ?? d.convStanceResolved
+            if a.count < 4 { a += Array(repeating: 0, count: 4 - a.count) }
+            a[bus] = (max(0, min(2, a[bus])) + 1) % 3
+            d.convStance = a
+        }
+    }
+
     /// emitter role family: ALT — turn-taking group (persisted). `setAlt` toggles membership; `setAltCount`
     /// sets an emitter's notes-per-turn (1…8).
     func uiAltMask() -> UInt8 { document.altMask ?? 0 }

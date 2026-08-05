@@ -157,6 +157,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE RACK — MONO · POCKET · CONVERSATION un-dimmed (all 8 primary treatments now LIVE) (2026-08-05, on `main`;
+  424 green, iOS builds; DEVICE pass owed). User: "implement all of these." Three new render-path treatments, each
+  model (additive Optional) + box + builder (rack-gated) + `Router.emitOneBus` + AU + RackMatrix UI + tests.
+  **MONO** (`monoMask`/`monoPriority` 0 LAST·1 LOW·2 HIGH): force one note per emitter — reads the emitter's current
+  holder from the voice table (scan, no tracker to clean), decides by priority, and STEALS (closes holder own+All at
+  the new onset via `closeVoice`, then opens new = RETRIG); loser suppressed. UI = a PRIORITY cycle chip (new
+  generic `cycleRow`). **POCKET** (`pocketMask`/`pocketMs` −50…50): shift a note's on/off equally (duration kept),
+  clamped into [renderStart, windowEnd]; `pocketSamples` = ms·sr/1000 computed per render. UI = bipolar knob (ms).
+  **CONVERSATION** (`convLead: Int8`/`convStance` 0 FREE·1 WITH·2 AGAINST, stance rack-gated to FREE): a follower's
+  note-on gated on `emitterSounding(convLead)` — WITH admits while the lead sounds, AGAINST in its silences (a live
+  query like KEY; co-onset order-dependent, the claim L1 caveat). UI = a LEAD radio + per-column STANCE chips
+  (`conversationRow`). Tests: `testMonoKeepsOneNotePerEmitterByPriority` + `testMonoLeavesNoStuckNotes` +
+  `testPocketLagDelaysOnsetAndIsRackGated` + `testConversationWithAndAgainstGateOnTheLead`. ALSO added
+  `testTurnsDoesNotAlterNoteTiming` (per user: TURNS COUNT 1 must not shift timing — confirmed, only the emitter
+  changes). No new files (no xcodegen). DEFERRED: mono RETRIG|LEGATO detail (chords churn re-strikes at onset, v1);
+  pocket humanize; ECHO/CHOKE/GOVERNOR seats; all secondary detail params. Spec `AcceptanceCriteria-the-rack.md`
+  §5/§6 (all 8 primary live) + device steps `test-procedures.md` RK-MONO/RK-POCKET/RK-CONV.**
 - **▶ THE RACK — FENCE treatment un-dimmed + knob sensitivity lowered (2026-08-05, on `main`; 419 green, iOS builds;
   DEVICE pass owed). FENCE = a per-emitter note-RANGE policy on the OUTPUT pitch: out-of-[lo,hi] notes DROP
   (suppress) · CLAMP (to nearest bound) · FOLD (octave-fold in). `PluginState.fenceMask`/`fencePolicy`/`fenceLo`/

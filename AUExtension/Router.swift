@@ -114,6 +114,20 @@ final class Router {
         while n < l { n += 12 }
         return UInt8(min(max(n, l), h))
     }
+    // THE RACK — MONO (design-the-rack §6): per-emitter monophony. A new note-on STEALS the emitter's current note
+    // per PRIORITY (0 LAST always · 1 LOW keeps the lower · 2 HIGH keeps the higher). Scan-based (no tracker to
+    // clean up): the current holder is read live from the voice table, so transport/column flushes stay unaware.
+    private var monoMask: UInt8 = 0
+    private var monoPriority: [UInt8] = [0, 0, 0, 0]
+    // THE RACK — POCKET (design-the-rack §6): per-emitter timing shift (samples, from ±ms), applied to a note's
+    // on/off before opening its voices (both shift equally → duration preserved; clamped into the render window).
+    private var pocketMask: UInt8 = 0
+    private var pocketSamples: [Int64] = [0, 0, 0, 0]
+    private var renderStart: Int64 = 0   // this render window's first sample — POCKET can't push a note before it
+    // THE RACK — CONVERSATION (design-the-rack §6): one LEAD emitter; a follower's STANCE admits its NEW notes only
+    // WITH the lead's sound (1) or AGAINST its silences (2). A live query of the lead's voices, like FLATTEN/CLAIM.
+    private var convLead: Int = -1
+    private var convStance: [UInt8] = [0, 0, 0, 0]
     private func emitterSounding(_ bus: Int) -> Bool {
         let b = UInt8(bus)
         for v in voices where v.active && !v.silent && v.bus == b { return true }
@@ -818,6 +832,16 @@ final class Router {
         // §9 ON TAP = SOLO EMITTERS: while a solo set is held, sibling emitters fall silent (own cable + its
         // All contribution). previewMode bypasses (solo audition has no other-emitter context).
         if soloEmitterMask != 0 && !previewMode && (soloEmitterMask & (1 << UInt8(bus))) == 0 { return -1 }
+        // THE RACK CONVERSATION: a follower emitter admits its NEW note-ons only WITH the lead's sound (stance 1)
+        // or AGAINST its silences (stance 2). A live query of the lead's voices (like FLATTEN). The lead itself and
+        // FREE (stance 0) emitters are unaffected. previewMode bypasses (no other-emitter context).
+        if convLead >= 0 && convLead != bus && !previewMode {
+            let stance = convStance[bus]
+            if stance != 0 {
+                let leadSounding = emitterSounding(convLead)
+                if (stance == 1 && !leadSounding) || (stance == 2 && leadSounding) { return -1 }
+            }
+        }
         // receiver strip INPUT override: while a receiver's slider is touched, flatten its subscribers' notes
         // to the slider value (applied to the base velocity). The emitter (OUTPUT) override below still wins
         // if both ride at once — the override closest to the wire has the last word.
@@ -846,6 +870,26 @@ final class Router {
         // master panel FADER: a momentary-absolute override over ALL output — applied LAST so it wins over the
         // per-emitter/input overrides and FLATTEN (the whisper-drop). 0 = untouched. previewMode bypasses.
         if masterVelOverride != 0 && !previewMode { v = masterVelOverride }
+        // THE RACK MONO: force one note per emitter. Read the current holder (the emitter's own-cable voice) live;
+        // decide by PRIORITY whether the new note wins; if it loses, suppress it (return −1 before metering); if it
+        // wins, STEAL — close the holder's voices (own + its All copy) at this onSample, then fall through to open
+        // the new note (RETRIG: old off, new on). Same-note re-articulation isn't a steal (refcount handles it).
+        if monoMask & (1 << UInt8(bus)) != 0 && !previewMode {
+            var holder = -1
+            for vv in voices where vv.active && !vv.silent && vv.bus == UInt8(bus) && vv.cable == UInt8(bus + 1) { holder = Int(vv.note); break }
+            if holder >= 0 && holder != Int(note) {
+                let wins: Bool
+                switch monoPriority[bus] {
+                case 1: wins = Int(note) <= holder     // LOW: keep the lower note
+                case 2: wins = Int(note) >= holder     // HIGH: keep the higher note
+                default: wins = true                    // LAST: the new note always steals
+                }
+                if !wins { return -1 }
+                for i in voices.indices where voices[i].active && !voices[i].silent && voices[i].bus == UInt8(bus) && voices[i].note != note {
+                    closeVoice(i, atSample: onSample, out: out)
+                }
+            }
+        }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
@@ -855,12 +899,21 @@ final class Router {
             markCount[bus] += 1
         }
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
+        // THE RACK POCKET: shift this note's on/off by the emitter's timing offset (samples). Both shift equally so
+        // the duration is preserved; the on is clamped into [renderStart, windowEnd] (can't play in the past or
+        // beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
+        var onS = onSample, offS = offSample
+        if pocketMask & (1 << UInt8(bus)) != 0 && !previewMode && pocketSamples[bus] != 0 {
+            let target = onSample + pocketSamples[bus]
+            onS = max(renderStart, min(windowEnd, target))
+            if offSample != .max { offS = max(onS + 1, offSample + (onS - onSample)) }
+        }
         let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: v, out: out)
-        if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
+                            onSample: onS, offSample: offS, velocity: v, out: out)
+        if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: v, out: out)
-        if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
+                            onSample: onS, offSample: offS, velocity: v, out: out)
+        if all >= 0 && offS <= windowEnd { closeVoice(all, atSample: offS, out: out) }
         return Int(ch)
     }
 
@@ -1100,6 +1153,12 @@ final class Router {
         curveAmount = box.curveAmount
         fenceMask = box.fenceMask                   // THE RACK FENCE: per-emitter note-range policy, this render
         fencePolicy = box.fencePolicy; fenceLo = box.fenceLo; fenceHi = box.fenceHi
+        monoMask = box.monoMask                     // THE RACK MONO: per-emitter monophony set, this render
+        monoPriority = box.monoPriority
+        pocketMask = box.pocketMask                 // THE RACK POCKET: per-emitter timing shift, this render
+        for b in 0..<4 { pocketSamples[b] = Int64((Double(box.pocketMs[b]) * sampleRate / 1000.0).rounded()) }
+        convLead = Int(box.convLead)                // THE RACK CONVERSATION: lead + per-emitter stance, this render
+        convStance = box.convStance
         altMask = box.altMask                       // role family: ALT turn-taking group, this render
         rebuildAltSequence(box.altCount)
         masterKey = Int(box.masterKey)              // master panel: per-scene KEY + global MUTE, this render
@@ -1107,6 +1166,7 @@ final class Router {
 
         // ---- window in samples; global (non-cell) timing ----
         let windowStart = Int64(timestampSample)
+        renderStart = windowStart                   // POCKET: the earliest sample a pushed note may land on
         let windowEnd = windowStart + Int64(frameCount)
 
         // delta §6a: an emitter that just went enabled→disabled closes its sounding notes IMMEDIATELY

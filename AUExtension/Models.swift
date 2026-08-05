@@ -483,6 +483,22 @@ struct PluginState: Codable, Equatable {
     var fencePolicyResolved: [Int] { let a = fencePolicy ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
     var fenceLoResolved: [Int] { let a = fenceLo ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 0 } }
     var fenceHiResolved: [Int] { let a = fenceHi ?? []; return (0..<4).map { $0 < a.count ? max(0, min(127, a[$0])) : 127 } }
+    // THE RACK — MONO (design-the-rack §6, THIS VOICE): force monophony at this output; a new note steals per
+    // PRIORITY (0 = LAST · 1 = LOW · 2 = HIGH). Persisted; Optional → old docs nil (off). Self-affecting → rack-gated.
+    var monoMask: UInt8? = nil
+    var monoPriority: [Int]? = nil
+    var monoPriorityResolved: [Int] { let a = monoPriority ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
+    // THE RACK — POCKET (design-the-rack §6, THIS VOICE): per-output timing feel — shift this output's notes a few
+    // ms ahead (push, −) or behind (lay-back, +). Persisted; Optional → nil (off). Self-affecting → rack-gated.
+    var pocketMask: UInt8? = nil
+    var pocketMs: [Int]? = nil          // per-emitter −50…50 ms
+    var pocketMsResolved: [Int] { let a = pocketMs ?? []; return (0..<4).map { $0 < a.count ? max(-50, min(50, a[$0])) : 0 } }
+    // THE RACK — CONVERSATION / LEAD·STANCE (design-the-rack §6, TOGETHER): one emitter LEADs; each other emitter's
+    // STANCE admits its new notes only WITH the lead's sound (1) or AGAINST its silences (2), or FREE (0). Persisted.
+    var convLead: Int? = nil            // nil/−1 = no lead; else emitter 0–3
+    var convStance: [Int]? = nil        // per-emitter 0 FREE · 1 WITH · 2 AGAINST
+    var convLeadResolved: Int { let l = convLead ?? -1; return (l >= 0 && l < 4) ? l : -1 }
+    var convStanceResolved: [Int] { let a = convStance ?? []; return (0..<4).map { $0 < a.count ? max(0, min(2, a[$0])) : 0 } }
     // THE RACK (design-the-rack §3, the two-tier law): the per-emitter "is the board in the signal path" gate.
     // The matrix toggles (claim/duck/alt/…) say which pedals are ARMED; this mask says whether the board is
     // patched in. Bit i clear ⇒ emitter i's whole rack is bypassed → its output is the raw wire regardless of the

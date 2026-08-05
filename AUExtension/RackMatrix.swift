@@ -27,6 +27,12 @@ struct RackMatrix: View {
     let fencePolicy: [Int]      // 0 DROP · 1 CLAMP · 2 FOLD
     let fenceLo: [Int]          // per-emitter window low (0…127)
     let fenceHi: [Int]          // per-emitter window high (0…127)
+    let monoMask: UInt8         // MONO (monophony)
+    let monoPriority: [Int]     // 0 LAST · 1 LOW · 2 HIGH
+    let pocketMask: UInt8       // POCKET (timing feel)
+    let pocketMs: [Int]         // −50…50 ms per emitter
+    let convLead: Int           // CONVERSATION: the LEAD emitter (−1 = none)
+    let convStance: [Int]       // 0 FREE · 1 WITH · 2 AGAINST per emitter
     var emitPeak: [Double] = [0, 0, 0, 0]
     let onClaim: (Int) -> Void
     let onClaimLeak: (Int, Int) -> Void
@@ -40,6 +46,12 @@ struct RackMatrix: View {
     let onCycleFence: (Int) -> Void
     let onFenceLo: (Int, Int) -> Void
     let onFenceHi: (Int, Int) -> Void
+    let onToggleMono: (Int) -> Void
+    let onCycleMono: (Int) -> Void
+    let onTogglePocket: (Int) -> Void
+    let onPocketMs: (Int, Int) -> Void
+    let onConvLead: (Int) -> Void
+    let onConvStance: (Int) -> Void
     let onClose: () -> Void
 
     private let ink = Color.white
@@ -62,12 +74,16 @@ struct RackMatrix: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     familyLabel("THIS VOICE")
-                    dimRow("MONO")
+                    cycleRow(key: "MONO", title: "One note at a time", hue: cyan, options: ["LAST", "LOW", "HIGH"],
+                             isOn: { bit(monoMask, $0) }, index: { at(monoPriority, $0, 0) },
+                             onToggle: onToggleMono, onCycle: onCycleMono)
                     fenceRow
                     liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
                             isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
                             unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
-                    dimRow("POCKET")
+                    liveRow(key: "POCKET", title: "Timing feel (push / lay-back)", hue: cyan,
+                            isOn: { bit(pocketMask, $0) }, value: { at(pocketMs, $0, 0) },
+                            unit: "ms", maxV: 50, minV: -50, onToggle: onTogglePocket, onSet: onPocketMs)
                     familyLabel("OVER OTHERS")
                     liveRow(key: "OWNS", title: "Claims this note from others", hue: amber,
                             isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
@@ -79,7 +95,7 @@ struct RackMatrix: View {
                     liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
                             isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
                             unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
-                    dimRow("LEAD / STANCE")
+                    conversationRow
                     dimRow("ECHO"); dimRow("CHOKE"); dimRow("GOVERNOR")
                     detailStrip
                 }.padding(.bottom, 12)
@@ -148,6 +164,10 @@ struct RackMatrix: View {
         if bit(altMask, focus) { let n = max(1, at(altCount, focus, 1)); clauses.append("TURNS ×\(n)") }
         if bit(curveMask, focus) { let n = at(curveAmount, focus, 0); clauses.append("CURVE \(n > 0 ? "+" : "")\(n)") }
         if bit(fenceMask, focus) { clauses.append("FENCE \(fencePolicyNames[max(0, min(2, at(fencePolicy, focus, 0)))]) \(noteName(at(fenceLo, focus, 0)))–\(noteName(at(fenceHi, focus, 127)))") }
+        if bit(monoMask, focus) { clauses.append("MONO \(["LAST", "LOW", "HIGH"][max(0, min(2, at(monoPriority, focus, 0)))])") }
+        if bit(pocketMask, focus) { let n = at(pocketMs, focus, 0); clauses.append("POCKET \(n > 0 ? "+" : "")\(n)ms") }
+        if convLead == focus { clauses.append("LEADS") }
+        else if convLead >= 0 && at(convStance, focus, 0) != 0 { clauses.append("\(stanceNames[max(0, min(2, at(convStance, focus, 0)))]) \(letters[convLead])") }
         let raw = !bit(rackMask, focus)
         let line = raw ? "\(letters[focus]) — RAW (rack out of path)"
                        : (clauses.isEmpty ? "\(letters[focus]) — a plain voice, no pedals armed." : "\(letters[focus]) — " + clauses.joined(separator: "  ·  "))
@@ -218,6 +238,67 @@ struct RackMatrix: View {
                 onSet(col, max(minV, min(maxV, dragBase + Int(-v.translation.height / 14))))   // less sensitive (user 2026-08-05): ~14px per unit
             }
             .onEnded { _ in dragKey = nil })
+    }
+
+    // MARK: a LIVE row whose primary control is an ENUM CYCLE chip (tap to step the option) — for treatments whose
+    // primary is a mode, not a continuous value (MONO priority; FENCE reuses its own row for the LO/HI detail).
+    private func cycleRow(key: String, title: String, hue: Color, options: [String],
+                          isOn: @escaping (Int) -> Bool, index: @escaping (Int) -> Int,
+                          onToggle: @escaping (Int) -> Void, onCycle: @escaping (Int) -> Void) -> some View {
+        HStack(alignment: .center, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(ink.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                .frame(width: rowLabelWidth, alignment: .leading)
+            ForEach(0..<4, id: \.self) { i in
+                let on = isOn(i), inPath = bit(rackMask, i)
+                let opt = options[max(0, min(options.count - 1, index(i)))]
+                VStack(spacing: 4) {
+                    Text(on ? "ON" : "·").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : ink.opacity(0.45)).frame(maxWidth: .infinity).frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(on ? hue.opacity(0.82) : ink.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { lastRow = key; onToggle(i) }
+                    Text(opt).font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? hue.opacity(0.9) : ink.opacity(0.3))
+                        .frame(maxWidth: .infinity).frame(height: 18)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
+                        .contentShape(Rectangle()).onTapGesture { lastRow = key; onCycle(i) }
+                }
+                .frame(maxWidth: .infinity).opacity(inPath ? 1 : 0.4)
+            }
+        }
+    }
+
+    // MARK: CONVERSATION — a LEAD radio (one lit) over a per-column STANCE chip (FREE/WITH/AGAINST). The lead
+    // column shows "LEAD"; tapping a lit lead clears it. Followers cycle their stance.
+    private let stanceNames = ["FREE", "WITH", "AGAINST"]
+    private var conversationRow: some View {
+        HStack(alignment: .center, spacing: 4) {
+            Text("Lead & follow").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(ink.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                .frame(width: rowLabelWidth, alignment: .leading)
+            ForEach(0..<4, id: \.self) { i in
+                let isLead = convLead == i, inPath = bit(rackMask, i)
+                VStack(spacing: 4) {
+                    Text(isLead ? "LEAD" : "·").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                        .foregroundColor(isLead ? .black : ink.opacity(0.45)).frame(maxWidth: .infinity).frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 3).fill(isLead ? amber.opacity(0.85) : ink.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { lastRow = "CONV"; onConvLead(i) }
+                    if isLead || convLead < 0 {
+                        Text(isLead ? "—" : "·").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                            .foregroundColor(ink.opacity(0.25)).frame(maxWidth: .infinity).frame(height: 18)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.03)))
+                    } else {
+                        let st = max(0, min(2, at(convStance, i, 0)))
+                        Text(stanceNames[st]).font(.system(size: 7, weight: .heavy, design: .monospaced))
+                            .foregroundColor(st == 0 ? ink.opacity(0.35) : amber.opacity(0.9))
+                            .frame(maxWidth: .infinity).frame(height: 18)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(ink.opacity(0.06)))
+                            .contentShape(Rectangle()).onTapGesture { lastRow = "CONV"; onConvStance(i) }
+                    }
+                }
+                .frame(maxWidth: .infinity).opacity(inPath ? 1 : 0.4)
+            }
+        }
     }
 
     // MARK: FENCE — a note-range policy row: toggle over a POLICY cycle chip (DROP/CLAMP/FOLD). LO/HI live in the
@@ -310,6 +391,9 @@ struct RackMatrix: View {
         case "KEY":   return "KEY detail — DUCKS → B·C·D · ATTACK · RELEASE · MATCH-CLASS — coming"
         case "TURNS": return "TURNS detail — ROTATE | DEAL · RING · RESET-AT-PASS — coming"
         case "CURVE": return "CURVE detail — FLOOR · CEILING — coming"
+        case "MONO":  return "MONO — priority LAST | LOW | HIGH (tap the chip). RE-STRIKE (RETRIG | LEGATO) — coming"
+        case "POCKET": return "POCKET — − pushes ahead · + lays back. HUMANIZE — coming"
+        case "CONV":  return "CONVERSATION — tap a column to make it the LEAD; others cycle FREE | WITH | AGAINST"
         default:      return "Touch a row to see its detail."
         }
     }

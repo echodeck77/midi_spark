@@ -2962,6 +2962,23 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(aOn, "count 1 → the first turn-holder (A) takes this moment")
     }
 
+    func testTurnsDoesNotAlterNoteTiming() {
+        // TURNS only redirects WHICH emitter plays — it must never shift a note's onset. With two hold cells
+        // (→A, →B) and TURNS {A,B} COUNT 1, the multiset of note-on SAMPLE TIMES is identical to no-TURNS.
+        func onsetTimes(_ altMask: UInt8) -> [Int64] {
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])
+            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            st.altMask = altMask; st.altCount = [1, 1, 1, 1]
+            let e = RecordingEmitter()
+            run(SnapshotBuilder.build(from: st), chord([60]), beats: 32, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.map { $0.sample }.sorted()
+        }
+        XCTAssertEqual(onsetTimes(0b0011), onsetTimes(0), "TURNS (count 1) must not change note timing — only the emitter")
+    }
+
     // MARK: - THE RACK — CURVE (per-emitter velocity re-map)
 
     private func curveBox(amount: Int, on: Bool = true, rack: UInt8? = nil) -> SnapshotBox {
@@ -3009,5 +3026,80 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(fenceOut(policy: 2, lo: 72, hi: 96), [72], "FOLD: 60 octave-folds up to 72")
         XCTAssertEqual(fenceOut(policy: 0, lo: 48, hi: 72), [60], "in range → passes unchanged")
         XCTAssertEqual(fenceOut(policy: 0, lo: 64, hi: 72, rack: 0b1110), [60], "rack out of path ⇒ FENCE suspended (raw)")
+    }
+
+    // MARK: - THE RACK — MONO (per-emitter monophony)
+
+    /// The notes left SOUNDING on A (last event = note-on) after ONE window holding a chord under MONO/priority.
+    private func monoSounding(priority: Int, _ notes: [UInt8] = [60, 64]) -> [UInt8] {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // passgate hold → A holds the whole chord
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.monoMask = 0b0001; st.monoPriority = [priority, 0, 0, 0]
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: SnapshotBuilder.build(from: st), pool: chord(notes), playing: true, beatPos: 0,
+                       tempo: 120, sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        var last: [UInt8: UInt8] = [:]
+        for ev in e.events where ev.cable == 1 { last[ev.note] = ev.status }
+        return last.filter { $0.value == 0x90 }.keys.sorted()
+    }
+
+    func testMonoKeepsOneNotePerEmitterByPriority() {
+        XCTAssertEqual(monoSounding(priority: 0).count, 1, "MONO LAST → exactly one note sounds on A")
+        XCTAssertEqual(monoSounding(priority: 1), [60], "MONO LOW → the lower note survives")
+        XCTAssertEqual(monoSounding(priority: 2), [64], "MONO HIGH → the higher note survives")
+    }
+
+    func testMonoLeavesNoStuckNotes() {
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s]); st.monoMask = 0b0001
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 16, into: e)
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: - THE RACK — POCKET (per-emitter timing feel)
+
+    func testPocketLagDelaysOnsetAndIsRackGated() {
+        func onset(ms: Int, rack: UInt8? = nil) -> Int64 {
+            var s = SceneState.empty()
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+            st.pocketMask = 0b0001; st.pocketMs = [ms, 0, 0, 0]; st.rackEnabledMask = rack
+            let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+            router.process(box: SnapshotBuilder.build(from: st), pool: chord([60]), playing: true, beatPos: 0,
+                           tempo: 120, sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+            return e.ons.first { $0.cable == 1 }!.sample
+        }
+        XCTAssertEqual(onset(ms: 0), 0, "no offset → onset at the column start")
+        XCTAssertGreaterThan(onset(ms: 10), onset(ms: 0), "lay-back (+ms) delays the onset")
+        XCTAssertEqual(onset(ms: 10, rack: 0b1110), onset(ms: 0), "rack out of path ⇒ POCKET suspended")
+    }
+
+    // MARK: - THE RACK — CONVERSATION (LEAD / STANCE)
+
+    /// (A-count, B-count) when A is the lead (present unless `leadPresent` false) and B follows with the given stance.
+    private func convOut(stance: [Int], leadPresent: Bool = true) -> (Int, Int) {
+        var s = SceneState.empty()
+        if leadPresent { s.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // lead sustains on A
+        s.cells[0][1] = Cell(colourID: "cyan", buses: [.b])                       // follower on B
+        var st = PluginState(colours: claimColours(transposeB: 0), scenes: [s])
+        st.convLead = 0; st.convStance = stance
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
+        assertNothingLeftSounding(e)
+        return (e.ons.filter { $0.cable == 1 }.count, e.ons.filter { $0.cable == 2 }.count)
+    }
+
+    func testConversationWithAndAgainstGateOnTheLead() {
+        // WITH (1): B sounds only while the lead A sounds.
+        XCTAssertGreaterThan(convOut(stance: [0, 1, 0, 0]).1, 0, "WITH + lead present → B admitted")
+        XCTAssertEqual(convOut(stance: [0, 1, 0, 0], leadPresent: false).1, 0, "WITH + lead silent → B suppressed")
+        // AGAINST (2): B sounds only while the lead A is SILENT.
+        XCTAssertEqual(convOut(stance: [0, 2, 0, 0]).1, 0, "AGAINST + lead present → B suppressed")
+        XCTAssertGreaterThan(convOut(stance: [0, 2, 0, 0], leadPresent: false).1, 0, "AGAINST + lead silent → B admitted")
+        // FREE (0): B is unaffected by the lead.
+        XCTAssertGreaterThan(convOut(stance: [0, 0, 0, 0]).1, 0, "FREE → B always admitted")
     }
 }

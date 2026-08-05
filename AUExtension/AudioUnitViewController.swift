@@ -145,6 +145,12 @@ struct DiagView: View {
     @State var fencePolicy: [Int] = [0, 0, 0, 0]           // THE RACK FENCE: 0 DROP · 1 CLAMP · 2 FOLD
     @State var fenceLo: [Int] = [0, 0, 0, 0]               // THE RACK FENCE: per-emitter window low
     @State var fenceHi: [Int] = [127, 127, 127, 127]       // THE RACK FENCE: per-emitter window high
+    @State var monoMask: UInt8 = 0                         // THE RACK MONO: per-emitter monophony set (persisted)
+    @State var monoPriority: [Int] = [0, 0, 0, 0]         // THE RACK MONO: 0 LAST · 1 LOW · 2 HIGH
+    @State var pocketMask: UInt8 = 0                       // THE RACK POCKET: per-emitter timing-shift set (persisted)
+    @State var pocketMs: [Int] = [0, 0, 0, 0]             // THE RACK POCKET: per-emitter −50…50 ms
+    @State var convLead: Int = -1                          // THE RACK CONVERSATION: the LEAD emitter (−1 = none)
+    @State var convStance: [Int] = [0, 0, 0, 0]           // THE RACK CONVERSATION: 0 FREE · 1 WITH · 2 AGAINST
     @State var rackMask: UInt8 = 0b1111                     // THE RACK: per-emitter "board in the signal path" gate (persisted; nil-doc ⇒ all in path)
     @State var masterMute = false                           // master panel: global emission kill (persisted)
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
@@ -593,6 +599,12 @@ struct DiagView: View {
         fencePolicy = au.uiFencePolicy()
         fenceLo = au.uiFenceLo()
         fenceHi = au.uiFenceHi()
+        monoMask = au.uiMonoMask()
+        monoPriority = au.uiMonoPriority()
+        pocketMask = au.uiPocketMask()
+        pocketMs = au.uiPocketMs()
+        convLead = au.uiConvLead()
+        convStance = au.uiConvStance()
         rackMask = au.uiRackMask()
         masterMute = au.uiMasterMute()
         masterKey = au.uiMasterKey()
@@ -740,6 +752,19 @@ struct DiagView: View {
         au?.setFenceHi(i, note)
         fenceHi = au?.uiFenceHi() ?? fenceHi
     }
+    // THE RACK — MONO / POCKET / CONVERSATION handlers (persisted).
+    func toggleMono(_ i: Int) {
+        let on = monoMask & (1 << UInt8(i)) != 0
+        au?.setMono(i, !on); monoMask = au?.uiMonoMask() ?? monoMask
+    }
+    func cycleMono(_ i: Int) { au?.cycleMonoPriority(i); monoPriority = au?.uiMonoPriority() ?? monoPriority }
+    func togglePocket(_ i: Int) {
+        let on = pocketMask & (1 << UInt8(i)) != 0
+        au?.setPocket(i, !on); pocketMask = au?.uiPocketMask() ?? pocketMask
+    }
+    func setPocketMsAmt(_ i: Int, _ ms: Int) { au?.setPocketMs(i, ms); pocketMs = au?.uiPocketMs() ?? pocketMs }
+    func setConvLeadSel(_ i: Int) { au?.setConvLead(i); convLead = au?.uiConvLead() ?? convLead }
+    func cycleConvStanceSel(_ i: Int) { au?.cycleConvStance(i); convStance = au?.uiConvStance() ?? convStance }
     // role family: ALT (persisted) — tap toggles group membership; drag sets notes-per-turn.
     func toggleAlt(_ i: Int) {
         let on = altMask & (1 << UInt8(i)) != 0
@@ -892,6 +917,12 @@ struct DiagView: View {
             let fnp = au.uiFencePolicy();  if fnp != fencePolicy { fencePolicy = fnp }
             let flo = au.uiFenceLo();      if flo != fenceLo { fenceLo = flo }
             let fhi = au.uiFenceHi();      if fhi != fenceHi { fenceHi = fhi }
+            let mnm = au.uiMonoMask();     if mnm != monoMask { monoMask = mnm }
+            let mnp = au.uiMonoPriority(); if mnp != monoPriority { monoPriority = mnp }
+            let pkm = au.uiPocketMask();   if pkm != pocketMask { pocketMask = pkm }
+            let pks = au.uiPocketMs();     if pks != pocketMs { pocketMs = pks }
+            let cvl = au.uiConvLead();     if cvl != convLead { convLead = cvl }
+            let cvs = au.uiConvStance();   if cvs != convStance { convStance = cvs }
             let rk = au.uiRackMask();      if rk != rackMask { rackMask = rk }
             let mm = au.uiMasterMute();    if mm != masterMute { masterMute = mm }
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
@@ -1222,6 +1253,9 @@ struct DiagView: View {
                    altMask: altMask, altCount: altCount,
                    curveMask: curveMask, curveAmount: curveAmount,
                    fenceMask: fenceMask, fencePolicy: fencePolicy, fenceLo: fenceLo, fenceHi: fenceHi,
+                   monoMask: monoMask, monoPriority: monoPriority,
+                   pocketMask: pocketMask, pocketMs: pocketMs,
+                   convLead: convLead, convStance: convStance,
                    emitPeak: emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
@@ -1229,6 +1263,9 @@ struct DiagView: View {
                    onToggleCurve: toggleCurve, onCurveAmount: setCurveAmt,
                    onToggleFence: toggleFence, onCycleFence: cycleFence,
                    onFenceLo: setFenceLoNote, onFenceHi: setFenceHiNote,
+                   onToggleMono: toggleMono, onCycleMono: cycleMono,
+                   onTogglePocket: togglePocket, onPocketMs: setPocketMsAmt,
+                   onConvLead: setConvLeadSel, onConvStance: cycleConvStanceSel,
                    onClose: { rackMatrixOpen = false })
     }
 

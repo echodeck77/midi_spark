@@ -6,9 +6,9 @@ Spec of record for the emitter-treatment rework. **Supersedes the tabbed emitter
 toggles) vs the loop switcher (the strip's enable button).
 
 ## BUILD STATUS
-**PASS 1 BUILT (2026-08-04, off-device: iOS builds + 415 macOS tests green; DEVICE pass owed).** The full RACK
-shell + the two-tier gate + the three engine-backed treatments' PRIMARY controls. Everything else is a dimmed
-"coming" seat (its engine is a later pass). User-confirmed scope.
+**ALL EIGHT PRIMARY TREATMENTS LIVE (2026-08-05, off-device: iOS builds + 424 macOS tests green; DEVICE pass owed).**
+Pass 1 (2026-08-04) shipped the shell + two-tier gate + OWNS/KEY/TURNS. 2026-08-05 un-dimmed the rest —
+CURVE · FENCE · MONO · POCKET · CONVERSATION. Only ECHO/CHOKE/GOVERNOR + secondary detail params remain dimmed.
 
 ## 1. THE STRIP GOES CLEAN
 Per-emitter strip tenants, final: **OCT± · velocity bar · LIVE · SOLO · RACK**. Nothing else. RACK is one button:
@@ -53,9 +53,9 @@ open the matrix (SETUP)**. Fallback if the tap/long-press combo tests poorly on 
   chrome-quiet (off rows recede).
 
 ## §5 — THE THREE FAMILIES (matrix row grouping)
-- **THIS VOICE** (shapes the emitter's OWN notes): MONO · **FENCE** *(LIVE)* · **CURVE** *(LIVE)* · POCKET. *(MONO/POCKET dimmed)*
+- **THIS VOICE** (shapes the emitter's OWN notes): **MONO** · **FENCE** · **CURVE** · **POCKET**. *(all LIVE 2026-08-05)*
 - **OVER OTHERS** (this emitter changes what OTHERS may do): **OWNS** (claim) · **KEY** (duck). *(LIVE)*
-- **TOGETHER** (mutual arrangements): **TURNS** (alt) · LEAD/STANCE (conversation). *(TURNS live; LEAD dimmed)*
+- **TOGETHER** (mutual arrangements): **TURNS** (alt) · **LEAD/STANCE** (conversation). *(all LIVE)*
 A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — never "is affected by it."
 
 ## §6 — THE TREATMENTS (toggle · chip · detail · readout). PASS-1 engine status in brackets.
@@ -74,7 +74,11 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   (count 2)". **[LIVE: toggle+COUNT backed by altMask/altCount. REVISED TWICE 2026-08-04: (1) from per-fan-out-only
   to whole-group dealing; (2) from a per-NOTE pointer to a per-MOMENT hand-off — the per-note pointer split
   simultaneous cells at COUNT 1, the bug the user hit. detail = coming.]**
-- **MONO** — forces monophony; priority LAST|LOW|HIGH; RE-STRIKE RETRIG|LEGATO. **[NO ENGINE — dimmed seat.]**
+- **MONO** — forces monophony at this output; a new note STEALS per PRIORITY. Toggle MONO · chip **PRIORITY**
+  (cycle LAST→LOW→HIGH). **[LIVE 2026-08-05: `monoMask`/`monoPriority`, rack-gated. `Router.emitOneBus` reads the
+  emitter's current holder from the voice table; if the new note wins (LAST always / LOW keeps the lower / HIGH the
+  higher) it closes the holder (own + All) at the new onset and opens the new (RETRIG). readout "MONO LAST".
+  RE-STRIKE RETRIG|LEGATO detail = coming; chords churn re-strikes at onset (accepted v1).]**
 - **FENCE** — a per-emitter note-RANGE policy on the OUTPUT pitch: notes outside [lo, hi] are DROPped (suppressed),
   CLAMPed (to the nearest bound), or octave-FOLDed back in. Primary = a **POLICY cycle chip** (DROP→CLAMP→FOLD);
   LO/HI note-steppers live in the DETAIL strip (live — the window is what makes FENCE act). **[LIVE 2026-08-05:
@@ -84,11 +88,21 @@ A lit toggle always means "THIS COLUMN does the verb" — owns, keys, turns — 
   linear, + boosts low velocities = harder, − softens; `u' = u^(2^(−amt/100))`). **[LIVE 2026-08-05: toggle+AMOUNT
   backed by `curveMask`/`curveAmount`, rack-gated, applied in `Router.emitOneBus` before the master fader; readout
   "CURVE +30". FLOOR/CEILING detail = coming.]**
-- **POCKET** — per-output timing feel (±ms push/lag) + humanize. **[NO ENGINE — dimmed seat.]**
-- **LEAD / STANCE (conversation)** — one LEAD (radio); others FREE|WITH|AGAINST. **[NO ENGINE — dimmed seat.]**
+- **POCKET** — per-output timing feel: shift this output's notes a few ms ahead (push) or behind (lay-back). Toggle
+  POCKET · chip **PUSH/LAG** (−50…+50 ms bipolar knob; − ahead, + behind). **[LIVE 2026-08-05: `pocketMask`/
+  `pocketMs`, rack-gated. `Router.emitOneBus` shifts the note's on/off equally (duration preserved), clamped into
+  the render window (push can't precede the window start; small offsets are exact — near a buffer edge it clamps).
+  readout "POCKET −6ms". HUMANIZE detail = coming.]**
+- **LEAD / STANCE (conversation)** — one emitter LEADs (radio, tap to set/clear); each other emitter's STANCE admits
+  its NEW notes only WITH the lead's sound or AGAINST its silences (or FREE). Row 1: **LEAD** radio · Row 2:
+  **STANCE** chip per non-lead column (FREE→WITH→AGAINST). **[LIVE 2026-08-05: `convLead`/`convStance` (stance
+  rack-gated to FREE). `Router.emitOneBus` gates a follower's note-on on `emitterSounding(lead)` (WITH admits when
+  the lead sounds, AGAINST when it's silent) — a live query like KEY; order-dependent at co-onset (the claim L1
+  caveat). readout "AGAINST A" / "LEADS".]**
 - **Dimmed future seats**: ECHO · CHOKE · GOVERNOR — labels reserved so the matrix never reflows.
 
 ## OUT OF SCOPE (later passes — un-dim a seat as each lands)
-MONO · POCKET · CONVERSATION engines; all secondary detail params (claim scope/range/release-lag, duck targeting/
-attack/release/match-class, curve floor/ceiling). Each = new model + box + builder + Router + AU setter + tests.
-(CURVE + FENCE landed 2026-08-05.)
+ECHO · CHOKE · GOVERNOR engines (still dimmed seats); all secondary detail params (claim scope/range/release-lag,
+duck targeting/attack/release/match-class, curve floor/ceiling, mono re-strike RETRIG|LEGATO, pocket humanize).
+**All eight primary treatments now LIVE** (OWNS · KEY · TURNS · MONO · FENCE · CURVE · POCKET · CONVERSATION —
+CURVE/FENCE/MONO/POCKET/CONVERSATION landed 2026-08-05).

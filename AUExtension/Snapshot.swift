@@ -112,6 +112,12 @@ final class SnapshotBox {
     let fencePolicy: [UInt8]         // 4 per-emitter policies: 0 DROP · 1 CLAMP · 2 FOLD
     let fenceLo: [UInt8]             // 4 per-emitter window lows (0…127)
     let fenceHi: [UInt8]             // 4 per-emitter window highs (0…127)
+    let monoMask: UInt8             // THE RACK MONO: bit i = emitter i is monophonic (rack-gated)
+    let monoPriority: [UInt8]        // 4 per-emitter priorities: 0 LAST · 1 LOW · 2 HIGH
+    let pocketMask: UInt8            // THE RACK POCKET: bit i = emitter i shifts its timing (rack-gated)
+    let pocketMs: [Int8]             // 4 per-emitter timing offsets (−50…50 ms; − push, + lay-back)
+    let convLead: Int8               // THE RACK CONVERSATION: the LEAD emitter (0–3), or −1 = none
+    let convStance: [UInt8]          // 4 per-emitter stances: 0 FREE · 1 WITH · 2 AGAINST (rack-gated to FREE)
     let rackMask: UInt8              // THE RACK (design-the-rack §3): bit i = emitter i's rack is IN the signal path. The builder pre-ANDs this into claimMask/flattenMask/altMask/curveMask above; carried here for future self-affecting treatments (MONO/FENCE) to gate on.
     let masterKey: Int8              // master panel: per-scene master transpose (−12…12), on every output note
     let masterMute: Bool             // master panel: global emission kill
@@ -132,7 +138,10 @@ final class SnapshotBox {
          altMask: UInt8 = 0, altCount: [UInt8] = [1, 1, 1, 1],
          curveMask: UInt8 = 0, curveAmount: [Int8] = [0, 0, 0, 0],
          fenceMask: UInt8 = 0, fencePolicy: [UInt8] = [0, 0, 0, 0],
-         fenceLo: [UInt8] = [0, 0, 0, 0], fenceHi: [UInt8] = [127, 127, 127, 127], rackMask: UInt8 = 0b1111,
+         fenceLo: [UInt8] = [0, 0, 0, 0], fenceHi: [UInt8] = [127, 127, 127, 127],
+         monoMask: UInt8 = 0, monoPriority: [UInt8] = [0, 0, 0, 0],
+         pocketMask: UInt8 = 0, pocketMs: [Int8] = [0, 0, 0, 0],
+         convLead: Int8 = -1, convStance: [UInt8] = [0, 0, 0, 0], rackMask: UInt8 = 0b1111,
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
@@ -159,6 +168,12 @@ final class SnapshotBox {
         self.fencePolicy = fencePolicy
         self.fenceLo = fenceLo
         self.fenceHi = fenceHi
+        self.monoMask = monoMask
+        self.monoPriority = monoPriority
+        self.pocketMask = pocketMask
+        self.pocketMs = pocketMs
+        self.convLead = convLead
+        self.convStance = convStance
         self.rackMask = rackMask
         self.masterKey = masterKey
         self.masterMute = masterMute

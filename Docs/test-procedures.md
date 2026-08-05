@@ -316,6 +316,20 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
   narrower than your part. Play notes above/below it and confirm on the monitor: DROP = out-of-range notes vanish;
   CLAMP = they snap to the nearest bound; FOLD = they jump by octaves back inside the window. The readout shows
   "FENCE FOLD C2–C4". Confirm RACK-off suspends it (raw pitch) and watch for stuck notes on the boundary.
+- **RK-MONO (live — monophony, THIS VOICE):** the MONO row ("One note at a time"). Tap ON for an emitter fed a
+  CHORD; only ONE note should sound at a time on that output (ideal for glide synths). Tap the PRIORITY chip to
+  cycle **LAST → LOW → HIGH**: LAST = the newest note wins, LOW = the lowest, HIGH = the highest. Monitor that the
+  emitter never has two notes down at once and nothing hangs when the chord changes. (Chords re-strike at onset —
+  expect a little churn; RETRIG|LEGATO is coming.)
+- **RK-POCKET (live — timing feel, THIS VOICE):** the POCKET row ("Timing feel"). Tap ON and turn the knob: **−**
+  pushes the output a few ms AHEAD, **+** lays it BACK; 0 = on the grid. On the AUM monitor the emitter's note
+  timestamps should shift vs the others by the ms you dial. Confirm RACK-off suspends it and no notes hang. (Small
+  offsets are exact; very large ones near a buffer edge clamp — HUMANIZE is coming.)
+- **RK-CONV (live — conversation, TOGETHER):** the "Lead & follow" row. Tap a column's top cell to make it the
+  **LEAD** (radio — one lit; tap again to clear). Each other column gets a STANCE chip — tap to cycle
+  **FREE → WITH → AGAINST**: WITH = that emitter plays only WHILE the lead is sounding; AGAINST = only in the
+  lead's SILENCES; FREE = unaffected. Play the lead and a follower and confirm the follower ducks in/out with the
+  lead. Readout shows "AGAINST A" / "LEADS". (Co-onset is order-dependent, like CLAIM.)
 - **RK-GATE (the two-tier law — THE key new behaviour):** arm OWNS on A so B is suppressed (RK-OWNS). Now on the
   STRIP, tap A's **RACK OFF**. B's pitch RETURNS (the wire is raw) and A's matrix column header reads **RAW**.
   RACK back ON → suppression returns. Repeat the flip for KEY (ducking stops/returns) and TURNS (alternation
@@ -327,10 +341,11 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
 - **RK-READ (the readout):** tap a matrix column header → its one-line social sentence shows only TRUE clauses
   ("OWNS · leaks 20%", "KEY: ducks others 40%", "TURNS ×2"); a rack-off column reads "RAW"; a bare emitter reads
   "a plain voice, no pedals armed."
-- **RK-DIM (the coming seats):** MONO · POCKET · LEAD/STANCE · ECHO · CHOKE · GOVERNOR are present but inert
-  (recessive, no response to taps) — CURVE + FENCE are now LIVE (see RK-CURVE, RK-FENCE). Touch a LIVE row → the detail strip beneath
-  names that row's secondary params as "coming" (OWNS scope/lag · KEY targets/envelope · TURNS rotate/ring · CURVE
-  floor/ceiling). Flag any dimmed row that reacts, or a matrix that reflows.
+- **RK-DIM (the coming seats):** only ECHO · CHOKE · GOVERNOR remain present-but-inert (recessive, no response to
+  taps) — all eight primary treatments (OWNS·KEY·TURNS·MONO·FENCE·CURVE·POCKET·CONVERSATION) are now LIVE. Touch a
+  LIVE row → the detail strip beneath names that row's secondary params as "coming" (OWNS scope/lag · KEY targets/
+  envelope · TURNS rotate/ring · CURVE floor/ceiling · MONO re-strike · POCKET humanize). Flag any dimmed row that
+  reacts, or a matrix that reflows.
 - **RK-PERSIST (state survives — persisted + undoable):** RACK state and the OWNS/KEY/TURNS toggles+chips are
   document state. Set some, then UNDO/REDO (three-finger or header) reverses them one step. Save the AUM session,
   reload → rack + treatments restored. An OLD session (saved before this build) must load with **every rack in
