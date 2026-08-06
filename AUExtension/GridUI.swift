@@ -273,31 +273,14 @@ struct GridView: View {
                     .onTapGesture { onColumnKey?(col) }             // MODE ROW · EDIT page: tap toggles this column in the loop
             }
         }
-        .overlay { masterArrow }
         // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP). ALWAYS LATCHED
         // now (user 2026-08-03): a tap toggles a column into the loop set and it PERSISTS (like Hold was on), showing
         // the "repeat" LOOP glyph — the same tap-toggle behaviour + icon as the EDIT page's column keys.
         .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, latched: true, onChange: cb) } }
     }
 
-    // Master playhead (delta §4): a glowing down-arrow sweeping left→right across the 8 columns over
-    // one cycle, snapping at the loop. Pure function of the extrapolated beat — no view owns a clock.
-    private var masterArrow: some View {
-        GeometryReader { geo in
-            let cycle = max(0.001, stepBeats * Double(Snap.cols))
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
-                let b = liveBeat(tl.date)
-                let frac = (b.truncatingRemainder(dividingBy: cycle) / cycle + 1).truncatingRemainder(dividingBy: 1)
-                Text("▼")
-                    .font(.system(size: 11, weight: .heavy))
-                    .foregroundColor(.white)
-                    .shadow(color: .white.opacity(0.9), radius: 4)
-                    .position(x: geo.size.width * frac, y: 5)
-                    .opacity(playing ? 0.95 : 0)
-            }
-        }
-        .allowsHitTesting(false)
-    }
+    // (Master playhead ARROW retired 2026-08-06 — the sweeping ▼ across the key row is gone; the active column's
+    //  lit key still marks the current column.)
 
     // (Per-cell MUTATION line retired 2026-08-06 — the downward falling playhead on the cells is gone; the master
     //  column arrow at the top of the key row remains the one-clock cue.)
