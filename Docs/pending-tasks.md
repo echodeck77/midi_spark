@@ -70,6 +70,15 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [x] **Fresh-cell + naming + furniture (2026-07-30)** — fully-null new cells · full processor names · grid down-chevrons (watermark + column keys) · dual-side row rails · DELETE-sever→NULL.
 
 ## C. Buildable now (next increments)
+- [ ] **MACRO AUTHORING FLOW (canonical)** (Paul + design 2026-08-06, spec `AcceptanceCriteria-macro-authoring.md`)
+  — a GENERIC control-group authoring page (MAIN/ALT instances → TEST slider+button → ADD-TO-MACRO assignment view),
+  hosted by a control-group registry so processors · receivers · emitters · rack all reuse it. Sparse relative
+  deltas (the M1 offset model — already built); host-adaptive transactions (staged vs live); mover eligibility
+  (discrete→buttons only); ALT persists per group; first-assign sets spring/toggle then locks it. **RETIRES**
+  `MacroBindPopup` (M4 `[AB]`). KEEPS the offset engine (M1) + AU params (M2) + MACROS tab (M3). Large multi-phase
+  UI+model feature — PLAN drafted (see the spec's Relationship/Open-questions + the ferry reply); needs Paul's
+  answers on the registry shape + ALT-persistence storage before building, then device passes. A future MACRO MAIN
+  TAB (management surface) is separate + later.
 - [ ] **CONTROLLER ROUTING v1** (design ruling 2026-08-06, spec `AcceptanceCriteria-controller-routing.md`) —
   per-door cog mask CONTROLLERS→[A·B·C·D] (default all-live); forward matching CC/PB/AT/PC to each selected emitter
   RE-STAMPED to its channel; supersedes the hardwired `passthroughCableMask`. **CC123/120 = pool/latch FLUSH +
