@@ -246,7 +246,6 @@ struct GridView: View {
                 }
             }
         }
-        .overlay { mutationLines }                        // per-cell falling lines in the active column
         .coordinateSpace(name: "grid")                   // §5 drag-and-drop: maps a drag location → a cell
         .simultaneousGesture(strokeGesture)              // STROKES: drag-paint while a verb is held
         .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
@@ -300,32 +299,8 @@ struct GridView: View {
         .allowsHitTesting(false)
     }
 
-    // Per-cell MUTATION line (delta §4): in the ACTIVE column, one white horizontal line falls
-    // through each WORKING cell over its step (the "this machine is running" cue). Faint & glowless
-    // when bypassed (identity); absent when muted. One overlay for all — geometry derived from the
-    // shared layout constants; hit-testing off so cell taps pass through.
-    private var mutationLines: some View {
-        GeometryReader { geo in
-            let cellW = (geo.size.width - 7 * Self.vGap) / 8
-            let colX = CGFloat(playColumn) * (cellW + Self.vGap) + cellW / 2
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing || animPaused)) { tl in
-                // within-column fraction (0 at column entry → 1 at exit), swing-aware so it spans the
-                // real (swung) column window rather than finishing early and wrapping.
-                let f = columnSweepFraction(realBeat: liveBeat(tl.date), stepBeats: stepBeats, swing: swing)
-                ForEach(0..<8, id: \.self) { r in
-                    if playing, let c = cellAt(playColumn, r), !c.muted, !ladderDim.contains(GridPos(col: playColumn, row: r)) {   // LADDER: only the active rung
-                        let faint = c.bypassed
-                        Rectangle()
-                            .fill(Color.white.opacity(faint ? 0.4 : 0.92))
-                            .frame(width: cellW - 4, height: 2)
-                            .shadow(color: faint ? .clear : Color.white.opacity(0.8), radius: faint ? 0 : 4)
-                            .position(x: colX, y: (cellHeight + Self.vGap) + CGFloat(r) * (cellHeight + Self.vGap) + f * cellHeight)
-                    }
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
+    // (Per-cell MUTATION line retired 2026-08-06 — the downward falling playhead on the cells is gone; the master
+    //  column arrow at the top of the key row remains the one-clock cue.)
 
     // §10 a routing candidate wears a pulsing SRC/DEST chip — NO outline (must not read as "selected"). The
     // pulse rides the shared `breathe` phase (same cadence as the ALT ring + the strip ROUTE faces).
