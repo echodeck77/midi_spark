@@ -298,6 +298,10 @@ struct ProcessorSlot: Codable, Equatable {
     var type: ProcessorType
     var params: ColourParams = ColourParams()
     var bypassed: Bool = false     // per-slot TRUE-BYPASS (the chain's debugger — proposal §2 C3)
+    // MACRO AUTHORING (§7): the persisted ALTERNATIVE control set — reopening MACRO shows the last-authored B.
+    // Additive Optional → old docs decode nil (no ALT authored yet). The binding stores the delta (ALT − MAIN).
+    var paramsAlt: ColourParams? = nil
+    var bypassedAlt: Bool? = nil
 }
 
 // MARK: - Receiver (delta §9 item 11) — a shared, named MIDI-input object

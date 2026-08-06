@@ -8,7 +8,7 @@ final class MacroAuthoringTests: XCTestCase {
 
     private let params: [MacroControlParam] = [
         MacroControlParam(key: "gate", label: "GATE", kind: .continuous(lo: 0.05, hi: 1)),
-        MacroControlParam(key: "bypass", label: "BYPASS", kind: .discrete),
+        MacroControlParam(key: "bypass", label: "BYPASS", kind: .toggle),
         MacroControlParam(key: "spread", label: "SPREAD", kind: .continuous(lo: 0, hi: 1)),
     ]
 
@@ -74,5 +74,51 @@ final class MacroAuthoringTests: XCTestCase {
                 XCTAssertTrue(foldable.contains(p.key), "continuous \(p.key) must be a foldable MacroParam")
             }
         }
+    }
+
+    // Value get/set — the descriptor's keys read a live slot's values and write them back, round-trip clean.
+    func testProcessorValuesRoundTripPerType() {
+        var slots: [ProcessorSlot] = []
+        var arp = ProcessorSlot(type: .arp); arp.bypassed = true
+        arp.params.pattern = .upDown; arp.params.rate = .r1_8; arp.params.octaves = 3; arp.params.phase = .legato; arp.params.gate = 0.42
+        slots.append(arp)
+        var rat = ProcessorSlot(type: .ratchet); rat.params.count = 6; rat.params.ramp = 0.7; rat.params.gate = 0.3; slots.append(rat)
+        var str = ProcessorSlot(type: .strum); str.params.strumDir = .alternate; str.params.spread = 0.4; str.params.curve = -0.5; str.params.velTilt = 0.6; slots.append(str)
+        var chn = ProcessorSlot(type: .chance); chn.params.probability = 0.33; slots.append(chn)
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [3, 7, -12]; harm.params.harmVelScale = 0.5; slots.append(harm)
+        var pass = ProcessorSlot(type: .passgate); pass.params.passes = [true, false, true, false]; slots.append(pass)
+        for s in slots {
+            let back = applyProcessorValues(processorValues(s), to: ProcessorSlot(type: s.type))
+            XCTAssertEqual(back.bypassed, s.bypassed, "\(s.type) bypass round-trips")
+            for p in macroParamsForProcessor(s.type) {
+                XCTAssertEqual(processorValues(back)[p.key] ?? .nan, processorValues(s)[p.key] ?? .nan, accuracy: 1e-9, "\(s.type).\(p.key) round-trips")
+            }
+        }
+    }
+
+    // §7 the ALTERNATIVE set persists on the slot (additive Optional → old docs decode nil).
+    func testProcessorAltPersistsAndOldDocDecodesNil() throws {
+        var slot = ProcessorSlot(type: .arp)
+        slot.paramsAlt = { var p = ColourParams(); p.gate = 0.9; p.pattern = .random; return p }()
+        slot.bypassedAlt = true
+        let rt = try JSONDecoder().decode(ProcessorSlot.self, from: JSONEncoder().encode(slot))
+        XCTAssertEqual(rt.paramsAlt?.gate, 0.9); XCTAssertEqual(rt.paramsAlt?.pattern, .random); XCTAssertEqual(rt.bypassedAlt, true)
+        // an "old" slot without the keys decodes nil
+        var obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProcessorSlot(type: .arp))) as! [String: Any]
+        obj.removeValue(forKey: "paramsAlt"); obj.removeValue(forKey: "bypassedAlt")
+        let old = try JSONDecoder().decode(ProcessorSlot.self, from: JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(old.paramsAlt); XCTAssertNil(old.bypassedAlt)
+    }
+
+    // A processor ALT diverging on gate (continuous) + pattern (option) yields a delta that binds BUTTON-only.
+    func testProcessorDeltaEligibility() {
+        var main = ProcessorSlot(type: .arp); main.params.gate = 0.5; main.params.pattern = .up
+        var alt = main; alt.params.gate = 0.8   // continuous only
+        let ps = macroParamsForProcessor(.arp)
+        let dCont = macroSparseDelta(main: processorValues(main), alt: processorValues(alt), params: ps)
+        XCTAssertFalse(macroDeltaHasDiscrete(dCont, params: ps), "gate-only → slider-eligible")
+        alt.params.pattern = .random   // now touches a discrete option too
+        let dDisc = macroSparseDelta(main: processorValues(main), alt: processorValues(alt), params: ps)
+        XCTAssertTrue(macroDeltaHasDiscrete(dDisc, params: ps), "a pattern flip → buttons only")
     }
 }
