@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ UNATTENDED COVERAGE + REFACTOR PASS (2026-08-07, on `main`, PUSHED `a78af50`; macOS 506 green, iOS + macOS
+  build). Ran after pushing the macro-rebuild/mosaic-crest/playhead batch (`af2040d`). +5 tests:
+  `testMosaicLayoutClampsExtremeAspectAndStillTiles` (extreme/degenerate crest aspect stays valid, width ≤0.9,
+  face still tiles to 1.0) · `testMacroApplySnapsOptionStepperMask` (macroApply snaps option/stepper/mask at the
+  halfway point like toggle) · `testMacroGroupForProcessor` (group id/domain/title/params) ·
+  `testProcessorParamKindsPerType` (each type's own mask/stepper kinds) · `testApplyProcessorValuesClampsDiscretes`
+  (write-back clamps out-of-range octaves/pattern-option/passMask — a stale value never traps). REFACTOR:
+  `MacroParam` is now `CaseIterable`; the "foldable continuous params" set in `macroAuthorBind` (EditPage) + the
+  descriptor test derive from `MacroParam.allCases` instead of a duplicated string literal (single source). Orphan
+  scan clean — `ProcessorSlot.paramsAlt`/`bypassedAlt` are now unused by the redesigned pop-up but KEPT reserved
+  (Paul's macro revisions land 2026-08-08). Ferry UPDATE `_dear_claude/UPDATE-2026-08-07-macro-mosaic-playhead.md`
+  written (gitignored, awaits design ack of it + `REPLY-2026-08-06-macro-authoring-plan.md`).**
 - **▶ MERGED `feat/macro-authoring` + `feat/mosaic-cell-face` → `main` (2026-08-06; iOS builds, macOS 499 green;
   DEVICE pass owed). Two features consolidated at the user's word ("merge everything").**
   - **MACRO AUTHORING FLOW (canonical, spec `AcceptanceCriteria-macro-authoring.md`) — processor domain, device-
