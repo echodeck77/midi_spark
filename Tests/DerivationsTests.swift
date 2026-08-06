@@ -1275,7 +1275,7 @@ final class DerivationsTests: XCTestCase {
 
     func testMosaicLayoutCountAndTiling() {
         for h: UInt64 in [1, 42, 0xDEADBEEF, 0, 7_777_777, .max] {
-            let m = mosaicLayout(hash: h)
+            let m = mosaicLayout(hash: h, aspect: 0.35)
             XCTAssertTrue((4...6).contains(m.count), "4–6 blocks (hash \(h) → \(m.count))")
             let area = m.reduce(0) { $0 + $1.area }
             XCTAssertEqual(area, 1.0, accuracy: 1e-9, "the blocks TILE the unit face (Σ area = 1)")
@@ -1287,17 +1287,19 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
-    func testMosaicLayoutSortedLargestFirst() {
-        let m = mosaicLayout(hash: 12_345)
-        for i in 1..<m.count { XCTAssertGreaterThanOrEqual(m[i - 1].area, m[i].area, "block 0 is the biggest (bass)") }
+    func testMosaicLayoutCrestBlockIsFullHeightSquare() {
+        let m = mosaicLayout(hash: 12_345, aspect: 0.35)
+        XCTAssertEqual(m[0].h, 1, accuracy: 1e-9, "block 0 spans the full height")
+        XCTAssertEqual(m[0].w, 0.35, accuracy: 1e-9, "…and is as wide as it is tall (unit-width = aspect)")
+        XCTAssertEqual(m[0].x, 0, accuracy: 1e-9); XCTAssertEqual(m[0].y, 0, accuracy: 1e-9)
     }
 
     func testMosaicLayoutIsDeterministicTwinShared() {
-        XCTAssertEqual(mosaicLayout(hash: 0xABCDEF), mosaicLayout(hash: 0xABCDEF), "same hash → same layout (twins share)")
+        XCTAssertEqual(mosaicLayout(hash: 0xABCDEF, aspect: 0.35), mosaicLayout(hash: 0xABCDEF, aspect: 0.35), "same hash → same layout (twins share)")
     }
 
     func testMosaicLayoutIsHashSensitive() {
-        XCTAssertNotEqual(mosaicLayout(hash: 1), mosaicLayout(hash: 2), "different configs → different mosaics")
+        XCTAssertNotEqual(mosaicLayout(hash: 1, aspect: 0.35), mosaicLayout(hash: 2, aspect: 0.35), "different configs → different mosaics")
     }
 
     func testMosaicCrestCountDeterministicTwinShared() {

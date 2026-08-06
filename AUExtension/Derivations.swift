@@ -1016,30 +1016,35 @@ struct MosaicRect: Equatable {
 /// (usually) at a hash-chosen INTERIOR ratio (0.32…0.68 — no slivers). Returned sorted LARGEST-first, so index 0
 /// is the biggest block (the bass, for the pool-rank lighting). Contiguous (no gaps/overlaps — the renderer insets
 /// each block for the visual gap). Pure/testable.
-func mosaicLayout(hash: UInt64) -> [MosaicRect] {
+/// `aspect` = the face's pixel height/width. BLOCK 0 is reserved as the CREST block: full height, and as WIDE as it
+/// is TALL (a square in pixels → unit-width = aspect), so the crown shapes sit prominent (user 2026-08-06). The
+/// remaining strip is tiled with the Mondrian split. Contiguous, deterministic (twins share).
+func mosaicLayout(hash: UInt64, aspect: Double = 1) -> [MosaicRect] {
     var rng = hash == 0 ? 0x9E3779B97F4A7C15 : hash
     func next() -> Double {                                   // deterministic 0..<1
         rng = splitmix64Mix(rng &+ 0x9E3779B97F4A7C15)
         return Double(rng >> 11) * (1.0 / 9_007_199_254_740_992.0)
     }
-    let count = 4 + Int(hash % 3)                             // 4, 5, or 6 blocks
-    var rects = [MosaicRect(x: 0, y: 0, w: 1, h: 1)]
-    while rects.count < count {
-        let i = rects.indices.max(by: { rects[$0].area < rects[$1].area })!   // split the biggest block
-        let r = rects[i]
+    let count = 4 + Int(hash % 3)                             // 4, 5, or 6 blocks (incl. the crest square)
+    let sqW = min(0.9, max(0.001, aspect))                   // the crest square: full height, width = aspect ⇒ square in px
+    let crestSquare = MosaicRect(x: 0, y: 0, w: sqW, h: 1)
+    var strip = [MosaicRect(x: sqW, y: 0, w: 1 - sqW, h: 1)]  // the remaining strip, tiled below
+    while strip.count < count - 1 {
+        let i = strip.indices.max(by: { strip[$0].area < strip[$1].area })!  // split the biggest strip block
+        let r = strip[i]
         let cutWidth = (r.w >= r.h) ? next() < 0.72 : next() < 0.28           // usually cut the LONGER side (clean blocks)
         let ratio = 0.32 + next() * 0.36                                      // interior split, no slivers
         if cutWidth {
             let c = r.w * ratio                                              // left | right
-            rects[i] = MosaicRect(x: r.x, y: r.y, w: c, h: r.h)
-            rects.append(MosaicRect(x: r.x + c, y: r.y, w: r.w - c, h: r.h))
+            strip[i] = MosaicRect(x: r.x, y: r.y, w: c, h: r.h)
+            strip.append(MosaicRect(x: r.x + c, y: r.y, w: r.w - c, h: r.h))
         } else {
             let c = r.h * ratio                                              // top / bottom
-            rects[i] = MosaicRect(x: r.x, y: r.y, w: r.w, h: c)
-            rects.append(MosaicRect(x: r.x, y: r.y + c, w: r.w, h: r.h - c))
+            strip[i] = MosaicRect(x: r.x, y: r.y, w: r.w, h: c)
+            strip.append(MosaicRect(x: r.x, y: r.y + c, w: r.w, h: r.h - c))
         }
     }
-    return rects.sorted { $0.area > $1.area }
+    return [crestSquare] + strip.sorted { $0.area > $1.area }   // block 0 = the crest square, then the strip largest-first
 }
 
 /// THE CREST (mosaic §2) — the 1–2 shapes inscribed in the LARGEST rectangle (the crown), HASH-CHOSEN from the

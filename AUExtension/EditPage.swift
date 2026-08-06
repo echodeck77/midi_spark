@@ -444,8 +444,8 @@ extension DiagView {
                         if useMosaicFace {                                                                   // THE MOSAIC — match the grid cells (candidate F, branch)
                             Canvas { ctx, size in
                                 let mh = UInt64(sealHash(cell, colours: docColours)); let ch = colourColor(cell.colourID) ?? .gray
-                                drawMosaic(mosaicLayout(hash: mh), into: ctx, size: size, hue: ch, breath: 0,
-                                           crest: mosaicCrest(hash: mh), crestInk: mosaicContrastInk(ch))
+                                drawMosaic(hash: mh, into: ctx, size: size, hue: ch, breath: 0,
+                                           crest: mosaicCrest(hash: mh), crestTone: mosaicCrestTone(ch))
                             }
                             .frame(width: box - 12, height: box - 12)
                         } else {
