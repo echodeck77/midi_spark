@@ -387,14 +387,24 @@ extension DiagView {
             // change (new hash) CROSSFADES the seal (~250ms). (The arc-length re-route glide of §4 is deferred polish.)
             RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray).frame(width: box, height: box)
                 .overlay(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                   // engraved plate (as cells)
-                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
-                        Canvas { ctx, size in
-                            drawSeal(sealGeometry(sealHash(cell, colours: docColours)), into: ctx, size: size, padFraction: 0.16, stroke: 2.8, ink: sealInk)
+                    Group {
+                        if useMosaicFace {                                                                   // THE MOSAIC — match the grid cells (candidate F, branch)
+                            Canvas { ctx, size in
+                                drawMosaic(mosaicLayout(hash: UInt64(sealHash(cell, colours: docColours))),
+                                           into: ctx, size: size, hue: colourColor(cell.colourID) ?? .gray, breath: 0)
+                            }
+                            .frame(width: box - 12, height: box - 12)
+                        } else {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))            // engraved plate (as cells)
+                                RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                                Canvas { ctx, size in
+                                    drawSeal(sealGeometry(sealHash(cell, colours: docColours)), into: ctx, size: size, padFraction: 0.16, stroke: 2.8, ink: sealInk)
+                                }
+                            }
+                            .frame(width: box - 16, height: (box - 16) * 0.62)                               // landscape — matches the cell seal's dims
                         }
                     }
-                    .frame(width: box - 16, height: (box - 16) * 0.62)                                       // landscape — matches the cell seal's dims
                     .id(sealHash(cell, colours: docColours)).transition(.opacity)
                 )
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))

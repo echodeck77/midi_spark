@@ -354,7 +354,7 @@ struct GridView: View {
             } else if let cell {
                 if useMosaicFace {
                     // THE MOSAIC (candidate F) — the derived breathing-Mondrian face fills the whole cell (branch).
-                    mosaicFace(cell, col * 8 + row)
+                    mosaicFace(cell, col * 8 + row, hue: colour ?? cellBg)
                 } else {
                     // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
                     // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
@@ -563,7 +563,7 @@ struct GridView: View {
     // white scaled by `vel × life` (the same strike-feed envelope the seal comet uses: hold while sounding, fade
     // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
     // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
-    @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int) -> some View {
+    @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int, hue: Color) -> some View {
         let rects = mosaicLayout(hash: UInt64(sealHash(cell, colours: colours)))
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
@@ -572,27 +572,23 @@ struct GridView: View {
         let n = max(1, rects.count)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
+                // The brightness is ENVELOPE-driven, not velocity-driven (velocity is only a small delta) — so every
+                // strike visibly FLASHES regardless of how hard it hit. `pulse` = a bright per-strike bump (decays
+                // ~0.4s → the rhythm, incl. ratchet shimmer); `sustain` = a gentler held glow while the note sounds,
+                // fading ~0.45s on release. A pluck the 4Hz gate misses still flashes off its strike.
+                let strikeAge = tl.date.timeIntervalSince(hitAt)
+                let releaseAge = tl.date.timeIntervalSince(releasedAt)
                 let hasRelease = releasedAt > hitAt
-                let life = sounding ? 1.0
-                                    : (hasRelease ? max(0.0, 1 - tl.date.timeIntervalSince(releasedAt) / 0.45)
-                                                  : max(0.0, 1 - tl.date.timeIntervalSince(hitAt) / 0.5))
-                let breath = vel * life                                       // 0 at rest → up to vel while lit
-                let gap: CGFloat = 1.2                                        // the hair-gap that reads the blocks apart
-                for (i, r) in rects.enumerated() {
-                    let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
-                                      width: max(0.5, r.w * size.width - 2 * gap),
-                                      height: max(0.5, r.h * size.height - 2 * gap))
-                    let path = Path(roundedRect: rect, cornerRadius: 2)
-                    ctx.fill(path, with: .color(.black.opacity(0.12)))        // rest: an engraved block on the cell colour
-                    ctx.stroke(path, with: .color(.black.opacity(0.16)), lineWidth: 0.75)
-                    if breath > 0.001 {                                       // strike: flash toward white, small blocks brighter
-                        let rankPeak = 0.55 + 0.45 * Double(i) / Double(max(1, n - 1))
-                        ctx.fill(path, with: .color(.white.opacity(min(0.9, breath * rankPeak))))
-                    }
-                }
+                let pulse = max(0.0, 1 - strikeAge / 0.4)
+                let sustain = sounding ? 0.5 : (hasRelease ? 0.5 * max(0.0, 1 - releaseAge / 0.45) : 0.0)
+                let breath = min(1.0, (0.75 + 0.25 * vel) * max(pulse, sustain))
+                // The per-strike PRIMARY block (a bridge toward phase-2 per-note lighting) — a different block pops
+                // each strike, so the mosaic shimmers across its blocks as it plays.
+                let primary = pulse > 0.02 ? Int(UInt64(bitPattern: Int64(hitAt.timeIntervalSince1970 * 1000)) % UInt64(n)) : -1
+                drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, primary: primary)
             }
         }
-        .padding(6)
+        .padding(3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -1707,8 +1703,33 @@ struct RoutingVizOverlay: View {
 // The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.
 
 // Cell-face candidate switch (branch feat/mosaic-cell-face): true = THE MOSAIC (candidate F), false = THE SEAL.
-// The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships.
-private let useMosaicFace = true
+// The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships. Internal (not
+// private) so the edit-page IDENTITY plate (EditPage.swift) reads the same switch.
+let useMosaicFace = true
+
+/// Draw THE MOSAIC face into a Canvas. `hue` = the cell's own colour; the blocks ARE that colour, separated by a
+/// dark GROUT (thin lines — lighter than the old seal ink) and given depth by RANK (index 0 = biggest = darker;
+/// smaller blocks lighter), so the Mondrian reads clearly even at ~30px. `breath` (0…1) is the strike brightness
+/// (0 at rest): the blocks flash toward white, small blocks brightest, and the per-strike `primary` block pops a
+/// touch more (a bridge toward the phase-2 per-note lighting). Shared by the grid cells + the identity plate.
+func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double, primary: Int = -1) {
+    let n = max(1, rects.count)
+    let gap = max(1.0, min(size.width, size.height) * 0.045)
+    ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(.black.opacity(0.32)))   // the grout shows in the gaps
+    for (i, r) in rects.enumerated() {
+        let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
+                          width: max(1, r.w * size.width - 2 * gap), height: max(1, r.h * size.height - 2 * gap))
+        let path = Path(roundedRect: rect, cornerRadius: 2.5)
+        ctx.fill(path, with: .color(hue))                                              // the block = the cell colour
+        let t = Double(i) / Double(max(1, n - 1)) - 0.5                                // depth by size: big darker, small lighter
+        ctx.fill(path, with: .color(t < 0 ? Color.black.opacity(-t * 0.34) : Color.white.opacity(t * 0.26)))
+        if breath > 0.01 {                                                            // strike: flash toward white
+            let rankPeak = 0.60 + 0.40 * Double(i) / Double(max(1, n - 1))            // small blocks flash brighter
+            let boost = (i == primary) ? 1.0 : 0.82
+            ctx.fill(path, with: .color(.white.opacity(min(0.94, breath * rankPeak * boost))))
+        }
+    }
+}
 
 private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
 
