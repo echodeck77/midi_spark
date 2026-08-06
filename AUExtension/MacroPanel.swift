@@ -70,8 +70,8 @@ struct MacroPanel: View {
 
     private var bankHint: String {
         switch bank {
-        case .slider:   return "SLIDERS morph A→B continuously (M1–M8, host-automatable). Drag to ride; the padlock at the foot toggles SPRING (release → home) or FIXED (latched). Bind targets from the Edit page's [AB] popup."
-        case .button:   return "BUTTONS snap A|B. SPRING = momentary punch-in; FIXED = a latched rig-switch. Bind from the Edit page's [AB] popup."
+        case .slider:   return "SLIDERS morph A→B continuously (M1–M8, host-automatable). Drag to ride; the padlock at the foot toggles SPRING (release → home) or FIXED (latched). Bind targets from the MACRO button on a processor slot."
+        case .button:   return "BUTTONS snap A|B. SPRING = momentary punch-in; FIXED = a latched rig-switch. Bind from the MACRO button on a processor slot."
         case .timeline: return "TIMELINES: the playhead drives the macro per column (an 8-step lane). The lane editor + per-column modes arrive with this bank."
         }
     }

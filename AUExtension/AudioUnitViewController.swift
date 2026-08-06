@@ -94,9 +94,6 @@ struct DiagView: View {
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State var showCellLibrary = false
     @State var cellLibraryList: [String] = []
-    // MACRO A/B AUTHORING (M4): the [AB] popup + the A-state stash (per selected cell) to restore on close.
-    @State var macroBindOpen = false
-    @State var macroBindStash: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
     @State var macroAuthorOpen = false
     @State var macroAuthorSlot = 0
@@ -808,19 +805,6 @@ struct DiagView: View {
                 if showManual {                         // the in-app MANUAL, scrolled to the last-touched control
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
-                }
-                if macroBindOpen, let a = editSel.first, let anchorCell = scene.cellAt(a.col, a.row) {
-                    MacroBindPopup(chain: cellChain(anchorCell), anchor: (col: a.col, row: a.row),
-                                   selected: editSelTargets, macros: au?.uiMacros() ?? [],
-                                   amounts: (leak: claimLeak, duck: flattenAmount, curve: curveAmount, pocket: pocketMs),
-                                   onEditParam: { slot, param, v in
-                                       au?.editSlotCells(editSelTargets, slot: slot) { $0.params.setMacroValue(param, v) }
-                                   },
-                                   onBind: { i, targets in au?.addMacroTargets(i, targets); refreshFromDocument() },
-                                   onRemove: { i in au?.removeMacroTargets(i, col: a.col, row: a.row); refreshFromDocument() },
-                                   onBindEmitter: { i, targets in au?.addMacroEmitterTargets(i, targets); refreshFromDocument() },
-                                   onRemoveEmitter: { i in au?.removeMacroEmitterTargets(i); refreshFromDocument() },
-                                   onClose: closeMacroBind)
                 }
                 if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING FLOW (canonical) — the MAIN/ALT authoring page
                     MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], accent: mainDestHue,
