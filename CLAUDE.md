@@ -157,6 +157,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MERGED `feat/macro-authoring` + `feat/mosaic-cell-face` → `main` (2026-08-06; iOS builds, macOS 499 green;
+  DEVICE pass owed). Two features consolidated at the user's word ("merge everything").**
+  - **MACRO AUTHORING FLOW (canonical, spec `AcceptanceCriteria-macro-authoring.md`) — processor domain, device-
+    tuned.** A GENERIC control-group authoring flow (Paul: "about CONTROLS, not processors"): `MacroAuthoring.swift`
+    = data-only registry (`MacroControlKind` continuous/toggle/option/stepper/mask · `MacroControlParam/Group`) +
+    pure logic (`macroSparseDelta` §3 · `macroDeltaHasDiscrete` §5 · `macroApply` offset preview) + processor
+    value get/set (`processorValues`/`applyProcessorValues`, round-trip tested) + `macroParamsForProcessor`.
+    `MacroAuthoringView.swift` = the MAIN/ALT authoring page (generic `MacroControlEditor` per kind) + TEST morph
+    slider + `MacroAssignmentView` (8 sliders/8 buttons; discrete deltas dim sliders §5) + APPLY/CANCEL. A MACRO
+    pill on each processor slot (`ProcessorBox` slotMode) opens it; `EditPage` callbacks: MAIN is REAL, TEST
+    previews live, ALT persists to `ProcessorSlot.paramsAlt` (§7, additive Optional), bindings stage on ASSIGN +
+    commit on APPLY (continuous keys → `addMacroTargets`); rides the processors-page edit session (§6). DEVICE
+    tuning: real-time audibility (dropped per-tick `refreshFromDocument`; auto-AUDITION the cell while open) +
+    SWAP/RESET on both boxes. Keeps the offset engine (M1)/AU params (M2)/MACROS tab (M3); `MacroBindPopup` still
+    present (retire once device-verified). DEFERRED: receiver/emitter/rack domains · the discrete-param (button/
+    timeline) binding path · the future MACRO MAIN management tab. 9 tests (`MacroAuthoringTests`).
+  - **THE MOSAIC cell face (candidate F, spec `-mosaic-face.md`) SHIPS as the cell face** (`useMosaicFace = true`
+    in GridUI — flip to restore the SEAL, kept intact). `Derivations.mosaicLayout(hash:)` (pure, 4 tests) → a 4–6
+    block Mondrian from the seal hash (twins share); `GridUI.drawMosaic` = coloured blocks + dark grout + rank
+    depth, envelope-driven per-strike flash (device-tuned for legibility + change-on-play), used by the grid cells
+    + the edit identity plate. **Phase-2 owed: the per-NOTE pool-rank + duration feed (engine work).**
 - **▶ QUALITY PASS — tests · dead-code · dedup · one real bug (2026-08-05, on `main`; macOS 460→487 green, iOS
   builds; NOT pushed). A survey-driven legibility/coverage pass (3 parallel survey agents → verified + implemented
   in-loop). Commits `c9f28cb`→`753b875`. (1) `c9f28cb`: UI — whole-UI scroll (header+tabs scroll WITH the body when
