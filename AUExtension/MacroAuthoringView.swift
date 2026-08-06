@@ -22,7 +22,6 @@ struct MacroAuthoringView: View {
     @State private var main: [String: Double] = [:]
     @State private var alt: [String: Double] = [:]
     @State private var testValue: Double = 0
-    @State private var testSnappedAlt = false
     @State private var showAssign = false
 
     private var delta: [String: Double] { macroSparseDelta(main: main, alt: alt, params: group.params) }
@@ -72,12 +71,26 @@ struct MacroAuthoringView: View {
             HStack(spacing: 6) {
                 Text(title).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
                 Text(subtitle).font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(.white.opacity(0.35))
+                Spacer(minLength: 8)
+                miniBtn("SWAP") { swapMainAlt() }        // trade MAIN ⇄ ALTERNATIVE (top-right of both boxes)
+                miniBtn("RESET") { resetBoth() }         // both boxes back to the processor's original settings
             }
             body()
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(panel))
     }
+    private func miniBtn(_ label: String, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                .padding(.horizontal, 7).frame(height: 20)
+                .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.14)))
+        }.buttonStyle(.plain)
+    }
+    /// SWAP — trade the MAIN and ALTERNATIVE sets (MAIN is real, so write it live; ALT persists).
+    private func swapMainAlt() { let m = main; main = alt; alt = m; onWriteMain(main); onPersistAlt(alt) }
+    /// RESET — both boxes back to the processor's ORIGINAL settings (the values on open) → the delta clears.
+    private func resetBoth() { main = initialMain; alt = initialMain; onWriteMain(main); onPersistAlt(alt) }
 
     @ViewBuilder private func editors(bindingToMain: Bool) -> some View {
         VStack(spacing: 8) {
@@ -92,23 +105,14 @@ struct MacroAuthoringView: View {
         }
     }
 
-    // TEST — a continuous slider (morph MAIN↔ALT) + a snap button; both audition via onPreview.
+    // TEST — the morph slider auditions MAIN → ALTERNATIVE live (hold keys to hear the processor). Releasing snaps
+    // the audition back to MAIN; the real MAIN/ALT settings are untouched (this only previews the mover feel).
     private var testRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("TEST — audition the mover").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: 12) {
-                Slider(value: Binding(get: { testValue }, set: { testValue = $0; onPreview(macroApply(main: main, delta: delta, value: $0, params: group.params)) }),
-                       in: 0...1, onEditingChanged: { editing in if !editing { testValue = 0; onPreview(nil) } })
-                    .tint(accent)
-                Button {
-                    testSnappedAlt.toggle()
-                    onPreview(testSnappedAlt ? macroApply(main: main, delta: delta, value: 1, params: group.params) : nil)
-                } label: {
-                    Text(testSnappedAlt ? "ALT" : "MAIN").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(testSnappedAlt ? .black : accent).frame(width: 54, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(testSnappedAlt ? accent : accent.opacity(0.12)))
-                }.buttonStyle(.plain)
-            }
+            Text("TEST — drag to morph MAIN → ALT (hold keys to hear)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Slider(value: Binding(get: { testValue }, set: { testValue = $0; onPreview(macroApply(main: main, delta: delta, value: $0, params: group.params)) }),
+                   in: 0...1, onEditingChanged: { editing in if !editing { testValue = 0; onPreview(main) } })
+                .tint(accent)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(panel))
@@ -126,8 +130,8 @@ struct MacroAuthoringView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Button { onPreview(nil); onClose(false) } label: { footChip("CANCEL", fill: false) }.buttonStyle(.plain)
-            Button { onPreview(nil); onClose(true) } label: { footChip("APPLY", fill: true) }.buttonStyle(.plain)
+            Button { onPreview(main); onClose(false) } label: { footChip("CANCEL", fill: false) }.buttonStyle(.plain)
+            Button { onPreview(main); onClose(true) } label: { footChip("APPLY", fill: true) }.buttonStyle(.plain)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }

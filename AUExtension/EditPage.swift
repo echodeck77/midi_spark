@@ -361,27 +361,26 @@ extension DiagView {
             var s = ProcessorSlot(type: slot.type, params: alt); s.bypassed = slot.bypassedAlt ?? slot.bypassed
             macroAuthorAlt = processorValues(s)
         } else { macroAuthorAlt = [:] }                              // empty → the view seeds ALT = MAIN
+        au?.setAudition(col: a.col, row: a.row)                      // REAL-TIME AUDITION: hold keys to hear the processor live while authoring
         macroAuthorOpen = true
     }
-    /// MAIN is REAL — write the edited MAIN values onto the live slot(s).
+    /// MAIN is REAL — write the edited MAIN values onto the live slot(s). NO refreshFromDocument on the hot path:
+    /// editSlotCells → scheduleRebuild already republishes the snapshot immediately (the audio tracks live), whereas
+    /// refreshFromDocument reloads ~40 @State fields per tick (the lag that hid the real-time change).
     func macroAuthorWriteMain(_ v: [String: Double]) {
-        macroAuthorMain = v
         au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(v, to: $0) }
-        refreshFromDocument()
     }
     /// TEST audition — apply a value dict live (nil restores the current MAIN, never a stale preview).
     func macroAuthorPreview(_ v: [String: Double]?) {
         let vals = v ?? macroAuthorMain
         au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(vals, to: $0) }
-        refreshFromDocument()
     }
-    /// §7 persist the ALTERNATIVE set on the slot (leaves MAIN untouched).
+    /// §7 persist the ALTERNATIVE set on the slot (leaves MAIN untouched — no audio impact, no refresh needed).
     func macroAuthorPersistAlt(_ v: [String: Double]) {
         macroAuthorAlt = v
         au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { s in
             let a = applyProcessorValues(v, to: ProcessorSlot(type: s.type)); s.paramsAlt = a.params; s.bypassedAlt = a.bypassed
         }
-        refreshFromDocument()
     }
     /// Stage a binding (committed on APPLY). Only the CONTINUOUS (foldable) delta keys bind today; discrete keys are
     /// the future button/timeline path (noted).
@@ -399,6 +398,7 @@ extension DiagView {
         } else if let base = macroAuthorBaseline {                   // CANCEL → restore MAIN + ALT to the slot's open state
             au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = base }
         }
+        au?.clearAudition()
         macroAuthorOpen = false; macroAuthorGroup = nil; macroAuthorBaseline = nil; macroAuthorPending = []
         refreshFromDocument()
     }
