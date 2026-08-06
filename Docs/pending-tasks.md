@@ -70,6 +70,16 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [x] **Fresh-cell + naming + furniture (2026-07-30)** — fully-null new cells · full processor names · grid down-chevrons (watermark + column keys) · dual-side row rails · DELETE-sever→NULL.
 
 ## C. Buildable now (next increments)
+- [ ] **CONTROLLER ROUTING v1** (design ruling 2026-08-06, spec `AcceptanceCriteria-controller-routing.md`) —
+  per-door cog mask CONTROLLERS→[A·B·C·D] (default all-live); forward matching CC/PB/AT/PC to each selected emitter
+  RE-STAMPED to its channel; supersedes the hardwired `passthroughCableMask`. **CC123/120 = pool/latch FLUSH +
+  forward** (all-notes-off must release us). **UMP legacy parity where cheap** (system/SysEx pass). BEND-ownership
+  rule reserved for the future per-emitter bend stage. Render-input-path + a DEVICE ear-check — captured, not built
+  blind. Model seam: `Receiver.controllerMask: UInt8?` (nil ⇒ 0b1111).
+- [x] **MPE toggle + auto-detect RETIRED** (design ruling 2026-08-06, on `main`) — the RECEIVERS-tab MPE toggle
+  (`ReceiverConfigView.mpeRow`) + the write-only auto-detect (`mpeSeenAt`) are gone (manual-honesty law: the UI
+  stopped promising what nothing reads). `Receiver.mpeMerge` stays Codable + `setReceiverMpeMerge`/`mpeLikely`
+  reserved for the two-lane expression era.
 - [x] **THE "STRIPS DONE" WAVE** — emitter hold-while-sounding feed built + **device-verified 2026-07-30**
   (steady cargo-tinted `SoundMark` ticks + fade-on-release; `Router.snapshotEmitterSounding`; test
   `testEmitterSoundingReportsHeldNoteOnItsBusThenClearsOnRelease`). ④ polish-laws accepted at current values on

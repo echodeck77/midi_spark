@@ -50,7 +50,6 @@ struct ReceiverConfigView: View {
             latchSection(i, r)
             transposeRow(i)
             bypassSection(i, r)
-            mpeRow(i, r)
             muteSoloRow(i, r)
         }
         .padding(16)
@@ -162,17 +161,9 @@ struct ReceiverConfigView: View {
         }
     }
 
-    private func mpeRow(_ i: Int, _ r: Receiver) -> some View {
-        let on = r.mpeMerge
-        return HStack(spacing: 10) {
-            Text("MPE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
-            Text(on ? "ON" : "OFF").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(on ? .black : ink.opacity(0.5))
-                .frame(width: 50, height: 28).background(RoundedRectangle(cornerRadius: 5).fill(on ? green : ink.opacity(0.1)))
-                .contentShape(Rectangle()).onTapGesture { au?.setReceiverMpeMerge(i, !on); onChanged() }
-            Spacer(minLength: 0)
-        }
-    }
+    // (MPE toggle + auto-detect RETIRED 2026-08-06 per the design ruling — the UI must not promise what nothing
+    //  reads yet [manual-honesty law]. Receiver.mpeMerge stays Codable + setReceiverMpeMerge stays, reserved for
+    //  the two-lane expression era; mpeLikely is kept as the future detection heuristic.)
 
     // MUTE · SOLO — same behaviour as the grid (onToggleMute / onToggleSolo).
     private func muteSoloRow(_ i: Int, _ r: Receiver) -> some View {

@@ -188,7 +188,6 @@ struct DiagView: View {
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
     @State var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
-    @State var mpeSeenAt: [Date] = Array(repeating: .distantPast, count: 4)   // §MPE: last auto-detected per receiver
     @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
@@ -938,7 +937,6 @@ struct DiagView: View {
                 if i < rin.events.count && rin.events[i] > 0 {
                     receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
                 }
-                if i < rin.channels.count && mpeLikely(channelMask: rin.channels[i]) { mpeSeenAt[i] = Date() }
             }
             // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
             let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), wmk = au.pollWithheldMarks(), mnow = Date()
