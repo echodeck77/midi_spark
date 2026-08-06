@@ -1294,6 +1294,15 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(m[0].x, 0, accuracy: 1e-9); XCTAssertEqual(m[0].y, 0, accuracy: 1e-9)
     }
 
+    func testMosaicLayoutClampsExtremeAspectAndStillTiles() {
+        for a in [2.0, 0.0, -1.0] {                                  // a near-square/tall or degenerate aspect stays valid
+            let m = mosaicLayout(hash: 99, aspect: a)
+            XCTAssertLessThanOrEqual(m[0].w, 0.9 + 1e-9, "the crest square width is clamped ≤ 0.9 so the strip survives")
+            XCTAssertGreaterThan(m[0].w, 0)
+            XCTAssertEqual(m.reduce(0) { $0 + $1.area }, 1.0, accuracy: 1e-9, "still tiles the face")
+        }
+    }
+
     func testMosaicLayoutIsDeterministicTwinShared() {
         XCTAssertEqual(mosaicLayout(hash: 0xABCDEF, aspect: 0.35), mosaicLayout(hash: 0xABCDEF, aspect: 0.35), "same hash → same layout (twins share)")
     }

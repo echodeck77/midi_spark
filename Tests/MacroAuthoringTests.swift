@@ -68,7 +68,7 @@ final class MacroAuthoringTests: XCTestCase {
         XCTAssertEqual(macroParamsForProcessor(.chance).first { $0.key == "probability" }?.kind, .continuous(lo: 0, hi: 1))
         XCTAssertTrue(macroParamsForProcessor(.arp).contains { $0.key == "pattern" && $0.kind.isDiscrete })
         // continuous processor keys are a subset of the foldable MacroParam raws (binding compatibility)
-        let foldable = Set(["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale"])
+        let foldable = Set(MacroParam.allCases.map(\.rawValue))   // the descriptor's continuous keys must be foldable MacroParams
         for t in ProcessorType.allCases {
             for p in macroParamsForProcessor(t) where !p.kind.isDiscrete {
                 XCTAssertTrue(foldable.contains(p.key), "continuous \(p.key) must be a foldable MacroParam")
@@ -120,5 +120,44 @@ final class MacroAuthoringTests: XCTestCase {
         alt.params.pattern = .random   // now touches a discrete option too
         let dDisc = macroSparseDelta(main: processorValues(main), alt: processorValues(alt), params: ps)
         XCTAssertTrue(macroDeltaHasDiscrete(dDisc, params: ps), "a pattern flip → buttons only")
+    }
+
+    // macroApply SNAPS every non-continuous kind (option · stepper · mask) at the halfway point, like the toggle.
+    func testMacroApplySnapsOptionStepperMask() {
+        let ps = [MacroControlParam(key: "opt", label: "", kind: .option(["A", "B", "C"])),
+                  MacroControlParam(key: "step", label: "", kind: .stepper(lo: 0, hi: 8)),
+                  MacroControlParam(key: "mask", label: "", kind: .mask(bits: 4))]
+        let main = ["opt": 0.0, "step": 2.0, "mask": 0.0], delta = ["opt": 2.0, "step": 6.0, "mask": 5.0]
+        let below = macroApply(main: main, delta: delta, value: 0.4, params: ps)
+        XCTAssertEqual(below["opt"], 0); XCTAssertEqual(below["step"], 2); XCTAssertEqual(below["mask"], 0)   // < half → MAIN
+        let above = macroApply(main: main, delta: delta, value: 0.6, params: ps)
+        XCTAssertEqual(above["opt"], 2); XCTAssertEqual(above["step"], 8); XCTAssertEqual(above["mask"], 5)   // ≥ half → ALT
+    }
+
+    // The processor group descriptor: a stable id (col,row,slot) · the processor domain · the type's param list.
+    func testMacroGroupForProcessor() {
+        let g = macroGroupForProcessor(col: 3, row: 5, slot: 1, type: .arp)
+        XCTAssertEqual(g.id, "proc:3,5,1")
+        XCTAssertEqual(g.domain, .processor)
+        XCTAssertEqual(g.title, ProcessorType.arp.rawValue.uppercased())
+        XCTAssertEqual(g.params, macroParamsForProcessor(.arp))
+    }
+
+    // Each processor type exposes its own kinds (mask · steppers) so the generic renderer picks the right widget.
+    func testProcessorParamKindsPerType() {
+        XCTAssertTrue(macroParamsForProcessor(.passgate).contains { $0.key == "passMask" && $0.kind == .mask(bits: 4) })
+        XCTAssertTrue(macroParamsForProcessor(.ratchet).contains { $0.key == "count" && $0.kind == .stepper(lo: 2, hi: 8) })
+        XCTAssertTrue(macroParamsForProcessor(.harmonize).contains { $0.key == "harm0" && $0.kind == .stepper(lo: -24, hi: 24) })
+        XCTAssertTrue(macroParamsForProcessor(.arp).contains { $0.key == "octaves" && $0.kind == .stepper(lo: 1, hi: 4) })
+    }
+
+    // Write-back clamps discretes into their legal domain — a stale/out-of-range value never traps.
+    func testApplyProcessorValuesClampsDiscretes() {
+        var v = processorValues(ProcessorSlot(type: .arp)); v["octaves"] = 99; v["pattern"] = 99   // out of range
+        let arp = applyProcessorValues(v, to: ProcessorSlot(type: .arp))
+        XCTAssertEqual(arp.params.octaves, 4, "octaves clamp 1…4")
+        XCTAssertEqual(arp.params.pattern, ArpPattern.allCases.last, "an out-of-range option index clamps to the last case")
+        var pv = processorValues(ProcessorSlot(type: .passgate)); pv["passMask"] = 5               // 0b0101
+        XCTAssertEqual(applyProcessorValues(pv, to: ProcessorSlot(type: .passgate)).params.passes, [true, false, true, false])
     }
 }

@@ -371,7 +371,7 @@ extension DiagView {
     /// BIND the selected params' deltas (target − base) to a macro — committed LIVE (the panel is interactive).
     /// Continuous (foldable) keys bind through addMacroTargets today; discrete keys are the future button path.
     func macroAuthorBind(_ macroIndex: Int, _ deltas: [String: Double]) {
-        let foldable: Set<String> = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale"]
+        let foldable = Set(MacroParam.allCases.map(\.rawValue))   // the continuous params that fold through the engine (single source: MacroParam)
         let targets: [MacroTarget] = deltas.compactMap { k, d in
             (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
         }

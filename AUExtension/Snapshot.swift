@@ -197,7 +197,7 @@ final class SnapshotBox {
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
 
 /// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
-enum MacroParam: String { case gate, ramp, spread, curve, velTilt, probability, harmVelScale }
+enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale }
 
 /// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
 /// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
