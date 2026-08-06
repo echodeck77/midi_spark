@@ -173,7 +173,6 @@ struct GridView: View {
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
     var cellStrikeSeq: [Int] = []                    // MOSAIC: per-cell moment counter (each strike moment → the next rectangle)
-    var cellCrestAt: [Date] = []                     // MOSAIC §2 CREST: per-cell column-entry light time (v1: heralds once per entry)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -532,11 +531,11 @@ struct GridView: View {
         let mhash = UInt64(sealHash(cell, colours: colours))
         let rects = mosaicLayout(hash: mhash)
         let crest = mosaicCrest(hash: mhash)                    // §2 the crown shapes on the largest block (twin-shared)
+        let crestInk = mosaicContrastInk(hue)                   // always contrasts the cell colour (both shapes one colour)
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
         let sounding = (idx >= 0 && idx < cellSounding.count) ? cellSounding[idx] : false
         let releasedAt = (idx >= 0 && idx < cellReleasedAt.count) ? cellReleasedAt[idx] : Date.distantPast
-        let crestAt = (idx >= 0 && idx < cellCrestAt.count) ? cellCrestAt[idx] : Date.distantPast
         let n = max(1, rects.count)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
@@ -556,11 +555,12 @@ struct GridView: View {
                 // per-cell moment count; `% n` walks the blocks in turn.
                 let seq = (idx >= 0 && idx < cellStrikeSeq.count) ? cellStrikeSeq[idx] : 0
                 let litIndex = ((seq % n) + n) % n
-                // THE CREST lighting (v1): heralds once per COLUMN ENTRY (the peak-note precise rule is v2, with the
-                // per-note engine feed). Peak + a slightly slower timed fade (~0.6s) so the crown reads.
-                let crestBreath = max(0.0, 1 - tl.date.timeIntervalSince(crestAt) / 0.6)
+                // THE CREST lighting (v1): flashes WITH the largest block's OWN note-moment (litIndex 0) — no separate
+                // herald, so no extra flash (fix, user 2026-08-06). The true "highest note per column entry" is v2
+                // (needs the per-note peak feed).
+                let crestBreath = litIndex == 0 ? breath : 0
                 drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, litIndex: litIndex,
-                           crest: crest, crestBreath: crestBreath)
+                           crest: crest, crestInk: crestInk, crestBreath: crestBreath)
             }
         }
         .padding(3)
@@ -1689,8 +1689,16 @@ let useMosaicFace = true
 /// smaller blocks lighter), so the Mondrian reads clearly even at ~30px. `breath` (0…1) is the strike brightness
 /// (0 at rest): the blocks flash toward white, small blocks brightest, and the per-strike `primary` block pops a
 /// touch more (a bridge toward the phase-2 per-note lighting). Shared by the grid cells + the identity plate.
+/// A crest INK that always CONTRASTS the cell colour (user 2026-08-06): dark ink on a light hue, light on a dark
+/// one (the largest block is the hue slightly darkened). Both crest shapes share this one colour.
+func mosaicContrastInk(_ hue: Color) -> Color {
+    let ui = UIColor(hue); var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    ui.getRed(&r, green: &g, blue: &b, alpha: &a)
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 0.6 ? Color.black : Color.white
+}
+
 func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double,
-                litIndex: Int = -1, crest: [MosaicShape] = [], crestBreath: Double = 0) {
+                litIndex: Int = -1, crest: MosaicCrest? = nil, crestInk: Color = .white, crestBreath: Double = 0) {
     let n = max(1, rects.count)
     let gap = max(1.0, min(size.width, size.height) * 0.045)
     ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(.black.opacity(0.32)))   // the grout shows in the gaps
@@ -1708,16 +1716,26 @@ func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, 
             ctx.fill(path, with: .color(.white.opacity(min(0.96, breath * rankPeak))))
         }
     }
-    // THE CREST (§2): 1–2 hash-chosen shapes INSCRIBED in the largest block — tone-on-tone at rest (RANK breathes
-    // below), a bright crown flash on the peak note (crestBreath, riding ABOVE the rank layer).
-    if !crest.isEmpty, bigRect.width > 6, bigRect.height > 6 {
-        let side = min(bigRect.width, bigRect.height) * 0.62
-        for (k, shape) in crest.enumerated() {
-            let s = side * (1 - 0.34 * Double(k))                                      // stack: outer shape, then a nested inner one
-            let box = CGRect(x: bigRect.midX - s / 2, y: bigRect.midY - s / 2, width: s, height: s)
-            let path = mosaicShapePath(shape, in: box)
-            ctx.stroke(path, with: .color(.white.opacity(0.18)), lineWidth: 1.4)       // the inscribed crown at rest
-            if crestBreath > 0.01 { ctx.fill(path, with: .color(.white.opacity(min(0.95, crestBreath)))) }   // heralds on the peak note
+    // THE CREST (§2): 1–2 hash-chosen shapes on the largest block, in a CONTRASTING ink (always legible, both shapes
+    // the same colour), HUGGING one hash-chosen EDGE (never centred). It flashes WITH the largest block's own note-
+    // moment (litIndex 0) — no separate herald, so it never reads as an extra flash. A thin opposite-tone outline
+    // keeps it visible even when the block flashes white beneath it.
+    if let crest = crest, !crest.shapes.isEmpty, bigRect.width > 6, bigRect.height > 6 {
+        let margin = min(bigRect.width, bigRect.height) * 0.10
+        let s0 = min(bigRect.width, bigRect.height) * 0.5
+        let anchor: CGPoint
+        switch crest.edge {
+        case .top:    anchor = CGPoint(x: bigRect.midX, y: bigRect.minY + margin + s0 / 2)
+        case .bottom: anchor = CGPoint(x: bigRect.midX, y: bigRect.maxY - margin - s0 / 2)
+        case .left:   anchor = CGPoint(x: bigRect.minX + margin + s0 / 2, y: bigRect.midY)
+        case .right:  anchor = CGPoint(x: bigRect.maxX - margin - s0 / 2, y: bigRect.midY)
+        }
+        let outline = (crestInk == Color.black ? Color.white : Color.black)
+        for (k, shape) in crest.shapes.enumerated() {
+            let s = s0 * (1 - 0.36 * Double(k))                                        // outer shape, then a nested inner one (same colour)
+            let path = mosaicShapePath(shape, in: CGRect(x: anchor.x - s / 2, y: anchor.y - s / 2, width: s, height: s))
+            ctx.fill(path, with: .color(crestInk.opacity(0.62 + 0.33 * crestBreath)))  // always contrasts; brightens with the block's note
+            ctx.stroke(path, with: .color(outline.opacity(0.45)), lineWidth: 1)        // opposite-tone safety border
         }
     }
 }

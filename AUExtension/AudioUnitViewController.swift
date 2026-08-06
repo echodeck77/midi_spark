@@ -191,9 +191,6 @@ struct DiagView: View {
     @State var cellSounding = [Bool](repeating: false, count: 64)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: 64)
     @State var cellStrikeSeq = [Int](repeating: 0, count: 64)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
-    @State var cellCrestAt = [Date](repeating: .distantPast, count: 64)   // MOSAIC §2 CREST: per-cell column-entry light time
-    @State var crestColumn = -1                                      // the effColumn the crest last armed on (detect column entry)
-    @State var crestArmed = false                                    // armed at a column entry, fired on the first strike in that column
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -1002,18 +999,11 @@ struct DiagView: View {
             if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
-            // MOSAIC §2 CREST (v1): a new column ENTRY re-arms the crest; it fires on the first strike in that column.
-            if nd.playing && nd.effColumn != crestColumn { crestColumn = nd.effColumn; crestArmed = true }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
                 for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
                 cellHitAt = at; cellHitVel = vel; cellStrikeSeq = seq   // MOSAIC: advance the per-cell moment counter
-                if crestArmed {                            // CREST: herald the cells that struck at the column entry (once per entry)
-                    var ch = cellCrestAt; var fired = false
-                    for i in 0..<min(64, strikes.count) where strikes[i] > 0 && i / 8 == nd.effColumn { ch[i] = now; fired = true }
-                    if fired { cellCrestAt = ch; crestArmed = false }
-                }
             }
             let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
@@ -1233,7 +1223,6 @@ struct DiagView: View {
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      cellStrikeSeq: cellStrikeSeq,                   // MOSAIC: per-cell moment counter (one rectangle per moment)
-                     cellCrestAt: cellCrestAt,                       // MOSAIC §2 CREST: per-cell column-entry light time
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
