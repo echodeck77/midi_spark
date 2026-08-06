@@ -97,6 +97,15 @@ struct DiagView: View {
     // MACRO A/B AUTHORING (M4): the [AB] popup + the A-state stash (per selected cell) to restore on close.
     @State var macroBindOpen = false
     @State var macroBindStash: [(col: Int, row: Int, chain: [ProcessorSlot])] = []
+    // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
+    @State var macroAuthorOpen = false
+    @State var macroAuthorSlot = 0
+    @State var macroAuthorAnchor: (col: Int, row: Int) = (0, 0)
+    @State var macroAuthorGroup: MacroControlGroup? = nil
+    @State var macroAuthorMain: [String: Double] = [:]
+    @State var macroAuthorAlt: [String: Double] = [:]
+    @State var macroAuthorBaseline: ProcessorSlot? = nil                      // the slot on open — authoring CANCEL restores it
+    @State var macroAuthorPending: [(macro: Int, delta: [String: Double])] = []   // staged bindings; commit on APPLY (§6)
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -812,6 +821,13 @@ struct DiagView: View {
                                    onBindEmitter: { i, targets in au?.addMacroEmitterTargets(i, targets); refreshFromDocument() },
                                    onRemoveEmitter: { i in au?.removeMacroEmitterTargets(i); refreshFromDocument() },
                                    onClose: closeMacroBind)
+                }
+                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING FLOW (canonical) — the MAIN/ALT authoring page
+                    MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], accent: mainDestHue,
+                                       initialMain: macroAuthorMain, initialAlt: macroAuthorAlt,
+                                       onWriteMain: macroAuthorWriteMain, onPreview: macroAuthorPreview,
+                                       onPersistAlt: macroAuthorPersistAlt, onAssign: macroAuthorAssign,
+                                       onClose: closeMacroAuthoring)
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
