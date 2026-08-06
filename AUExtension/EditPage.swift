@@ -350,57 +350,41 @@ extension DiagView {
             onMacro: { openMacroAuthoring(slot: i, slotData: slot) })
     }
 
-    // MARK: - MACRO AUTHORING FLOW (canonical) — open/callbacks for a processor slot. Rides the processors-page
-    // edit session, so all writes preview live + revert with the page's CANCEL; the flow's own CANCEL additionally
-    // restores the slot baseline + discards its staged bindings (§6 "nothing escapes CANCEL").
+    // MARK: - MACRO AUTHORING (canonical pop-up) — open/callbacks for a processor slot. The BASE = the slot's current
+    // values (untouched by authoring — the offset model: a binding stores delta = target − base). Bindings commit
+    // LIVE so the in-pop-up macro panel is interactive; the pop-up's CANCEL restores the whole macros vector +
+    // the base params (nothing escapes CANCEL). The audition sounds the slot live (hold keys) at the test values.
     func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
         guard let a = editSel.first else { return }
-        macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i; macroAuthorBaseline = slot; macroAuthorPending = []
+        macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i
         macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
-        macroAuthorMain = processorValues(slot)
-        if let alt = slot.paramsAlt {
-            var s = ProcessorSlot(type: slot.type, params: alt); s.bypassed = slot.bypassedAlt ?? slot.bypassed
-            macroAuthorAlt = processorValues(s)
-        } else { macroAuthorAlt = [:] }                              // empty → the view seeds ALT = MAIN
-        au?.setAudition(col: a.col, row: a.row)                      // REAL-TIME AUDITION: hold keys to hear the processor live while authoring
+        macroAuthorBase = processorValues(slot)                       // the processor's CURRENT values (the offset base)
+        macroAuthorMacrosBaseline = au?.uiMacros() ?? []              // snapshot every macro — CANCEL restores this
+        au?.setAudition(col: a.col, row: a.row)
         macroAuthorOpen = true
     }
-    /// MAIN is REAL — write the edited MAIN values onto the live slot(s). NO refreshFromDocument on the hot path:
-    /// editSlotCells → scheduleRebuild already republishes the snapshot immediately (the audio tracks live), whereas
-    /// refreshFromDocument reloads ~40 @State fields per tick (the lag that hid the real-time change).
-    func macroAuthorWriteMain(_ v: [String: Double]) {
-        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(v, to: $0) }
+    /// TEST audition — set the slot's live params to the per-param morphed test values (selected params morphed
+    /// base→target by their test slider; the rest at base). The base is never rewritten; this is transient audio.
+    func macroAuthorPreview(_ values: [String: Double]) {
+        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(values, to: $0) }
     }
-    /// TEST audition — apply a value dict live (nil restores the current MAIN, never a stale preview).
-    func macroAuthorPreview(_ v: [String: Double]?) {
-        let vals = v ?? macroAuthorMain
-        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(vals, to: $0) }
-    }
-    /// §7 persist the ALTERNATIVE set on the slot (leaves MAIN untouched — no audio impact, no refresh needed).
-    func macroAuthorPersistAlt(_ v: [String: Double]) {
-        macroAuthorAlt = v
-        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { s in
-            let a = applyProcessorValues(v, to: ProcessorSlot(type: s.type)); s.paramsAlt = a.params; s.bypassedAlt = a.bypassed
-        }
-    }
-    /// Stage a binding (committed on APPLY). Only the CONTINUOUS (foldable) delta keys bind today; discrete keys are
-    /// the future button/timeline path (noted).
-    func macroAuthorAssign(_ macroIndex: Int, _ delta: [String: Double]) { macroAuthorPending.append((macroIndex, delta)) }
-    func closeMacroAuthoring(apply: Bool) {
+    /// BIND the selected params' deltas (target − base) to a macro — committed LIVE (the panel is interactive).
+    /// Continuous (foldable) keys bind through addMacroTargets today; discrete keys are the future button path.
+    func macroAuthorBind(_ macroIndex: Int, _ deltas: [String: Double]) {
         let foldable: Set<String> = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale"]
-        if apply {
-            for b in macroAuthorPending {                            // commit the staged bindings
-                let targets: [MacroTarget] = b.delta.compactMap { k, d in
-                    foldable.contains(k) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
-                }
-                if !targets.isEmpty { au?.addMacroTargets(b.macro, targets) }
-                au?.setMacroFixed(b.macro, b.macro >= 8)             // buttons = toggle/fixed · sliders = spring
-            }
-        } else if let base = macroAuthorBaseline {                   // CANCEL → restore MAIN + ALT to the slot's open state
-            au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = base }
+        let targets: [MacroTarget] = deltas.compactMap { k, d in
+            (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
         }
+        if !targets.isEmpty { au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8) }
+        refreshFromDocument()
+    }
+    /// Live macro drag inside the pop-up (moves the bound params through the offset).
+    func macroAuthorSetMacro(_ index: Int, _ value: Double) { au?.setMacroValue(index, value) }
+    func closeMacroAuthoring(apply: Bool) {
+        if !apply { au?.setMacrosDocument(macroAuthorMacrosBaseline.isEmpty ? nil : macroAuthorMacrosBaseline) }   // revert every macro change
+        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) }   // restore the base (audition → off)
         au?.clearAudition()
-        macroAuthorOpen = false; macroAuthorGroup = nil; macroAuthorBaseline = nil; macroAuthorPending = []
+        macroAuthorOpen = false; macroAuthorGroup = nil; macroAuthorMacrosBaseline = []
         refreshFromDocument()
     }
 

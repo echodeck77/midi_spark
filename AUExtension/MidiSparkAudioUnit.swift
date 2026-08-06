@@ -615,6 +615,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard (0..<24).contains(index), document.macros != nil else { return }
         editDocument { d in d.macros?[index].emitterTargets.removeAll() }
     }
+    /// MACRO AUTHORING (canonical pop-up): restore the WHOLE macros vector — the pop-up's CANCEL reverts every
+    /// binding/value change since it opened. Re-syncs the slider AU params (0–7) so their live values match.
+    func setMacrosDocument(_ m: [Macro]?) {
+        editDocument(record: false) { $0.macros = m }
+        if let m = m {
+            for i in 0..<ParamAddress.macroSliderCount where i < m.count {
+                _parameterTree.parameter(withAddress: ParamAddress.macro(i))?.value = AUValue(max(0, min(1, m[i].value)))
+            }
+        }
+    }
 
     /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
     /// the tree so host automation stays in sync (§4). Read-back for the header display.

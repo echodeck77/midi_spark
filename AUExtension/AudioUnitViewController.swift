@@ -99,10 +99,8 @@ struct DiagView: View {
     @State var macroAuthorSlot = 0
     @State var macroAuthorAnchor: (col: Int, row: Int) = (0, 0)
     @State var macroAuthorGroup: MacroControlGroup? = nil
-    @State var macroAuthorMain: [String: Double] = [:]
-    @State var macroAuthorAlt: [String: Double] = [:]
-    @State var macroAuthorBaseline: ProcessorSlot? = nil                      // the slot on open — authoring CANCEL restores it
-    @State var macroAuthorPending: [(macro: Int, delta: [String: Double])] = []   // staged bindings; commit on APPLY (§6)
+    @State var macroAuthorBase: [String: Double] = [:]                        // the slot's current values (the offset base)
+    @State var macroAuthorMacrosBaseline: [Macro] = []                        // every macro on open — CANCEL restores this
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -807,12 +805,11 @@ struct DiagView: View {
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
                 }
-                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING FLOW (canonical) — the MAIN/ALT authoring page
+                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up
                     MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], accent: mainDestHue,
-                                       initialMain: macroAuthorMain, initialAlt: macroAuthorAlt,
-                                       onWriteMain: macroAuthorWriteMain, onPreview: macroAuthorPreview,
-                                       onPersistAlt: macroAuthorPersistAlt, onAssign: macroAuthorAssign,
-                                       onClose: closeMacroAuthoring)
+                                       base: macroAuthorBase,
+                                       onPreview: macroAuthorPreview, onBind: macroAuthorBind,
+                                       onSetMacro: macroAuthorSetMacro, onClose: closeMacroAuthoring)
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
