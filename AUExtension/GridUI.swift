@@ -1290,6 +1290,7 @@ struct ProcessorBox: View {
     var passHead: Int = -1                               // MODE ROW: the live PASS index (0…3) for the passgate playhead; -1 = stopped
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
+    var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -1366,7 +1367,8 @@ struct ProcessorBox: View {
             }
             .buttonStyle(.plain).disabled(mixed)
             Spacer()
-            if slotMode {                                   // CELL MACHINE: per-slot BYPASS (+ REMOVE) instead of COPY/PASTE
+            if slotMode {                                   // CELL MACHINE: per-slot BYPASS · MACRO (+ REMOVE) instead of COPY/PASTE
+                if let onMacro { pill("MACRO", onMacro) }
                 pill(slotBypassed ? "BYPASSED" : "BYPASS", onBypass)
                 if let onRemove { pill("✕", onRemove) }
             } else {

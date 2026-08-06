@@ -345,7 +345,62 @@ extension DiagView {
             accentOverride: mainDestHue,               // same blue as the emitters
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
             onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
-            onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() })
+            onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() },
+            onMacro: { openMacroAuthoring(slot: i, slotData: slot) })
+    }
+
+    // MARK: - MACRO AUTHORING FLOW (canonical) — open/callbacks for a processor slot. Rides the processors-page
+    // edit session, so all writes preview live + revert with the page's CANCEL; the flow's own CANCEL additionally
+    // restores the slot baseline + discards its staged bindings (§6 "nothing escapes CANCEL").
+    func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
+        guard let a = editSel.first else { return }
+        macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i; macroAuthorBaseline = slot; macroAuthorPending = []
+        macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
+        macroAuthorMain = processorValues(slot)
+        if let alt = slot.paramsAlt {
+            var s = ProcessorSlot(type: slot.type, params: alt); s.bypassed = slot.bypassedAlt ?? slot.bypassed
+            macroAuthorAlt = processorValues(s)
+        } else { macroAuthorAlt = [:] }                              // empty → the view seeds ALT = MAIN
+        macroAuthorOpen = true
+    }
+    /// MAIN is REAL — write the edited MAIN values onto the live slot(s).
+    func macroAuthorWriteMain(_ v: [String: Double]) {
+        macroAuthorMain = v
+        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(v, to: $0) }
+        refreshFromDocument()
+    }
+    /// TEST audition — apply a value dict live (nil restores the current MAIN, never a stale preview).
+    func macroAuthorPreview(_ v: [String: Double]?) {
+        let vals = v ?? macroAuthorMain
+        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(vals, to: $0) }
+        refreshFromDocument()
+    }
+    /// §7 persist the ALTERNATIVE set on the slot (leaves MAIN untouched).
+    func macroAuthorPersistAlt(_ v: [String: Double]) {
+        macroAuthorAlt = v
+        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { s in
+            let a = applyProcessorValues(v, to: ProcessorSlot(type: s.type)); s.paramsAlt = a.params; s.bypassedAlt = a.bypassed
+        }
+        refreshFromDocument()
+    }
+    /// Stage a binding (committed on APPLY). Only the CONTINUOUS (foldable) delta keys bind today; discrete keys are
+    /// the future button/timeline path (noted).
+    func macroAuthorAssign(_ macroIndex: Int, _ delta: [String: Double]) { macroAuthorPending.append((macroIndex, delta)) }
+    func closeMacroAuthoring(apply: Bool) {
+        let foldable: Set<String> = ["gate", "ramp", "spread", "curve", "velTilt", "probability", "harmVelScale"]
+        if apply {
+            for b in macroAuthorPending {                            // commit the staged bindings
+                let targets: [MacroTarget] = b.delta.compactMap { k, d in
+                    foldable.contains(k) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
+                }
+                if !targets.isEmpty { au?.addMacroTargets(b.macro, targets) }
+                au?.setMacroFixed(b.macro, b.macro >= 8)             // buttons = toggle/fixed · sliders = spring
+            }
+        } else if let base = macroAuthorBaseline {                   // CANCEL → restore MAIN + ALT to the slot's open state
+            au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = base }
+        }
+        macroAuthorOpen = false; macroAuthorGroup = nil; macroAuthorBaseline = nil; macroAuthorPending = []
+        refreshFromDocument()
     }
 
     func sectionHeader(_ label: String) -> some View {
