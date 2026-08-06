@@ -1223,7 +1223,8 @@ struct DiagView: View {
         } else {
         HStack(spacing: 3) {
             rowRail(cellHeight, chevron: "chevron.right")   // LEFT rail — mirrors the right, points into the grid (user 2026-07-30)
-            GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+            GridView(scene: scene, colours: docColours, playColumn: d.effColumn,
+                     trueColumn: d.playing ? ((d.absoluteStep % 8) + 8) % 8 : -1, playing: d.playing,
                      beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                      cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
                      selCol: selCol, selRow: selRow, onTap: tapCell,

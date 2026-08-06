@@ -216,7 +216,8 @@ extension DiagView {
     // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
     // is parked on this setup surface). CLEAR marks show as a dashed removal ring (increment 4).
     @ViewBuilder func spikeGrid(_ cellHeight: CGFloat) -> some View {
-        GridView(scene: scene, colours: docColours, playColumn: d.effColumn, playing: d.playing,
+        GridView(scene: scene, colours: docColours, playColumn: d.effColumn,
+                 trueColumn: d.playing ? ((d.absoluteStep % 8) + 8) % 8 : -1, playing: d.playing,
                  beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,

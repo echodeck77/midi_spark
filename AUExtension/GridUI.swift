@@ -142,6 +142,7 @@ struct GridView: View {
     let scene: SceneState
     let colours: [Colour]
     let playColumn: Int
+    var trueColumn: Int = -1     // the LINEAR scene column (absoluteStep % 8); dimly lit while looping so the position still reads
     let playing: Bool
     var beat: Double = 0        // host beat position, polled ~4 Hz; extrapolated per-frame below
     var tempo: Double = 120
@@ -262,12 +263,16 @@ struct GridView: View {
             ForEach(0..<8, id: \.self) { col in
                 let active = playing && col == playColumn
                 let held = (laneMask & (1 << UInt8(col))) != 0     // §5b lap: this column is in the held (loop) set
+                // TRUE-PLAYHEAD DIM (user 2026-08-06): while looping, the linear scene position still steps through the
+                // headers DIMLY so you know where you are (the ▼ playhead is gone). The ACTIVE (playing) column always
+                // wins — a dim mark only shows on the true column when it isn't the one currently playing.
+                let trueLit = playing && col == trueColumn && !active
                 Image(systemName: held ? "repeat" : "chevron.down")   // column key — LOOP glyph when in the set, else a down chevron
                     .font(.system(size: held ? 12 : 15, weight: .heavy))
                     .foregroundColor(active ? .black : laneHue)            // GRID mode tint (SINGLE green · MULTI yellow); playhead = black
                     .frame(maxWidth: .infinity).frame(height: cellHeight)   // key row = a cell's height (user 2026-07-26)
                     .background(RoundedRectangle(cornerRadius: 6)
-                        .fill(active ? accentCyan : laneHue.opacity(0.10)))   // active playhead = cyan; idle/held = the mode tint
+                        .fill(active ? accentCyan : (trueLit ? accentCyan.opacity(0.28) : laneHue.opacity(0.10))))   // active = cyan · true-playhead = dim cyan · else the mode tint
                     .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
                         .stroke(held ? laneHue : .clear, lineWidth: 2).padding(1))
                     .contentShape(Rectangle())
