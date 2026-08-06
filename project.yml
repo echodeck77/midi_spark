@@ -79,6 +79,7 @@ targets:
     sources:
       - Tests
       - path: AUExtension/Derivations.swift
+      - path: AUExtension/MacroAuthoring.swift   # macro authoring flow — the pure control-group registry + logic
       - path: AUExtension/Models.swift
       - path: AUExtension/Snapshot.swift    # pure now (store split out) → effective-param tests
       - path: AUExtension/SnapshotBuilder.swift   # document → snapshot resolution
