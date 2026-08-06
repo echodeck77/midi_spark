@@ -43,7 +43,13 @@ Could hybridise (circuit ink over a breathing mosaic ground).
   already knows it — plumb (rank, vel, durBeats) per strike; offs for held notes via the sounding diff, the
   emitter-feed pattern). ×64 cost: alpha lerps on ≤6 rects/cell — cheap.
 
-## §2 — THE CREST (design ferry 2026-08-06; the mosaic device-approved, "looks amazing" — CAPTURED, NOT BUILT)
+## §2 — THE CREST (design ferry 2026-08-06; mosaic device-approved — V1 BUILT 2026-08-06, DEVICE eval owed)
+**V1 BUILT:** `Derivations.mosaicCrest(hash:)` (pure, 2 tests) → 1–2 hash-chosen shapes (twin-shared); `drawMosaic`
+inscribes them in the largest block (tone-on-tone at rest, on the grid cells + the edit identity plate) and flashes
+the crown on `crestBreath`. LIGHTING v1 = heralds once per COLUMN ENTRY (a per-cell `cellCrestAt` feed: armed on a
+new effColumn, fired on the first strike in that column; peak + ~0.6s fade). **V2 OWED** = the true "first instance
+of the HIGHEST note per column entry" — needs the per-note PEAK-NOTE feed (rides the mosaic phase-2 per-note engine
+plumbing; v1 has no pitch, so it heralds the column entry rather than the peak note). Lap re-arm per pass also v2.
 The largest rectangle gains a mark:
 - **1–2 overlaid SHAPES** from {▲ triangle · ▽ inverted · ◆ diamond · ● circle}, HASH-CHOSEN (which shapes, how
   many, stacking order — all from the SAME seal hash; twins share; the extra entropy also retires the

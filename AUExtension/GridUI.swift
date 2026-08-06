@@ -172,6 +172,7 @@ struct GridView: View {
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
     var cellStrikeSeq: [Int] = []                    // MOSAIC: per-cell moment counter (each strike moment → the next rectangle)
+    var cellCrestAt: [Date] = []                     // MOSAIC §2 CREST: per-cell column-entry light time (v1: heralds once per entry)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -523,11 +524,14 @@ struct GridView: View {
     // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
     // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
     @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int, hue: Color) -> some View {
-        let rects = mosaicLayout(hash: UInt64(sealHash(cell, colours: colours)))
+        let mhash = UInt64(sealHash(cell, colours: colours))
+        let rects = mosaicLayout(hash: mhash)
+        let crest = mosaicCrest(hash: mhash)                    // §2 the crown shapes on the largest block (twin-shared)
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
         let sounding = (idx >= 0 && idx < cellSounding.count) ? cellSounding[idx] : false
         let releasedAt = (idx >= 0 && idx < cellReleasedAt.count) ? cellReleasedAt[idx] : Date.distantPast
+        let crestAt = (idx >= 0 && idx < cellCrestAt.count) ? cellCrestAt[idx] : Date.distantPast
         let n = max(1, rects.count)
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
             Canvas { ctx, size in
@@ -547,7 +551,11 @@ struct GridView: View {
                 // per-cell moment count; `% n` walks the blocks in turn.
                 let seq = (idx >= 0 && idx < cellStrikeSeq.count) ? cellStrikeSeq[idx] : 0
                 let litIndex = ((seq % n) + n) % n
-                drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, litIndex: litIndex)
+                // THE CREST lighting (v1): heralds once per COLUMN ENTRY (the peak-note precise rule is v2, with the
+                // per-note engine feed). Peak + a slightly slower timed fade (~0.6s) so the crown reads.
+                let crestBreath = max(0.0, 1 - tl.date.timeIntervalSince(crestAt) / 0.6)
+                drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, litIndex: litIndex,
+                           crest: crest, crestBreath: crestBreath)
             }
         }
         .padding(3)
@@ -1676,13 +1684,16 @@ let useMosaicFace = true
 /// smaller blocks lighter), so the Mondrian reads clearly even at ~30px. `breath` (0…1) is the strike brightness
 /// (0 at rest): the blocks flash toward white, small blocks brightest, and the per-strike `primary` block pops a
 /// touch more (a bridge toward the phase-2 per-note lighting). Shared by the grid cells + the identity plate.
-func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double, litIndex: Int = -1) {
+func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double,
+                litIndex: Int = -1, crest: [MosaicShape] = [], crestBreath: Double = 0) {
     let n = max(1, rects.count)
     let gap = max(1.0, min(size.width, size.height) * 0.045)
     ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(.black.opacity(0.32)))   // the grout shows in the gaps
+    var bigRect: CGRect = .zero
     for (i, r) in rects.enumerated() {
         let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
                           width: max(1, r.w * size.width - 2 * gap), height: max(1, r.h * size.height - 2 * gap))
+        if i == 0 { bigRect = rect }                                                   // rects are largest-first → index 0 is the crown
         let path = Path(roundedRect: rect, cornerRadius: 2.5)
         ctx.fill(path, with: .color(hue))                                              // the block = the cell colour
         let t = Double(i) / Double(max(1, n - 1)) - 0.5                                // depth by size: big darker, small lighter
@@ -1691,6 +1702,28 @@ func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, 
             let rankPeak = 0.62 + 0.38 * Double(i) / Double(max(1, n - 1))            // small blocks flash brighter
             ctx.fill(path, with: .color(.white.opacity(min(0.96, breath * rankPeak))))
         }
+    }
+    // THE CREST (§2): 1–2 hash-chosen shapes INSCRIBED in the largest block — tone-on-tone at rest (RANK breathes
+    // below), a bright crown flash on the peak note (crestBreath, riding ABOVE the rank layer).
+    if !crest.isEmpty, bigRect.width > 6, bigRect.height > 6 {
+        let side = min(bigRect.width, bigRect.height) * 0.62
+        for (k, shape) in crest.enumerated() {
+            let s = side * (1 - 0.34 * Double(k))                                      // stack: outer shape, then a nested inner one
+            let box = CGRect(x: bigRect.midX - s / 2, y: bigRect.midY - s / 2, width: s, height: s)
+            let path = mosaicShapePath(shape, in: box)
+            ctx.stroke(path, with: .color(.white.opacity(0.18)), lineWidth: 1.4)       // the inscribed crown at rest
+            if crestBreath > 0.01 { ctx.fill(path, with: .color(.white.opacity(min(0.95, crestBreath)))) }   // heralds on the peak note
+        }
+    }
+}
+
+/// The crown shape inscribed in `r` (mosaic §2). Pure geometry.
+func mosaicShapePath(_ s: MosaicShape, in r: CGRect) -> Path {
+    switch s {
+    case .triangle:    return Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.closeSubpath() }
+    case .invTriangle: return Path { p in p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)); p.closeSubpath() }
+    case .diamond:     return Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.midY)); p.closeSubpath() }
+    case .circle:      return Path(ellipseIn: r)
     }
 }
 

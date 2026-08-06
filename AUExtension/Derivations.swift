@@ -1042,6 +1042,18 @@ func mosaicLayout(hash: UInt64) -> [MosaicRect] {
     return rects.sorted { $0.area > $1.area }
 }
 
+/// THE CREST (mosaic §2) — the 1–2 shapes inscribed in the LARGEST rectangle (the crown). HASH-CHOSEN from the
+/// SAME seal hash as the layout (twins share; extra identity entropy). Order = draw/stack order (outer → inner).
+enum MosaicShape: Equatable, CaseIterable { case triangle, invTriangle, diamond, circle }
+
+func mosaicCrest(hash: UInt64) -> [MosaicShape] {
+    var rng = hash == 0 ? 0x9E3779B97F4A7C15 : hash
+    func next() -> UInt64 { rng = splitmix64Mix(rng &+ 0x9E3779B97F4A7C15); return rng }
+    let count = 1 + Int(next() % 2)                              // 1 or 2 shapes
+    let all = MosaicShape.allCases
+    return (0..<count).map { _ in all[Int(next() % UInt64(all.count))] }
+}
+
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
 /// from deletion (scenes-are-precious). Pure/testable.
 func colourCensus(_ scenes: [SceneState]) -> [String: Int] {

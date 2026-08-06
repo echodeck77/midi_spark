@@ -1300,6 +1300,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNotEqual(mosaicLayout(hash: 1), mosaicLayout(hash: 2), "different configs → different mosaics")
     }
 
+    func testMosaicCrestCountDeterministicTwinShared() {
+        for h: UInt64 in [1, 42, 0xDEADBEEF, 0, .max] {
+            let c = mosaicCrest(hash: h)
+            XCTAssertTrue((1...2).contains(c.count), "1–2 crest shapes (hash \(h) → \(c.count))")
+        }
+        XCTAssertEqual(mosaicCrest(hash: 0xABCDEF), mosaicCrest(hash: 0xABCDEF), "same hash → same crest (twins share)")
+    }
+
+    func testMosaicCrestIsHashSensitive() {
+        // over a spread of hashes the crest is not a single constant (which/how-many vary with the hash)
+        let crests = Set((0..<40).map { mosaicCrest(hash: UInt64($0) &* 2654435761).map { String(describing: $0) }.joined(separator: ",") })
+        XCTAssertGreaterThan(crests.count, 1, "the crest varies with the config hash")
+    }
+
     // MARK: - shared pure helpers (extracted dedup — clampVel · positiveFract · splitmix64Mix)
 
     func testClampVelClampsToOneToOneTwentySeven() {
