@@ -276,6 +276,7 @@ struct GridView: View {
                         .stroke(held ? laneHue : .clear, lineWidth: 2).padding(1))
                     .contentShape(Rectangle())
                     .onTapGesture { onColumnKey?(col) }             // MODE ROW · EDIT page: tap toggles this column in the loop
+                    .onLongPressGesture(minimumDuration: 0.3) { onColumnKey?(col) }   // tap OR long-press toggles (user 2026-08-06); the main grid's ColumnHoldOverlay already toggles on touch-down
             }
         }
         // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP). ALWAYS LATCHED

@@ -892,7 +892,9 @@ struct DiagView: View {
             let nd = au.kernelDiagnostics()
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
-                if laneMask != 0 { setLane(0) }                           // clear the LAP set on stop (HOLD used to do this; HOLD removed 2026-08-05)
+                // LOOP PERSISTS across a transport stop (user 2026-08-06): keep the selected columns (their LOOP
+                // glyph stays) so a restart resumes looping — the transport edge already flushed the voices, so
+                // nothing is stuck; the lap just isn't driven while stopped.
                 clearOnTap()                                              // ON TAP: momentary flips/mute/solo clear on stop
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
