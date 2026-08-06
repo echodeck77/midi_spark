@@ -489,7 +489,7 @@ struct DiagView: View {
     private func setSingle(_ on: Bool) {
         guard ladderMode != on else { return }
         ladderMode = on; au?.setLadderMode(on)
-        if on { heldVerb = nil }
+        if on { heldVerb = nil; syncSingleModeActivation() }   // entering SINGLE mid-edit: apply activation to the current selection
     }
     let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
     let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
@@ -869,6 +869,9 @@ struct DiagView: View {
             // brush stays as-is.
             let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
+        }
+        .onChange(of: editSel) { _ in                         // SINGLE-mode editing: the selection drives the ladder's
+            syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
         }
         .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
             guard !ladderPending.isEmpty else { return }      // rung for its next entry. absoluteStep increments each step EVEN when the

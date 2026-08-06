@@ -84,33 +84,41 @@ extension DiagView {
         let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
-        // EDIT-PAGE REARRANGE (Paul 2026-08-05): grid + the vertical MODE buttons CENTERED as a unit, the mode
-        // buttons TOP-ALIGNED with the grid; the helper + APPLY/CANCEL (one line) centered below.
-        let railW: CGFloat = 130
-        let gridW = min(size.width - 24 - railW - 24, max(240, gridH * 1.3))
+        // EDIT-PAGE LAYOUT (design ferry 2026-08-06): the grid LEFT-aligned within the 1024pt page; opposite it, top-
+        // aligned within the grid's height, a RIGHT block = the mode controls in a 2×2 (ADD/EDIT · MOVE / MUTE · CLEAR)
+        // → the armed mode's description → APPLY / CANCEL.
+        let pageW = min(size.width - 24, 1024)
+        let rightW: CGFloat = 210
+        let gridW = min(pageW - rightW - 16, max(240, gridH * 1.3))
         let canCommit = !editSel.isEmpty
         VStack(spacing: 8) {
             // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
             // body only (no arrangementBar of its own).
-            HStack(alignment: .top, spacing: 12) {                  // CENTERED grid + mode buttons; buttons line up with the grid's top
-                Spacer(minLength: 0)
+            HStack(alignment: .top, spacing: 16) {                  // grid LEFT · mode block opposite it, tops shared
                 spikeGrid(cellH).frame(width: gridW, height: gridH)
-                VStack(spacing: 6) {                                // ADD/EDIT · MOVE · MUTE · CLEAR — vertical, top-aligned with the grid
-                    modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
-                }.frame(width: railW, alignment: .top)
                 Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 10) {          // the RIGHT block, within the grid's height
+                    VStack(spacing: 6) {                            // the mode controls in a 2×2
+                        HStack(spacing: 6) { modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move) }
+                        HStack(spacing: 6) { modeChip("MUTE", .mute); modeChip("CLEAR", .clear) }
+                    }
+                    Text(modeGuidance)                              // the armed mode's description, below the 2×2
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if editMode == .addEdit {                       // APPLY / CANCEL below the description (the one staging mode)
+                        HStack(spacing: 10) {
+                            Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
+                                .buttonStyle(.plain).disabled(!canCommit)
+                            Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
+                                .buttonStyle(.plain).disabled(!canCommit)
+                        }
+                    }
+                    Spacer(minLength: 0)                            // the stack lives within the grid's height
+                }
+                .frame(width: rightW, height: gridH, alignment: .top)
             }
-            Text(modeGuidance)                                      // the helper for the armed mode — centered under the grid
-                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
-                .multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
-            if editMode == .addEdit {                               // APPLY · CANCEL on ONE line, centered (the one staging mode)
-                HStack(spacing: 10) {
-                    Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
-                        .buttonStyle(.plain).disabled(!canCommit)
-                    Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
-                        .buttonStyle(.plain).disabled(!canCommit)
-                }.frame(maxWidth: .infinity)
-            }
+            .frame(width: pageW, alignment: .leading)               // grid left-aligned in the 1024 page…
+            .frame(maxWidth: .infinity)                             // …the page itself centred on wider canvases
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
                 ScrollView(.vertical, showsIndicators: false) {
@@ -181,6 +189,21 @@ extension DiagView {
     func revertSession() {
         au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
         au?.beginEditSession(); refreshFromDocument()
+    }
+
+    /// SINGLE-mode editing (design ferry 2026-08-06): while in SINGLE (ladder) + ADD/EDIT, the SELECTION drives each
+    /// column's ACTIVE rung — for every column that holds a selected cell, the TOPMOST (upper = smallest row index)
+    /// selected cell becomes active (it plays) and the rest of that column mutes. Lower selected cells stay in the
+    /// set (they keep the animated selection border) but read as muted (dormant, via the ladder). The activation
+    /// writes `activeRow`, which rides the STANDING TRANSACTION — APPLY persists it, CANCEL reverts it with
+    /// everything else (cancelEditSession restores the whole document). MULTI editing is untouched.
+    func syncSingleModeActivation() {
+        guard ladderMode, editMode == .addEdit, let au else { return }
+        var topByColumn: [Int: Int] = [:]
+        for p in editSel { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
+        guard !topByColumn.isEmpty else { return }
+        for (col, row) in topByColumn { au.setActiveRow(col, row) }
+        refreshFromDocument()
     }
 
     // MODE ROW §5 — the grid's own column keys ARE the loop control (one row, not two): a TAP toggles the column in

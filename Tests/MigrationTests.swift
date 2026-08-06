@@ -503,17 +503,9 @@ final class MigrationTests: XCTestCase {
         XCTAssertNotNil(s.cells[0][0], "other cells are untouched")
     }
 
-    func testMoveRelocatesAndOverwrites() {
-        var s = SceneState.empty()
-        s.cells[1][1] = Cell(colourID: "gold", buses: [.a], inputRow: 3)   // reference travels as-is
-        s.cells[4][4] = Cell(colourID: "cyan")                             // occupied target (overwritten)
-        s.moveCellTo(from: (1, 1), to: (4, 4))
-        XCTAssertNil(s.cells[1][1], "source empties")
-        XCTAssertEqual(s.cells[4][4]?.colourID, "gold", "overwrites the target (undo covers it)")
-        XCTAssertEqual(s.cells[4][4]?.inputRow, 3, "MOVE never rewrites references — inputRow travels as-is")
-        s.moveCellTo(from: (4, 4), to: (4, 4))                             // self = no-op
-        XCTAssertEqual(s.cells[4][4]?.colourID, "gold")
-    }
+    // (testMoveRelocatesAndOverwrites removed 2026-08-06: the destructive overwrite-move `moveCellTo` is retired
+    //  per the design ferry — a MOVE drop on a populated cell SWAPS, never destroys. The correct swap semantics are
+    //  covered by CellRelocationTests.testSwapCells* .)
 
     // MARK: - §10/11f SPATIAL ROUTING (patch-bay model core)
 

@@ -1020,17 +1020,6 @@ extension SceneState {
         cells[col][row] = nil
     }
 
-    /// MOVE — §11b: relocate a cell to a target, OVERWRITING an occupied one (undo-covered). MOVES NEVER REWRITE
-    /// REFERENCES — the cell's fields (incl. inputRow) travel as-is. No-op onto itself, out of range, or empty source.
-    mutating func moveCellTo(from f: (col: Int, row: Int), to t: (col: Int, row: Int)) {
-        guard f.col != t.col || f.row != t.row,
-              cells.indices.contains(f.col), cells[f.col].indices.contains(f.row),
-              cells.indices.contains(t.col), cells[t.col].indices.contains(t.row),
-              cells[f.col][f.row] != nil else { return }
-        cells[t.col][t.row] = cells[f.col][f.row]
-        cells[f.col][f.row] = nil
-    }
-
     // MARK: - ROUTING (receiver in · emitters out; the UI projection lights + taps these)
 
     /// ROUTE IN (single-select radio) — feed cell X from a RECEIVER door: inputRow = nil, inputReceiver = r (0–3).
