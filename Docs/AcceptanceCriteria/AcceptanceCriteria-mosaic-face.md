@@ -42,3 +42,22 @@ Could hybridise (circuit ink over a breathing mosaic ground).
 - Strike feed ✓ (velocity, per cell). NEEDS: the per-cell feed upgraded to note-grain WITH DURATION (the derivation
   already knows it — plumb (rank, vel, durBeats) per strike; offs for held notes via the sounding diff, the
   emitter-feed pattern). ×64 cost: alpha lerps on ≤6 rects/cell — cheap.
+
+## §2 — THE CREST (design ferry 2026-08-06; the mosaic device-approved, "looks amazing" — CAPTURED, NOT BUILT)
+The largest rectangle gains a mark:
+- **1–2 overlaid SHAPES** from {▲ triangle · ▽ inverted · ◆ diamond · ● circle}, HASH-CHOSEN (which shapes, how
+  many, stacking order — all from the SAME seal hash; twins share; the extra entropy also retires the
+  geometry-aliasing concern). SAME shade as the rectangles (tone-on-tone), always INSCRIBED to fit the largest
+  rect's dimensions.
+- **LIGHTING RULE**: the crest lights on the **FIRST INSTANCE of the HIGHEST note in the sequence, per COLUMN ENTRY**
+  (re-arms each activation/lap). Peak brightness + the standard timed fade — the crown note heralds itself once per
+  cycle. [PIN: cycle boundary; confirm on device whether per-RUN feels righter under RUNS.]
+- **TWO INDEPENDENT LAYERS**: the rect's own lighting is its RANK (the biggest block still pulses the bass); the
+  CREST riding it is the PEAK (the largest canvas has the room). Rank breathes below; the crown flashes above.
+- **CODE NOTE (relationship to what's built):** the mosaic ships (phase-1 §1); the crest is additive — a pure
+  `mosaicCrest(hash:)` deriving the shape set (testable, twin-shared) + a `drawMosaic` layer inscribing them into
+  rect 0, tone-on-tone at rest, lit by a SEPARATE "highest-note-this-column-entry" feed. That feed is the honest
+  ask: today's per-cell strike feed is one velocity per moment (no pitch), so the crest's "first instance of the
+  highest note per column entry" needs a per-cell **peak-note** signal (a small engine feed, like the mosaic
+  phase-2 per-note plumbing). v1 approximation available (light the crest with the cell's column-entry strike) if
+  a full peak-note feed is deferred.

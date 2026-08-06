@@ -70,6 +70,18 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [x] **Fresh-cell + naming + furniture (2026-07-30)** — fully-null new cells · full processor names · grid down-chevrons (watermark + column keys) · dual-side row rails · DELETE-sever→NULL.
 
 ## C. Buildable now (next increments)
+- [ ] **MOSAIC §2 — THE CREST** (design ferry 2026-08-06, spec `AcceptanceCriteria-mosaic-face.md` §2; mosaic
+  device-approved "looks amazing"). The largest rect gains 1–2 HASH-CHOSEN inscribed shapes (▲▽◆●, tone-on-tone,
+  twins share) that light on the FIRST INSTANCE of the HIGHEST note per COLUMN ENTRY (peak brightness + timed fade)
+  — two layers: rank breathes below, crown flashes above. Pure `mosaicCrest(hash:)` (testable) + a drawMosaic layer
+  + a per-cell PEAK-NOTE feed (small engine plumbing, like the mosaic phase-2 per-note feed; v1 approximation
+  available). PLAN drafted (see the spec §2 CODE NOTE + the chat).
+- [ ] **THE WINDOW — the pre|post note graphic** (design ferry 2026-08-06, spec `AcceptanceCriteria-the-window-
+  graphic.md`). ONE parameterized piano-roll component (NOW divider · held input bars left · derived-future rects
+  scrolling in + firing at the line; brightness=velocity). LIVE (derive-ahead ~2 beats, pure) + CANNED modes; sizes
+  S/M/L; sites = processor boxes · macro page MAIN/ALT · library · manual · receivers. §2 THE EYE = a header-bar
+  inspect toggle → cell-tap opens the window popup. Needs a pure `scheduleAhead(...)` derive-ahead + the `NoteWindow`
+  view. Larger feature; §3 LONG WINDOW / RACK VARIANT flagged futures.
 - [ ] **MACRO AUTHORING FLOW (canonical)** (Paul + design 2026-08-06, spec `AcceptanceCriteria-macro-authoring.md`)
   — a GENERIC control-group authoring page (MAIN/ALT instances → TEST slider+button → ADD-TO-MACRO assignment view),
   hosted by a control-group registry so processors · receivers · emitters · rack all reuse it. Sparse relative
