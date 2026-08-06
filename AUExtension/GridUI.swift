@@ -171,6 +171,7 @@ struct GridView: View {
     var cellHitVel: [Double] = []                    // SEAL comet: per-cell last-strike velocity (0–1)
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
+    var cellStrikeSeq: [Int] = []                    // MOSAIC: per-cell moment counter (each strike moment → the next rectangle)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -582,10 +583,13 @@ struct GridView: View {
                 let pulse = max(0.0, 1 - strikeAge / 0.4)
                 let sustain = sounding ? 0.5 : (hasRelease ? 0.5 * max(0.0, 1 - releaseAge / 0.45) : 0.0)
                 let breath = min(1.0, (0.75 + 0.25 * vel) * max(pulse, sustain))
-                // The per-strike PRIMARY block (a bridge toward phase-2 per-note lighting) — a different block pops
-                // each strike, so the mosaic shimmers across its blocks as it plays.
-                let primary = pulse > 0.02 ? Int(UInt64(bitPattern: Int64(hitAt.timeIntervalSince1970 * 1000)) % UInt64(n)) : -1
-                drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, primary: primary)
+                // ONE rectangle per strike MOMENT (user 2026-08-06): each new strike moment advances a per-cell
+                // counter → the NEXT rectangle lights (the others stay at rest). A CHORD is one moment (the strike
+                // feed records one event per cell per moment, not per note) → one rectangle. `cellStrikeSeq` is the
+                // per-cell moment count; `% n` walks the blocks in turn.
+                let seq = (idx >= 0 && idx < cellStrikeSeq.count) ? cellStrikeSeq[idx] : 0
+                let litIndex = ((seq % n) + n) % n
+                drawMosaic(rects, into: ctx, size: size, hue: hue, breath: breath, litIndex: litIndex)
             }
         }
         .padding(3)
@@ -1714,7 +1718,7 @@ let useMosaicFace = true
 /// smaller blocks lighter), so the Mondrian reads clearly even at ~30px. `breath` (0…1) is the strike brightness
 /// (0 at rest): the blocks flash toward white, small blocks brightest, and the per-strike `primary` block pops a
 /// touch more (a bridge toward the phase-2 per-note lighting). Shared by the grid cells + the identity plate.
-func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double, primary: Int = -1) {
+func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double, litIndex: Int = -1) {
     let n = max(1, rects.count)
     let gap = max(1.0, min(size.width, size.height) * 0.045)
     ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(.black.opacity(0.32)))   // the grout shows in the gaps
@@ -1725,10 +1729,9 @@ func drawMosaic(_ rects: [MosaicRect], into ctx: GraphicsContext, size: CGSize, 
         ctx.fill(path, with: .color(hue))                                              // the block = the cell colour
         let t = Double(i) / Double(max(1, n - 1)) - 0.5                                // depth by size: big darker, small lighter
         ctx.fill(path, with: .color(t < 0 ? Color.black.opacity(-t * 0.34) : Color.white.opacity(t * 0.26)))
-        if breath > 0.01 {                                                            // strike: flash toward white
-            let rankPeak = 0.60 + 0.40 * Double(i) / Double(max(1, n - 1))            // small blocks flash brighter
-            let boost = (i == primary) ? 1.0 : 0.82
-            ctx.fill(path, with: .color(.white.opacity(min(0.94, breath * rankPeak * boost))))
+        if i == litIndex && breath > 0.01 {                                           // ONE rectangle per strike MOMENT (a chord = one)
+            let rankPeak = 0.62 + 0.38 * Double(i) / Double(max(1, n - 1))            // small blocks flash brighter
+            ctx.fill(path, with: .color(.white.opacity(min(0.96, breath * rankPeak))))
         }
     }
 }

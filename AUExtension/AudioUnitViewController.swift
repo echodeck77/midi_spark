@@ -190,6 +190,7 @@ struct DiagView: View {
     // last went SILENT. The spark travels for exactly as long as the note is held, then fades ~0.45s from release.
     @State var cellSounding = [Bool](repeating: false, count: 64)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: 64)
+    @State var cellStrikeSeq = [Int](repeating: 0, count: 64)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
@@ -1000,9 +1001,9 @@ struct DiagView: View {
             let sw = au.uiSwing();         if sw != swing { swing = sw }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
-                let now = Date(); var at = cellHitAt, vel = cellHitVel
-                for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0 }
-                cellHitAt = at; cellHitVel = vel
+                let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
+                for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
+                cellHitAt = at; cellHitVel = vel; cellStrikeSeq = seq   // MOSAIC: advance the per-cell moment counter
             }
             let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
@@ -1220,6 +1221,7 @@ struct DiagView: View {
                      laneMask: laneMask, laneHue: ladderMode ? ladderHue : sceneAmberHue, onLaneMask: setLane, holdLatch: holdLatch,
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
+                     cellStrikeSeq: cellStrikeSeq,                   // MOSAIC: per-cell moment counter (one rectangle per moment)
                      selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
