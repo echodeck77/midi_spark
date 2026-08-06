@@ -352,17 +352,22 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
-                // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
-                let geo = sealGeometry(sealHash(cell, colours: colours))
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                       // engraved plate
-                    RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
-                    Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
-                    sealComet(geo, col * 8 + row)
+                if useMosaicFace {
+                    // THE MOSAIC (candidate F) — the derived breathing-Mondrian face fills the whole cell (branch).
+                    mosaicFace(cell, col * 8 + row)
+                } else {
+                    // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
+                    // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
+                    let geo = sealGeometry(sealHash(cell, colours: colours))
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.14))                       // engraved plate
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                        Canvas { ctx, size in drawSeal(geo, into: ctx, size: size, padFraction: 0.16, stroke: 2.4, ink: sealInk) }
+                        sealComet(geo, col * 8 + row)
+                    }
+                    .padding(6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if showAddPlus {          // MODE ROW · ADD/EDIT with a selection: a faint "+" invites adding this empty cell
                 Image(systemName: "plus").font(.system(size: 18, weight: .heavy)).foregroundColor(.white.opacity(0.22))
             }   // §quieting (2026-08-02): otherwise an empty cell is NEAR-SILENT — bare faint rect
@@ -552,6 +557,45 @@ struct GridView: View {
     // sounding duration — then fades ~0.45s from release (`cellReleasedAt`). A very short note the 4Hz gate can miss
     // still completes a ~1.1s tail off its strike, so plucks aren't lost. Each strike re-glows the wire (~450ms).
     // Trail ∝ velocity. Frozen when hidden.
+    // THE MOSAIC (cell-face candidate F, spec AcceptanceCriteria-mosaic-face) — the derived rectangular face. The
+    // SAME behavioural hash as the seal → a 4–6 block Mondrian (twins share it). At rest the blocks are a faint
+    // engraved emboss on the cell's own colour (silent = still); a strike BREATHES them — the blocks flash toward
+    // white scaled by `vel × life` (the same strike-feed envelope the seal comet uses: hold while sounding, fade
+    // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
+    // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
+    @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int) -> some View {
+        let rects = mosaicLayout(hash: UInt64(sealHash(cell, colours: colours)))
+        let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
+        let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
+        let sounding = (idx >= 0 && idx < cellSounding.count) ? cellSounding[idx] : false
+        let releasedAt = (idx >= 0 && idx < cellReleasedAt.count) ? cellReleasedAt[idx] : Date.distantPast
+        let n = max(1, rects.count)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
+            Canvas { ctx, size in
+                let hasRelease = releasedAt > hitAt
+                let life = sounding ? 1.0
+                                    : (hasRelease ? max(0.0, 1 - tl.date.timeIntervalSince(releasedAt) / 0.45)
+                                                  : max(0.0, 1 - tl.date.timeIntervalSince(hitAt) / 0.5))
+                let breath = vel * life                                       // 0 at rest → up to vel while lit
+                let gap: CGFloat = 1.2                                        // the hair-gap that reads the blocks apart
+                for (i, r) in rects.enumerated() {
+                    let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
+                                      width: max(0.5, r.w * size.width - 2 * gap),
+                                      height: max(0.5, r.h * size.height - 2 * gap))
+                    let path = Path(roundedRect: rect, cornerRadius: 2)
+                    ctx.fill(path, with: .color(.black.opacity(0.12)))        // rest: an engraved block on the cell colour
+                    ctx.stroke(path, with: .color(.black.opacity(0.16)), lineWidth: 0.75)
+                    if breath > 0.001 {                                       // strike: flash toward white, small blocks brighter
+                        let rankPeak = 0.55 + 0.45 * Double(i) / Double(max(1, n - 1))
+                        ctx.fill(path, with: .color(.white.opacity(min(0.9, breath * rankPeak))))
+                    }
+                }
+            }
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     @ViewBuilder private func sealComet(_ geo: SealGeometry, _ idx: Int) -> some View {
         let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
         let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
@@ -1661,6 +1705,10 @@ struct RoutingVizOverlay: View {
 // side panels (EDIT only). The RECEIVERS panel becomes the cell's INPUT picker (R1–R4 radio + a FROM ROW
 // option), the EMITTERS panel its OUTPUT buses. Ephemeral (a StampConfig), recalled across enter/exit.
 // The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.
+
+// Cell-face candidate switch (branch feat/mosaic-cell-face): true = THE MOSAIC (candidate F), false = THE SEAL.
+// The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships.
+private let useMosaicFace = true
 
 private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
 

@@ -1271,6 +1271,35 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(sealFit(sealGeometry(1234)), sealFit(sealGeometry(1234)), "deterministic — twins share the fit")
     }
 
+    // MARK: - THE MOSAIC — the derived rectangular cell face (candidate F)
+
+    func testMosaicLayoutCountAndTiling() {
+        for h: UInt64 in [1, 42, 0xDEADBEEF, 0, 7_777_777, .max] {
+            let m = mosaicLayout(hash: h)
+            XCTAssertTrue((4...6).contains(m.count), "4–6 blocks (hash \(h) → \(m.count))")
+            let area = m.reduce(0) { $0 + $1.area }
+            XCTAssertEqual(area, 1.0, accuracy: 1e-9, "the blocks TILE the unit face (Σ area = 1)")
+            for r in m {
+                XCTAssertGreaterThan(r.w, 0); XCTAssertGreaterThan(r.h, 0)
+                XCTAssertGreaterThanOrEqual(r.x, -1e-9); XCTAssertGreaterThanOrEqual(r.y, -1e-9)
+                XCTAssertLessThanOrEqual(r.x + r.w, 1 + 1e-9); XCTAssertLessThanOrEqual(r.y + r.h, 1 + 1e-9)
+            }
+        }
+    }
+
+    func testMosaicLayoutSortedLargestFirst() {
+        let m = mosaicLayout(hash: 12_345)
+        for i in 1..<m.count { XCTAssertGreaterThanOrEqual(m[i - 1].area, m[i].area, "block 0 is the biggest (bass)") }
+    }
+
+    func testMosaicLayoutIsDeterministicTwinShared() {
+        XCTAssertEqual(mosaicLayout(hash: 0xABCDEF), mosaicLayout(hash: 0xABCDEF), "same hash → same layout (twins share)")
+    }
+
+    func testMosaicLayoutIsHashSensitive() {
+        XCTAssertNotEqual(mosaicLayout(hash: 1), mosaicLayout(hash: 2), "different configs → different mosaics")
+    }
+
     // MARK: - shared pure helpers (extracted dedup — clampVel · positiveFract · splitmix64Mix)
 
     func testClampVelClampsToOneToOneTwentySeven() {

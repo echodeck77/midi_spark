@@ -1002,6 +1002,46 @@ func sealFit(_ geo: SealGeometry) -> SealFit {
     return SealFit(fractions: fractions, rangeX: rangeX, rangeY: rangeY)
 }
 
+// MARK: - THE MOSAIC (cell-face candidate F) — a breathing-Mondrian face DERIVED from the seal hash
+
+/// One block of the mosaic face, in unit coordinates (x,y,w,h ∈ [0,1]). `area` ranks blocks by size.
+struct MosaicRect: Equatable {
+    var x: Double, y: Double, w: Double, h: Double
+    var area: Double { w * h }
+}
+
+/// THE MOSAIC (spec `AcceptanceCriteria-mosaic-face`): a Mondrian-like tiling of the unit face into 4–6
+/// rectangles, DERIVED from the cell's behavioural `hash` (the SAME hash as the seal → config-twins share the
+/// layout; the identity law is unchanged). Deterministic: repeatedly split the LARGEST block along its long axis
+/// (usually) at a hash-chosen INTERIOR ratio (0.32…0.68 — no slivers). Returned sorted LARGEST-first, so index 0
+/// is the biggest block (the bass, for the pool-rank lighting). Contiguous (no gaps/overlaps — the renderer insets
+/// each block for the visual gap). Pure/testable.
+func mosaicLayout(hash: UInt64) -> [MosaicRect] {
+    var rng = hash == 0 ? 0x9E3779B97F4A7C15 : hash
+    func next() -> Double {                                   // deterministic 0..<1
+        rng = splitmix64Mix(rng &+ 0x9E3779B97F4A7C15)
+        return Double(rng >> 11) * (1.0 / 9_007_199_254_740_992.0)
+    }
+    let count = 4 + Int(hash % 3)                             // 4, 5, or 6 blocks
+    var rects = [MosaicRect(x: 0, y: 0, w: 1, h: 1)]
+    while rects.count < count {
+        let i = rects.indices.max(by: { rects[$0].area < rects[$1].area })!   // split the biggest block
+        let r = rects[i]
+        let cutWidth = (r.w >= r.h) ? next() < 0.72 : next() < 0.28           // usually cut the LONGER side (clean blocks)
+        let ratio = 0.32 + next() * 0.36                                      // interior split, no slivers
+        if cutWidth {
+            let c = r.w * ratio                                              // left | right
+            rects[i] = MosaicRect(x: r.x, y: r.y, w: c, h: r.h)
+            rects.append(MosaicRect(x: r.x + c, y: r.y, w: r.w - c, h: r.h))
+        } else {
+            let c = r.h * ratio                                              // top / bottom
+            rects[i] = MosaicRect(x: r.x, y: r.y, w: r.w, h: c)
+            rects.append(MosaicRect(x: r.x, y: r.y + c, w: r.w, h: r.h - c))
+        }
+    }
+    return rects.sorted { $0.area > $1.area }
+}
+
 /// D3: the CENSUS — how many painted cells use each Colour, across all scenes. Census > 0 protects a Colour
 /// from deletion (scenes-are-precious). Pure/testable.
 func colourCensus(_ scenes: [SceneState]) -> [String: Int] {
