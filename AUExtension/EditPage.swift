@@ -488,7 +488,7 @@ extension DiagView {
         let chain = cellChain(cell)
         let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
         let hue = mainDestHue
-        let idW: CGFloat = 120, idH: CGFloat = 92, filtW: CGFloat = 190
+        let idW: CGFloat = 120, filtW: CGFloat = 190   // idW: reserves the (now-hidden) ID-cell margin so RECEIVERS stays clear of the left
         let flowW = min(size.width - 48, 1040)
         GeometryReader { g in
             let W = g.size.width
@@ -497,16 +497,16 @@ extension DiagView {
             let yRecv: CGFloat = 32, yProc: CGFloat = 178, yEm: CGFloat = 324
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
-                    p.move(to: CGPoint(x: W / 2, y: 55));  p.addLine(to: CGPoint(x: W / 2, y: 84))                 // receivers → input filter
-                    p.move(to: CGPoint(x: W / 2, y: 124)); p.addLine(to: CGPoint(x: W / 2, y: 135))                // input filter ↓
-                    p.addLine(to: CGPoint(x: 2, y: 135)); p.addLine(to: CGPoint(x: 2, y: yProc))                   // ← then ↓ to the row's LEFT
-                    p.addLine(to: CGPoint(x: W, y: yProc))                                                         // thread L→R (behind the slots)
+                    // RECEIVERS → first processor: down from the receivers' bottom-centre, LEFT, then DOWN into the
+                    // FIRST processor's TOP-CENTRE (user 2026-08-07). Then thread L→R behind the slots.
+                    p.move(to: CGPoint(x: W / 2, y: 55)); p.addLine(to: CGPoint(x: W / 2, y: 118))
+                    p.addLine(to: CGPoint(x: sw / 2, y: 118)); p.addLine(to: CGPoint(x: sw / 2, y: yProc))
+                    p.addLine(to: CGPoint(x: W, y: yProc))
                     p.addLine(to: CGPoint(x: W, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 232))   // exit RIGHT → output filter
                     p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 301))                // output filter → emitters
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
-                flowCellFace(cell).frame(width: idW, height: idH).position(x: idW / 2, y: 78)                      // SELECTED CELL — left, big, rectangular
+                // (SELECTED-CELL indicator + INPUT FILTER removed — user 2026-08-07; the flow starts at RECEIVERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
-                flowGhost("Input filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 104)      // INPUT FILTER (below receivers)
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS
                     slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
                 }
