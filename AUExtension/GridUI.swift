@@ -1289,7 +1289,7 @@ struct ProcessorBox: View {
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
-    var onMixer: (() -> Void)? = nil                    // slotMode: the MIXER button (flow-diagram pop-up)
+    var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -1356,19 +1356,25 @@ struct ProcessorBox: View {
     // B1 TITLE-AS-PICKER: [EMBLEM] TYPE ▾ · COPY · PASTE — tap the type to open the picker popover.
     private var titleRow: some View {
         HStack(spacing: 5) {
-            Button { if !mixed { showTypePicker = true } } label: {
+            if plainTitle {                                 // pop-up: the type is fixed — show it as a TITLE, not a picker
                 HStack(spacing: 6) {
                     if let ft = faceType { Image(systemName: emblemSymbol(ft)).font(.system(size: 17, weight: .black)) }
                     Text(faceType.map { typeShort($0) } ?? "OFF").font(.system(size: 17, weight: .heavy, design: .monospaced))
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .heavy)).opacity(0.7)
+                }.foregroundColor(accent)
+            } else {
+                Button { if !mixed { showTypePicker = true } } label: {
+                    HStack(spacing: 6) {
+                        if let ft = faceType { Image(systemName: emblemSymbol(ft)).font(.system(size: 17, weight: .black)) }
+                        Text(faceType.map { typeShort($0) } ?? "OFF").font(.system(size: 17, weight: .heavy, design: .monospaced))
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .heavy)).opacity(0.7)
+                    }
+                    .foregroundColor(accent)
                 }
-                .foregroundColor(accent)
+                .buttonStyle(.plain).disabled(mixed)
             }
-            .buttonStyle(.plain).disabled(mixed)
             Spacer()
-            if slotMode {                                   // CELL MACHINE: per-slot MACRO · MIXER · BYPASS (+ REMOVE) instead of COPY/PASTE
+            if slotMode {                                   // CELL MACHINE: per-slot MACRO · BYPASS (+ REMOVE) instead of COPY/PASTE
                 if let onMacro { pill("MACRO", onMacro) }
-                if let onMixer { pill("MIXER", onMixer) }
                 pill(slotBypassed ? "BYPASSED" : "BYPASS", onBypass)
                 if let onRemove { pill("✕", onRemove) }
             } else {

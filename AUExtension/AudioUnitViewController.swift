@@ -108,6 +108,7 @@ struct DiagView: View {
     @State var procEditSlot = 0
     @State var procEditDocBaseline: PluginState? = nil
     @State var procTypePickerOpen = false
+    @State var procMacroEngaged = false                                      // pop-up: the embedded macro section is open + auditioning
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed

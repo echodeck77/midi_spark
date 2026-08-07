@@ -21,6 +21,10 @@ struct MacroAuthoringView: View {
     let onUnbind: (_ macroIndex: Int) -> Void                   // "REMOVE FROM M{n}" — drops this slot's binding
     let onSetMacro: (_ index: Int, _ value: Double) -> Void     // live macro drag inside the pop-up
     let onClose: (_ apply: Bool) -> Void
+    var embedded: Bool = false                                  // EMBEDDED (in the processor edit pop-up): no header/scrim/frame;
+    var onEngage: () -> Void = {}                               //   the controls gate behind an "Add macro" button / dropdown, and
+                                                                //   the parent pop-up owns APPLY/CANCEL. onEngage fires when authoring begins.
+    @State private var authoring = false                        // embedded: has the macro section been opened (Add macro / a pick)?
 
     @State private var selected: Set<String> = []               // params being authored for the current macro
     @State private var targets: [String: Double] = [:]          // the ALTERNATIVE value per param
@@ -48,6 +52,17 @@ struct MacroAuthoringView: View {
     // MARK: body
 
     var body: some View {
+        Group {
+            if embedded { embeddedContent } else { standalone }
+        }
+        .onAppear {
+            for m in 0..<min(24, macros.count) { macroVals[m] = macros[m].value }
+            for b in existing { bound[b.macro] = Array(b.deltas.keys) }                  // reflect what's already set up
+        }
+    }
+
+    // STANDALONE — the canonical modal (chain-stack MACRO button). Owns its scrim/header/APPLY/CANCEL.
+    private var standalone: some View {
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { onClose(true) }   // scrim-tap KEEPS the macros (only CANCEL reverts)
             VStack(spacing: 0) {
@@ -66,10 +81,33 @@ struct MacroAuthoringView: View {
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(0.4), lineWidth: 1))
             .padding(20)
         }
-        .onAppear {
-            for m in 0..<min(24, macros.count) { macroVals[m] = macros[m].value }
-            for b in existing { bound[b.macro] = Array(b.deltas.keys) }                  // reflect what's already set up
+    }
+
+    // EMBEDDED — lives at the FOOT of the processor edit pop-up (user 2026-08-08). No header/scrim (the parent owns
+    // APPLY/CANCEL). One adaptive gate: "+ ADD MACRO" (this slot has none) or the dropdown (it has some). Engaging it
+    // reveals the authoring controls inline.
+    private var embeddedContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if authoring || !existing.isEmpty { macroPicker } else { addMacroButton }
+            if authoring {
+                paramSection
+                morphSection
+                macroPanels
+            }
         }
+    }
+    private var addMacroButton: some View {
+        Button { authoring = true; onEngage(); newMacro() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill").font(.system(size: 16, weight: .heavy))
+                Text("ADD MACRO").font(.system(size: 13, weight: .heavy, design: .monospaced))
+                Spacer(minLength: 0)
+            }
+            .foregroundColor(accent).padding(.horizontal, 14).frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.4), lineWidth: 1)))
+        }.buttonStyle(.plain)
     }
 
     // MARK: header — title + APPLY / CANCEL
@@ -243,6 +281,7 @@ struct MacroAuthoringView: View {
     }
     /// Dropdown: REFLECT an existing macro onto the page — its controls, values, and applied state (§1).
     private func reflect(_ b: MacroSlotBinding) {
+        if !authoring { authoring = true; onEngage() }             // embedded: picking a macro reveals the controls + starts audition
         currentMacro = b.macro
         selected = Set(b.deltas.keys)
         for (k, d) in b.deltas { targets[k] = (base[k] ?? 0) + d }
@@ -251,7 +290,7 @@ struct MacroAuthoringView: View {
         bound[b.macro] = keys
         morph = 1; preview()
     }
-    private func newMacro() { currentMacro = nil; selected = []; morph = 1; onPreview(base) }
+    private func newMacro() { if !authoring { authoring = true; onEngage() }; currentMacro = nil; selected = []; morph = 1; onPreview(base) }
 
     /// The MAIN value of a control, formatted for its kind (§2).
     private func mainText(_ p: MacroControlParam) -> String {

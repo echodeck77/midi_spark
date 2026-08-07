@@ -413,7 +413,8 @@ extension DiagView {
             Spacer(minLength: 0)
         }
     }
-    @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell, onMixer: (() -> Void)? = nil) -> some View {
+    @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell,
+                              plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
         let cid = cell.colourID, targets = editSelTargets
         ProcessorBox(
@@ -423,7 +424,7 @@ extension DiagView {
                     var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
                     mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
                 }
-                refreshFromDocument()
+                refreshFromDocument(); onEdited?()                         // pop-up: re-snapshot the macro BASE from the edited params
             },
             onTranspose: { _ in }, onMorph: { _ in },
             onSetTypeA: { t in au?.setSlotTypeCells(targets, slot: i, t); refreshFromDocument() },
@@ -432,20 +433,26 @@ extension DiagView {
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
             onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
             onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() },
-            onMacro: { openMacroAuthoring(slot: i, slotData: slot) }, onMixer: onMixer)
+            onMacro: showMacro ? { openMacroAuthoring(slot: i, slotData: slot) } : nil, plainTitle: plainTitle)
     }
 
     // MARK: - MACRO AUTHORING (canonical pop-up) — open/callbacks for a processor slot. The BASE = the slot's current
     // values (untouched by authoring — the offset model: a binding stores delta = target − base). Bindings commit
     // LIVE so the in-pop-up macro panel is interactive; the pop-up's CANCEL restores the whole macros vector +
     // the base params (nothing escapes CANCEL). The audition sounds the slot live (hold keys) at the test values.
-    func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
+    // Wire the macro authoring data for a slot (group · base · macro baseline · existing bindings). Shared by the
+    // standalone pop-up (chain stack) and the EMBEDDED section in the flow-diagram processor pop-up.
+    func setupMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
         guard let a = sel.anchor else { return }
         macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i
         macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
         macroAuthorBase = processorValues(slot)                       // the processor's CURRENT values (the offset base)
         macroAuthorMacrosBaseline = au?.uiMacros() ?? []              // snapshot every macro — CANCEL restores this
         macroAuthorExisting = macroSlotBindings(macroAuthorMacrosBaseline, col: a.col, row: a.row, slot: i)   // the dropdown + reflect
+    }
+    func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
+        guard let a = sel.anchor else { return }
+        setupMacroAuthoring(slot: i, slotData: slot)
         au?.setAudition(col: a.col, row: a.row)
         macroAuthorOpen = true
     }
@@ -562,15 +569,32 @@ extension DiagView {
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
-    // editor: big, legible, per-type). MACRO · MIXER · BYPASS sit in the box's title row; APPLY/CANCEL at the foot.
+    // editor: big, legible, per-type). Title + BYPASS in the box's title row; the MACRO section (add/dropdown +
+    // authoring) at the FOOT of the form; APPLY/CANCEL below it. ONE transaction: CANCEL reverts the whole document
+    // snapshot (processor edits AND macro edits together, per the user's ruling 2026-08-08).
     func openProcEdit(slot i: Int) {
         procEditSlot = i
-        procEditDocBaseline = au?.uiDocument()          // CANCEL restores this exactly
+        procEditDocBaseline = au?.uiDocument()          // CANCEL restores this exactly (params + macros)
+        procMacroEngaged = false
+        if let cell = editingCell, i < cellChain(cell).count { setupMacroAuthoring(slot: i, slotData: cellChain(cell)[i]) }
         procEditOpen = true
     }
+    // The macro morph auditions the cell live — started only when the macro section is opened, cleared on close.
+    func procMacroEngage() {
+        guard let a = sel.anchor else { return }
+        au?.setAudition(col: a.col, row: a.row)
+        procMacroEngaged = true
+    }
     func closeProcEdit(apply: Bool) {
+        if procMacroEngaged {
+            au?.clearAudition()
+            // slot → BASE: clears any unbound morph residue. macroAuthorBase tracks ProcessorBox param edits (onEdited),
+            // so this KEEPS the edits while the macro holds its delta as an offset. (Editing params AFTER binding a
+            // macro in the same session is not fully reconciled — author macros as the last step. Flagged.)
+            if apply { au?.editSlotCells(editSelTargets, slot: procEditSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) } }
+        }
         if !apply, let b = procEditDocBaseline { au?.restoreDocument(b) }   // revert every edit since it opened
-        procEditOpen = false; procEditDocBaseline = nil
+        procEditOpen = false; procEditDocBaseline = nil; procMacroEngaged = false; macroAuthorGroup = nil
         refreshFromDocument()
     }
     @ViewBuilder func procEditPopup() -> some View {
@@ -580,8 +604,19 @@ extension DiagView {
                 Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { closeProcEdit(apply: true) }   // scrim = keep
                 VStack(spacing: 0) {
                     ScrollView(.vertical, showsIndicators: false) {
-                        slotBox(procEditSlot, chain[procEditSlot], cell: cell, onMixer: { /* MIXER — placeholder, awaiting definition */ })
-                            .padding(14)
+                        VStack(alignment: .leading, spacing: 16) {
+                            slotBox(procEditSlot, chain[procEditSlot], cell: cell,
+                                    plainTitle: true, showMacro: false,
+                                    onEdited: { if let c = editingCell, procEditSlot < cellChain(c).count { macroAuthorBase = processorValues(cellChain(c)[procEditSlot]) } })
+                            if let g = macroAuthorGroup {                 // the MACROS section — folded in at the FOOT (user 2026-08-08)
+                                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+                                MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting,
+                                                   accent: mainDestHue, base: macroAuthorBase,
+                                                   onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,
+                                                   onSetMacro: macroAuthorSetMacro, onClose: { _ in },
+                                                   embedded: true, onEngage: procMacroEngage)
+                            }
+                        }.padding(14)
                     }
                     HStack(spacing: 10) {
                         Spacer()
@@ -589,7 +624,7 @@ extension DiagView {
                         Button { closeProcEdit(apply: true) } label: { transactChip("APPLY", enabled: true, fill: true) }.buttonStyle(.plain)
                     }.padding(14)
                 }
-                .frame(maxWidth: 560, maxHeight: 680)
+                .frame(maxWidth: 560, maxHeight: 760)
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
                 .padding(20)
@@ -606,7 +641,12 @@ extension DiagView {
                 Text("Pick a processor to shape the signal.").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                 HStack(spacing: 10) {
                     ForEach(ProcessorType.allCases, id: \.self) { t in
-                        Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument(); procTypePickerOpen = false } label: {
+                        Button {
+                            let newIdx = editingCell.map { cellChain($0).count } ?? 0   // the slot the append will create
+                            au?.addSlotCells(editSelTargets, type: t); refreshFromDocument()
+                            procTypePickerOpen = false
+                            openProcEdit(slot: newIdx)                                   // straight into the edit form (user 2026-08-08)
+                        } label: {
                             VStack(spacing: 6) {
                                 Image(systemName: emblemSymbol(t)).font(.system(size: 26, weight: .black))
                                 Text(t.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
