@@ -157,6 +157,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO processor — THE TAIL ERA, Phase 0 + 1 (2026-08-07, on `main`, PUSHED `3f8a27b`; macOS 513 green, iOS
+  builds; DEVICE ear-check owed). Spec `AcceptanceCriteria-tail-era-delay-echo.md`. The FIRST tail stage — repeats a
+  note at delayed beats with decay. **THE TAIL ENGINE (§0):** echo repeats fire at FUTURE beats, and the render only
+  visits the ACTIVE column's cells (`Router.swift` row loop keys `box.cells[effColumn*rows+r]`), so a tail must
+  outlive its cell/column AND the source's held state — NOT re-derivable from the current pool. Implemented as the
+  spec's **activation RING** (fixed 256-cap, evict-oldest, `EchoTail`): each DRY strike registers; `drainEchoTails`
+  emits each due repeat every window, column-independent (rings out past the column + past release). A NEW sanctioned
+  mutable-state exception — CLEARED on every transport/scene/panic/latch/sceneRestart edge + reset + beat
+  discontinuity (tails die on stop, spec v1; never leak). `Router.quiescent` now also requires the ring empty, and
+  the fuzz/chaos suites GENERATE echo cells (`.echo` in randomDoc) → they assert no-stuck + quiescent with echo
+  across every edge. Each repeat opens a voice with a scheduled off (drainDue → invariant 4); half-open [mStart,mEnd)
+  filter so a repeat lands in exactly its window (never bunched at the block head); roles eat echoes for free
+  (emitArtic path). **MINIMAL ECHO (Phase 1):** single-slot `[ECHO]` cell; TIME/REPEATS/DECAY REUSE rate/count/ramp
+  (zero new snapshot plumbing); dry = a short strike per column entry (repeats retrigger); wet repeats decay by
+  DECAY^k with a vel floor; KEEP pitch, MAIN dest. Plumbing: `ProcessorType += .echo` (append-only) · `CellMode` +
+  cellMode · macroParamsForProcessor · emblemSymbol("repeat")/typeDescription/ProcessorBox editor. **3 RouterTests**
+  (`testEchoRepeatsHeldNoteWithDecay` · `testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt` (the tail + no-leak
+  gate) · `testEchoIsBlockSizeInvariant`). **DEFERRED Phase 2** (flagged): mid-chain echo / `[ARP → ECHO]` riding a
+  tick-driver (v1 = single-slot only; multi-slot echo folds as pass-through, no crash) · FOLLOW mode · PING spread ·
+  CHAIN|DIRECT tail route · factory presets (CANYON CALL/DUB TABLE) · seek/loop look-back (v1 drops tails on a jump)
+  · the seal spark ringing with tails. ALSO: the PROCESSORS-page grid width is now fixed at 512 (height proportional,
+  `EditPage.editSpikePage`; commit `3f8a27b`).**
 - **▶ MACRO POP-UP rev 3 + grid macro band resize + mosaic crest reshape (2026-08-07, on `main`, PUSHED `0fc407b`;
   iOS builds, macOS 510 green; DEVICE pass owed). Paul's batch. **MACRO POP-UP** (`MacroAuthoringView`): (1) a
   DROPDOWN at top — "add new macro…" + every macro already bound to THIS slot with its overridden controls in
