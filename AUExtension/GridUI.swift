@@ -1711,7 +1711,7 @@ func drawMosaic(hash: UInt64, into ctx: GraphicsContext, size: CGSize, hue: Colo
     for (i, r) in rects.enumerated() {
         let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
                           width: max(1, r.w * size.width - 2 * gap), height: max(1, r.h * size.height - 2 * gap))
-        if i == 0 { crestRect = rect }                                                 // block 0 = the crest square (full height, square)
+        if i == 0 { crestRect = rect }                                                 // block 0 = the crest square (two-thirds height, corner-placed)
         let path = Path(roundedRect: rect, cornerRadius: 2.5)
         ctx.fill(path, with: .color(hue))                                              // the block = the cell colour
         let t = Double(i) / Double(max(1, n - 1)) - 0.5                                // depth: block 0 darkest, strip blocks lighter
@@ -1721,13 +1721,14 @@ func drawMosaic(hash: UInt64, into ctx: GraphicsContext, size: CGSize, hue: Colo
             ctx.fill(path, with: .color(.white.opacity(min(0.96, breath * rankPeak))))
         }
     }
-    // THE CREST (§2): 1–2 hash-chosen shapes on the FULL-HEIGHT SQUARE (block 0), in the opposite cell TONE (a shade
-    // of the hue, both shapes one colour), HUGGING one hash-chosen edge (never centred). Block 0's own note-moment
-    // flashes the CROWN (not the whole square) so the shapes flash like the rectangles, distinctly (user 2026-08-07).
+    // THE CREST (§2): 1–2 hash-chosen shapes on the TWO-THIRDS-HEIGHT SQUARE (block 0, corner-placed), drawn as
+    // OUTLINES (user 2026-08-07: not filled) in the opposite cell TONE, HUGGING one hash-chosen edge (never centred).
+    // Block 0's own note-moment flashes the CROWN (not the whole square) so the shapes flash like the rectangles.
     if let crest = crest, !crest.shapes.isEmpty, crestRect.width > 6, crestRect.height > 6 {
         let crestBreath = litIndex == 0 ? breath : 0                                   // the crown flashes on its note
         let margin = min(crestRect.width, crestRect.height) * 0.12
         let s0 = min(crestRect.width, crestRect.height) * 0.62                         // prominent on the square
+        let lw = max(1.5, s0 * 0.11)                                                   // the outline weight
         let anchor: CGPoint
         switch crest.edge {
         case .top:    anchor = CGPoint(x: crestRect.midX, y: crestRect.minY + margin + s0 / 2)
@@ -1738,8 +1739,8 @@ func drawMosaic(hash: UInt64, into ctx: GraphicsContext, size: CGSize, hue: Colo
         for (k, shape) in crest.shapes.enumerated() {
             let s = s0 * (1 - 0.34 * Double(k))                                        // outer shape, then a nested inner one (same colour)
             let path = mosaicShapePath(shape, in: CGRect(x: anchor.x - s / 2, y: anchor.y - s / 2, width: s, height: s))
-            ctx.fill(path, with: .color(crestTone))                                    // the opposite cell tone — opaque, so it reads as the hue
-            if crestBreath > 0.01 { ctx.fill(path, with: .color(.white.opacity(min(0.92, crestBreath)))) }   // flashes with its note
+            ctx.stroke(path, with: .color(crestTone), lineWidth: lw)                   // OUTLINE in the opposite cell tone — not filled
+            if crestBreath > 0.01 { ctx.stroke(path, with: .color(.white.opacity(min(0.92, crestBreath))), lineWidth: lw) }   // flashes with its note
         }
     }
 }

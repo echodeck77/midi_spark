@@ -101,6 +101,7 @@ struct DiagView: View {
     @State var macroAuthorGroup: MacroControlGroup? = nil
     @State var macroAuthorBase: [String: Double] = [:]                        // the slot's current values (the offset base)
     @State var macroAuthorMacrosBaseline: [Macro] = []                        // every macro on open — CANCEL restores this
+    @State var macroAuthorExisting: [MacroSlotBinding] = []                   // macros already bound to this slot — the dropdown/reflect
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -806,7 +807,7 @@ struct DiagView: View {
                                onClose: { showManual = false })
                 }
                 if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up
-                    MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], accent: mainDestHue,
+                    MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting, accent: mainDestHue,
                                        base: macroAuthorBase,
                                        onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,
                                        onSetMacro: macroAuthorSetMacro, onClose: closeMacroAuthoring)
@@ -1148,21 +1149,21 @@ struct DiagView: View {
                 }
                 .helpAnchor("#verbs")
             }
-            labeledPanel("MACROS") {                           // CENTRE: 8 macro SLIDERS (slider bank)
+            labeledPanel("MACROS") {                           // CENTRE: 8 macro SLIDERS on ONE line, enlarged (user 2026-08-07)
                 panelBox {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                    HStack(alignment: .top, spacing: 4) {
                         ForEach(0..<8, id: \.self) { i in
-                            GridMacroSlider(index: i, value: i < macros.count ? macros[i].value : 0) { idx, v in au?.setMacroValue(idx, v) }
+                            GridMacroSlider(index: i, value: i < macros.count ? macros[i].value : 0, height: 74) { idx, v in au?.setMacroValue(idx, v) }
                         }
                     }
                 }
             }
-            labeledPanel("MACROS") {                           // RIGHT: 8 macro buttons (button bank)
+            labeledPanel("MACROS") {                           // RIGHT: 8 macro BUTTONS, two rows of four, enlarged
                 panelBox {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 6) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 8) {
                         ForEach(8..<16, id: \.self) { i in
                             GridMacroButton(index: i, value: i < macros.count ? macros[i].value : 0,
-                                            fixed: i < macros.count ? macros[i].fixed : false) { idx, v in au?.setMacroValue(idx, v) }
+                                            fixed: i < macros.count ? macros[i].fixed : false, height: 44) { idx, v in au?.setMacroValue(idx, v) }
                         }
                     }
                 }

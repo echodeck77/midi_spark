@@ -1016,9 +1016,11 @@ struct MosaicRect: Equatable {
 /// (usually) at a hash-chosen INTERIOR ratio (0.32…0.68 — no slivers). Returned sorted LARGEST-first, so index 0
 /// is the biggest block (the bass, for the pool-rank lighting). Contiguous (no gaps/overlaps — the renderer insets
 /// each block for the visual gap). Pure/testable.
-/// `aspect` = the face's pixel height/width. BLOCK 0 is reserved as the CREST block: full height, and as WIDE as it
-/// is TALL (a square in pixels → unit-width = aspect), so the crown shapes sit prominent (user 2026-08-06). The
-/// remaining strip is tiled with the Mondrian split. Contiguous, deterministic (twins share).
+/// `aspect` = the face's pixel height/width. BLOCK 0 is reserved as the CREST block: TWO-THIRDS the cell height,
+/// and as WIDE as it is TALL (a square in pixels → unit-width = (2/3)·aspect), so the crown shapes sit prominent
+/// (user 2026-08-07). It is placed at a HASH-CHOSEN CORNER (not always the leftmost — user 2026-08-07); the
+/// remaining L-shape decomposes into a full-height side column + a partial row, then the Mondrian split reaches
+/// `count`. Contiguous (Σ area = 1), deterministic (twins share).
 func mosaicLayout(hash: UInt64, aspect: Double = 1) -> [MosaicRect] {
     var rng = hash == 0 ? 0x9E3779B97F4A7C15 : hash
     func next() -> Double {                                   // deterministic 0..<1
@@ -1026,9 +1028,16 @@ func mosaicLayout(hash: UInt64, aspect: Double = 1) -> [MosaicRect] {
         return Double(rng >> 11) * (1.0 / 9_007_199_254_740_992.0)
     }
     let count = 4 + Int(hash % 3)                             // 4, 5, or 6 blocks (incl. the crest square)
-    let sqW = min(0.9, max(0.001, aspect))                   // the crest square: full height, width = aspect ⇒ square in px
-    let crestSquare = MosaicRect(x: 0, y: 0, w: sqW, h: 1)
-    var strip = [MosaicRect(x: sqW, y: 0, w: 1 - sqW, h: 1)]  // the remaining strip, tiled below
+    let sqH = 2.0 / 3.0                                       // the crest square: two-thirds the cell height…
+    let sqW = min(0.9, max(0.001, (2.0 / 3.0) * aspect))     // …and as wide as it is tall ⇒ a square in px
+    let corner = Int(hash % 4)                                // 0=TL 1=TR 2=BL 3=BR — the crest is NOT always leftmost
+    let onRight = (corner == 1 || corner == 3), onBottom = (corner == 2 || corner == 3)
+    let crestX = onRight ? 1 - sqW : 0, crestY = onBottom ? 1 - sqH : 0
+    let crestSquare = MosaicRect(x: crestX, y: crestY, w: sqW, h: sqH)
+    // the L-remainder = a full-height side column (opposite the crest) + a partial row (the crest's own column).
+    let sideColumn = MosaicRect(x: onRight ? 0 : sqW, y: 0, w: 1 - sqW, h: 1)
+    let partialRow = MosaicRect(x: crestX, y: onBottom ? 0 : sqH, w: sqW, h: 1 - sqH)
+    var strip = [sideColumn, partialRow]
     while strip.count < count - 1 {
         let i = strip.indices.max(by: { strip[$0].area < strip[$1].area })!  // split the biggest strip block
         let r = strip[i]

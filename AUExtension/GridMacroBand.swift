@@ -45,21 +45,23 @@ struct GridMacroRotary: View {
 struct GridMacroSlider: View {
     let index: Int
     let value: Double
+    var height: CGFloat = 40                                     // caller can enlarge (grid band = one big line)
     let onSet: (Int, Double) -> Void
 
     @State private var v: Double = 0
     @GestureState private var dragging = false
     private let hue = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private var thick: CGFloat { max(5, height * 0.14) }         // fader width scales with size
 
     var body: some View {
         VStack(spacing: 2) {
             GeometryReader { g in
                 let h = g.size.height
                 ZStack(alignment: .bottom) {
-                    Capsule().fill(Color.white.opacity(0.10)).frame(width: 5)
-                    Capsule().fill(hue.opacity(0.9)).frame(width: 5, height: max(4, h * CGFloat(v)))
-                    RoundedRectangle(cornerRadius: 2).fill(hue).frame(width: 16, height: 4)
-                        .offset(y: -(h - 4) * CGFloat(v))
+                    Capsule().fill(Color.white.opacity(0.10)).frame(width: thick)
+                    Capsule().fill(hue.opacity(0.9)).frame(width: thick, height: max(4, h * CGFloat(v)))
+                    RoundedRectangle(cornerRadius: 2).fill(hue).frame(width: thick + 10, height: 5)
+                        .offset(y: -(h - 5) * CGFloat(v))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -69,8 +71,8 @@ struct GridMacroSlider: View {
                         v = nv; onSet(index, nv)
                     })
             }
-            .frame(height: 40)
-            Text("M\(index + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            .frame(height: height)
+            Text("M\(index + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
         }
         .onAppear { v = value }
         .onChange(of: value) { nv in if !dragging { v = nv } }
@@ -82,6 +84,7 @@ struct GridMacroButton: View {
     let index: Int          // 8…15 (the button bank)
     let value: Double
     let fixed: Bool
+    var height: CGFloat = 26                                     // caller can enlarge (grid band = bigger buttons)
     let onSet: (Int, Double) -> Void
 
     @State private var on = false
@@ -91,7 +94,7 @@ struct GridMacroButton: View {
         VStack(spacing: 2) {
             RoundedRectangle(cornerRadius: 4).fill(on ? hue.opacity(0.9) : Color.white.opacity(0.08))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                .frame(width: 34, height: 26)
+                .frame(maxWidth: .infinity).frame(height: height)
                 .contentShape(Rectangle())
                 .gesture(fixed
                     ? AnyGesture(TapGesture().onEnded { on.toggle(); onSet(index, on ? 1 : 0) }.map { _ in () })

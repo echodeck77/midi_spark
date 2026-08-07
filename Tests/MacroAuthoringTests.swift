@@ -122,16 +122,36 @@ final class MacroAuthoringTests: XCTestCase {
         XCTAssertTrue(macroDeltaHasDiscrete(dDisc, params: ps), "a pattern flip → buttons only")
     }
 
-    // macroApply SNAPS every non-continuous kind (option · stepper · mask) at the halfway point, like the toggle.
-    func testMacroApplySnapsOptionStepperMask() {
+    // macroApply SWEEPS multi-value kinds (option · stepper) through their intermediate values; mask stays binary.
+    func testMacroApplySweepsOptionStepperSnapsMask() {
         let ps = [MacroControlParam(key: "opt", label: "", kind: .option(["A", "B", "C"])),
                   MacroControlParam(key: "step", label: "", kind: .stepper(lo: 0, hi: 8)),
                   MacroControlParam(key: "mask", label: "", kind: .mask(bits: 4))]
         let main = ["opt": 0.0, "step": 2.0, "mask": 0.0], delta = ["opt": 2.0, "step": 6.0, "mask": 5.0]
-        let below = macroApply(main: main, delta: delta, value: 0.4, params: ps)
-        XCTAssertEqual(below["opt"], 0); XCTAssertEqual(below["step"], 2); XCTAssertEqual(below["mask"], 0)   // < half → MAIN
-        let above = macroApply(main: main, delta: delta, value: 0.6, params: ps)
-        XCTAssertEqual(above["opt"], 2); XCTAssertEqual(above["step"], 8); XCTAssertEqual(above["mask"], 5)   // ≥ half → ALT
+        // OPTION + STEPPER run through the options (user 2026-08-07: a multi-select isn't binary)
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0.5, params: ps)["opt"], 1, "option sweeps to the middle option at half")
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0.4, params: ps)["step"], 4, "stepper sweeps to an intermediate step")
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0.6, params: ps)["step"], 6)
+        // endpoints: MAIN at 0, ALT at 1
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0, params: ps)["opt"], 0)
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 1, params: ps)["opt"], 2)
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 1, params: ps)["step"], 8)
+        // MASK stays binary — snap at half
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0.4, params: ps)["mask"], 0)
+        XCTAssertEqual(macroApply(main: main, delta: delta, value: 0.6, params: ps)["mask"], 5)
+    }
+
+    // macroSlotBindings reads the macros already bound to a slot (col,row,slot) → each one's param→delta map.
+    func testMacroSlotBindingsReadsBackPerSlot() {
+        var m0 = Macro(name: "M1"); m0.targets = [MacroTarget(col: 1, row: 2, slot: 0, param: "gate", delta: 0.3),
+                                                  MacroTarget(col: 1, row: 2, slot: 0, param: "spread", delta: -0.2),
+                                                  MacroTarget(col: 5, row: 5, slot: 0, param: "gate", delta: 0.1)]  // other slot — excluded
+        var m3 = Macro(name: "M4"); m3.targets = [MacroTarget(col: 1, row: 2, slot: 0, param: "curve", delta: 0.5)]
+        let m1 = Macro(name: "M2")                                                                                   // no targets — absent
+        let b = macroSlotBindings([m0, m1, Macro(name: "x"), m3], col: 1, row: 2, slot: 0)
+        XCTAssertEqual(b.count, 2)
+        XCTAssertEqual(b.first { $0.macro == 0 }?.deltas, ["gate": 0.3, "spread": -0.2])
+        XCTAssertEqual(b.first { $0.macro == 3 }?.deltas, ["curve": 0.5])
     }
 
     // The processor group descriptor: a stable id (col,row,slot) · the processor domain · the type's param list.

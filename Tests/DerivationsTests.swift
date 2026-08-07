@@ -1287,11 +1287,20 @@ final class DerivationsTests: XCTestCase {
         }
     }
 
-    func testMosaicLayoutCrestBlockIsFullHeightSquare() {
-        let m = mosaicLayout(hash: 12_345, aspect: 0.35)
-        XCTAssertEqual(m[0].h, 1, accuracy: 1e-9, "block 0 spans the full height")
-        XCTAssertEqual(m[0].w, 0.35, accuracy: 1e-9, "…and is as wide as it is tall (unit-width = aspect)")
-        XCTAssertEqual(m[0].x, 0, accuracy: 1e-9); XCTAssertEqual(m[0].y, 0, accuracy: 1e-9)
+    func testMosaicCrestBlockIsTwoThirdsHeightSquareAtACorner() {
+        for h: UInt64 in [12_345, 1, 2, 3, 0xDEADBEEF] {
+            let aspect = 0.35
+            let m = mosaicLayout(hash: h, aspect: aspect)
+            XCTAssertEqual(m[0].h, 2.0 / 3.0, accuracy: 1e-9, "block 0 is two-thirds the cell height")
+            XCTAssertEqual(m[0].w, (2.0 / 3.0) * aspect, accuracy: 1e-9, "…and as wide as it is tall (a px-square)")
+            let onRight = m[0].x > 1e-9, onBottom = m[0].y > 1e-9    // it hugs one of the FOUR corners (not always leftmost)
+            if onRight { XCTAssertEqual(m[0].x + m[0].w, 1, accuracy: 1e-9) } else { XCTAssertEqual(m[0].x, 0, accuracy: 1e-9) }
+            if onBottom { XCTAssertEqual(m[0].y + m[0].h, 1, accuracy: 1e-9) } else { XCTAssertEqual(m[0].y, 0, accuracy: 1e-9) }
+        }
+        // across many hashes the crest is NOT always leftmost (corner varies with the hash)
+        let leftmost = (0..<40).filter { mosaicLayout(hash: UInt64($0) &* 2_654_435_761, aspect: 0.35)[0].x < 1e-9 }.count
+        XCTAssertLessThan(leftmost, 40, "the crest square is not always on the left")
+        XCTAssertGreaterThan(leftmost, 0, "…nor always on the right")
     }
 
     func testMosaicLayoutClampsExtremeAspectAndStillTiles() {

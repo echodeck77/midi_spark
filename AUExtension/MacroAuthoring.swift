@@ -77,8 +77,28 @@ func macroApply(main: [String: Double], delta: [String: Double], value: Double,
     for p in params {
         guard let d = delta[p.key], d != 0 else { continue }
         let base = main[p.key] ?? 0
-        if case .continuous(let lo, let hi) = p.kind { out[p.key] = clamp(base + v * d, lo, hi) }
-        else                                         { out[p.key] = v >= 0.5 ? base + d : base }   // discrete snap
+        switch p.kind {
+        case .continuous(let lo, let hi): out[p.key] = clamp(base + v * d, lo, hi)
+        case .option(let labels):         out[p.key] = clamp((base + v * d).rounded(), 0, Double(max(0, labels.count - 1)))   // SWEEP through the options
+        case .stepper(let lo, let hi):    out[p.key] = Double(clamp(Int((base + v * d).rounded()), lo, hi))                    // SWEEP through the steps
+        case .toggle, .mask:              out[p.key] = v >= 0.5 ? base + d : base                                              // binary SNAP at halfway
+        }
+    }
+    return out
+}
+
+/// One macro's binding to a processor slot — the param→delta map it holds on (col,row,slot). Powers the pop-up's
+/// "edit an existing macro" dropdown (reflect a macro back onto the page). Only continuous targets are stored today.
+struct MacroSlotBinding: Equatable { let macro: Int; let deltas: [String: Double] }
+
+/// The macros already bound to a processor slot, each with its param→delta map (summing overlapping targets).
+/// `col/row/slot` identify the slot; index = the macro's index. Pure/testable.
+func macroSlotBindings(_ macros: [Macro], col: Int, row: Int, slot: Int) -> [MacroSlotBinding] {
+    var out: [MacroSlotBinding] = []
+    for (i, m) in macros.enumerated() {
+        var d: [String: Double] = [:]
+        for t in m.targets where t.col == col && t.row == row && t.slot == slot { d[t.param, default: 0] += t.delta }
+        if !d.isEmpty { out.append(MacroSlotBinding(macro: i, deltas: d)) }
     }
     return out
 }

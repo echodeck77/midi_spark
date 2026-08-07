@@ -360,6 +360,7 @@ extension DiagView {
         macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
         macroAuthorBase = processorValues(slot)                       // the processor's CURRENT values (the offset base)
         macroAuthorMacrosBaseline = au?.uiMacros() ?? []              // snapshot every macro — CANCEL restores this
+        macroAuthorExisting = macroSlotBindings(macroAuthorMacrosBaseline, col: a.col, row: a.row, slot: i)   // the dropdown + reflect
         au?.setAudition(col: a.col, row: a.row)
         macroAuthorOpen = true
     }
@@ -371,6 +372,7 @@ extension DiagView {
     /// BIND the selected params' deltas (target − base) to a macro — committed LIVE (the panel is interactive).
     /// Continuous (foldable) keys bind through addMacroTargets today; discrete keys are the future button path.
     func macroAuthorBind(_ macroIndex: Int, _ deltas: [String: Double]) {
+        au?.removeMacroTargets(macroIndex, col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot)   // idempotent: replace this slot's binding
         let foldable = Set(MacroParam.allCases.map(\.rawValue))   // the continuous params that fold through the engine (single source: MacroParam)
         let targets: [MacroTarget] = deltas.compactMap { k, d in
             (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
