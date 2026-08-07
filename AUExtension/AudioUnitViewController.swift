@@ -288,9 +288,8 @@ struct DiagView: View {
             syncAnchor()
             return
         }
-        if ladderMode {                                      // SINGLE: a tap ARMS this rung for its column (TAP is traded for switching)
-            guard scene.cellAt(col, row) != nil else { return }   // only an occupied rung can be armed
-            armLadderRung(col, row); return
+        if ladderMode {                                      // SINGLE: a tap switches the column's active rung — POPULATED (that
+            armLadderRung(col, row); return                  // cell plays) or EMPTY (the column mutes). User 2026-08-07.
         }
         if let v = activeVerb { doVerb(v, col, row) } else { triggerTap(col, row) }
     }
@@ -315,19 +314,19 @@ struct DiagView: View {
         ladderPending[col] = armed ? row : nil
         refreshFromDocument()
     }
-    /// LADDER · row selector (user 2026-08-03): ENABLE the whole row — make it the active rung in every column that
-    /// has an occupied cell there (un-muted). One-directional: it never DISABLES a row (re-tapping just re-enables).
+    /// LADDER · row selector (user 2026-08-03, revised 2026-08-07): select the whole row — make it the active rung in
+    /// EVERY column. A column whose cell at `row` is OCCUPIED plays it; a column whose cell at `row` is EMPTY MUTES
+    /// (nothing speaks). The currently-sounding column ARMS (flashes, deactivates when the playhead leaves) instead of
+    /// cutting mid-note; the rest flip now. (No `muted` change — SINGLE is selection-only; MULTI owns mute.)
     func setLadderRow(_ row: Int) {
-        let playingCol = d.playing ? d.effColumn : -1        // the sounding column ARMS (flashes) instead of cutting mid-note; the rest flip now
+        let playingCol = d.playing ? d.effColumn : -1
         au?.editScene(record: false) { s in
             var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-            for c in 0..<8 where s.cellAt(c, row) != nil {
-                if c != playingCol { ar[c] = row }           // instant flip for every column EXCEPT the one currently playing
-            }                                                // (no `muted` change — SINGLE is selection-only; MULTI owns mute)
+            for c in 0..<8 where c != playingCol { ar[c] = row }   // instant flip for every column except the one playing
             s.activeRow = ar
         }
-        ladderPending = [:]                                  // an explicit row enable supersedes any prior armed per-column switch…
-        if playingCol >= 0, scene.cellAt(playingCol, row) != nil { ladderPending[playingCol] = row }   // …but the SOUNDING column arms
+        ladderPending = [:]                                  // an explicit row select supersedes any prior armed per-column switch…
+        if playingCol >= 0 { ladderPending[playingCol] = row }   // …but the SOUNDING column arms (populated → switch · empty → mute)
         refreshFromDocument()
     }
     /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
@@ -340,8 +339,17 @@ struct DiagView: View {
         }
         return s
     }
-    /// The armed rungs (blinking): a pending switch not yet committed at its column's next entry.
-    var ladderArmedSet: Set<GridView.GridPos> { Set(ladderPending.map { GridView.GridPos(col: $0.key, row: $0.value) }) }
+    /// The blinking cells while a SINGLE switch/mute is pending (commits at the column's next entry). The CURRENTLY
+    /// ACTIVE cell flashes to show it's about to DEACTIVATE (user 2026-08-07 — whether the touched cell is populated
+    /// or empty); an incoming POPULATED rung also flashes to show where the column is going (an empty rung shows nothing).
+    var ladderArmedSet: Set<GridView.GridPos> {
+        var s = Set<GridView.GridPos>()
+        for (col, row) in ladderPending {
+            if let active = scene.ladderActiveRow(col) { s.insert(GridView.GridPos(col: col, row: active)) }   // leaving → flashes
+            if scene.cellAt(col, row) != nil { s.insert(GridView.GridPos(col: col, row: row)) }                // arriving (populated)
+        }
+        return s
+    }
 
     // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
     // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is

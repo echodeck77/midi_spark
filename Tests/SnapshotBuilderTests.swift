@@ -246,7 +246,7 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(s.ladderActiveRow(0), 2, "no choice → topmost occupied")
         s.activeRow = [Int?](repeating: nil, count: 8)
         s.activeRow?[0] = 5; XCTAssertEqual(s.ladderActiveRow(0), 5, "chosen occupied rung")
-        s.activeRow?[0] = 3; XCTAssertEqual(s.ladderActiveRow(0), 2, "chosen rung now empty → topmost (a stale curve never silences)")
+        s.activeRow?[0] = 3; XCTAssertNil(s.ladderActiveRow(0), "chosen rung EMPTY → nothing (user 2026-08-07: selecting an empty cell mutes the column)")
         s.activeRow?[0] = -1; XCTAssertNil(s.ladderActiveRow(0), "explicit deselect → nothing")
         XCTAssertNil(s.ladderActiveRow(1), "empty column → nothing")
     }
