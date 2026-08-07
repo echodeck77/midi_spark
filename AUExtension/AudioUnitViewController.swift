@@ -273,13 +273,8 @@ struct DiagView: View {
             guard editMode == .addEdit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
             au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
-            if editSel.contains(pos) {                       // already in the group → tapping DESELECTS + reverts it
-                if editSel.first == pos {                    // the ANCHOR
-                    if editSel.count == 1 { deselect(pos) }  // …sole selection → a tap deselects (grid returns to its prior state)
-                    // …but the anchor of a GROUP needs a long-press to drop (protects the group from a stray tap)
-                } else {
-                    deselect(pos)
-                }
+            if editSel.contains(pos) {                       // already selected → a tap DESELECTS it (the ANCHOR too,
+                deselect(pos)                                // user 2026-08-07: previously the group anchor needed a long-press)
             } else {                                         // NOT selected → add to the group (any tapped cell joins)
                 recordSelectionUndo()                        // snapshot (selection, doc) before this select
                 let wasEmpty = scene.cells[col][row] == nil
