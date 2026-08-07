@@ -86,7 +86,8 @@ extension DiagView {
         // → the armed mode's description → APPLY / CANCEL.
         let pageW = min(size.width - 24, 1024)
         let rightW: CGFloat = 210
-        let gridW = min(pageW - rightW - 16, 512)                    // grid WIDTH = 512 (user 2026-08-07), capped to fit the page
+        let landscape = size.width > size.height
+        let gridW = min(pageW - rightW - 16, landscape ? 384 : 512)  // grid WIDTH 512 · LANDSCAPE −25% → 384 (user 2026-08-07)
         let gridH = gridW / 1.3                                      // height PROPORTIONAL to the width (keeps the grid's aspect)
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
@@ -122,18 +123,20 @@ extension DiagView {
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {       // §4 sparse: clear seams between sections
-                        flowDiagram(cell)                            // NEW (user 2026-08-07): the signal-flow map — existing controls kept below
-                        sectionSeam()
-                        sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
-                        sectionSeam()
-                        sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
-                        sectionSeam()
-                        chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
-                        chainStack(cell, boxWidth: min(540, size.width - 48))
-                        sectionSeam()
-                        sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
-                    }.frame(maxWidth: 560, alignment: .leading).padding(.bottom, 8)   // §4 max content width
+                    VStack(spacing: 22) {                            // the FLOW is CENTRED + full-width (user 2026-08-07)
+                        flowDiagram(cell, size)
+                        VStack(alignment: .leading, spacing: 22) {   // the existing sections stay (a 560 content block)
+                            sectionSeam()
+                            sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
+                            sectionSeam()
+                            sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
+                            sectionSeam()
+                            chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
+                            chainStack(cell, boxWidth: min(540, size.width - 48))
+                            sectionSeam()
+                            sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
+                        }.frame(maxWidth: 560, alignment: .leading)
+                    }.frame(maxWidth: .infinity).padding(.bottom, 8)
                 }.frame(maxWidth: .infinity)
             } else {
                 Spacer(minLength: 0)                                  // grid only (nothing selected, or a non-edit mode)
@@ -425,102 +428,111 @@ extension DiagView {
     // [EMITTERS box]. THE LINE LAW: one dotted thread, no branches. §4 R/OUT chips toggle in place. Filters are inert
     // ghosts (no engine). Dims fitted to the page column — the full §6/§7 (96×56 slots, 976 usable) needs the page-
     // wide relayout, owed.
-    @ViewBuilder func flowDiagram(_ cell: Cell) -> some View {
+    // Layout (user 2026-08-07 revisions): NO title. The SELECTED-CELL indicator (ID cell) is LEFT-aligned, bigger,
+    // and RECTANGULAR (grid-cell proportions); the signal flow is CENTRED. RECEIVERS centred at top → the INPUT FILTER
+    // box immediately BELOW them (dotted connector) → the 8 PROCESSOR boxes (the dotted line enters their LEFT, exits
+    // their RIGHT) → the OUTPUT FILTER (centred, above emitters) → the EMITTERS box (centred). One dotted thread; every
+    // box is OPAQUE so the line is hidden wherever it passes behind one. Receiver/emitter/processor boxes ~doubled.
+    @ViewBuilder func flowDiagram(_ cell: Cell, _ size: CGSize) -> some View {
         let chain = cellChain(cell)
-        let idS: CGFloat = 56, infW: CGFloat = 150, hue = mainDestHue
-        VStack(alignment: .leading, spacing: 8) {
-            Text("SIGNAL FLOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            GeometryReader { g in
-                let W = g.size.width
-                let recvW = max(180, W - idS - infW - 24)         // receivers box fills row-1's middle
-                let sw = max(46, (W - 7 * 8) / 8)                 // 8 slots + 7 links span the width
-                let y1: CGFloat = 32, y2: CGFloat = 116, y3: CGFloat = 200
-                let infCX = W - infW / 2                          // in/out filters right-aligned in rows 1/3
-                let emitW = recvW
-                ZStack(alignment: .topLeading) {
-                    Path { p in                                  // THE ONE DOTTED SNAKE
-                        p.move(to: CGPoint(x: infCX, y: 54)); p.addLine(to: CGPoint(x: infCX, y: 76))             // in-filter → down
-                        p.addLine(to: CGPoint(x: sw / 2, y: 76)); p.addLine(to: CGPoint(x: sw / 2, y: y2))         // → left → into slot 1
-                        p.addLine(to: CGPoint(x: W - sw / 2, y: y2))                                              // thread the 8 slots
-                        p.addLine(to: CGPoint(x: W - sw / 2, y: 156)); p.addLine(to: CGPoint(x: infCX, y: 156))   // slot 8 → down → out-filter
-                        p.addLine(to: CGPoint(x: infCX, y: 178))
-                        p.move(to: CGPoint(x: infCX - infW / 2, y: y3)); p.addLine(to: CGPoint(x: emitW, y: y3))   // out-filter → left → emitters
-                    }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
-                    flowCellFace(cell).frame(width: idS, height: idS).position(x: idS / 2, y: y1)                 // ROW 1
-                    receiverBox(cell).frame(width: recvW, height: 60).position(x: idS + 12 + recvW / 2, y: y1)
-                    flowGhost("+ IN FILTER").frame(width: infW, height: 44).position(x: infCX, y: y1)
-                    ForEach(0..<8, id: \.self) { i in                                                            // ROW 2 — all eight
-                        slotOrGhost(i, chain).frame(width: sw, height: 56).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: y2)
-                    }
-                    emitterBox(cell).frame(width: emitW, height: 60).position(x: emitW / 2, y: y3)               // ROW 3
-                    flowGhost("+ OUT FILTER").frame(width: infW, height: 44).position(x: infCX, y: y3)
+        let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
+        let hue = mainDestHue
+        let idW: CGFloat = 120, idH: CGFloat = 92, filtW: CGFloat = 190
+        let flowW = min(size.width - 48, 1040)
+        GeometryReader { g in
+            let W = g.size.width
+            let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
+            let sw = max(64, (W - 7 * 8) / 8)                    // 8 processor slots span the width (≈doubled on the wide canvas)
+            let yRecv: CGFloat = 32, yProc: CGFloat = 178, yEm: CGFloat = 324
+            ZStack(alignment: .topLeading) {
+                Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
+                    p.move(to: CGPoint(x: W / 2, y: 62));  p.addLine(to: CGPoint(x: W / 2, y: 84))                 // receivers → input filter
+                    p.move(to: CGPoint(x: W / 2, y: 124)); p.addLine(to: CGPoint(x: W / 2, y: 135))                // input filter ↓
+                    p.addLine(to: CGPoint(x: 2, y: 135)); p.addLine(to: CGPoint(x: 2, y: yProc))                   // ← then ↓ to the row's LEFT
+                    p.addLine(to: CGPoint(x: W, y: yProc))                                                         // thread L→R (behind the slots)
+                    p.addLine(to: CGPoint(x: W, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 232))   // exit RIGHT → output filter
+                    p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 294))                // output filter → emitters
+                }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
+                flowCellFace(cell).frame(width: idW, height: idH).position(x: idW / 2, y: 78)                      // SELECTED CELL — left, big, rectangular
+                receiverBox(cell, bg: bg).frame(width: recvW, height: 60).position(x: W / 2, y: yRecv)            // RECEIVERS (centred)
+                flowGhost("Input filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 104)      // INPUT FILTER (below receivers)
+                ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS
+                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
                 }
-            }.frame(height: 232)
+                flowGhost("Output filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
+                emitterBox(cell, bg: bg).frame(width: recvW, height: 60).position(x: W / 2, y: yEm)               // EMITTERS (centred)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: flowW, height: 356)
     }
-    // ROW 2: a set slot (solid) or an empty dashed "+" ghost — ALL EIGHT show (§8, supersedes the one-ghost rule here).
-    @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot]) -> some View {
-        if i < chain.count { flowSlot(chain[i]) } else { flowGhost("+") }
+    // A set slot (solid) or an empty dashed "+" ghost — all eight show.
+    @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color) -> some View {
+        if i < chain.count { flowSlot(chain[i], bg: bg) } else { flowGhost("+", bg: bg) }
     }
-    private func flowSlot(_ slot: ProcessorSlot) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: emblemSymbol(slot.type)).font(.system(size: 14, weight: .black))
-            Text(slot.type.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+    private func flowSlot(_ slot: ProcessorSlot, bg: Color) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: emblemSymbol(slot.type)).font(.system(size: 17, weight: .black))
+            Text(slot.type.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
         }
         .foregroundColor(.white.opacity(0.9)).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 8).fill(mainDestHue.opacity(0.15))
+        .background(RoundedRectangle(cornerRadius: 8).fill(bg)                    // OPAQUE — occludes the dotted line behind
+            .overlay(RoundedRectangle(cornerRadius: 8).fill(mainDestHue.opacity(0.15)))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.55), lineWidth: 1.5)))
         .overlay(alignment: .topTrailing) {
             if slot.bypassed { Circle().fill(.white.opacity(0.5)).frame(width: 7, height: 7).padding(3) }   // bypass dot
         }
     }
-    // §8 the RECEIVERS box — one bordered group, R1–R4 with the MIDI CHANNEL prominent; selected lit. Toggles in place.
-    private func receiverBox(_ cell: Cell) -> some View {
+    // The RECEIVERS box — R1–R4 with the MIDI CHANNEL prominent; selected lit; OPAQUE (occludes the line). Toggles in place.
+    private func receiverBox(_ cell: Cell, bg: Color) -> some View {
         let recvs = au?.uiReceivers() ?? []
         return HStack(spacing: 6) {
             ForEach(0..<4, id: \.self) { r in
                 let on = cell.inputReceiver == r
                 let ch = r < recvs.count ? recvs[r].channel : 0
                 VStack(spacing: 1) {
-                    Text("R\(r + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    Text(ch == 0 ? "OMNI" : "CH\(ch)").font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    Text("R\(r + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    Text(ch == 0 ? "OMNI" : "CH\(ch)").font(.system(size: 15, weight: .heavy, design: .monospaced))
                 }
                 .foregroundColor(on ? .black : .white.opacity(0.78)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? (r < receiverHues.count ? receiverHues[r] : mainDestHue) : Color.white.opacity(0.06)))
                 .contentShape(Rectangle()).onTapGesture { editPointedCell { $0.inputRow = nil; $0.inputReceiver = r } }
             }
-        }.padding(6).overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
+        }.padding(6)
+        .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
     }
-    // §8 the EMITTERS box — mirror of the receivers box (in/out symmetry): A–D with channels prominent. Toggles in place.
-    private func emitterBox(_ cell: Cell) -> some View {
+    // The EMITTERS box — mirror of the receivers box (in/out symmetry): A–D with channels prominent. Toggles in place.
+    private func emitterBox(_ cell: Cell, bg: Color) -> some View {
         HStack(spacing: 6) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
                 let on = cell.buses.contains(b)
                 VStack(spacing: 1) {
-                    Text(b.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    Text("CH\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    Text(b.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    Text("CH\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced))
                 }
                 .foregroundColor(on ? .black : .white.opacity(0.78)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : Color.white.opacity(0.06)))
                 .contentShape(Rectangle()).onTapGesture { toggleMainBus(b) }
             }
-        }.padding(6).overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
+        }.padding(6)
+        .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
     }
-    // The cell face, drawn to MATCH the grid cells (the same mosaic + seal hash).
+    // The cell face, drawn to MATCH the grid cells (the same mosaic + seal hash); rectangular via the caller's frame.
     private func flowCellFace(_ cell: Cell) -> some View {
         RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray)
             .overlay(Canvas { ctx, sz in
                 let mh = UInt64(sealHash(cell, colours: docColours)); let ch = colourColor(cell.colourID) ?? .gray
                 drawMosaic(hash: mh, into: ctx, size: sz, hue: ch, breath: 0, crest: mosaicCrest(hash: mh), crestTone: mosaicCrestTone(ch))
-            }.padding(4))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.7), lineWidth: 2))
+            }.padding(5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.75), lineWidth: 2.5))
     }
-    // §8 the UNIFIED GHOST — a dashed box that fills its frame; "+ …" label. Dashed = the stage doesn't exist yet.
-    private func flowGhost(_ label: String) -> some View {
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
-            .foregroundColor(mainDestHue.opacity(0.6)).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).strokeBorder(mainDestHue.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+    // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet.
+    private func flowGhost(_ label: String, bg: Color) -> some View {
+        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+            .foregroundColor(mainDestHue.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(bg)                // OPAQUE occluder
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(mainDestHue.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))))
     }
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
