@@ -264,8 +264,8 @@ extension DiagView {
     func toggleLoopColumn(_ c: Int) { setLane(laneMask ^ (1 << UInt8(c))) }
 
     // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
-    // set (white ring) AND auto-selects the tapped cell's TWINS (user 2026-08-07: they join the selection, not just
-    // pulse — so twinCells is empty here). A long-press drops the ANCHOR; CLEAR marks show a dashed removal ring.
+    // set (white ring) AND auto-selects the tapped cell's TWINS (user 2026-08-07: they JOIN the selection — the
+    // advertise-pulse is gone; deselect one to decouple it). A long-press drops the ANCHOR; CLEAR marks show a red ✕.
     @ViewBuilder func spikeGrid(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn,
                  trueColumn: d.playing ? ((d.absoluteStep % 8) + 8) % 8 : -1, playing: d.playing,
@@ -279,7 +279,7 @@ extension DiagView {
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                  cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                  selection: [],
-                 whiteBorder: sel.asSet, twins: twinCells, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
+                 whiteBorder: sel.asSet, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
@@ -294,17 +294,6 @@ extension DiagView {
             s.setCell(from.col, from.row, nil)        // clear the source
         }
         refreshFromDocument()
-    }
-    /// MODE ROW — the ADVERTISE set: cells that are TWINS of anything in the selection but not themselves selected.
-    /// They PULSE to invite inclusion (they are NOT auto-edited). Empty unless ADD/EDIT mode has a selection.
-    var twinCells: Set<GridView.GridPos> {
-        guard editArmed, editMode == .addEdit, !sel.isEmpty else { return [] }
-        var s = Set<GridView.GridPos>()
-        for m in sel.cells {
-            for t in au?.twinPositions(col: m.col, row: m.row) ?? [] { s.insert(GridView.GridPos(col: t.col, row: t.row)) }
-        }
-        for m in sel.cells { s.remove(m) }   // selected cells wear the white ring, not the pulse
-        return s
     }
 
     // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
@@ -377,10 +366,6 @@ extension DiagView {
             Text(n > 1 ? "\(n) SELECTED" : (n == 1 ? "1 SELECTED" : "—"))
                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
                 .foregroundColor(n > 1 ? Self.editHue : .white.opacity(0.55))
-            if !twinCells.isEmpty {
-                Text("· \(twinCells.count) MATCHING (tap to add)")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-            }
             Spacer(minLength: 0)
         }
     }
@@ -635,8 +620,6 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 4) {
                 Text(sel.count == 1 ? "1 CELL SELECTED" : "\(sel.count) CELLS SELECTED")
                     .font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                Text("\(twinCells.count) IDENTICAL CELLS AVAILABLE")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
             }.fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

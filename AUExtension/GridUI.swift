@@ -180,7 +180,6 @@ struct GridView: View {
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
     var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
-    var twins: Set<GridPos> = []                     // CELL MACHINE: the pointed cell's TWINS (edit-together set) — dashed ring; non-twins dim
     var removeMarks: Set<GridPos> = []               // MODE ROW · CLEAR mode: cells marked for transactional removal — dashed red ring + ✕ + dim
     var ladderDim: Set<GridPos> = []                 // LADDER: dormant rungs — dimmed (present + visible, but silent)
     var ladderArmed: Set<GridPos> = []               // LADDER: armed rungs — blink until they commit at the column's next entry
@@ -340,7 +339,7 @@ struct GridView: View {
         .opacity(removeMarks.contains(GridPos(col: col, row: row)) ? 0.3          // MODE ROW · CLEAR: a marked cell recedes
                  : ladderArmed.contains(GridPos(col: col, row: row)) ? (ladderBlink ? 1.0 : 0.4)   // LADDER: an armed rung BLINKS
                  : ladderDim.contains(GridPos(col: col, row: row)) ? 0.28         // LADDER: a dormant rung dims (silent, still visible)
-                 : (tapMutedHere || raw?.muted == true) ? 0.28 : 1)               // muted dims; otherwise cells stay full (twins advertise by PULSING, not by others dimming)
+                 : (tapMutedHere || raw?.muted == true) ? 0.28 : 1)               // muted dims; otherwise cells stay full
         .overlay {                                          // MODE ROW · CLEAR: a marked cell wears a dashed red ring + an ✕
             if removeMarks.contains(GridPos(col: col, row: row)) {
                 ZStack {
@@ -350,16 +349,7 @@ struct GridView: View {
                 }.allowsHitTesting(false)
             }
         }
-        .overlay {                                          // MODE ROW: a MATCHING (twin, unselected) cell PULSES between its OWN
-            let pos = GridPos(col: col, row: row)            // colour and BLACK (user 2026-08-03) — advertise, tap to add.
-            if twins.contains(pos) && !isSel && !whiteBorder.contains(pos) {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-                    let f = stagingPulseFraction(tl.date, period: 1.0)                          // 0→1→0
-                    RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.88 * f))       // fade toward black, revealing the cell's own colour
-                }
-                .allowsHitTesting(false)
-            }
-        }
+        // (twin advertise-PULSE removed 2026-08-07 — twins now auto-JOIN the selection; the user deselects to decouple.)
         .frame(maxWidth: .infinity).frame(height: cellHeight)
         .overlay {                                          // A2 COMPASS TINT — a slim parent-hue sliver on the parent-facing edge (row-fed cells only)
             if parent >= 0, let pc = cellAt(col, parent).flatMap({ colourColor($0.colourID) }) {

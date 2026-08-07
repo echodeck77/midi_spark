@@ -129,8 +129,8 @@ struct DiagView: View {
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
     @State var editMode: EditPageMode = .addEdit
-    // MODE ROW — ADD/EDIT mode's manual multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live
-    // to every member; twins of the set only PULSE to advertise inclusion. Replaces the old auto-twin/DETACH model.
+    // MODE ROW — ADD/EDIT mode's multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live to every
+    // member; a tapped cell's TWINS auto-JOIN the set (user 2026-08-07 — history: auto-edit → pulse-only → join).
     // ADD/EDIT SELECTION (extracted 2026-08-07): one cohesive value — the selected cells + the per-session
     // bookkeeping (BORN cells deleted on deselect · ADOPTED originals stashed for restore) + the selection undo/redo
     // history. See `EditSelection` (EditPage.swift). The document effects stay in the view; this owns the state.
