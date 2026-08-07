@@ -157,6 +157,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FLOW-DIAGRAM PROCESSOR POP-UP + MACRO MERGE + CELL-SOLO (2026-08-08, on `main`, PUSHED `196d9cd`→`a16b19c`;
+  iOS builds, macOS 514 green; DEVICE pass owed). Paul's batch on the cell edit page's flow diagram. (1) **INTERACTIVE
+  BOXES** (`196d9cd`): tap a POPULATED processor box → a modal pop-up with the FULL controls (reuses `ProcessorBox`
+  slotMode — big/legible/per-type); tap an EMPTY box → a welcoming TYPE PICKER (emblem buttons). (2) **MACRO MERGE**
+  (`1fb7c19`): the macro authoring page now lives INSIDE that pop-up — title-row is a plain TITLE + BYPASS only
+  (type-picker/MACRO/MIXER dropped, user flow answers); at the FOOT, one adaptive control — "+ ADD MACRO" (no
+  macros) or the macros dropdown ("add new…" + this slot's macros) — engaging it reveals the authoring controls
+  inline. `MacroAuthoringView` gained an `embedded` mode (headerless, gated, `onEngage`) + `plainTitle` on
+  ProcessorBox; ONE APPLY/CANCEL governs BOTH the param edits and the macros (document snapshot); the macro morph
+  auditions live; the macro BASE tracks param edits (`slotBox onEdited`). Picking a type in the empty-box picker now
+  opens the edit form immediately (was: close, tap again). The standalone macro pop-up stays for the chain-stack
+  editor. FLAGGED: editing params AFTER binding a macro in one session isn't fully reconciled (author macros last).
+  (3) **"PLAY FROM GRID / PLAY THIS CELL ONLY"** (`a16b19c`): a top-of-page toggle solos the edit selection while
+  the transport plays. Engine = an ephemeral `soloCellMask` (bits col*8+row) threaded into `Router.process` like
+  laneMask — a cell whose bit is unset is skipped in all three emit guards (parallel to muted/dormant, no stuck
+  notes); Kernel `setSoloCellMask`, AU `setEditSolo`/`clearEditSolo` (never persisted; follows the selection, clears
+  on leaving EDIT). Test `testPlayCellOnlySilencesEveryOtherCell`. OWED (design/device): MIXER was DROPPED per the
+  flow answers (not a placeholder anymore); the whole batch is device-look/ear owed.**
 - **▶ ECHO processor — THE TAIL ERA, Phase 0 + 1 (2026-08-07, on `main`, PUSHED `3f8a27b`; macOS 513 green, iOS
   builds; DEVICE ear-check owed). Spec `AcceptanceCriteria-tail-era-delay-echo.md`. The FIRST tail stage — repeats a
   note at delayed beats with decay. **THE TAIL ENGINE (§0):** echo repeats fire at FUTURE beats, and the render only
