@@ -241,10 +241,15 @@ extension DiagView {
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
     }
-    /// MOVE mode — drag a cell to a new position; drop over a populated cell SWAPS them. Immediate + undoable.
+    /// MOVE mode — drag a cell to a new position; drop over a populated cell OVERWRITES it (the moved cell wins;
+    /// the source is left empty). Immediate + undoable. (User 2026-08-07: overwrite, not swap.)
     func moveCell(_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) {
         guard from.col != to.col || from.row != to.row else { return }
-        au?.editScene { $0.swapCells((from.col, from.row), (to.col, to.row)) }
+        au?.editScene { s in
+            let moved = s.cellAt(from.col, from.row)
+            s.setCell(to.col, to.row, moved)          // overwrite the destination
+            s.setCell(from.col, from.row, nil)        // clear the source
+        }
         refreshFromDocument()
     }
     /// MODE ROW — the ADVERTISE set: cells that are TWINS of anything in the selection but not themselves selected.
