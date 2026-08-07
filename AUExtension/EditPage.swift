@@ -168,6 +168,30 @@ extension DiagView {
     // selects it (via `tapCell`'s editArmed re-point) and reveals its controls below in signal-path order:
     // RECEIVER → PROCESSOR → EMITTERS. Reuses the cell-scoped builders (identitySection / processorPanels /
     // outputSection), all already wired to selCol/selRow/brush. Self-contained so the spike is easy to drop.
+    // TOP-OF-PAGE play-scope toggle (user 2026-08-08): PLAY FROM GRID (normal) ↔ PLAY THIS CELL ONLY (solo the edit
+    // selection while the transport plays — every other cell falls silent). Ephemeral; clears on leaving EDIT.
+    @ViewBuilder func playScopeToggle() -> some View {
+        HStack(spacing: 0) {
+            playScopeSeg("PLAY FROM GRID", cellOnly: false)
+            playScopeSeg("PLAY THIS CELL ONLY", cellOnly: true)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Self.editHue.opacity(0.4), lineWidth: 1))
+        .frame(maxWidth: 520)
+    }
+    @ViewBuilder private func playScopeSeg(_ label: String, cellOnly: Bool) -> some View {
+        let on = playCellOnly == cellOnly
+        Button {
+            playCellOnly = cellOnly
+            if playCellOnly { au?.setEditSolo(editSelTargets) } else { au?.clearEditSolo() }
+        } label: {
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? .black : .white.opacity(0.6))
+                .frame(maxWidth: .infinity).frame(height: 34)
+                .background(on ? Self.editHue : Color.white.opacity(0.06))
+        }.buttonStyle(.plain)
+    }
+
     @ViewBuilder func editSpikePage(_ size: CGSize) -> some View {
         // EDIT-PAGE LAYOUT (design ferry 2026-08-06): the grid LEFT-aligned within the 1024pt page; opposite it, top-
         // aligned within the grid's height, a RIGHT block = the mode controls in a 2×2 (ADD/EDIT · MOVE / MUTE · CLEAR)
@@ -183,6 +207,7 @@ extension DiagView {
         VStack(spacing: 8) {
             // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
             // body only (no arrangementBar of its own).
+            playScopeToggle()                                      // TOP: play from grid ↔ play this cell only (user 2026-08-08)
             HStack(alignment: .top, spacing: 16) {                  // grid LEFT · mode block opposite it, tops shared
                 spikeGrid(cellH).frame(width: gridW, height: gridH)
                 Spacer(minLength: 0)

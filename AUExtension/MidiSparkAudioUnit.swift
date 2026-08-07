@@ -173,6 +173,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
 
+    /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
+    /// other cell falls silent. Empty = normal grid playback. Ephemeral (never persisted); the edit page sets it
+    /// from the selection and clears it on OFF / leaving EDIT.
+    func setEditSolo(_ cells: [(col: Int, row: Int)]) {
+        var m: UInt64 = 0
+        for c in cells where c.col >= 0 && c.col < 8 && c.row >= 0 && c.row < 8 { m |= UInt64(1) << UInt64(c.col * 8 + c.row) }
+        kernel.setSoloCellMask(m)
+    }
+    func clearEditSolo() { kernel.setSoloCellMask(0) }
+
     /// §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM — its ON HOLD
     /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
     func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }

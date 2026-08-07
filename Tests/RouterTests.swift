@@ -39,7 +39,7 @@ final class RouterTests: XCTestCase {
     /// Drive the render engine across `beats` musical beats of PLAYING windows, then one STOP window
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
     private func run(_ box: SnapshotBox, _ pool: NotePool, beats: Double, into emitter: RecordingEmitter,
-                     laneMask: UInt8 = 0, releaseAtEnd: Bool = true,
+                     laneMask: UInt8 = 0, soloCellMask: UInt64 = 0, releaseAtEnd: Bool = true,
                      tempo: Double = 120, sr: Double = 48_000, frames: UInt32 = 2048) {
         let router = Router()
         var diag = KernelDiag()
@@ -47,12 +47,14 @@ final class RouterTests: XCTestCase {
         var beat = 0.0, ts = 0.0
         while beat < beats {
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask, out: emitter, diag: &diag)
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask,
+                           soloCellMask: soloCellMask, out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         if releaseAtEnd {   // release the lap (laneMask 0) then stop — must return to the true timeline, no stuck notes
             router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo,
-                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: emitter, diag: &diag)
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0,
+                           soloCellMask: soloCellMask, out: emitter, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
@@ -84,6 +86,25 @@ final class RouterTests: XCTestCase {
         run(b, chord([60, 64, 67]), beats: 16, into: e)          // S=2 → one full cycle
         XCTAssertGreaterThan(e.ons.count, 0, "the arp should have sounded during column 0's window")
         assertNothingLeftSounding(e)
+    }
+
+    func testPlayCellOnlySilencesEveryOtherCell() {
+        // EDIT "play this cell only" (user 2026-08-08): two ARP cells in the SAME column, rows 0 (bus A/cable 1)
+        // and 1 (bus B/cable 2). Solo the (col0,row1) cell → only cable 2 lights; the other falls silent.
+        let b = box(colours: arpColours()) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(colourID: "orange", buses: [.b])
+        }
+        let soloed = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: soloed, soloCellMask: UInt64(1) << UInt64(0 * 8 + 1))
+        XCTAssertGreaterThan(soloed.ons.filter { $0.cable == 2 }.count, 0, "the solo'd cell sounds")
+        XCTAssertEqual(soloed.ons.filter { $0.cable == 1 }.count, 0, "the non-solo'd cell is silenced")
+        assertNothingLeftSounding(soloed)
+        // sanity: with NO solo, both buses light — so the silence above is the solo, not the fixture
+        let both = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: both)
+        XCTAssertGreaterThan(both.ons.filter { $0.cable == 1 }.count, 0, "no solo → the other cell sounds")
+        XCTAssertGreaterThan(both.ons.filter { $0.cable == 2 }.count, 0)
     }
 
     func testEveryArticulationEmitsOnItsBusCableAndTheAllCable() {

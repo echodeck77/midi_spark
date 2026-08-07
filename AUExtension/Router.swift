@@ -276,6 +276,10 @@ final class Router {
     private var tapMuteMask: UInt64 = 0
     private var soloEmitterMask: UInt8 = 0
     private func tapMuted(_ col: Int, _ row: Int) -> Bool { (tapMuteMask >> UInt64(col * 8 + row)) & 1 == 1 }
+    // EDIT PAGE "play this cell only" (user 2026-08-08): an ephemeral solo SET (bits col*8+row). While non-empty,
+    // every cell whose bit is UNSET falls silent (like muted/dormant) — so only the edited cell(s) sound. 0 = off.
+    private var soloCellMask: UInt64 = 0
+    private func cellSoloedOut(_ col: Int, _ row: Int) -> Bool { soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 0 }
     // receiver strip: the additive input SOLO set (bits R1–R4). While non-empty, a cell whose receiver is
     // NOT a member falls silent — `audible = ¬muted ∧ (soloSet=∅ ∨ member)`. Row-fed cells (recv −1) reach
     // this through their root MIDI-IN cell in parentSoundingNote. Ephemeral (cleared on stop / EDIT).
@@ -1036,7 +1040,7 @@ final class Router {
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || cellSoloedOut(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
@@ -1127,7 +1131,7 @@ final class Router {
                                 windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || cellSoloedOut(column, r) { continue }
             if soloSilenced(cell) { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
@@ -1245,6 +1249,7 @@ final class Router {
                  heldCell: Int = -1,
                  tapAltMask: UInt64 = 0,
                  tapMuteMask: UInt64 = 0,
+                 soloCellMask: UInt64 = 0,
                  soloEmitterMask: UInt8 = 0,
                  soloReceiverMask: UInt8 = 0,
                  inputOctave: UInt32 = 0,
@@ -1264,6 +1269,7 @@ final class Router {
                  diag: inout KernelDiag) {
         self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
         self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
+        self.soloCellMask = soloCellMask           // EDIT "play this cell only" — silence every cell outside the set
         self.soloReceiverMask = soloReceiverMask   // receiver strip: additive input SOLO set (bits R1–R4)
         self.inputOctave = inputOctave             // receiver strip: per-receiver ±octave nudge
         self.inputSemitone = inputSemitone         // receiver strip: per-receiver ±semitone NOTE nudge
@@ -1494,7 +1500,7 @@ final class Router {
 
         for r in 0..<Snap.rows {
             let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) || cellSoloedOut(effColumn, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint

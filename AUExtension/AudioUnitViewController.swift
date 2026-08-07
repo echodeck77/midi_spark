@@ -133,6 +133,7 @@ struct DiagView: View {
     // pointing the station at ONE cell (selCol/selRow) for deep editing. It is deliberately NOT a `heldVerb` —
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State var editArmed = false
+    @State var playCellOnly = false                                          // EDIT: "play this cell only" vs "play from grid" (user 2026-08-08)
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
     @State var editMode: EditPageMode = .addEdit
@@ -886,6 +887,7 @@ struct DiagView: View {
             } else {
                 au?.applyEditSession()
                 editMode = .addEdit; sel.reset(); clearedStash = [:]; syncAnchor()
+                playCellOnly = false; au?.clearEditSolo()         // leaving EDIT → back to normal grid playback
                 // BUG FIX 2026-08-05: leaving EDIT must NOT clear the column loop — it's one page-independent engine
                 // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
             }
@@ -900,6 +902,7 @@ struct DiagView: View {
         }
         .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
+            if playCellOnly { au?.setEditSolo(editSelTargets) }   // "play this cell only" follows the selection
         }
         .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
             guard !ladderPending.isEmpty else { return }      // rung for its next entry. absoluteStep increments each step EVEN when the
