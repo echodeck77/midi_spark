@@ -157,6 +157,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MACRO POP-UP rev 3 + grid macro band resize + mosaic crest reshape (2026-08-07, on `main`, PUSHED `0fc407b`;
+  iOS builds, macOS 510 green; DEVICE pass owed). Paul's batch. **MACRO POP-UP** (`MacroAuthoringView`): (1) a
+  DROPDOWN at top — "add new macro…" + every macro already bound to THIS slot with its overridden controls in
+  brackets; picking one REFLECTS it (controls · alt values · applied state) via new pure `macroSlotBindings(macros,
+  col,row,slot)` read-back (`EditPage.openMacroAuthoring` computes it; VC `macroAuthorExisting`). On open, existing
+  bindings reflect (widgets show REMOVE, params grey). (2) Processor controls ENLARGED to match the main edit
+  section. (3) The MAIN…WITH-MACRO slider is now ALWAYS present (dims when no divergent selection). (4) Macro
+  sliders/buttons stay DRIVEABLE when greyed (dropped `.disabled`, grey = opacity only). (5) Scrim-tap now KEEPS the
+  macros (APPLY) — only the CANCEL button reverts, so grid-page macros work with the applied bindings unless
+  explicitly cancelled. (6) `macroAuthorBind` is idempotent per slot (`removeMacroTargets` then add — no duplicate
+  targets on reflect/re-bind). **PURE**: `macroApply` OPTION+STEPPER now SWEEP through their values across the
+  slider (a multi-select isn't binary); TOGGLE+MASK still snap. Test renamed→`testMacroApplySweepsOptionStepperSnapsMask`
+  + `testMacroSlotBindingsReadsBackPerSlot`. **GRID MACRO BAND** (`controlBand` + `GridMacroBand`): 8 sliders on ONE
+  line enlarged; 8 buttons still two rows of four but bigger (widgets gained an optional `height:` param, pop-up
+  defaults unchanged). **MOSAIC** (`mosaicLayout` + `drawMosaic`): crest shapes now OUTLINED not filled; the crest
+  square is placed at a HASH-CHOSEN CORNER (not always leftmost) and is TWO-THIRDS cell height, square in px
+  (L-decomposition of the remainder, Σ area = 1 verified at all four corners; test
+  →`testMosaicCrestBlockIsTwoThirdsHeightSquareAtACorner`). BOUNDARY unchanged: only the 7 foldable continuous keys
+  reach the engine — discretes render/audition (now sweeping) + record-as-bound but don't modulate yet, so the
+  dropdown's bracket list + reflect only round-trip the continuous targets.**
 - **▶ MACRO POP-UP rev 2 — Paul's revisions (2026-08-07, on `main`, PUSHED `3f4ab03`; iOS builds, macOS 509 green;
   DEVICE pass owed). Reworked the processor macro authoring pop-up (`MacroAuthoringView.swift`) per Paul's spec:
   (1) ONE big audition slider per pending macro, labelled **MAIN … WITH MACRO** (replaced the per-param
