@@ -52,17 +52,16 @@ struct EditSelection {
 /// draws the FIVE pins (clock 2·4·6·8·10, the 180° arc facing the notch); `DINPlug` is the FILLED disc with the
 /// key NOTCH + pins knocked out (fill even-odd). Use `dinMark(...)` to render either variant. A mark, not a status
 /// — inked in the ink/dim tokens, never hue-tinted.
-struct DINPins: Shape {
+struct DINPins: Shape {   // the FIVE pins as bold round DOTS (stylised, user 2026-08-07) at clock 2·4·6·8·10
     func path(in rect: CGRect) -> Path {
         let r = min(rect.width, rect.height) / 2
         let c = CGPoint(x: rect.midX, y: rect.midY)
+        let pinRad = 0.55 * r, dot = 0.145 * r
         var p = Path()
-        let pinLen = 0.30 * r, pinW = 0.14 * r, pinRad = 0.55 * r
         for deg in stride(from: 60.0, through: 300.0, by: 60.0) {
             let a = CGFloat(deg) * .pi / 180
             let px = c.x + pinRad * sin(a), py = c.y - pinRad * cos(a)
-            let cap = Path(roundedRect: CGRect(x: -pinLen / 2, y: -pinW / 2, width: pinLen, height: pinW), cornerRadius: pinW / 2)
-            p.addPath(cap.applying(CGAffineTransform(translationX: px, y: py).rotated(by: atan2(-cos(a), sin(a)))))   // long axis → the centre
+            p.addEllipse(in: CGRect(x: px - dot, y: py - dot, width: 2 * dot, height: 2 * dot))
         }
         return p
     }
@@ -83,10 +82,10 @@ struct DINPlug: Shape {   // the FILLED variant: disc − notch − pins (fill e
 @ViewBuilder func dinMark(outline: Bool = false, ink: Color, size: CGFloat) -> some View {
     if outline {
         ZStack {
-            Circle().strokeBorder(ink, lineWidth: max(1.2, size * 0.08))
+            Circle().strokeBorder(ink, lineWidth: max(1.6, size * 0.11))   // heavier ring (stylised)
             DINPins().fill(ink)
         }
-        .overlay(alignment: .top) { RoundedRectangle(cornerRadius: 1).fill(ink).frame(width: size * 0.28, height: size * 0.15) }   // the key
+        .overlay(alignment: .top) { RoundedRectangle(cornerRadius: size * 0.05).fill(ink).frame(width: size * 0.30, height: size * 0.15) }   // the key tab
         .frame(width: size, height: size)
     } else {
         DINPlug().fill(ink, style: FillStyle(eoFill: true)).frame(width: size, height: size)
