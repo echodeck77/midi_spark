@@ -454,21 +454,21 @@ extension DiagView {
             let yRecv: CGFloat = 32, yProc: CGFloat = 178, yEm: CGFloat = 324
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
-                    p.move(to: CGPoint(x: W / 2, y: 62));  p.addLine(to: CGPoint(x: W / 2, y: 84))                 // receivers → input filter
+                    p.move(to: CGPoint(x: W / 2, y: 55));  p.addLine(to: CGPoint(x: W / 2, y: 84))                 // receivers → input filter
                     p.move(to: CGPoint(x: W / 2, y: 124)); p.addLine(to: CGPoint(x: W / 2, y: 135))                // input filter ↓
                     p.addLine(to: CGPoint(x: 2, y: 135)); p.addLine(to: CGPoint(x: 2, y: yProc))                   // ← then ↓ to the row's LEFT
                     p.addLine(to: CGPoint(x: W, y: yProc))                                                         // thread L→R (behind the slots)
                     p.addLine(to: CGPoint(x: W, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 232))   // exit RIGHT → output filter
-                    p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 294))                // output filter → emitters
+                    p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 301))                // output filter → emitters
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
                 flowCellFace(cell).frame(width: idW, height: idH).position(x: idW / 2, y: 78)                      // SELECTED CELL — left, big, rectangular
-                receiverBox(cell, bg: bg).frame(width: recvW, height: 60).position(x: W / 2, y: yRecv)            // RECEIVERS (centred)
+                receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
                 flowGhost("Input filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 104)      // INPUT FILTER (below receivers)
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS
                     slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
                 }
                 flowGhost("Output filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
-                emitterBox(cell, bg: bg).frame(width: recvW, height: 60).position(x: W / 2, y: yEm)               // EMITTERS (centred)
+                emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
         }
         .frame(width: flowW, height: 356)
@@ -498,8 +498,8 @@ extension DiagView {
                 let on = cell.inputReceiver == r
                 let ch = r < recvs.count ? recvs[r].channel : 0
                 VStack(spacing: 1) {
-                    Text("R\(r + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    Text(ch == 0 ? "OMNI" : "CH\(ch)").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    Text("R\(r + 1): MIDI IN").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+                    Text(ch == 0 ? "OMNI" : "CH\(ch)").font(.system(size: 13, weight: .heavy, design: .monospaced))
                 }
                 .foregroundColor(on ? .black : .white.opacity(0.78)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? (r < receiverHues.count ? receiverHues[r] : mainDestHue) : Color.white.opacity(0.06)))
@@ -515,8 +515,8 @@ extension DiagView {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
                 let on = cell.buses.contains(b)
                 VStack(spacing: 1) {
-                    Text(b.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    Text("CH\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced))
+                    Text("\(b.rawValue): MIDI OUT").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+                    Text("CH\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced))
                 }
                 .foregroundColor(on ? .black : .white.opacity(0.78)).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : Color.white.opacity(0.06)))
