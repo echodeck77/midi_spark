@@ -143,6 +143,10 @@ struct DiagView: View {
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
     @State var clearedStash: [GridView.GridPos: Cell] = [:]
+    // SELECTION undo (user 2026-08-07): each select/deselect snapshots (selection, document) so undo/redo restores
+    // both. View-side + session-scoped (cleared at APPLY/CANCEL/mode-switch); never touches the transactional undo stack.
+    @State var selUndo: [(sel: [GridView.GridPos], doc: PluginState)] = []
+    @State var selRedo: [(sel: [GridView.GridPos], doc: PluginState)] = []
     // MODE ROW — the edit-page column loop drives the SAME `laneMask` as PERFORM (one engine field, one UI mirror);
     // BUG FIX 2026-08-05: no separate `editLoopMask`, so the loop survives the EDIT↔GRID page switch.
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
@@ -277,6 +281,7 @@ struct DiagView: View {
                     deselect(pos)
                 }
             } else {                                         // NOT selected → add to the group (any tapped cell joins)
+                recordSelectionUndo()                        // snapshot (selection, doc) before this select
                 let wasEmpty = scene.cells[col][row] == nil
                 if editSel.isEmpty {                          // FIRST selection
                     if wasEmpty { au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument(); bornThisSession.insert(pos) }
@@ -555,8 +560,30 @@ struct DiagView: View {
     func toggleHold() { setHold(!holdLatch) }
 
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
-    func undo() { if au?.uiUndo() == true { refreshFromDocument() } }
-    func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
+    // SELECTION undo takes precedence while it has history (the recent select/deselect actions); once exhausted,
+    // undo falls through to the transactional document undo.
+    func undo() {
+        if !selUndo.isEmpty { undoSelection() } else if au?.uiUndo() == true { refreshFromDocument() }
+    }
+    func redo() {
+        if !selRedo.isEmpty { redoSelection() } else if au?.uiRedo() == true { refreshFromDocument() }
+    }
+    /// Snapshot the CURRENT (selection, document) before a select/deselect changes them (the undo point).
+    func recordSelectionUndo() {
+        guard let d = au?.uiDocument() else { return }
+        selUndo.append((editSel, d)); selRedo.removeAll()
+    }
+    func undoSelection() {
+        guard let prev = selUndo.popLast(), let d = au?.uiDocument() else { return }
+        selRedo.append((editSel, d))
+        editSel = prev.sel; au?.restoreDocument(prev.doc); syncAnchor(); refreshFromDocument()
+    }
+    func redoSelection() {
+        guard let next = selRedo.popLast(), let d = au?.uiDocument() else { return }
+        selUndo.append((editSel, d))
+        editSel = next.sel; au?.restoreDocument(next.doc); syncAnchor(); refreshFromDocument()
+    }
+    func clearSelectionUndo() { selUndo.removeAll(); selRedo.removeAll() }
     func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
@@ -855,7 +882,7 @@ struct DiagView: View {
                 au?.beginEditSession()
             } else {
                 au?.applyEditSession()
-                editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
+                editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
                 // BUG FIX 2026-08-05: leaving EDIT must NOT clear the column loop — it's one page-independent engine
                 // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
             }
@@ -1402,7 +1429,8 @@ struct DiagView: View {
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
                        currentPreset: currentPreset, onOpenPresets: openPresets,
-                       canUndo: au?.uiCanUndo ?? false, canRedo: au?.uiCanRedo ?? false,   // /btw ②
+                       canUndo: !selUndo.isEmpty || (au?.uiCanUndo ?? false),   // incl. SELECTION undo
+                       canRedo: !selRedo.isEmpty || (au?.uiCanRedo ?? false),
                        onUndo: undo, onRedo: redo,
                        activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
                        onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets

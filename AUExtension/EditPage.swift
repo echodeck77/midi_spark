@@ -16,6 +16,7 @@ extension DiagView {
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
     func deselect(_ pos: GridView.GridPos) {
+        recordSelectionUndo()                        // snapshot (selection, doc) before this deselect
         if bornThisSession.contains(pos) {
             au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; bornThisSession.remove(pos); refreshFromDocument()
         } else if let orig = preAdoptStash[pos] {
@@ -98,12 +99,14 @@ extension DiagView {
             HStack(alignment: .top, spacing: 16) {                  // grid LEFT · mode block opposite it, tops shared
                 spikeGrid(cellH).frame(width: gridW, height: gridH)
                 Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 10) {          // the RIGHT block, within the grid's height
-                    VStack(spacing: 6) {                            // the mode controls in a 2×2
-                        HStack(spacing: 6) { modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move) }
-                        HStack(spacing: 6) { modeChip("MUTE", .mute); modeChip("CLEAR", .clear) }
+                VStack(alignment: .leading, spacing: 10) {          // the RIGHT block — top aligned with the grid (HStack .top)
+                    VStack(spacing: 6) {                            // the mode controls, a vertical rail (user 2026-08-07)
+                        modeChip("ADD/EDIT", .addEdit)
+                        modeChip("MOVE", .move)
+                        modeChip("MUTE", .mute)
+                        modeChip("CLEAR", .clear)
                     }
-                    Text(modeGuidance)                              // the armed mode's description, below the 2×2
+                    Text(modeGuidance)                              // the armed mode's description, below the buttons
                         .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
                     if editMode == .addEdit {                       // APPLY / CANCEL below the description (the one staging mode)
@@ -180,19 +183,19 @@ extension DiagView {
     func setEditMode(_ m: EditPageMode) {
         guard m != editMode else { return }
         if editMode == .addEdit { au?.applyEditSession() }
-        editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
+        editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
         editMode = m
         if m == .addEdit { au?.beginEditSession() }
         refreshFromDocument()
     }
     /// APPLY — commit the staged ADD/EDIT session as one undo step, then re-open a fresh baseline so editing continues.
     func commitSession() {
-        au?.applyEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
+        au?.applyEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
         au?.beginEditSession(); refreshFromDocument()
     }
     /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
     func revertSession() {
-        au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor()
+        au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
         au?.beginEditSession(); refreshFromDocument()
     }
 

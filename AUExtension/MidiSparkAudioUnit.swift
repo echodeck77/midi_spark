@@ -153,6 +153,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard let restored = undoStack.redo(current: document) else { return false }
         document = restored; scheduleRebuild(); return true
     }
+    /// The live document — for the EDIT page's SELECTION undo (which snapshots (selection, document) per select/
+    /// deselect and restores both). Separate from the transactional undo stack above (which it never touches).
+    func uiDocument() -> PluginState { document }
+    func restoreDocument(_ d: PluginState) { document = d; scheduleRebuild() }
 
     /// AUDITION (§6.4 / delta §5): hold a cell → sound its processor alone while stopped. Ephemeral
     /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
