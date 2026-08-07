@@ -174,6 +174,17 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [x] **Touch completions** — palette LIVE during holds · **STROKES** · **MIXED-SET law** — ALL DONE (2026-07-29; see the DONE block above).
 - [ ] **Live preset previews** · **SCROLL+TEACH** (both deferred-flagged).
 - [ ] **Tag `v0.7-gui`** (user tags manually).
+- [ ] **CAPTURED via ferry 2026-08-07 (specs of record, NOT built — design-side Claude, Paul's asks):**
+  - [ ] **GLIDE processor** (`AcceptanceCriteria-glide-processor.md`) — notes→pitchbend: first note = anchor, each
+    next = a bend ramp (mono sliding voice); RANGE handshake; out-of-range RE-ANCHOR (steps glide, leaps articulate)
+    or CLAMP; params TIME/RANGE/PRIORITY. Shares BEND's expression scheduler + channel-ownership plumbing.
+  - [ ] **WEAVE driver** (`AcceptanceCriteria-weave-driver.md`) — a rank-clocked polyrhythm DRIVER (arp/rtc/strum
+    family; last-driver rule): each pool member ticks on its own rank-derived clock. MODE = LADDER / HARMONIC★ /
+    DRAWN; params BASE/GATE/SPAN. Two chips: TAPE (rate×2 → +12) · DUR-BY-INTERVAL (leap → length). Pure per-rank.
+  - [ ] **EDIT-TIME DERIVATION SERVICES** (`AcceptanceCriteria-edit-time-derivation.md`) — one facility
+    `deriveInput(toSlot:against:span:)` (the dice's audition machinery, exposed offline) → four services: FITTED
+    DEFAULTS (a newborn stage seeds from its input) · PICKER PREVIEWS (choose a type by result) · DEGENERACY
+    WARNINGS (flag near-silence/wrap before commit) · ADAPTIVE RANGES + derived slot summaries.
 
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)
 - [ ] FEEDBACK EDGES (unit-delay) · THE PIN · MASTER+TEXTURE multi-playhead · **THE CC RAIL** · **THE TWO-LANE INSTRUMENT** (+ cross-lane valves) · MORPH desk (16 faders) · EXTERNAL processor type + standalone-app milestone.
