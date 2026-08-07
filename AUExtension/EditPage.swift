@@ -5,24 +5,67 @@
 
 import SwiftUI
 
+/// The ADD/EDIT SELECTION as ONE cohesive value (extracted 2026-08-07 from five scattered @State vars). It owns the
+/// selected cells, the per-session bookkeeping (which cells were BORN here → deleted on deselect; which were ADOPTED →
+/// their originals stashed for restore), and the selection undo/redo history. The DOCUMENT effects (create/clone/
+/// delete/restore, and applying a restored doc on undo) stay with the caller — this owns the STATE and the pure
+/// transitions only. Lives view-side (GridPos is a SwiftUI type), so it's build-verified, not unit-tested.
+struct EditSelection {
+    private(set) var cells: [GridView.GridPos] = []
+    private(set) var born: Set<GridView.GridPos> = []             // created this session → deselect deletes
+    private(set) var adoptStash: [GridView.GridPos: Cell] = [:]   // adopted → original, so deselect restores
+    private var undoStack: [(sel: [GridView.GridPos], doc: PluginState)] = []
+    private var redoStack: [(sel: [GridView.GridPos], doc: PluginState)] = []
+
+    var anchor: GridView.GridPos? { cells.first }
+    var isEmpty: Bool { cells.isEmpty }
+    var count: Int { cells.count }
+    var asSet: Set<GridView.GridPos> { Set(cells) }
+    var targets: [(col: Int, row: Int)] { cells.map { (col: $0.col, row: $0.row) } }
+    func contains(_ p: GridView.GridPos) -> Bool { cells.contains(p) }
+    func wasBorn(_ p: GridView.GridPos) -> Bool { born.contains(p) }
+    func stashed(_ p: GridView.GridPos) -> Cell? { adoptStash[p] }
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    // --- state transitions (the caller performs the matching document effects) ---
+    mutating func add(_ p: GridView.GridPos) { if !cells.contains(p) { cells.append(p) } }
+    mutating func markBorn(_ p: GridView.GridPos) { born.insert(p) }
+    mutating func stash(_ p: GridView.GridPos, _ original: Cell) { adoptStash[p] = original }
+    mutating func remove(_ p: GridView.GridPos) { cells.removeAll { $0 == p }; born.remove(p); adoptStash[p] = nil }
+    mutating func reset() { cells = []; born = []; adoptStash = [:]; clearHistory() }
+
+    // --- selection undo/redo: snapshot before a change; undo/redo return the document to restore (if any) ---
+    mutating func recordUndo(_ doc: PluginState) { undoStack.append((cells, doc)); redoStack.removeAll() }
+    mutating func clearHistory() { undoStack.removeAll(); redoStack.removeAll() }
+    mutating func undo(currentDoc: PluginState) -> PluginState? {
+        guard let prev = undoStack.popLast() else { return nil }
+        redoStack.append((cells, currentDoc)); cells = prev.sel; return prev.doc
+    }
+    mutating func redo(currentDoc: PluginState) -> PluginState? {
+        guard let next = redoStack.popLast() else { return nil }
+        undoStack.append((cells, currentDoc)); cells = next.sel; return next.doc
+    }
+}
+
 extension DiagView {
-    // MODE ROW — the selection set's helpers. The ANCHOR is editSel.first: it drives the inspector (selCol/selRow)
-    // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to editSel.
-    var editSelTargets: [(col: Int, row: Int)] { editSel.map { (col: $0.col, row: $0.row) } }
+    // MODE ROW — the selection set's helpers. The ANCHOR is `sel.anchor`: it drives the inspector (selCol/selRow)
+    // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to `sel`.
+    var editSelTargets: [(col: Int, row: Int)] { sel.targets }
     func syncAnchor() {
-        if let a = editSel.first { selCol = a.col; selRow = a.row; brush = scene.cellAt(a.col, a.row)?.colourID ?? brush }
+        if let a = sel.anchor { selCol = a.col; selRow = a.row; brush = scene.cellAt(a.col, a.row)?.colourID ?? brush }
         else { selCol = -1; selRow = -1 }
     }
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
     func deselect(_ pos: GridView.GridPos) {
         recordSelectionUndo()                        // snapshot (selection, doc) before this deselect
-        if bornThisSession.contains(pos) {
-            au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; bornThisSession.remove(pos); refreshFromDocument()
-        } else if let orig = preAdoptStash[pos] {
-            au?.editScene { $0.setCell(pos.col, pos.row, orig) }; preAdoptStash[pos] = nil; refreshFromDocument()
+        if sel.wasBorn(pos) {                         // created this session → delete it
+            au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; refreshFromDocument()
+        } else if let orig = sel.stashed(pos) {       // adopted → restore its original
+            au?.editScene { $0.setCell(pos.col, pos.row, orig) }; refreshFromDocument()
         }
-        editSel.removeAll { $0 == pos }
+        sel.remove(pos)                               // drops it from cells + born + stash
         syncAnchor()
     }
     /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). It defaults
@@ -46,7 +89,7 @@ extension DiagView {
         let pos = GridView.GridPos(col: col, row: row)
         switch editMode {
         case .addEdit:
-            guard editSel.first == pos else { return }   // only the anchor responds to a long-press (drops + reverts)
+            guard sel.anchor == pos else { return }   // only the anchor responds to a long-press (drops + reverts)
             deselect(pos)
         case .mute, .clear:
             editModeTap(col, row)
@@ -92,7 +135,7 @@ extension DiagView {
         let gridH = gridW / 1.3                                      // height PROPORTIONAL to the width (keeps the grid's aspect)
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
         let inspectorW = min(360, size.width - 24)
-        let canCommit = !editSel.isEmpty
+        let canCommit = !sel.isEmpty
         VStack(spacing: 8) {
             // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
             // body only (no arrangementBar of its own).
@@ -183,19 +226,19 @@ extension DiagView {
     func setEditMode(_ m: EditPageMode) {
         guard m != editMode else { return }
         if editMode == .addEdit { au?.applyEditSession() }
-        editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
+        sel.reset(); clearedStash = [:]; syncAnchor()
         editMode = m
         if m == .addEdit { au?.beginEditSession() }
         refreshFromDocument()
     }
     /// APPLY — commit the staged ADD/EDIT session as one undo step, then re-open a fresh baseline so editing continues.
     func commitSession() {
-        au?.applyEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
+        au?.applyEditSession(); sel.reset(); syncAnchor()
         au?.beginEditSession(); refreshFromDocument()
     }
     /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
     func revertSession() {
-        au?.cancelEditSession(); editSel = []; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
+        au?.cancelEditSession(); sel.reset(); syncAnchor()
         au?.beginEditSession(); refreshFromDocument()
     }
 
@@ -208,7 +251,7 @@ extension DiagView {
     func syncSingleModeActivation() {
         guard ladderMode, editMode == .addEdit, let au else { return }
         var topByColumn: [Int: Int] = [:]
-        for p in editSel { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
+        for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
         guard !topByColumn.isEmpty else { return }
         for (col, row) in topByColumn { au.setActiveRow(col, row) }
         refreshFromDocument()
@@ -232,11 +275,11 @@ extension DiagView {
                  onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
                  laneMask: laneMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
-                 showAddPlus: editMode == .addEdit && !editSel.isEmpty,
+                 showAddPlus: editMode == .addEdit && !sel.isEmpty,
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                  cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                  selection: [],
-                 whiteBorder: Set(editSel), twins: twinCells, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
+                 whiteBorder: sel.asSet, twins: twinCells, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                  strokeActive: false, onStroke: strokeCell, onStrokeEnd: endStroke)
@@ -255,12 +298,12 @@ extension DiagView {
     /// MODE ROW — the ADVERTISE set: cells that are TWINS of anything in the selection but not themselves selected.
     /// They PULSE to invite inclusion (they are NOT auto-edited). Empty unless ADD/EDIT mode has a selection.
     var twinCells: Set<GridView.GridPos> {
-        guard editArmed, editMode == .addEdit, !editSel.isEmpty else { return [] }
+        guard editArmed, editMode == .addEdit, !sel.isEmpty else { return [] }
         var s = Set<GridView.GridPos>()
-        for m in editSel {
+        for m in sel.cells {
             for t in au?.twinPositions(col: m.col, row: m.row) ?? [] { s.insert(GridView.GridPos(col: t.col, row: t.row)) }
         }
-        for m in editSel { s.remove(m) }   // selected cells wear the white ring, not the pulse
+        for m in sel.cells { s.remove(m) }   // selected cells wear the white ring, not the pulse
         return s
     }
 
@@ -329,7 +372,7 @@ extension DiagView {
     // MODE ROW — the selection header: how many cells this edit touches. Twins of the set PULSE on the grid to
     // invite inclusion (they are NOT auto-edited — the user taps to add them). No DETACH: the set is manual.
     @ViewBuilder func twinHeader() -> some View {
-        let n = editSel.count
+        let n = sel.count
         HStack(spacing: 8) {
             Text(n > 1 ? "\(n) SELECTED" : (n == 1 ? "1 SELECTED" : "—"))
                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
@@ -368,7 +411,7 @@ extension DiagView {
     // LIVE so the in-pop-up macro panel is interactive; the pop-up's CANCEL restores the whole macros vector +
     // the base params (nothing escapes CANCEL). The audition sounds the slot live (hold keys) at the test values.
     func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
-        guard let a = editSel.first else { return }
+        guard let a = sel.anchor else { return }
         macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i
         macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
         macroAuthorBase = processorValues(slot)                       // the processor's CURRENT values (the offset base)
@@ -590,7 +633,7 @@ extension DiagView {
                 }
             }.fixedSize()
             VStack(alignment: .leading, spacing: 4) {
-                Text(editSel.count == 1 ? "1 CELL SELECTED" : "\(editSel.count) CELLS SELECTED")
+                Text(sel.count == 1 ? "1 CELL SELECTED" : "\(sel.count) CELLS SELECTED")
                     .font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
                 Text("\(twinCells.count) IDENTICAL CELLS AVAILABLE")
                     .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
@@ -708,7 +751,7 @@ extension DiagView {
     /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
     /// The edit applies to every selected cell; with a single cell selected it's just that cell.
     func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
-        guard let au, !editSel.isEmpty else { return }
+        guard let au, !sel.isEmpty else { return }
         au.editCells(editSelTargets, mutate); refreshFromDocument()
     }
     /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
@@ -746,7 +789,7 @@ extension DiagView {
     }
     // LIBRARY · APPLY — replace the CHAIN of the cells currently being edited with the library cell's chain.
     func applyLibraryChain(_ cell: Cell?) {
-        guard let cell, !editSel.isEmpty else { return }
+        guard let cell, !sel.isEmpty else { return }
         let chain = cell.processors ?? []          // the saved cell's materialised chain (empty = passthrough)
         au?.editCells(editSelTargets) { $0.processors = chain }
         refreshFromDocument(); showCellLibrary = false

@@ -131,22 +131,15 @@ struct DiagView: View {
     @State var editMode: EditPageMode = .addEdit
     // MODE ROW — ADD/EDIT mode's manual multi-SELECT set (ordered; the FIRST member is the ANCHOR). Edits apply live
     // to every member; twins of the set only PULSE to advertise inclusion. Replaces the old auto-twin/DETACH model.
-    @State var editSel: [GridView.GridPos] = []
-    // MODE ROW — cells BORN this session (empty-tap births). Re-tapping a newborn deletes it (it was just created);
-    // cleared on APPLY/CANCEL (they become permanent / were reverted).
-    @State var bornThisSession: Set<GridView.GridPos> = []
-    // MODE ROW — ADD/EDIT: a POPULATED cell adopted into the group has its ORIGINAL config stashed here, so
-    // deselecting it during the session reverts it to how it was (empty-cloned cells delete instead).
-    @State var preAdoptStash: [GridView.GridPos: Cell] = [:]
+    // ADD/EDIT SELECTION (extracted 2026-08-07): one cohesive value — the selected cells + the per-session
+    // bookkeeping (BORN cells deleted on deselect · ADOPTED originals stashed for restore) + the selection undo/redo
+    // history. See `EditSelection` (EditPage.swift). The document effects stay in the view; this owns the state.
+    @State var sel = EditSelection()
     // MODE ROW — a long-press fires its mode action ONCE per press (the underlying gesture repeats while held).
     @State var longPressFired = false
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
     @State var clearedStash: [GridView.GridPos: Cell] = [:]
-    // SELECTION undo (user 2026-08-07): each select/deselect snapshots (selection, document) so undo/redo restores
-    // both. View-side + session-scoped (cleared at APPLY/CANCEL/mode-switch); never touches the transactional undo stack.
-    @State var selUndo: [(sel: [GridView.GridPos], doc: PluginState)] = []
-    @State var selRedo: [(sel: [GridView.GridPos], doc: PluginState)] = []
     // MODE ROW — the edit-page column loop drives the SAME `laneMask` as PERFORM (one engine field, one UI mirror);
     // BUG FIX 2026-08-05: no separate `editLoopMask`, so the loop survives the EDIT↔GRID page switch.
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
@@ -273,24 +266,23 @@ struct DiagView: View {
             guard editMode == .addEdit else { editModeTap(col, row); return }
             let pos = GridView.GridPos(col: col, row: row)
             au?.beginEditSession()                           // idempotent — a real change is what dirties APPLY/CANCEL
-            if editSel.contains(pos) {                       // already selected → a tap DESELECTS it (the ANCHOR too,
+            if sel.contains(pos) {                           // already selected → a tap DESELECTS it (the ANCHOR too,
                 deselect(pos)                                // user 2026-08-07: previously the group anchor needed a long-press)
             } else {                                         // NOT selected → add to the group (any tapped cell joins)
                 recordSelectionUndo()                        // snapshot (selection, doc) before this select
                 let wasEmpty = scene.cells[col][row] == nil
-                if editSel.isEmpty {                          // FIRST selection
-                    if wasEmpty { au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument(); bornThisSession.insert(pos) }
+                if sel.isEmpty {                              // FIRST selection
+                    if wasEmpty { au?.editScene { $0.cells[col][row] = newbornCell() }; refreshFromDocument(); sel.markBorn(pos) }
                     // a populated first cell is just selected as the anchor
-                } else if let a = editSel.first {            // a group exists → the new cell ADOPTS the anchor's full config
-                    if !wasEmpty { preAdoptStash[pos] = scene.cells[col][row] }   // stash the original so deselect can revert it
+                } else if let a = sel.anchor {               // a group exists → the new cell ADOPTS the anchor's full config
+                    if !wasEmpty, let orig = scene.cells[col][row] { sel.stash(pos, orig) }   // stash the original so deselect can revert it
                     au?.editScene { s in if let anchor = s.cells[a.col][a.row] { s.cells[col][row] = anchor } }   // → identical twins, edit together
                     refreshFromDocument()
-                    if wasEmpty { bornThisSession.insert(pos) }   // an empty cell cloned into the group is "born" (deselect deletes)
+                    if wasEmpty { sel.markBorn(pos) }        // an empty cell cloned into the group is "born" (deselect deletes)
                 }
-                editSel.append(pos)
+                sel.add(pos)
                 for t in au?.twinPositions(col: col, row: row) ?? [] {   // twins JOIN the selection (user 2026-08-07: selected, not just pulsing)
-                    let tp = GridView.GridPos(col: t.col, row: t.row)
-                    if !editSel.contains(tp) { editSel.append(tp) }
+                    sel.add(GridView.GridPos(col: t.col, row: t.row))   // add() dedups
                 }
             }
             syncAnchor()
@@ -562,27 +554,22 @@ struct DiagView: View {
     // SELECTION undo takes precedence while it has history (the recent select/deselect actions); once exhausted,
     // undo falls through to the transactional document undo.
     func undo() {
-        if !selUndo.isEmpty { undoSelection() } else if au?.uiUndo() == true { refreshFromDocument() }
+        if sel.canUndo { undoSelection() } else if au?.uiUndo() == true { refreshFromDocument() }
     }
     func redo() {
-        if !selRedo.isEmpty { redoSelection() } else if au?.uiRedo() == true { refreshFromDocument() }
+        if sel.canRedo { redoSelection() } else if au?.uiRedo() == true { refreshFromDocument() }
     }
     /// Snapshot the CURRENT (selection, document) before a select/deselect changes them (the undo point).
-    func recordSelectionUndo() {
-        guard let d = au?.uiDocument() else { return }
-        selUndo.append((editSel, d)); selRedo.removeAll()
-    }
+    func recordSelectionUndo() { if let d = au?.uiDocument() { sel.recordUndo(d) } }
     func undoSelection() {
-        guard let prev = selUndo.popLast(), let d = au?.uiDocument() else { return }
-        selRedo.append((editSel, d))
-        editSel = prev.sel; au?.restoreDocument(prev.doc); syncAnchor(); refreshFromDocument()
+        guard let d = au?.uiDocument(), let restored = sel.undo(currentDoc: d) else { return }
+        au?.restoreDocument(restored); syncAnchor(); refreshFromDocument()
     }
     func redoSelection() {
-        guard let next = selRedo.popLast(), let d = au?.uiDocument() else { return }
-        selUndo.append((editSel, d))
-        editSel = next.sel; au?.restoreDocument(next.doc); syncAnchor(); refreshFromDocument()
+        guard let d = au?.uiDocument(), let restored = sel.redo(currentDoc: d) else { return }
+        au?.restoreDocument(restored); syncAnchor(); refreshFromDocument()
     }
-    func clearSelectionUndo() { selUndo.removeAll(); selRedo.removeAll() }
+    func clearSelectionUndo() { sel.clearHistory() }
     func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
@@ -881,7 +868,7 @@ struct DiagView: View {
                 au?.beginEditSession()
             } else {
                 au?.applyEditSession()
-                editMode = .addEdit; editSel = []; clearedStash = [:]; bornThisSession = []; preAdoptStash = [:]; syncAnchor(); clearSelectionUndo()
+                editMode = .addEdit; sel.reset(); clearedStash = [:]; syncAnchor()
                 // BUG FIX 2026-08-05: leaving EDIT must NOT clear the column loop — it's one page-independent engine
                 // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
             }
@@ -894,7 +881,7 @@ struct DiagView: View {
             let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
             if ids.count == 1, let id = ids.first, id != brush { brush = id }
         }
-        .onChange(of: editSel) { _ in                         // SINGLE-mode editing: the selection drives the ladder's
+        .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
         }
         .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
@@ -1428,8 +1415,8 @@ struct DiagView: View {
                        onSecretTap: secretDevTap, onOpenSettings: { showSettings = true },
                        onRevertLiveFlips: clearOnTap, onSceneOpDone: refreshScenes,
                        currentPreset: currentPreset, onOpenPresets: openPresets,
-                       canUndo: !selUndo.isEmpty || (au?.uiCanUndo ?? false),   // incl. SELECTION undo
-                       canRedo: !selRedo.isEmpty || (au?.uiCanRedo ?? false),
+                       canUndo: sel.canUndo || (au?.uiCanUndo ?? false),   // incl. SELECTION undo
+                       canRedo: sel.canRedo || (au?.uiCanRedo ?? false),
                        onUndo: undo, onRedo: redo,
                        activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
                        onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets
