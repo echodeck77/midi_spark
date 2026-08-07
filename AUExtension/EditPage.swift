@@ -81,15 +81,15 @@ extension DiagView {
     // RECEIVER → PROCESSOR → EMITTERS. Reuses the cell-scoped builders (identitySection / processorPanels /
     // outputSection), all already wired to selCol/selRow/brush. Self-contained so the spike is easy to drop.
     @ViewBuilder func editSpikePage(_ size: CGSize) -> some View {
-        let gridH = max(150, size.height * 0.42)                     // top ~42% is the grid; the rest scrolls
-        let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
-        let inspectorW = min(360, size.width - 24)
         // EDIT-PAGE LAYOUT (design ferry 2026-08-06): the grid LEFT-aligned within the 1024pt page; opposite it, top-
         // aligned within the grid's height, a RIGHT block = the mode controls in a 2×2 (ADD/EDIT · MOVE / MUTE · CLEAR)
         // → the armed mode's description → APPLY / CANCEL.
         let pageW = min(size.width - 24, 1024)
         let rightW: CGFloat = 210
-        let gridW = min(pageW - rightW - 16, max(240, gridH * 1.3))
+        let gridW = min(pageW - rightW - 16, 512)                    // grid WIDTH = 512 (user 2026-08-07), capped to fit the page
+        let gridH = gridW / 1.3                                      // height PROPORTIONAL to the width (keeps the grid's aspect)
+        let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
+        let inspectorW = min(360, size.width - 24)
         let canCommit = !editSel.isEmpty
         VStack(spacing: 8) {
             // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
