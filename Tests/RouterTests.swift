@@ -3359,4 +3359,58 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.offs.contains { $0.cable == 1 } && e.offs.contains { $0.cable == 2 }, "release closes both dests")
         assertNothingLeftSounding(e)
     }
+
+    // MARK: - ECHO (the tail era) — AcceptanceCriteria-tail-era-delay-echo, Phase 0+1
+
+    private func echoColours(time: ArpRate = .r1_16, repeats: Int = 4, decay: Double = 0.5) -> [Colour] {
+        colourIDs.map { var c = Colour(colourID: $0, type: .echo)
+            c.paramsA.rate = time; c.paramsA.count = repeats; c.paramsA.ramp = decay; return c }
+    }
+
+    /// A single-slot [ECHO] cell re-strikes its held note the DRY + REPEATS times, velocities DECAYING, no stuck notes.
+    func testEchoRepeatsHeldNoteWithDecay() {
+        let b = box(colours: echoColours(time: .r1_16, repeats: 4, decay: 0.5)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 1.5, into: e)                 // one column entry (S = 2 beats); TIME 1/16 = 0.25
+        let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
+        XCTAssertGreaterThanOrEqual(strikes.count, 5, "the dry + four repeats")
+        XCTAssertTrue(strikes.contains { $0.vel == 96 }, "the dry is full velocity")
+        XCTAssertTrue(strikes.contains { $0.vel == 48 }, "first repeat = 96 × 0.5")
+        XCTAssertTrue(strikes.contains { $0.vel == 24 }, "second repeat = 96 × 0.5²")
+        assertNothingLeftSounding(e)
+    }
+
+    /// THE TAIL: echo repeats keep sounding AFTER the source chord releases (the activation ring, not a re-derivation
+    /// of the current pool) — and the transport-stop edge clears the ring so nothing leaks (quiescent).
+    func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
+        let b = box(colours: echoColours(time: .r1_16, repeats: 6, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        let router = Router(); var diag = KernelDiag()
+        let pool = chord([60])
+        let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func win() { router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                                    timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        win()                                                     // column 0 entry: dry + register the tail
+        pool.reset(); pool.rebuildSorted()                       // RELEASE the source chord
+        let before = e.ons.count
+        for _ in 0..<5 { win() }                                 // the repeats keep coming from the ring, pool empty
+        XCTAssertGreaterThan(e.ons.count, before, "echo repeats ring out after the source releases")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // STOP
+        XCTAssertTrue(router.quiescent, "transport stop clears the tail ring — no leaked activation")
+        assertNothingLeftSounding(e)
+    }
+
+    /// The echo schedule is a pure function of musical time → the SAME strike count at any render block size (a
+    /// repeat due mid-window lands in exactly the window that contains it, never bunched at the block head).
+    func testEchoIsBlockSizeInvariant() {
+        let b = box(colours: echoColours(time: .r1_16, repeats: 4, decay: 0.6)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        func strikeCount(_ frames: UInt32) -> Int {
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e, frames: frames)
+            return e.ons.filter { $0.note == 60 && $0.cable == 1 }.count
+        }
+        XCTAssertEqual(strikeCount(2048), strikeCount(256), "echo is block-size invariant")
+    }
 }

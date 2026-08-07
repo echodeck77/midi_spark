@@ -534,7 +534,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -740,6 +740,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .strum:     return .strum
     case .chance:    return .chance
     case .harmonize: return .harmonize
+    case .echo:      return .echo                          // the tail stage — its dry strikes + registers repeats
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -872,6 +873,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .strum:     return "fanblades.fill"              // the fan
     case .chance:    return "die.face.5.fill"             // the die
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
+    case .echo:      return "repeat"                       // the tail
     }
 }
 

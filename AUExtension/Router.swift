@@ -395,6 +395,43 @@ final class Router {
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
 
+    // THE TAIL (AcceptanceCriteria-tail-era-delay-echo §0): ECHO repeats fire at FUTURE beats, so — unlike the pure
+    // derived engine — they can't be re-derived from the current column (the cell isn't visited once the playhead
+    // leaves, and a released chord leaves no pool). Each DRY strike REGISTERS an activation here; `drainEchoTails`
+    // emits its due repeats every window, column-independent (tails ring out past the column AND past release). A
+    // NEW sanctioned mutable-state exception: cleared on EVERY transport/scene/panic/latch edge + reset + a beat
+    // discontinuity, so tails die on stop (v1) and never leak (the fuzz `quiescent` check guards it).
+    private struct EchoTail {
+        var active = false
+        var onset: Double = 0        // musical beat of the dry strike (repeats at onset + k·timeBeats)
+        var note: UInt8 = 0
+        var vel: UInt8 = 0           // the dry velocity; repeat k = vel · decay^k
+        var busMask: UInt8 = 0
+        var timeBeats: Double = 0.5
+        var repeats: Int = 0
+        var decay: Double = 0.7
+        var gateBeats: Double = 0.25
+    }
+    private static let echoTailCap = 256
+    private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
+    private var echoPrevMEnd: Double = .nan   // last window's musical end — a large gap ⇒ a seek/loop discontinuity
+
+    private var echoTailsActive: Bool { echoTails.contains { $0.active } }
+    private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
+    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8,
+                              timeBeats: Double, repeats: Int, decay: Double, gateBeats: Double) {
+        guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
+        var slot = -1
+        for i in echoTails.indices where !echoTails[i].active { slot = i; break }
+        if slot < 0 {                                    // budget: ring full → evict the OLDEST (smallest onset)
+            var oldest = 0
+            for i in echoTails.indices where echoTails[i].onset < echoTails[oldest].onset { oldest = i }
+            slot = oldest
+        }
+        echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
+                                   timeBeats: timeBeats, repeats: min(8, repeats), decay: decay, gateBeats: gateBeats)
+    }
+
     func reset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max; voices[i].silent = false }
         for i in refcount.indices { refcount[i] = 0 }
@@ -407,6 +444,7 @@ final class Router {
         prevAudition = -1; auditionLastTick = -1
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
+        clearEchoTails()
     }
 
     // MARK: parameter overrides
@@ -704,7 +742,7 @@ final class Router {
     /// sounding note, every collision refcount back to zero. The fuzz harness asserts this after a flush + settle;
     /// a non-quiescent engine after `allNotesOff` is a leaked voice or a dangling refcount (a hung note in waiting).
     var quiescent: Bool {
-        distinctSounding == 0 && voices.allSatisfy { !$0.active } && refcount.allSatisfy { $0 == 0 }
+        distinctSounding == 0 && voices.allSatisfy { !$0.active } && refcount.allSatisfy { $0 == 0 } && !echoTailsActive
     }
     /// I3 helper: true if two ACTIVE, non-silent voices share a full identity (note·chan·cable·emitter·Colour·face).
     /// The adoption law folds an identically re-held voice into ONE — a duplicate here is a phantom (adoption miss).
@@ -1076,6 +1114,80 @@ final class Router {
         for i in voices.indices where holdCandidate[i] { closeVoice(i, atSample: onSample, out: out) }
     }
 
+    /// ECHO (tail-era §2) — at a column ENTRY, strike each echo cell's DRY chord (short, so every repeat retriggers
+    /// on the synth) and REGISTER a tail per struck note. Single-slot `[ECHO]` cells only (v1): a multi-slot chain's
+    /// echo folds as pass-through (mode is taken from the head). Called once per column transition; the repeats
+    /// themselves emit from `drainEchoTails` every window.
+    private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double,
+                               mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
+                               windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard pool.count > 0 || latchMask != 0 else { return }
+        let colStart = (mNow / S).rounded(.down) * S
+        let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                windowStart: windowStart, S: S, a: a)
+        for r in 0..<Snap.rows {
+            let cell = box.cells[column * Snap.rows + r]
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) { continue }
+            if soloSilenced(cell) { continue }
+            let ci = Int(cell.colourIndex)
+            let colour = box.colours[ci]
+            if !onSceneAudible(colour.on, pass: pass) { continue }
+            var treat = colour; treat.a = cell.proc
+            let mode = cellMode(type: effectiveType(treat, t: 0), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(treat, t: 0), pass: pass)
+            guard mode == .echo else { continue }
+            let p = cell.proc
+            let timeBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+            guard timeBeats > 0 else { continue }
+            let repeats = max(1, min(8, Int(p.count)))
+            let decay = max(0, min(1, p.ramp))
+            let gateBeats = min(timeBeats * 0.9, S * 0.9)
+            let offSample = sampleOf(musical: colStart + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                     windowStart: windowStart, S: S, a: a)
+            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
+            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)
+            currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
+            currentCellIndex = column * Snap.rows + r
+            let cellPool = effectivePool(for: cell, live: pool)
+            for k in 0..<cellPool.srcCount(for: cell) {
+                let n = Int(cellPool.srcAscending(k, for: cell)) + transpose
+                guard n >= 0 && n <= 127 else { continue }
+                emitArtic(note: UInt8(n), busMask: bm, onSample: onSample, offSample: offSample,   // the DRY strike
+                          windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
+                pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: bm,
+                             timeBeats: timeBeats, repeats: repeats, decay: decay, gateBeats: gateBeats)
+            }
+        }
+    }
+
+    /// Emit every registered echo REPEAT whose musical time lands in this window [mStart, mEnd) — column-independent,
+    /// so tails ring out after the playhead leaves the cell's column AND after the source chord releases. Each repeat
+    /// opens a voice with a scheduled off (drainDue guarantees the off → no stuck note). Decay-floor + all-past retire
+    /// the entry. A beat DISCONTINUITY (seek/loop/tempo jump) clears the ring — v1 drops tails on the jump (look-back
+    /// preservation is v2). Runs BEFORE the empty-pool guard so a released chord's tail still sounds.
+    private func drainEchoTails(mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
+                               windowStart: Int64, windowEnd: Int64, S: Double, a: Double,
+                               out: MIDIEmitter?, diag: inout KernelDiag) {
+        if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S { clearEchoTails() }   // seek/loop/tempo jump → drop tails
+        echoPrevMEnd = mEnd
+        for i in echoTails.indices where echoTails[i].active {
+            let e = echoTails[i]
+            if e.onset + Double(e.repeats) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
+            for k in 1...e.repeats {
+                let tau = e.onset + Double(k) * e.timeBeats
+                if tau < mStart || tau >= mEnd { continue }                 // half-open: fires in exactly one window
+                let v = Int((Double(e.vel) * pow(e.decay, Double(k))).rounded())
+                if v < 1 { continue }                                       // decay floor kills
+                let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                   windowStart: windowStart, S: S, a: a)
+                let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                    windowStart: windowStart, S: S, a: a)
+                emitArtic(note: e.note, busMask: e.busMask, onSample: onT, offSample: offT,
+                          windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
+            }
+        }
+    }
+
     /// The shared subdivision-tick scaffold for ARP and RATCHET. Walks every tick of length `sub`
     /// in this window that belongs to `effColumn`, dedups per row, and hands the body the tick's
     /// index, musical beat, and unwarped on/off sample times. `gateFraction` sets the note length
@@ -1232,18 +1344,21 @@ final class Router {
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
+            clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
             allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)   // the one hard flush — bypass included
             prevEffColumn = -1
             diag.panics &+= 1
+            clearEchoTails()                             // ECHO: panic drops every pending tail
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
         if sceneFlush {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
+            clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -1251,6 +1366,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             prevLatchMask = latchMask
+            clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
         }
 
         pool.rebuildSorted()
@@ -1297,6 +1413,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+            clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
         }
         let beatPos = beatPos - passAnchor
 
@@ -1347,6 +1464,9 @@ final class Router {
             emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+            emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,   // ECHO: strike the dry + register the tail
+                           S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                           windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a SINGLE-COLUMN lap pins effColumn, so the column-change reconcile above never fires — a
             // source release then strands the legato drone (immortal) until the ~1s Kernel self-heal (+ a spurious
@@ -1356,6 +1476,11 @@ final class Router {
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
+
+        // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
+        drainEchoTails(mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
+                       beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
+                       S: S, a: a, out: out, diag: &diag)
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -1433,8 +1558,8 @@ final class Router {
                 emitStrumRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-            case .identity, .chance, .harmonize:
-                break   // unfed hold types have no tick content — their hold is emitted at the column transition
+            case .echo, .identity, .chance, .harmonize:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
             case .silent:
                 break   // closed passgate → nothing this window
             }

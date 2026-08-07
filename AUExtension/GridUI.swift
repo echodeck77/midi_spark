@@ -1420,6 +1420,7 @@ struct ProcessorBox: View {
         case .strum:     return "roll the chord in over a spread"
         case .chance:    return "let notes through by probability"
         case .harmonize: return "add tuned voices to each note"
+        case .echo:      return "repeat the note at a delay, decaying"
         }
     }
 
@@ -1482,6 +1483,14 @@ struct ProcessorBox: View {
                 field("VOICE \(k+1) \(iv[k] == 0 ? "off" : (iv[k] > 0 ? "+\(iv[k])" : "\(iv[k])"))") {
                     stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; a[k] = v; $0.harmIntervals = a } }
                 }
+            }
+        case .echo:   // TIME=rate · REPEATS=count · DECAY=ramp (reused fields — no new schema)
+            field("TIME") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in
+                setParam { $0.rate = ArpRate.allCases[i] } } }
+            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
+                setParam { $0.count = [2,3,4,6,8][i] } } }
+            field("DECAY \(Int((p.ramp ?? 0.7) * 100))%") {
+                Slider(value: bind(p.ramp ?? 0.7) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
             }
         }
     }

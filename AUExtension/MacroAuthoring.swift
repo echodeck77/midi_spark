@@ -142,6 +142,11 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     case .passgate:
         return [bypass,
                 MacroControlParam(key: "passMask", label: "PASSES", kind: .mask(bits: 4))]
+    case .echo:
+        return [bypass,
+                MacroControlParam(key: "rate", label: "TIME", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "count", label: "REPEATS", kind: .stepper(lo: 2, hi: 8)),
+                MacroControlParam(key: "ramp", label: "DECAY", kind: .continuous(lo: 0, hi: 1))]
     }
 }
 

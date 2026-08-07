@@ -9,6 +9,7 @@ import Foundation
 enum ProcessorType: String, Codable, CaseIterable {
     case arp = "ARP", ratchet = "RATCHET", passgate = "PASSGATE"
     case strum = "STRUM", chance = "CHANCE", harmonize = "HARMONIZE"
+    case echo = "ECHO"   // the first TAIL stage — repeats a note at delayed beats (reuses rate=TIME · count=REPEATS · ramp=DECAY)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
