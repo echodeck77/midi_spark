@@ -1289,6 +1289,7 @@ struct ProcessorBox: View {
     var onBypass: () -> Void = {}
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
+    var onMixer: (() -> Void)? = nil                    // slotMode: the MIXER button (flow-diagram pop-up)
     @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -1365,8 +1366,9 @@ struct ProcessorBox: View {
             }
             .buttonStyle(.plain).disabled(mixed)
             Spacer()
-            if slotMode {                                   // CELL MACHINE: per-slot BYPASS · MACRO (+ REMOVE) instead of COPY/PASTE
+            if slotMode {                                   // CELL MACHINE: per-slot MACRO · MIXER · BYPASS (+ REMOVE) instead of COPY/PASTE
                 if let onMacro { pill("MACRO", onMacro) }
+                if let onMixer { pill("MIXER", onMixer) }
                 pill(slotBypassed ? "BYPASSED" : "BYPASS", onBypass)
                 if let onRemove { pill("✕", onRemove) }
             } else {

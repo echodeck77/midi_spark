@@ -102,6 +102,12 @@ struct DiagView: View {
     @State var macroAuthorBase: [String: Double] = [:]                        // the slot's current values (the offset base)
     @State var macroAuthorMacrosBaseline: [Macro] = []                        // every macro on open — CANCEL restores this
     @State var macroAuthorExisting: [MacroSlotBinding] = []                   // macros already bound to this slot — the dropdown/reflect
+    // FLOW-DIAGRAM processor pop-up (user 2026-08-07): tap a populated processor box → edit its full controls; tap an
+    // empty box → the type picker. APPLY keeps · CANCEL restores the document snapshot taken on open.
+    @State var procEditOpen = false
+    @State var procEditSlot = 0
+    @State var procEditDocBaseline: PluginState? = nil
+    @State var procTypePickerOpen = false
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -827,7 +833,9 @@ struct DiagView: View {
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
                 }
-                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up
+                if procTypePickerOpen { procTypePickerPopup() }   // FLOW-DIAGRAM: empty box → the welcoming type picker
+                if procEditOpen { procEditPopup() }               // FLOW-DIAGRAM: populated box → the full processor controls
+                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up (opens ON TOP of the proc pop-up)
                     MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting, accent: mainDestHue,
                                        base: macroAuthorBase,
                                        onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,

@@ -413,7 +413,7 @@ extension DiagView {
             Spacer(minLength: 0)
         }
     }
-    @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell) -> some View {
+    @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell, onMixer: (() -> Void)? = nil) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
         let cid = cell.colourID, targets = editSelTargets
         ProcessorBox(
@@ -432,7 +432,7 @@ extension DiagView {
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
             onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
             onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() },
-            onMacro: { openMacroAuthoring(slot: i, slotData: slot) })
+            onMacro: { openMacroAuthoring(slot: i, slotData: slot) }, onMixer: onMixer)
     }
 
     // MARK: - MACRO AUTHORING (canonical pop-up) — open/callbacks for a processor slot. The BASE = the slot's current
@@ -553,9 +553,76 @@ extension DiagView {
         }
         .frame(width: flowW, height: 356)
     }
-    // A set slot (solid) or an empty dashed "+" ghost — all eight show.
+    // A set slot (tap → edit pop-up) or an empty dashed "+" ghost (tap → type picker) — user 2026-08-07.
     @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color) -> some View {
-        if i < chain.count { flowSlot(chain[i], bg: bg) } else { flowGhost("+", bg: bg) }
+        if i < chain.count {
+            flowSlot(chain[i], bg: bg).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
+        } else {
+            flowGhost("+", bg: bg).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
+        }
+    }
+    // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
+    // editor: big, legible, per-type). MACRO · MIXER · BYPASS sit in the box's title row; APPLY/CANCEL at the foot.
+    func openProcEdit(slot i: Int) {
+        procEditSlot = i
+        procEditDocBaseline = au?.uiDocument()          // CANCEL restores this exactly
+        procEditOpen = true
+    }
+    func closeProcEdit(apply: Bool) {
+        if !apply, let b = procEditDocBaseline { au?.restoreDocument(b) }   // revert every edit since it opened
+        procEditOpen = false; procEditDocBaseline = nil
+        refreshFromDocument()
+    }
+    @ViewBuilder func procEditPopup() -> some View {
+        let chain = editingCell.map { cellChain($0) } ?? []
+        if let cell = editingCell, procEditSlot < chain.count {
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { closeProcEdit(apply: true) }   // scrim = keep
+                VStack(spacing: 0) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        slotBox(procEditSlot, chain[procEditSlot], cell: cell, onMixer: { /* MIXER — placeholder, awaiting definition */ })
+                            .padding(14)
+                    }
+                    HStack(spacing: 10) {
+                        Spacer()
+                        Button { closeProcEdit(apply: false) } label: { transactChip("CANCEL", enabled: true, fill: false) }.buttonStyle(.plain)
+                        Button { closeProcEdit(apply: true) } label: { transactChip("APPLY", enabled: true, fill: true) }.buttonStyle(.plain)
+                    }.padding(14)
+                }
+                .frame(maxWidth: 560, maxHeight: 680)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
+                .padding(20)
+            }
+        }
+    }
+    // The welcoming TYPE PICKER for an empty box — the same big emblem buttons as the current cell edit page's
+    // "add processor" invitation. Picking a type appends the slot; the picker closes.
+    @ViewBuilder func procTypePickerPopup() -> some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { procTypePickerOpen = false }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("ADD A PROCESSOR").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
+                Text("Pick a processor to shape the signal.").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                HStack(spacing: 10) {
+                    ForEach(ProcessorType.allCases, id: \.self) { t in
+                        Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument(); procTypePickerOpen = false } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: emblemSymbol(t)).font(.system(size: 26, weight: .black))
+                                Text(t.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                            }
+                            .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 84)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(mainDestHue.opacity(0.10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(mainDestHue.opacity(0.5), lineWidth: 1.5)))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(18).frame(maxWidth: 620)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
+            .padding(20)
+        }
     }
     private func flowSlot(_ slot: ProcessorSlot, bg: Color) -> some View {
         VStack(spacing: 3) {
