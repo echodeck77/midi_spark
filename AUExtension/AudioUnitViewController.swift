@@ -293,6 +293,10 @@ struct DiagView: View {
                     if wasEmpty { bornThisSession.insert(pos) }   // an empty cell cloned into the group is "born" (deselect deletes)
                 }
                 editSel.append(pos)
+                for t in au?.twinPositions(col: col, row: row) ?? [] {   // twins JOIN the selection (user 2026-08-07: selected, not just pulsing)
+                    let tp = GridView.GridPos(col: t.col, row: t.row)
+                    if !editSel.contains(tp) { editSel.append(tp) }
+                }
             }
             syncAnchor()
             return

@@ -221,8 +221,8 @@ extension DiagView {
     func toggleLoopColumn(_ c: Int) { setLane(laneMask ^ (1 << UInt8(c))) }
 
     // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
-    // set (white ring); its twins PULSE. A long-press drops the ANCHOR (repurposes the perform audition hold, which
-    // is parked on this setup surface). CLEAR marks show as a dashed removal ring (increment 4).
+    // set (white ring) AND auto-selects the tapped cell's TWINS (user 2026-08-07: they join the selection, not just
+    // pulse — so twinCells is empty here). A long-press drops the ANCHOR; CLEAR marks show a dashed removal ring.
     @ViewBuilder func spikeGrid(_ cellHeight: CGFloat) -> some View {
         GridView(scene: scene, colours: docColours, playColumn: d.effColumn,
                  trueColumn: d.playing ? ((d.absoluteStep % 8) + 8) % 8 : -1, playing: d.playing,
