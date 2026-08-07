@@ -48,24 +48,48 @@ struct EditSelection {
     }
 }
 
-/// THE DIN ICON (design ferry SPEC-din-icon, 2026-08-07) — the 5-pin DIN-180° MIDI plug, as a custom Shape: a socket
-/// disc with a KEY NOTCH at 12:00 and FIVE pins (clock 2·4·6·8·10) knocked out. Fill with the even-odd rule for the
-/// FILLED variant (notch + pins are holes). A mark, not a status — inked in the ink/dim tokens, never hue-tinted.
-struct DINPlug: Shape {
+/// THE DIN ICON (design ferry SPEC-din-icon, 2026-08-07) — the 5-pin DIN-180° MIDI plug, custom Shapes. `DINPins`
+/// draws the FIVE pins (clock 2·4·6·8·10, the 180° arc facing the notch); `DINPlug` is the FILLED disc with the
+/// key NOTCH + pins knocked out (fill even-odd). Use `dinMark(...)` to render either variant. A mark, not a status
+/// — inked in the ink/dim tokens, never hue-tinted.
+struct DINPins: Shape {
     func path(in rect: CGRect) -> Path {
         let r = min(rect.width, rect.height) / 2
         let c = CGPoint(x: rect.midX, y: rect.midY)
         var p = Path()
-        p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))            // socket disc
-        p.addRect(CGRect(x: c.x - 0.14 * r, y: c.y - 0.95 * r, width: 0.28 * r, height: 0.18 * r))   // key notch (subtracted, even-odd)
         let pinLen = 0.30 * r, pinW = 0.14 * r, pinRad = 0.55 * r
-        for deg in stride(from: 60.0, through: 300.0, by: 60.0) {                                // pins at 2·4·6·8·10 o'clock (the 180° arc facing the notch)
+        for deg in stride(from: 60.0, through: 300.0, by: 60.0) {
             let a = CGFloat(deg) * .pi / 180
             let px = c.x + pinRad * sin(a), py = c.y - pinRad * cos(a)
             let cap = Path(roundedRect: CGRect(x: -pinLen / 2, y: -pinW / 2, width: pinLen, height: pinW), cornerRadius: pinW / 2)
             p.addPath(cap.applying(CGAffineTransform(translationX: px, y: py).rotated(by: atan2(-cos(a), sin(a)))))   // long axis → the centre
         }
         return p
+    }
+}
+struct DINPlug: Shape {   // the FILLED variant: disc − notch − pins (fill even-odd)
+    func path(in rect: CGRect) -> Path {
+        let r = min(rect.width, rect.height) / 2
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        var p = Path()
+        p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))              // socket disc
+        p.addRect(CGRect(x: c.x - 0.14 * r, y: c.y - 0.95 * r, width: 0.28 * r, height: 0.18 * r)) // key notch (subtracted)
+        p.addPath(DINPins().path(in: rect))                                                        // pins (subtracted)
+        return p
+    }
+}
+/// Render the DIN mark in either variant. FILLED = the solid plug (notch/pins are holes). OUTLINE = a stroked ring +
+/// filled pins + a small key tab at 12:00 (headers, cog rows). `ink` follows the surrounding context.
+@ViewBuilder func dinMark(outline: Bool = false, ink: Color, size: CGFloat) -> some View {
+    if outline {
+        ZStack {
+            Circle().strokeBorder(ink, lineWidth: max(1.2, size * 0.08))
+            DINPins().fill(ink)
+        }
+        .overlay(alignment: .top) { RoundedRectangle(cornerRadius: 1).fill(ink).frame(width: size * 0.28, height: size * 0.15) }   // the key
+        .frame(width: size, height: size)
+    } else {
+        DINPlug().fill(ink, style: FillStyle(eoFill: true)).frame(width: size, height: size)
     }
 }
 
@@ -196,12 +220,12 @@ extension DiagView {
                             sectionSeam()
                             sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
                             sectionSeam()
-                            sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
+                            midiSectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
                             sectionSeam()
                             chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
                             chainStack(cell, boxWidth: min(540, size.width - 48))
                             sectionSeam()
-                            sectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
+                            midiSectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
                         }.frame(maxWidth: 560, alignment: .leading)
                     }.frame(maxWidth: .infinity).padding(.bottom, 8)
                 }.frame(maxWidth: .infinity)
@@ -463,6 +487,14 @@ extension DiagView {
             Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
         }.padding(.top, 4)
     }
+    // A MIDI IN/OUT section header — the DIN plug mark (outline variant) beside the label (design ferry SPEC-din-icon).
+    func midiSectionHeader(_ label: String) -> some View {
+        HStack(spacing: 8) {
+            dinMark(outline: true, ink: Self.editHue, size: 20)
+            Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
+            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
+        }.padding(.top, 4)
+    }
     // The CHAIN section header carries the LIBRARY button at its top-right (moved off the page header).
     @ViewBuilder func chainSectionHeader() -> some View {
         HStack(spacing: 8) {
@@ -543,7 +575,7 @@ extension DiagView {
     private func receiverBox(_ cell: Cell, bg: Color) -> some View {
         let recvs = au?.uiReceivers() ?? []
         return HStack(spacing: 8) {
-            DINPlug().fill(Color.white.opacity(0.5), style: FillStyle(eoFill: true)).frame(width: 26, height: 26)   // MIDI IN mark (left)
+            dinMark(ink: .white.opacity(0.5), size: 26)   // MIDI IN mark (left)
             ForEach(0..<4, id: \.self) { r in
                 let on = cell.inputReceiver == r
                 let ch = r < recvs.count ? recvs[r].channel : 0
@@ -572,7 +604,7 @@ extension DiagView {
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : Color.white.opacity(0.06)))
                 .contentShape(Rectangle()).onTapGesture { toggleMainBus(b) }
             }
-            DINPlug().fill(Color.white.opacity(0.5), style: FillStyle(eoFill: true)).frame(width: 26, height: 26)   // MIDI OUT mark (right)
+            dinMark(ink: .white.opacity(0.5), size: 26)   // MIDI OUT mark (right)
         }.padding(6)
         .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))

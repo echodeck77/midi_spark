@@ -14,7 +14,7 @@ are owed._
   axis pointing at the centre. Round caps.
 
 ## WEIGHTS + SIZES
-- **OUTLINE variant** (headers, cog rows): ring 1.5pt @ 16–20pt icon size; pins filled. *(Owed.)*
+- **OUTLINE variant** (headers, cog rows): stroked ring + filled pins + a key tab. **BUILT** (`dinMark(outline:true)`).
 - **FILLED variant** (chips, the flow's receiver/emitter boxes): solid disc, notch subtracted, pins knocked out
   (holes) — reads at 12pt. **BUILT** (`DINPlug` filled with the even-odd rule).
 - Ink follows context (the ink/dim tokens); never hue-tinted — it's a mark, not a status.

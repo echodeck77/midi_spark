@@ -63,6 +63,7 @@ struct ReceiverConfigView: View {
     private func headerRow(_ i: Int, _ r: Receiver, _ h: Color) -> some View {
         let on = r.inputEnabledResolved
         return HStack(spacing: 12) {
+            dinMark(ink: .white.opacity(0.5), size: 24)   // MIDI-IN port mark (design ferry SPEC-din-icon)
             Text("R\(i + 1)").font(.system(size: 18, weight: .heavy, design: .monospaced))
                 .foregroundColor(on ? .black : h.opacity(0.85))
                 .frame(width: 52, height: 34)
