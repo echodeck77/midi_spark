@@ -48,6 +48,27 @@ struct EditSelection {
     }
 }
 
+/// THE DIN ICON (design ferry SPEC-din-icon, 2026-08-07) — the 5-pin DIN-180° MIDI plug, as a custom Shape: a socket
+/// disc with a KEY NOTCH at 12:00 and FIVE pins (clock 2·4·6·8·10) knocked out. Fill with the even-odd rule for the
+/// FILLED variant (notch + pins are holes). A mark, not a status — inked in the ink/dim tokens, never hue-tinted.
+struct DINPlug: Shape {
+    func path(in rect: CGRect) -> Path {
+        let r = min(rect.width, rect.height) / 2
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        var p = Path()
+        p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))            // socket disc
+        p.addRect(CGRect(x: c.x - 0.14 * r, y: c.y - 0.95 * r, width: 0.28 * r, height: 0.18 * r))   // key notch (subtracted, even-odd)
+        let pinLen = 0.30 * r, pinW = 0.14 * r, pinRad = 0.55 * r
+        for deg in stride(from: 60.0, through: 300.0, by: 60.0) {                                // pins at 2·4·6·8·10 o'clock (the 180° arc facing the notch)
+            let a = CGFloat(deg) * .pi / 180
+            let px = c.x + pinRad * sin(a), py = c.y - pinRad * cos(a)
+            let cap = Path(roundedRect: CGRect(x: -pinLen / 2, y: -pinW / 2, width: pinLen, height: pinW), cornerRadius: pinW / 2)
+            p.addPath(cap.applying(CGAffineTransform(translationX: px, y: py).rotated(by: atan2(-cos(a), sin(a)))))   // long axis → the centre
+        }
+        return p
+    }
+}
+
 extension DiagView {
     // MODE ROW — the selection set's helpers. The ANCHOR is `sel.anchor`: it drives the inspector (selCol/selRow)
     // and the breadcrumb, and is protected from a stray tap (long-press to drop). Edits write through to `sel`.
@@ -521,7 +542,8 @@ extension DiagView {
     // The RECEIVERS box — R1–R4 with the MIDI CHANNEL prominent; selected lit; OPAQUE (occludes the line). Toggles in place.
     private func receiverBox(_ cell: Cell, bg: Color) -> some View {
         let recvs = au?.uiReceivers() ?? []
-        return HStack(spacing: 6) {
+        return HStack(spacing: 8) {
+            DINPlug().fill(Color.white.opacity(0.5), style: FillStyle(eoFill: true)).frame(width: 26, height: 26)   // MIDI IN mark (left)
             ForEach(0..<4, id: \.self) { r in
                 let on = cell.inputReceiver == r
                 let ch = r < recvs.count ? recvs[r].channel : 0
@@ -539,7 +561,7 @@ extension DiagView {
     }
     // The EMITTERS box — mirror of the receivers box (in/out symmetry): A–D with channels prominent. Toggles in place.
     private func emitterBox(_ cell: Cell, bg: Color) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
                 let on = cell.buses.contains(b)
                 VStack(spacing: 1) {
@@ -550,6 +572,7 @@ extension DiagView {
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : Color.white.opacity(0.06)))
                 .contentShape(Rectangle()).onTapGesture { toggleMainBus(b) }
             }
+            DINPlug().fill(Color.white.opacity(0.5), style: FillStyle(eoFill: true)).frame(width: 26, height: 26)   // MIDI OUT mark (right)
         }.padding(6)
         .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
