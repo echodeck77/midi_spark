@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MACRO POP-UP rev 2 — Paul's revisions (2026-08-07, on `main`, PUSHED `3f4ab03`; iOS builds, macOS 509 green;
+  DEVICE pass owed). Reworked the processor macro authoring pop-up (`MacroAuthoringView.swift`) per Paul's spec:
+  (1) ONE big audition slider per pending macro, labelled **MAIN … WITH MACRO** (replaced the per-param
+  `VTestSlider`s) — morphs the whole selection base→alt live via the existing pure `macroApply`. (2) Each control
+  shows its **MAIN processor value in text** beside the label (per-kind: number · ON/OFF · option label · int ·
+  mask bits — `mainText`). (3) The per-macro button is **"ADD TO M{n}"**, DIM until a selected control actually
+  diverges from MAIN (`canAdd = !sparse.isEmpty`); after binding it flips to **"REMOVE FROM M{n}"** and drops the
+  binding LIVE in the MIDI out (`AU.removeMacroTargets` gained an optional `slot:` filter → `EditPage.macroAuthorUnbind`
+  → VC `onUnbind`). (4) A macro's live slider/button is **DISABLED/dimmed until something is added to it**
+  (`isBound(i)`). (5) A selected control whose alternative == source **stores nothing** (`macroSparseDelta` drops
+  zero/epsilon deltas). JUDGMENT CALL: binding now clears the round + greys the bound params, so the old macro
+  DROPDOWN + "+ ADD ANOTHER MACRO" + per-param test sliders were superseded and REMOVED (the flow is select → ADD
+  TO M{n} → repeat). Offset engine (M1 fold / AU params / 24 slots) unchanged. Discrete-param binding still deferred
+  (only the 7 foldable continuous keys reach the engine; discretes render + record-as-bound but don't modulate yet).**
 - **▶ FUZZ HARNESS — TRANSPORT + SNAPSHOT-SWAP CHAOS scenarios (2026-08-07, on `main`, PUSHED `6a79e93`; macOS 509
   green). Extends `Tests/FuzzTests.swift` (Layer 1) with two adversarial-SCHEDULE scenarios at the failure class
   unit tests can't reach (state corruption + stuck notes under pathological host behaviour); both obey the SEED LAW
