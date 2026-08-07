@@ -149,28 +149,10 @@ final class FuzzTests: XCTestCase {
             beat += windowBeats; ts += Double(frames)
         }
 
-        // FLUSH + SETTLE: release everything, drain, then a hard PANIC (flushes bypass too), then settle stopped.
-        held.forEach { pool.noteOff($0) }; shorts.forEach { pool.noteOff($0) }; pool.reset(); pool.rebuildSorted()
-        for i in 0..<3 {
-            router.process(box: box, pool: pool, playing: i < 2, beatPos: beat, tempo: tempo, sampleRate: sr,
-                           timestampSample: ts, frameCount: frames, panic: i == 2, latchMask: 0, out: out, diag: &diag)
-            beat += windowBeats; ts += Double(frames)
-        }
-
-        // I5 bounds + I1/I2 sounding, from the emitted stream. A key is SOUNDING iff its LAST event was an ON (the
-        // collision refcount folds several ons into one off, so on,on,off is legal — the last event is what matters).
-        var boundsBad: String?
-        var last: [Int: UInt8] = [:]
-        for ev in out.events {
-            if !(ev.status == 0x80 || ev.status == 0x90) { boundsBad = boundsBad ?? "status \(ev.status)" }
-            if ev.note > 127 { boundsBad = boundsBad ?? "note \(ev.note)" }
-            if ev.vel > 127 { boundsBad = boundsBad ?? "vel \(ev.vel)" }
-            if ev.cable > 4 { boundsBad = boundsBad ?? "cable \(ev.cable)" }
-            if ev.chan > 15 { boundsBad = boundsBad ?? "chan \(ev.chan)" }
-            last[(Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)] = ev.status
-        }
-        let sounding = last.values.filter { $0 == 0x90 }.count
-        return FuzzResult(events: out.events, quiescent: router.quiescent, soundingKeys: sounding, boundsBad: boundsBad)
+        // FLUSH + SETTLE, then measure the emitted stream (shared helpers — see above).
+        _ = (held, shorts)   // released by pool.reset() inside flushAndSettle
+        flushAndSettle(router: router, pool: pool, box: box, out: out, beat: &beat, ts: &ts, sr: sr, tempo: tempo, frames: frames)
+        return measure(out, router)
     }
 
     private func mutate(_ doc: PluginState, _ r: inout FuzzRNG) -> PluginState {
@@ -185,6 +167,142 @@ final class FuzzTests: XCTestCase {
         }
         d.scenes = [scene]
         if r.chance(0.3), var recs = d.receivers, !recs.isEmpty { let i = r.int(recs.count); recs[i].muted.toggle(); d.receivers = recs }
+        return d
+    }
+
+    // MARK: shared flush + measurement (used by every runner so the invariants read identically)
+
+    /// FLUSH + SETTLE: empty the pool, drain, then a hard PANIC (flushes bypass too), then settle stopped. After this
+    /// the engine MUST be fully closed regardless of what the run did — panic is the unconditional hard flush.
+    private func flushAndSettle(router: Router, pool: NotePool, box: SnapshotBox, out: FuzzEmitter,
+                               beat: inout Double, ts: inout Double, sr: Double, tempo: Double, frames: UInt32) {
+        var diag = KernelDiag()
+        pool.reset(); pool.rebuildSorted()
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        for i in 0..<3 {
+            router.process(box: box, pool: pool, playing: i < 2, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, panic: i == 2, latchMask: 0, out: out, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+    }
+
+    /// I5 bounds + I1/I2 sounding, from the emitted stream. A key is SOUNDING iff its LAST event was an ON (the
+    /// collision refcount folds several ons into one off, so on,on,off is legal — the last event is what matters).
+    private func measure(_ out: FuzzEmitter, _ router: Router) -> FuzzResult {
+        var boundsBad: String?
+        var last: [Int: UInt8] = [:]
+        for ev in out.events {
+            if !(ev.status == 0x80 || ev.status == 0x90) { boundsBad = boundsBad ?? "status \(ev.status)" }
+            if ev.note > 127 { boundsBad = boundsBad ?? "note \(ev.note)" }
+            if ev.vel > 127 { boundsBad = boundsBad ?? "vel \(ev.vel)" }
+            if ev.cable > 4 { boundsBad = boundsBad ?? "cable \(ev.cable)" }
+            if ev.chan > 15 { boundsBad = boundsBad ?? "chan \(ev.chan)" }
+            last[(Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)] = ev.status
+        }
+        let sounding = last.values.filter { $0 == 0x90 }.count
+        return FuzzResult(events: out.events, quiescent: router.quiescent, soundingKeys: sounding, boundsBad: boundsBad)
+    }
+
+    // MARK: TRANSPORT CHAOS — adversarial HOST (2026-08-07). Everything the engine emits is DERIVED from beatPos
+    // (invariant 2), so no pathological host schedule may strand a voice or break quiescence after the flush.
+    // The chaos lives in the SCHEDULE: seek-backward, loop-to-top, big forward jumps, tempo/sample-rate switches,
+    // and pathological block sizes (1 sample … 4096 … a prime), all while a chord is held across the discontinuities.
+    private func runTransportChaos(_ seed: UInt32, windows: Int = 80) -> FuzzResult {
+        var r = FuzzRNG(seed)
+        let doc = randomDoc(&r)
+        let box = SnapshotBuilder.build(from: doc)
+        let router = Router(); var diag = KernelDiag(); let out = FuzzEmitter()
+        let pool = NotePool()
+        var held: [UInt8] = []
+        var spell = Spell.held, spellLeft = r.range(3, 8)
+        let tempos = [30.0, 60.0, 120.0, 180.0, 240.0, 999.0]
+        let rates = [44_100.0, 48_000.0, 88_200.0, 96_000.0]
+        let blocks: [UInt32] = [1, 16, 32, 64, 256, 512, 2048, 4096, 337]   // incl. a single sample + a prime
+        var beat = 0.0, ts = 0.0, tempo = 120.0, sr = 48_000.0
+        var frames: UInt32 = 2048
+        func noteOn(_ n: UInt8) { let v = r.vel(); if v == 0 { pool.noteOff(n) } else { pool.noteOn(n, velocity: v, channel: 0, cable: 1) } }
+
+        for _ in 0..<windows {
+            // a held chord across a transport jump is the stuck-note trap; cycle held ↔ silence
+            if spellLeft == 0 {
+                spell = Spell.allCases[(Spell.allCases.firstIndex(of: spell)! + 1) % Spell.allCases.count]
+                spellLeft = r.range(3, 8)
+                if spell != .held { held.forEach { pool.noteOff($0) }; held.removeAll() }
+            }
+            spellLeft -= 1
+            if spell == .held, held.isEmpty || r.chance(0.3) { let n = r.note(); noteOn(n); held.append(n) }
+            pool.rebuildSorted()
+
+            // adversarial host params (all RNG-driven → replayable)
+            if r.chance(0.20) { tempo = tempos[r.int(tempos.count)] }
+            if r.chance(0.12) { sr = rates[r.int(rates.count)] }
+            if r.chance(0.25) { frames = blocks[r.int(blocks.count)] }
+            let windowBeats = Double(frames) * tempo / 60.0 / sr
+
+            // adversarial beat MOTION: normal advance · seek-backward · loop-to-top · big forward jump
+            switch r.int(6) {
+            case 0: beat = max(0, beat - r.double() * 4)               // seek backward
+            case 1: beat = 0                                           // loop to the top
+            case 2: beat += windowBeats * Double(r.range(4, 32))       // big forward jump
+            default: beat += windowBeats                               // normal forward advance
+            }
+            ts += Double(frames)                                       // host sample clock stays monotonic
+
+            router.process(box: box, pool: pool, playing: r.chance(0.75), beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           masterKill: r.chance(0.02), panic: r.chance(0.03), sceneFlush: r.chance(0.05),
+                           sceneRestart: r.chance(0.05), latchMask: 0, out: out, diag: &diag)
+        }
+        flushAndSettle(router: router, pool: pool, box: box, out: out, beat: &beat, ts: &ts, sr: sr, tempo: tempo, frames: 2048)
+        return measure(out, router)
+    }
+
+    // MARK: SNAPSHOT-SWAP CHAOS — republish the box at HIGH frequency while a chord sounds, changing the routing
+    // UNDER the live notes (channels · buses · emitter-enables · key). A generation change alone doesn't flush
+    // (only transport/scene/latch/panic EDGES do), so the close/adoption machinery + the unconditional panic must
+    // retire the old (cable,ch,note) wires and never leave one stranded once the run flushes.
+    private func runSnapshotSwapChaos(_ seed: UInt32, windows: Int = 80) -> FuzzResult {
+        var r = FuzzRNG(seed)
+        var doc = randomDoc(&r)
+        var box = SnapshotBuilder.build(from: doc)
+        let router = Router(); var diag = KernelDiag(); let out = FuzzEmitter()
+        let pool = NotePool()
+        var held: [UInt8] = []
+        let sr = 48_000.0, tempo = 120.0; let frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func noteOn(_ n: UInt8) { let v = r.vel(); if v == 0 { pool.noteOff(n) } else { pool.noteOn(n, velocity: v, channel: 0, cable: 1) } }
+
+        for _ in 0..<windows {
+            // keep a chord alive most of the time — the point is swapping routing under sounding notes
+            if held.count < 3 || r.chance(0.4) { let n = r.note(); noteOn(n); held.append(n) }
+            if r.chance(0.15), !held.isEmpty { pool.noteOff(held.remove(at: r.int(held.count))) }   // drop one
+            pool.rebuildSorted()
+
+            if r.chance(0.6) { doc = swapRouting(doc, &r); box = SnapshotBuilder.build(from: doc) }  // high-freq swap
+
+            router.process(box: box, pool: pool, playing: r.chance(0.85), beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           panic: r.chance(0.02), sceneFlush: r.chance(0.04), latchMask: 0, out: out, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        flushAndSettle(router: router, pool: pool, box: box, out: out, beat: &beat, ts: &ts, sr: sr, tempo: tempo, frames: frames)
+        return measure(out, router)
+    }
+
+    /// Mutate ONLY the routing that sits under a sounding note — the emission identity (channel/bus/enable/key).
+    private func swapRouting(_ doc: PluginState, _ r: inout FuzzRNG) -> PluginState {
+        var d = doc
+        var scene = d.scenes.first ?? SceneState.empty()
+        switch r.int(4) {
+        case 0: d.busChannels = (0..<4).map { _ in r.range(1, 16) }                                 // restamp exit channels
+        case 1: d.busEnabled = (0..<4).map { _ in r.chance(0.7) }                                    // toggle emitter enables (close-on-disable)
+        case 2: let col = r.int(8), row = r.int(8)                                                   // reroute an occupied cell's buses
+                if var c = scene.cells[col][row] { c.buses = randomBuses(&r); scene.cells[col][row] = c }
+        default: scene.masterKey = r.range(-12, 12)                                                  // transpose the held chord
+        }
+        d.scenes = [scene]
+        if r.chance(0.3), var recs = d.receivers, !recs.isEmpty { let i = r.int(recs.count); recs[i].channel = r.int(17); d.receivers = recs }
         return d
     }
 
@@ -243,15 +361,53 @@ final class FuzzTests: XCTestCase {
         }
     }
 
-    /// Pinned regression seeds — a fuzz failure gets its seed added here so the crash becomes a commissioned test.
-    func testPinnedRegressionSeeds() {
-        let pinned: [UInt32] = []   // (none yet)
-        for seed in pinned {
-            let res = runFuzz(seed)
-            XCTAssertNil(res.boundsBad, "pinned seed 0x\(String(seed, radix: 16))")
-            XCTAssertEqual(res.soundingKeys, 0, "pinned seed 0x\(String(seed, radix: 16))")
-            XCTAssertTrue(res.quiescent, "pinned seed 0x\(String(seed, radix: 16))")
+    /// TRANSPORT CHAOS — seek-backward / loop / tempo+rate jumps / pathological block sizes never strand a voice
+    /// or break quiescence after the flush. A failure prints the SEED to pin.
+    func testTransportChaosInvariants() {
+        for i in 0..<300 {
+            let seed = UInt32(0x71_0000 + i)
+            let res = runTransportChaos(seed)
+            XCTAssertNil(res.boundsBad, "transport chaos out-of-range (\(res.boundsBad ?? "")) — seed 0x\(String(seed, radix: 16))")
+            XCTAssertEqual(res.soundingKeys, 0, "transport chaos left a note sounding after flush — seed 0x\(String(seed, radix: 16))")
+            XCTAssertTrue(res.quiescent, "transport chaos not quiescent after flush — seed 0x\(String(seed, radix: 16))")
         }
+    }
+
+    /// SNAPSHOT-SWAP CHAOS — rerouting channels/buses/enables/key UNDER sounding notes never leaves a stranded
+    /// (cable,ch,note) once the run flushes. A failure prints the SEED to pin.
+    func testSnapshotSwapChaosInvariants() {
+        for i in 0..<300 {
+            let seed = UInt32(0x72_0000 + i)
+            let res = runSnapshotSwapChaos(seed)
+            XCTAssertNil(res.boundsBad, "swap chaos out-of-range (\(res.boundsBad ?? "")) — seed 0x\(String(seed, radix: 16))")
+            XCTAssertEqual(res.soundingKeys, 0, "swap chaos left a note sounding after flush — seed 0x\(String(seed, radix: 16))")
+            XCTAssertTrue(res.quiescent, "swap chaos not quiescent after flush — seed 0x\(String(seed, radix: 16))")
+        }
+    }
+
+    /// I6 for the chaos runners — same seed ⇒ byte-identical emitted stream (the SEED LAW makes every failure replayable).
+    func testChaosDeterminism() {
+        for i in 0..<80 {
+            let ts = UInt32(0x73_0000 + i)
+            XCTAssertEqual(runTransportChaos(ts).events, runTransportChaos(ts).events, "transport chaos non-deterministic — seed 0x\(String(ts, radix: 16))")
+            let ss = UInt32(0x74_0000 + i)
+            XCTAssertEqual(runSnapshotSwapChaos(ss).events, runSnapshotSwapChaos(ss).events, "swap chaos non-deterministic — seed 0x\(String(ss, radix: 16))")
+        }
+    }
+
+    /// Pinned regression seeds — a fuzz/chaos failure gets its seed added to the matching list so the crash becomes
+    /// a commissioned test (the LEGATO pattern). Each list replays through its own runner.
+    func testPinnedRegressionSeeds() {
+        func assertClean(_ res: FuzzResult, _ seed: UInt32, _ what: String) {
+            let s = "pinned \(what) seed 0x\(String(seed, radix: 16))"
+            XCTAssertNil(res.boundsBad, s); XCTAssertEqual(res.soundingKeys, 0, s); XCTAssertTrue(res.quiescent, s)
+        }
+        let pinnedFuzz: [UInt32] = []            // (none yet)
+        let pinnedTransport: [UInt32] = []       // (none yet)
+        let pinnedSwap: [UInt32] = []            // (none yet)
+        for seed in pinnedFuzz { assertClean(runFuzz(seed), seed, "fuzz") }
+        for seed in pinnedTransport { assertClean(runTransportChaos(seed), seed, "transport") }
+        for seed in pinnedSwap { assertClean(runSnapshotSwapChaos(seed), seed, "swap") }
     }
 }
 
