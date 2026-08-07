@@ -426,36 +426,53 @@ extension DiagView {
     // left-aligned drop) — the down→left→down routing is a later refinement.
     @ViewBuilder func flowDiagram(_ cell: Cell) -> some View {
         let chain = cellChain(cell)
-        let fw: CGFloat = 78, fh: CGFloat = 58
+        // fixed row heights + gaps so the connector Canvas can align to the node VStack exactly (no measuring).
+        let fw: CGFloat = 78, fh: CGFloat = 58, hf: CGFloat = 38, hp: CGFloat = 38, ho: CGFloat = 34, sp: CGFloat = 20
+        let filterW: CGFloat = 168, leftX: CGFloat = 14, cx = fw / 2, fcx = filterW / 2
+        let H = fh + sp + hf + sp + hp + sp + hf + sp + ho
         let hue = mainDestHue
-        VStack(alignment: .leading, spacing: 0) {
-            Text("SIGNAL FLOW").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.5)).padding(.bottom, 8)
-            HStack(alignment: .center, spacing: 14) {            // INPUT — the cell face (left) + the four MIDI-IN radio
-                flowCellFace(cell).frame(width: fw, height: fh)
-                receiverRadio(cell)
-            }
-            flowDrop(fw)
-            flowNode("ADD INPUT FILTER", set: false, hue: hue).frame(width: max(fw, 168))   // placeholder, under the cell
-            flowDrop(fw)
-            HStack(spacing: 5) {                                 // THE 8 PROCESSORS — solid+name when set, dotted "+ ADD" when empty
-                ForEach(0..<8, id: \.self) { i in
-                    if i < chain.count { flowNode(chain[i].type.rawValue, set: true, hue: hue) }
-                    else { flowNode(i == chain.count ? "+ ADD" : "+", set: false, hue: hue) }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SIGNAL FLOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            ZStack(alignment: .topLeading) {
+                GeometryReader { g in                            // the dotted connectors: down → left → down, threading the flow
+                    let W = g.size.width
+                    let yCellB = fh, yInT = fh + sp, yInB = fh + sp + hf
+                    let yPrT = yInB + sp, yPrB = yPrT + hp
+                    let yOfT = yPrB + sp, yOfB = yOfT + hf, yOutT = yOfB + sp
+                    Path { p in
+                        p.move(to: CGPoint(x: cx, y: yCellB)); p.addLine(to: CGPoint(x: cx, y: yInT))                      // cell → input filter
+                        p.move(to: CGPoint(x: fcx, y: yInB)); p.addLine(to: CGPoint(x: fcx, y: yInB + sp / 2))             // input filter → down…
+                        p.addLine(to: CGPoint(x: leftX, y: yInB + sp / 2)); p.addLine(to: CGPoint(x: leftX, y: yPrT))      // …left, then down into the row
+                        p.move(to: CGPoint(x: leftX, y: yPrB)); p.addLine(to: CGPoint(x: W - leftX, y: yPrB))             // connect the 8 processors
+                        p.move(to: CGPoint(x: fcx, y: yPrB)); p.addLine(to: CGPoint(x: fcx, y: yOfT))                      // processors → output filter
+                        p.move(to: CGPoint(x: fcx, y: yOfB)); p.addLine(to: CGPoint(x: fcx, y: yOutT))                     // output filter → output
+                    }.stroke(hue.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+                VStack(alignment: .leading, spacing: sp) {
+                    HStack(alignment: .center, spacing: 14) {    // INPUT — the cell face (left) + the four MIDI-IN radio
+                        flowCellFace(cell).frame(width: fw, height: fh)
+                        receiverRadio(cell)
+                    }.frame(height: fh)
+                    flowNode("ADD INPUT FILTER", set: false, hue: hue).frame(width: filterW)   // placeholder, under the cell
+                    HStack(spacing: 5) {                         // THE 8 PROCESSORS — solid+name when set, dotted "+ ADD" when empty
+                        ForEach(0..<8, id: \.self) { i in
+                            if i < chain.count { flowNode(chain[i].type.rawValue, set: true, hue: hue) }
+                            else { flowNode(i == chain.count ? "+ ADD" : "+", set: false, hue: hue) }
+                        }
+                    }.frame(height: hp)
+                    flowNode("ADD OUTPUT FILTER", set: false, hue: hue).frame(width: filterW)   // placeholder — BEFORE output
+                    HStack(spacing: 6) {                         // OUTPUT — the emitters (A–D, lit per cell.buses)
+                        Text("OUT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                        ForEach(Bus.allCases, id: \.self) { b in
+                            let on = cell.buses.contains(b)
+                            Text(b.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                                .foregroundColor(on ? .black : .white.opacity(0.4)).frame(width: 38, height: ho)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : hue.opacity(0.12)))
+                        }
+                    }.frame(height: ho)
                 }
             }
-            flowDrop(fw)
-            flowNode("ADD OUTPUT FILTER", set: false, hue: hue).frame(width: max(fw, 168))   // placeholder — BEFORE output
-            flowDrop(fw)
-            HStack(spacing: 6) {                                 // OUTPUT — the emitters (A–D, lit per cell.buses)
-                Text("OUT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                ForEach(Bus.allCases, id: \.self) { b in
-                    let on = cell.buses.contains(b)
-                    Text(b.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.4)).frame(width: 38, height: 34)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : hue.opacity(0.12)))
-                }
-            }
+            .frame(height: H)
         }
         .frame(maxWidth: 560, alignment: .leading)
     }
@@ -477,13 +494,6 @@ extension DiagView {
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(set ? hue.opacity(0.6) : hue.opacity(0.35),
                          style: StrokeStyle(lineWidth: 1.5, dash: set ? [] : [5, 4]))))
     }
-    // A short dotted vertical connector, left-aligned to sit roughly under the cell face.
-    private func flowDrop(_ fw: CGFloat) -> some View {
-        Path { p in p.move(to: CGPoint(x: fw / 2, y: 0)); p.addLine(to: CGPoint(x: fw / 2, y: 14)) }
-            .stroke(mainDestHue.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-            .frame(height: 14).frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
