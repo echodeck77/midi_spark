@@ -157,6 +157,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FUZZ HARNESS — TRANSPORT + SNAPSHOT-SWAP CHAOS scenarios (2026-08-07, on `main`, PUSHED `6a79e93`; macOS 509
+  green). Extends `Tests/FuzzTests.swift` (Layer 1) with two adversarial-SCHEDULE scenarios at the failure class
+  unit tests can't reach (state corruption + stuck notes under pathological host behaviour); both obey the SEED LAW
+  (replayable; failures pin per-runner in `testPinnedRegressionSeeds`). **TRANSPORT CHAOS** (`runTransportChaos`/
+  `testTransportChaosInvariants`, 300 seeds): seek-backward · loop-to-top · big forward jumps · tempo+sample-rate
+  switches · pathological block sizes (1 sample…4096…a prime), all with a chord held across the discontinuities —
+  everything is derived from beatPos (invariant 2) so no schedule may strand a voice or break quiescence after the
+  flush. **SNAPSHOT-SWAP CHAOS** (`runSnapshotSwapChaos`/`testSnapshotSwapChaosInvariants`, 300 seeds): republish
+  the box at high frequency while a chord sounds, rerouting UNDER the live notes (bus channels · buses ·
+  emitter-enables · key) — a generation change alone doesn't flush (only edges do), so the close/adoption machinery
+  + the unconditional panic must retire the old (cable,ch,note) wires. **`testChaosDeterminism`** (80+80): same seed
+  ⇒ byte-identical stream. Both scenarios GREEN — confirms the derivation + panic-flush are robust across the
+  adversarial space. Refactor: shared `flushAndSettle`/`measure` (runFuzz reuses them, behaviour-identical). NOT
+  DONE (needs the user, device): the near-free TSan-on-ChaosDriver run — the off-device harness is single-threaded
+  so TSan pays off only against ChaosDriver's live render↔main concurrency (Layer 2, device/`#if DEBUG`). Flip
+  Thread Sanitizer on the DEBUG device scheme to catch races-that-would-fire (the class the `recvLiveHeld` crash was).**
 - **▶ UNATTENDED COVERAGE + REFACTOR PASS (2026-08-07, on `main`, PUSHED `a78af50`; macOS 506 green, iOS + macOS
   build). Ran after pushing the macro-rebuild/mosaic-crest/playhead batch (`af2040d`). +5 tests:
   `testMosaicLayoutClampsExtremeAspectAndStillTiles` (extreme/degenerate crest aspect stays valid, width ≤0.9,
