@@ -123,6 +123,8 @@ extension DiagView {
             if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {       // §4 sparse: clear seams between sections
+                        flowDiagram(cell)                            // NEW (user 2026-08-07): the signal-flow map — existing controls kept below
+                        sectionSeam()
                         sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
                         sectionSeam()
                         sectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
@@ -415,6 +417,73 @@ extension DiagView {
             }.buttonStyle(.plain)
         }.padding(.top, 4)
     }
+    // MARK: - THE FLOW DIAGRAM (cell-edit redesign, user 2026-08-07) — a read-only signal-flow map drawn ABOVE the
+    // IDENTITY header. Mandatory endpoints (INPUT = the cell face + the receiver radio · OUTPUT = the emitters) always
+    // show; optional stages (input filter · the 8 processors · output filter) are DOTTED "Add …" boxes until set,
+    // SOLID with a description once set. Flow: INPUT → input filter → processors → OUTPUT FILTER → OUTPUT (the output
+    // filter comes BEFORE output, user's correction). v1 = STATIC (the sections below stay the editors); the input/
+    // output FILTERS are inert PLACEHOLDERS (no filter engine yet). The dotted connectors are approximate (a straight
+    // left-aligned drop) — the down→left→down routing is a later refinement.
+    @ViewBuilder func flowDiagram(_ cell: Cell) -> some View {
+        let chain = cellChain(cell)
+        let fw: CGFloat = 78, fh: CGFloat = 58
+        let hue = mainDestHue
+        VStack(alignment: .leading, spacing: 0) {
+            Text("SIGNAL FLOW").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5)).padding(.bottom, 8)
+            HStack(alignment: .center, spacing: 14) {            // INPUT — the cell face (left) + the four MIDI-IN radio
+                flowCellFace(cell).frame(width: fw, height: fh)
+                receiverRadio(cell)
+            }
+            flowDrop(fw)
+            flowNode("ADD INPUT FILTER", set: false, hue: hue).frame(width: max(fw, 168))   // placeholder, under the cell
+            flowDrop(fw)
+            HStack(spacing: 5) {                                 // THE 8 PROCESSORS — solid+name when set, dotted "+ ADD" when empty
+                ForEach(0..<8, id: \.self) { i in
+                    if i < chain.count { flowNode(chain[i].type.rawValue, set: true, hue: hue) }
+                    else { flowNode(i == chain.count ? "+ ADD" : "+", set: false, hue: hue) }
+                }
+            }
+            flowDrop(fw)
+            flowNode("ADD OUTPUT FILTER", set: false, hue: hue).frame(width: max(fw, 168))   // placeholder — BEFORE output
+            flowDrop(fw)
+            HStack(spacing: 6) {                                 // OUTPUT — the emitters (A–D, lit per cell.buses)
+                Text("OUT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                ForEach(Bus.allCases, id: \.self) { b in
+                    let on = cell.buses.contains(b)
+                    Text(b.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                        .foregroundColor(on ? .black : .white.opacity(0.4)).frame(width: 38, height: 34)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : hue.opacity(0.12)))
+                }
+            }
+        }
+        .frame(maxWidth: 560, alignment: .leading)
+    }
+    // The cell face, drawn to MATCH the grid cells (the same mosaic + seal hash).
+    private func flowCellFace(_ cell: Cell) -> some View {
+        RoundedRectangle(cornerRadius: 8).fill(colourColor(cell.colourID) ?? .gray)
+            .overlay(Canvas { ctx, sz in
+                let mh = UInt64(sealHash(cell, colours: docColours)); let ch = colourColor(cell.colourID) ?? .gray
+                drawMosaic(hash: mh, into: ctx, size: sz, hue: ch, breath: 0, crest: mosaicCrest(hash: mh), crestTone: mosaicCrestTone(ch))
+            }.padding(6))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.75), lineWidth: 2.5))
+    }
+    // A flow node: SOLID (set) with a title, or a DOTTED "Add …" invitation (unset). Read-only map (v1).
+    private func flowNode(_ title: String, set: Bool, hue: Color) -> some View {
+        Text(title).font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.55)
+            .foregroundColor(set ? .white.opacity(0.9) : hue.opacity(0.7))
+            .frame(maxWidth: .infinity).frame(height: 38).padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(set ? hue.opacity(0.15) : Color.clear)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(set ? hue.opacity(0.6) : hue.opacity(0.35),
+                         style: StrokeStyle(lineWidth: 1.5, dash: set ? [] : [5, 4]))))
+    }
+    // A short dotted vertical connector, left-aligned to sit roughly under the cell face.
+    private func flowDrop(_ fw: CGFloat) -> some View {
+        Path { p in p.move(to: CGPoint(x: fw / 2, y: 0)); p.addLine(to: CGPoint(x: fw / 2, y: 14)) }
+            .stroke(mainDestHue.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            .frame(height: 14).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
     // reset · delete). Triggers already propagate Colour-wide, so "apply to scope" carries the CELL-level input
