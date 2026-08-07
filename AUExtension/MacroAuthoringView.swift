@@ -1,9 +1,11 @@
 //  MacroAuthoringView.swift
-//  THE MACRO AUTHORING pop-up (canonical, user 2026-08-07). Select a processor's params → each shows a CONTROL
-//  (sets the target) + a vertical TEST slider (auditions base→target live). Below: the 8 macro SLIDERS + 8 macro
-//  BUTTONS, each with an APPLY that BINDS the current selection to that macro (multiple params per macro). A macro
-//  dropdown + "add another macro" walk multiple bindings (params bound to a previous macro grey out). APPLY/CANCEL
-//  top-right; CANCEL reverts every macro change since opening. The offset engine underneath is unchanged.
+//  THE MACRO AUTHORING pop-up (canonical, user 2026-08-07 rev 2). Select a processor's params → set each one's
+//  ALTERNATIVE value (its MAIN value is shown in text beside it) → ONE big MAIN…WITH-MACRO slider auditions the
+//  whole selection live. Below: the 8 macro SLIDERS + 8 macro BUTTONS. Each macro's button reads "ADD TO M{n}"
+//  (dim until a selected control actually diverges from MAIN); pressing it BINDS the selection's deltas to that
+//  macro and the button becomes "REMOVE FROM M{n}" (drops the binding, reflected live in the MIDI out). A macro's
+//  live slider/button is DISABLED until something has been added to it. A selected control whose alternative equals
+//  its source stores nothing. APPLY/CANCEL top-right; CANCEL reverts every macro change since opening.
 
 import SwiftUI
 
@@ -11,21 +13,38 @@ struct MacroAuthoringView: View {
     let group: MacroControlGroup
     let macros: [Macro]
     let accent: Color
-    let base: [String: Double]                                  // the processor's current values (the offset base)
+    let base: [String: Double]                                  // the processor's current values (the offset base = MAIN)
     let onPreview: ([String: Double]) -> Void                   // audition: set the live slot to these values
     let onBind: (_ macroIndex: Int, _ deltas: [String: Double]) -> Void
+    let onUnbind: (_ macroIndex: Int) -> Void                   // "REMOVE FROM M{n}" — drops this slot's binding
     let onSetMacro: (_ index: Int, _ value: Double) -> Void     // live macro drag inside the pop-up
     let onClose: (_ apply: Bool) -> Void
 
-    @State private var selected: Set<String> = []               // params selected THIS round
-    @State private var targets: [String: Double] = [:]          // the control value (target) per param
-    @State private var test: [String: Double] = [:]             // per-param test slider (0…1), default 1 (alternative)
-    @State private var boundParams: [String: Int] = [:]         // param key → the macro it was bound to (grey-out)
-    @State private var boundMacros: [Int] = []                  // macros given a binding this session (the dropdown)
+    @State private var selected: Set<String> = []               // params selected THIS round (the pending group)
+    @State private var targets: [String: Double] = [:]          // the ALTERNATIVE value per param
+    @State private var morph: Double = 1                         // the single MAIN…WITH-MACRO audition slider (0=MAIN, 1=alt)
+    @State private var bound: [Int: [String]] = [:]             // macro index → param keys added to it THIS session
     @State private var macroVals: [Double] = Array(repeating: 0, count: 24)
 
     private let panel = Color.white.opacity(0.04)
     private let dim = Color.white.opacity(0.3)
+    private let removeHue = Color(red: 0.95, green: 0.45, blue: 0.42)
+
+    // MARK: derived
+
+    /// MAIN overlaid with the selected controls' alternatives — the ALT value dict.
+    private var alt: [String: Double] {
+        var v = base
+        for k in selected { v[k] = targets[k] ?? base[k] ?? 0 }
+        return v
+    }
+    /// The deltas that WOULD be stored — zero-diverging selected controls are dropped (§3 sparse delta).
+    private var sparse: [String: Double] { macroSparseDelta(main: base, alt: alt, params: group.params) }
+    private var canAdd: Bool { !sparse.isEmpty }                 // a selected control actually diverges from MAIN
+    private func isBound(_ i: Int) -> Bool { !(bound[i] ?? []).isEmpty }
+    private func paramMacro(_ key: String) -> Int? { bound.first { $0.value.contains(key) }?.key }
+
+    // MARK: body
 
     var body: some View {
         ZStack {
@@ -35,18 +54,12 @@ struct MacroAuthoringView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         paramSection
+                        if !selected.isEmpty { morphSection }
                         macroPanels
-                        if !boundParams.isEmpty {
-                            Button { startNewMacro() } label: {
-                                Text("+ ADD ANOTHER MACRO").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                                    .foregroundColor(accent).frame(maxWidth: .infinity).frame(height: 34)
-                                    .background(RoundedRectangle(cornerRadius: 7).fill(accent.opacity(0.14)))
-                            }.buttonStyle(.plain)
-                        }
                     }.padding(16)
                 }
             }
-            .frame(maxWidth: 540, maxHeight: 700)
+            .frame(maxWidth: 560, maxHeight: 720)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(0.4), lineWidth: 1))
             .padding(20)
@@ -54,24 +67,13 @@ struct MacroAuthoringView: View {
         .onAppear { for m in 0..<min(24, macros.count) { macroVals[m] = macros[m].value } }
     }
 
-    // MARK: header — the macro dropdown + APPLY / CANCEL
+    // MARK: header — title + APPLY / CANCEL
 
     private var header: some View {
         HStack(spacing: 10) {
-            Menu {
-                ForEach(Array(boundMacros.enumerated()), id: \.element) { i, _ in Text("Macro \(i + 1)") }
-                Button("Add new macro") { startNewMacro() }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(boundMacros.isEmpty ? "Add new macro" : "Macro \(boundMacros.count) · + new")
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .heavy))
-                }
-                .foregroundColor(accent).padding(.horizontal, 10).frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.12)))
-            }
+            Text("MACRO · \(group.title)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(accent)
             Spacer()
-            Button { onClose(false) } label: { chip("CANCEL", fill: false, hue: Color(red: 0.95, green: 0.35, blue: 0.38)) }.buttonStyle(.plain)
+            Button { onClose(false) } label: { chip("CANCEL", fill: false, hue: removeHue) }.buttonStyle(.plain)
             Button { onClose(true) } label: { chip("APPLY", fill: true, hue: accent) }.buttonStyle(.plain)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
@@ -83,7 +85,7 @@ struct MacroAuthoringView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(hue.opacity(0.6), lineWidth: 1)))
     }
 
-    // MARK: parameters — select → control + test slider
+    // MARK: parameters — MAIN value in text + (when selected) the ALT control
 
     private var paramSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -95,30 +97,49 @@ struct MacroAuthoringView: View {
     }
     @ViewBuilder private func paramRow(_ p: MacroControlParam) -> some View {
         let isSel = selected.contains(p.key)
-        let lockedElsewhere = boundParams[p.key] != nil && !isSel      // bound to a previous macro → greyed
+        let lockedTo = paramMacro(p.key)                               // bound to a macro this session → greyed
+        let locked = lockedTo != nil
         HStack(spacing: 10) {
-            Button { if !lockedElsewhere { toggleParam(p.key) } } label: {
+            Button { if !locked { toggleParam(p.key) } } label: {
                 Image(systemName: isSel ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 15)).foregroundColor(isSel ? accent : (lockedElsewhere ? dim : .white.opacity(0.55)))
-            }.buttonStyle(.plain).disabled(lockedElsewhere)
+                    .font(.system(size: 15)).foregroundColor(isSel ? accent : (locked ? dim : .white.opacity(0.55)))
+            }.buttonStyle(.plain).disabled(locked)
             Text(p.label).font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(lockedElsewhere ? dim : .white.opacity(0.7)).frame(width: 70, alignment: .leading)
-            if isSel {
+                .foregroundColor(locked ? dim : .white.opacity(0.7)).frame(width: 66, alignment: .leading)
+            // MAIN value in text (always shown, §2)
+            Text(mainText(p)).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(locked ? dim : .white.opacity(0.45)).frame(width: 46, alignment: .leading)
+            if let m = lockedTo {
+                Text("→ M\(m + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(dim)
+                Spacer(minLength: 0)
+            } else if isSel {
                 MacroControlEditor(param: p, accent: accent, value: Binding(
                     get: { targets[p.key] ?? base[p.key] ?? 0 },
                     set: { targets[p.key] = $0; preview() }))
-                VTestSlider(value: Binding(get: { test[p.key] ?? 1 }, set: { test[p.key] = $0; preview() }), accent: accent)
-            } else if lockedElsewhere {
-                Text("→ Macro \((boundMacros.firstIndex(of: boundParams[p.key]!) ?? 0) + 1)")
-                    .font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(dim)
-                Spacer(minLength: 0)
             } else {
                 Spacer(minLength: 0)
             }
         }
     }
 
-    // MARK: the macro panels — 8 sliders + 8 buttons, each with APPLY
+    // MARK: the ONE big MAIN…WITH-MACRO audition slider (§1) — one per pending macro, auditions the whole selection
+
+    private var morphSection: some View {
+        VStack(spacing: 10) {
+            Slider(value: Binding(get: { morph }, set: { morph = $0; preview() }), in: 0...1).tint(accent)
+                .scaleEffect(x: 1, y: 1.6, anchor: .center).padding(.vertical, 6)
+            HStack {
+                Text("MAIN").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                Spacer()
+                Text("WITH MACRO").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(0.07))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1)))
+    }
+
+    // MARK: the macro panels — 8 sliders + 8 buttons, each with ADD/REMOVE
 
     private var macroPanels: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -134,51 +155,78 @@ struct MacroAuthoringView: View {
             HStack(spacing: 6) {
                 ForEach(range, id: \.self) { i in
                     VStack(spacing: 4) {
-                        if isButton {
-                            GridMacroButton(index: i, value: macroVals[i], fixed: i < macros.count ? macros[i].fixed : true) { idx, v in macroVals[idx] = v; onSetMacro(idx, v) }
-                        } else {
-                            GridMacroSlider(index: i, value: macroVals[i]) { idx, v in macroVals[idx] = v; onSetMacro(idx, v) }
+                        Group {
+                            if isButton {
+                                GridMacroButton(index: i, value: macroVals[i], fixed: i < macros.count ? macros[i].fixed : true) { idx, v in macroVals[idx] = v; onSetMacro(idx, v) }
+                            } else {
+                                GridMacroSlider(index: i, value: macroVals[i]) { idx, v in macroVals[idx] = v; onSetMacro(idx, v) }
+                            }
                         }
-                        Button { bind(to: i) } label: {
-                            Text("APPLY").font(.system(size: 7, weight: .heavy, design: .monospaced))
-                                .foregroundColor(selected.isEmpty ? dim : .black).frame(maxWidth: .infinity).frame(height: 16)
-                                .background(RoundedRectangle(cornerRadius: 3).fill(selected.isEmpty ? Color.white.opacity(0.06) : accent))
-                        }.buttonStyle(.plain).disabled(selected.isEmpty)
+                        .disabled(!isBound(i)).opacity(isBound(i) ? 1 : 0.32)   // §3c: no drive until something is added
+                        addRemoveButton(i)
                     }.frame(maxWidth: .infinity)
                 }
             }
         }
     }
+    /// §3a/§3b: "ADD TO M{n}" (dim until a selected control diverges) ⇄ "REMOVE FROM M{n}" once bound.
+    @ViewBuilder private func addRemoveButton(_ i: Int) -> some View {
+        let isB = isBound(i)
+        let enabled = isB || canAdd
+        let hue = isB ? removeHue : accent
+        Button { isB ? unbind(i) : bind(to: i) } label: {
+            Text(isB ? "REMOVE\nM\(i + 1)" : "ADD\nM\(i + 1)")
+                .font(.system(size: 7, weight: .heavy, design: .monospaced)).multilineTextAlignment(.center)
+                .lineLimit(2).minimumScaleFactor(0.6)
+                .foregroundColor(enabled ? (isB ? hue : .black) : dim).frame(maxWidth: .infinity).frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 3).fill(isB ? Color.clear : (enabled ? accent : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(isB ? hue.opacity(0.7) : Color.clear, lineWidth: 1)))
+        }.buttonStyle(.plain).disabled(!enabled)
+    }
 
     // MARK: logic
 
-    private var deltas: [String: Double] {
-        var d: [String: Double] = [:]
-        for k in selected { d[k] = (targets[k] ?? base[k] ?? 0) - (base[k] ?? 0) }
-        return d
-    }
     private func preview() {
-        var v = base
-        for k in selected {
-            guard let p = group.params.first(where: { $0.key == k }) else { continue }
-            let target = targets[k] ?? base[k] ?? 0, t = test[k] ?? 1, b = base[k] ?? 0
-            if case .continuous(let lo, let hi) = p.kind { v[k] = min(hi, max(lo, b + t * (target - b))) }
-            else { v[k] = t >= 0.5 ? target : b }
-        }
-        onPreview(v)
+        onPreview(macroApply(main: base, delta: sparse, value: morph, params: group.params))
     }
     private func toggleParam(_ key: String) {
         if selected.contains(key) { selected.remove(key) }
-        else { selected.insert(key); if targets[key] == nil { targets[key] = base[key] ?? 0 }; if test[key] == nil { test[key] = 1 } }
+        else { selected.insert(key); if targets[key] == nil { targets[key] = base[key] ?? 0 } }
         preview()
     }
-    private func bind(to macroIndex: Int) {
-        guard !selected.isEmpty else { return }
-        onBind(macroIndex, deltas)
-        for k in selected { boundParams[k] = macroIndex }
-        if !boundMacros.contains(macroIndex) { boundMacros.append(macroIndex) }
+    /// BIND the diverging selected controls to macro i (§3d already dropped the zero-delta ones via `sparse`).
+    private func bind(to i: Int) {
+        guard canAdd else { return }
+        let stored = sparse
+        onBind(i, stored)
+        var keys = bound[i] ?? []
+        for k in stored.keys where !keys.contains(k) { keys.append(k) }
+        bound[i] = keys
+        selected = []; morph = 1                                        // clear the round; bound params grey out
+        onPreview(base)                                                 // audio → MAIN
     }
-    private func startNewMacro() { selected = []; onPreview(base) }   // clear the round; bound params grey out; audio → base
+    private func unbind(_ i: Int) {
+        onUnbind(i)
+        bound[i] = nil                                                  // its params return to available
+        onPreview(base)
+    }
+
+    /// The MAIN value of a control, formatted for its kind (§2).
+    private func mainText(_ p: MacroControlParam) -> String {
+        let v = base[p.key] ?? 0
+        switch p.kind {
+        case .continuous:        return String(format: "%.2f", v)
+        case .toggle:            return v >= 0.5 ? "ON" : "OFF"
+        case .option(let labels):
+            let i = clamp(Int(v.rounded()), 0, max(0, labels.count - 1))
+            return labels.indices.contains(i) ? labels[i] : "—"
+        case .stepper:           return "\(Int(v.rounded()))"
+        case .mask(let bits):
+            let m = Int(v.rounded())
+            let on = (0..<bits).filter { (m >> $0) & 1 == 1 }.map { "\($0 + 1)" }
+            return on.isEmpty ? "—" : on.joined(separator: ",")
+        }
+    }
 }
 
 /// A generic editor for ONE control — picks the widget from the descriptor kind (slider · toggle · segmented ·
@@ -237,24 +285,5 @@ struct MacroControlEditor: View {
     }
     private func stepBtn(_ symbol: String, _ tap: @escaping () -> Void) -> some View {
         Button(action: tap) { Image(systemName: symbol).font(.system(size: 10, weight: .heavy)).foregroundColor(accent).frame(width: 24, height: 22).background(RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.12))) }.buttonStyle(.plain)
-    }
-}
-
-/// A compact VERTICAL test slider (0…1) — auditions the param's base→target morph, defaulting to 1 (the target).
-struct VTestSlider: View {
-    @Binding var value: Double
-    let accent: Color
-    var body: some View {
-        GeometryReader { g in
-            let h = g.size.height
-            ZStack(alignment: .bottom) {
-                Capsule().fill(Color.white.opacity(0.10)).frame(width: 5)
-                Capsule().fill(accent.opacity(0.9)).frame(width: 5, height: max(3, h * CGFloat(value)))
-                RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 16, height: 4).offset(y: -(h - 4) * CGFloat(value))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { gg in value = max(0, min(1, 1 - Double(gg.location.y / max(1, h)))) })
-        }
-        .frame(width: 26, height: 40)
     }
 }

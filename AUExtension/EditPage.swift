@@ -378,6 +378,11 @@ extension DiagView {
         if !targets.isEmpty { au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8) }
         refreshFromDocument()
     }
+    /// UNBIND — "Remove from M{n}": drop THIS slot's targets on this macro (reflected live in the MIDI out).
+    func macroAuthorUnbind(_ macroIndex: Int) {
+        au?.removeMacroTargets(macroIndex, col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot)
+        refreshFromDocument()
+    }
     /// Live macro drag inside the pop-up (moves the bound params through the offset).
     func macroAuthorSetMacro(_ index: Int, _ value: Double) { au?.setMacroValue(index, value) }
     func closeMacroAuthoring(apply: Bool) {

@@ -808,7 +808,7 @@ struct DiagView: View {
                 if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up
                     MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], accent: mainDestHue,
                                        base: macroAuthorBase,
-                                       onPreview: macroAuthorPreview, onBind: macroAuthorBind,
+                                       onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,
                                        onSetMacro: macroAuthorSetMacro, onClose: closeMacroAuthoring)
                 }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)

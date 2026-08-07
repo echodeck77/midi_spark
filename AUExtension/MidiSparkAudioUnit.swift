@@ -597,10 +597,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             d.macros?[index].targets.append(contentsOf: targets)
         }
     }
-    /// A/B AUTHORING: remove a macro's binding to a cell — every target it holds on (col,row) (the "remove chip").
-    func removeMacroTargets(_ index: Int, col: Int, row: Int) {
+    /// A/B AUTHORING: remove a macro's binding to a cell — every target it holds on (col,row), or only those on a
+    /// specific `slot` when given (the macro pop-up's per-slot "Remove from M{n}"). Reflected LIVE in the MIDI out.
+    func removeMacroTargets(_ index: Int, col: Int, row: Int, slot: Int? = nil) {
         guard (0..<24).contains(index), document.macros != nil else { return }
-        editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row } }
+        editDocument { d in d.macros?[index].targets.removeAll { $0.col == col && $0.row == row && (slot == nil || $0.slot == slot) } }
     }
     /// A/B AUTHORING (OUTPUT group): bind (append) per-emitter role-amount deltas to a macro.
     func addMacroEmitterTargets(_ index: Int, _ targets: [MacroEmitterTarget]) {
