@@ -154,6 +154,18 @@ final class MacroAuthoringTests: XCTestCase {
         XCTAssertEqual(b.first { $0.macro == 3 }?.deltas, ["curve": 0.5])
     }
 
+    // Two targets on the SAME (slot,param) SUM (macroSlotBindings:100 uses `+=`) — not overwrite. The read-back must
+    // report the combined offset so the dropdown reflects the true authored delta.
+    func testMacroSlotBindingsSumsRepeatedParamTargets() {
+        var m = Macro(name: "M1")
+        m.targets = [MacroTarget(col: 1, row: 2, slot: 0, param: "gate", delta: 0.3),
+                     MacroTarget(col: 1, row: 2, slot: 0, param: "gate", delta: 0.2)]
+        let b = macroSlotBindings([m], col: 1, row: 2, slot: 0)
+        XCTAssertEqual(b.count, 1)
+        XCTAssertEqual(b.first?.deltas.count, 1, "one param, summed — not two entries")
+        XCTAssertEqual(b.first?.deltas["gate"] ?? 0, 0.5, accuracy: 1e-9, "0.3 + 0.2 summed, not overwritten to 0.2")
+    }
+
     // The processor group descriptor: a stable id (col,row,slot) · the processor domain · the type's param list.
     func testMacroGroupForProcessor() {
         let g = macroGroupForProcessor(col: 3, row: 5, slot: 1, type: .arp)

@@ -385,6 +385,19 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = -5 }, t: 0), Snap.arpRateBeats.first!)
     }
 
+    /// The unit-range render-side reads saturate at their floors/ceilings (the render thread's last line of defence
+    /// even though `resolve` already clamps on ingest): ramp/spread/probability ∈ [0,1], harmVelScale ∈ [0.1,1].
+    func testEffectiveUnitRangeScalarsClamp() {
+        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = 2 }, t: 0), 1)
+        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = -1 }, t: 0), 0)
+        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = 5 }, t: 0), 1)
+        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = -0.5 }, t: 0), 0)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }, t: 0), 1)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }, t: 0), 0)
+        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = 5 }, t: 0), 1)
+        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }, t: 0), 0.1, "the floor is 0.1, not 0")
+    }
+
     // MARK: laneValue — guard + wrap + all-bypass-smooth edges
 
     /// The guard returns the manual value for a degenerate lane (empty, zero step, zero rate) — no divide-by-zero.

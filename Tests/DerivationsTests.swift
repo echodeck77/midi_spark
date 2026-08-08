@@ -461,6 +461,23 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(p.srcPlayed(2, filter: 0, cableMask: 0b0010), 255)
     }
 
+    // The RANGE-windowed AS-PLAYED reader (Derivations srcPlayed(noteLo:noteHi:)): press order preserved, notes
+    // outside [lo,hi] skipped — an AS-PLAYED arp on a range-narrowed receiver.
+    func testAsPlayedRangeWindowSkipsOutOfWindowNotesInPressOrder() {
+        let p = NotePool()
+        p.noteOn(67, velocity: 100, channel: 0, cable: 0)   // press order: 67 …
+        p.noteOn(60, velocity: 100, channel: 0, cable: 0)   //              60 (below the window) …
+        p.noteOn(72, velocity: 100, channel: 0, cable: 0)   //              72
+        p.rebuildSorted()
+        // window [62,127] excludes 60; press order kept → 67 then 72
+        XCTAssertEqual(p.srcPlayed(0, filter: 0, cableMask: 0b1111, noteLo: 62, noteHi: 127), 67)
+        XCTAssertEqual(p.srcPlayed(1, filter: 0, cableMask: 0b1111, noteLo: 62, noteHi: 127), 72)
+        XCTAssertEqual(p.srcPlayed(2, filter: 0, cableMask: 0b1111, noteLo: 62, noteHi: 127), 255)
+        // a tighter high bound [62,70] now also excludes 72 → only 67 remains
+        XCTAssertEqual(p.srcPlayed(0, filter: 0, cableMask: 0b1111, noteLo: 62, noteHi: 70), 67)
+        XCTAssertEqual(p.srcPlayed(1, filter: 0, cableMask: 0b1111, noteLo: 62, noteHi: 70), 255)
+    }
+
     // The for:cell convenience reads BOTH filter fields off the SnapCell (the render-loop dedup).
     func testSrcCountForCellReadsBothChannelAndCable() {
         let p = NotePool()
@@ -1161,6 +1178,19 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNotEqual(sealHash(a, colours: []), sealHash(split, colours: []), "the chord split is part of the source contract")
         var vw = a; vw.velWindow = VelWindow(floor: 40, ceil: 100)          // SOURCE: velocity window
         XCTAssertNotEqual(sealHash(a, colours: []), sealHash(vw, colours: []), "the velocity window is part of the source contract")
+    }
+
+    // An AUTHORED passthrough (processors == []) resolves to [] and must NOT share a face with a cell drawn from the
+    // colour's A face (processors == nil). Guards the resolvedCellChain branch at Derivations:905 — the "seal cannot
+    // be dressed" contract would break if [] fell through to the colour's machine.
+    func testExplicitEmptyChainResolvesEmptyAndSealsDistinctFromAFaceCell() {
+        let colours = [Colour(colourID: "gold", type: .arp)]
+        var authored = Cell(colourID: "gold", buses: [.a]); authored.processors = []       // explicit passthrough
+        let aFace = Cell(colourID: "gold", buses: [.a])                                      // processors == nil → the colour's .arp
+        XCTAssertTrue(resolvedCellChain(authored, colours: colours).isEmpty, "an explicit [] override stays empty")
+        XCTAssertEqual(resolvedCellChain(aFace, colours: colours).first?.type, .arp, "nil falls through to the A face")
+        XCTAssertNotEqual(sealHash(authored, colours: colours), sealHash(aFace, colours: colours),
+                          "an authored passthrough must not wear a full-processor cell's face")
     }
     // DEVICE REPORT (Paul, 2026-08-05): cell→A and cell→B (same COUNT of emitters, DIFFERENT which one) drew the
     // SAME seal, while A+B vs A differed. Pin that different SINGLE emitters ⇒ a different hash AND a different DRAWN

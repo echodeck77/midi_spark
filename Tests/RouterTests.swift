@@ -3401,6 +3401,20 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    /// The DECAY FLOOR (drainEchoTails, Router:1184): a repeat whose `vel·decay^k` rounds below 1 is DROPPED, never
+    /// emitted as a velocity-0 note-on (which a synth reads as a note-off). Harsh decay ⇒ late repeats vanish.
+    func testEchoDecayFloorDropsRepeatsBelowVelocityOneNeverEmitsZero() {
+        // dry vel 96, decay 0.2, 8 repeats: k=1→19, k=2→4, k=3→1, k≥4 rounds to 0 ⇒ dropped by the floor.
+        let b = box(colours: echoColours(time: .r1_16, repeats: 8, decay: 0.2)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 2.5, into: e)                 // long enough that all 8 repeat windows elapse
+        let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
+        XCTAssertFalse(strikes.contains { $0.vel == 0 }, "the floor never emits a velocity-0 note-on")
+        XCTAssertGreaterThanOrEqual(strikes.count, 3, "the dry + the repeats that survive the floor")
+        XCTAssertLessThan(strikes.count, 1 + 8, "the floor DROPS the late repeats (fewer than dry + all 8)")
+        assertNothingLeftSounding(e)
+    }
+
     /// THE TAIL: echo repeats keep sounding AFTER the source chord releases (the activation ring, not a re-derivation
     /// of the current pool) — and the transport-stop edge clears the ring so nothing leaks (quiescent).
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
