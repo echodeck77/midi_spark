@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE FLOOD GOVERNOR — field-incident safety (2026-08-09, on `main`, PUSHED `f16500b`→`db0b928`; macOS 535 green,
+  iOS builds; DEVICE re-test owed). Paul's AUM incident: a runaway ECHO patch (+12/repeat, high repeats, dense Scaler
+  chord feed) flooded thousands of note-ons/sec → two synths cut simultaneously, crash-free, no MIDI from 8x8. Design
+  ferry `INCIDENT-flood-governor` diagnosed count-strain seizing downstream allocators (+ a >127 byte from the drain
+  would desync every synth's parser at once). **FIX SET:** (1) RANGE-DROP verified — `drainEchoTails` already guards
+  n∈0…127 (drops, never encodes ≥128); locked by `testEchoPitchClimbNeverEncodesAboveMidi127` (so the desync isn't in
+  current code — likely the build Paul ran, or pure count-strain). (2) **FLOOD GOVERNOR** (safety-class): a hard
+  per-emitter note-on cap per BEAT (`Router.floodCapPerBeat`=48, dev-tunable) at `emitOneBus` (after every suppression
+  gate); over-cap ons DROP, counted → `diag.floodDropped` → cog HEALTH "DROPPED N". Offs never governed → no stuck
+  notes; budget resets each beat + on reset. (3) PANIC now also blasts CC120+CC123 on every channel/cable
+  (`panicControllers`). Tests: governor caps+counts (dense euclid flood, nothing stuck) · panic CC (5×16 each) · the
+  range lock. Fuzz/assert helpers updated to accept CC (0xB0) as valid wire. Reply
+  `_dear_claude/REPLY-2026-08-09-flood-governor-shipped`. FEED DELAY: design reconciled → KEEP (distinct from DECAY).**
 - **▶ GENERATORS II — DRONE · SHIFT · HUMANIZE (2026-08-08, on `main`, PUSHED `095f5b7`; macOS 532 green, iOS builds;
   DEVICE ear-check owed). Three more feel/texture processors via the shared `emitGeneratorRow` — NO new schema (each
   reuses a param). **DRONE** — flat sustained pad, entry chord held to boundary (reuses `gate`=level). **SHIFT** —
