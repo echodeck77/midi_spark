@@ -894,6 +894,14 @@ struct PluginState: Codable, Equatable {
     private static func lHarm12() -> ProcessorSlot { var p = ColourParams(); p.harmIntervals = [12, 0, 0]; return ProcessorSlot(type: .harmonize, params: p) }
     private static func lRtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
     private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
+    /// A configured ECHO (delay) slot — synced 16th-note divisions by default (user 2026-08-08 delay controls).
+    static func lEcho(div: Int = 4, repeats: Int = 4, feedDelay: Double = 0.7, feedback: Double = 0.5,
+                      offset: Double = 0, pitch: Int = 0, thru: Bool = true, sync: Bool = true, ms: Double = 250) -> ProcessorSlot {
+        var p = ColourParams()
+        p.echoSync = sync; p.echoDelayDiv = div; p.echoDelayMs = ms; p.echoRepeats = repeats
+        p.echoFeedDelay = feedDelay; p.echoFeedback = feedback; p.echoOffset = offset; p.echoPitch = pitch; p.echoThru = thru
+        return ProcessorSlot(type: .echo, params: p)
+    }
 
     /// Build a LADDER preset from 8 rung HUES (light→dark), 8 MACHINES (chains, row 0 = gentlest), and the scene
     /// CURVES (each an 8-entry per-column active row). All rungs → Emit A on R1; the grid is identical per scene.
@@ -985,6 +993,36 @@ struct PluginState: Codable, Equatable {
              [lHarm12(), lArp(.random, .r1_16t, oct: 3, gate: 0.45), lChnc(0.55)],
              [lHarm12(), lArp(.random, .r1_32, oct: 4, gate: 0.35), lChnc(0.45)]],
             [[0, 2, 0, 1, 0, 2, 0, 1], [3, 5, 4, 2, 4, 5, 3, 4], [7, 4, 6, 7, 5, 7, 4, 6]])
+    }
+
+    /// MIDI DELAYS (user 2026-08-08) — eight delay flavours, one per ROW, placed in COLUMN 0 only so each rings out
+    /// across the empty columns. SINGLE mode: one flavour speaks at a time (switch with the row selectors); three
+    /// scenes preset SLAP · DUB · CANYON. Hold a chord and hear the delay; the flavours span slap → dub → pitch → wide.
+    static func makeDelays() -> PluginState {
+        let hues = ["gold", "orange", "vermilion", "wine", "magenta", "purple", "violet", "indigo"]
+        let machines: [[ProcessorSlot]] = [
+            [lEcho(div: 3, repeats: 1, feedDelay: 0.85, feedback: 0)],                 // R1 SLAP — one quick echo
+            [lEcho(div: 2, repeats: 3, feedDelay: 0.8,  feedback: 0.5)],               // R2 DOUBLE — 1/8, a few taps
+            [lEcho(div: 3, repeats: 4, feedDelay: 0.75, feedback: 0.55)],              // R3 DOTTED — dotted-note swing
+            [lEcho(div: 4, repeats: 4, feedDelay: 0.75, feedback: 0.6)],               // R4 QUARTER — one per beat
+            [lEcho(div: 4, repeats: 12, feedDelay: 0.7, feedback: 0.85)],              // R5 DUB — long feedback tail
+            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  feedback: 0.6, pitch: 3)],     // R6 RISER — climbing +3
+            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  feedback: 0.6, pitch: -3)],    // R7 FALLER — descending −3
+            [lEcho(div: 8, repeats: 3, feedDelay: 0.75, feedback: 0.7, offset: 0.2)]]  // R8 CANYON — half-note, wide
+        var grid = SceneState.empty()
+        for row in 0..<8 {
+            var c = Cell(colourID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]
+            grid.cells[0][row] = c   // COLUMN 0 only — the delay tail rings out across the empty columns
+        }
+        let scenes = [0, 4, 7].map { pick -> SceneState in    // SLAP · DUB · CANYON
+            var s = grid; var ar = [Int?](repeating: nil, count: 8); ar[0] = pick; s.activeRow = ar; return s
+        }
+        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: scenes)
+        state.ladderMode = true; state.formatVersion = 4
+        state.synthesizeReceiversIfNeeded()
+        for i in state.receivers!.indices { state.receivers![i].channel = 0 }   // OMNI in; output = Emit A · ch1
+        state.padScenes(); state.markDefinedFromUsage()
+        return state
     }
 }
 

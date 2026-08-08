@@ -125,6 +125,28 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(back.scenes[0].activeRow, l.scenes[0].activeRow, "activeRow round-trips")
     }
 
+    // MIDI DELAYS preset (user 2026-08-08): 8 single-slot ECHO flavours in COLUMN 0 only (sparse so tails ring out),
+    // SINGLE mode, three scenes. Guards the echo params + their Codable round-trip.
+    func testMidiDelaysPresetIsEightSparseEchoes() throws {
+        let d = PluginState.makeDelays()
+        XCTAssertTrue(d.ladderModeResolved, "DELAYS ships SINGLE mode ON")
+        XCTAssertGreaterThanOrEqual(d.scenes.count, 3, "SLAP · DUB · CANYON scenes")
+        let s = d.scenes[0]
+        for row in 0..<8 {
+            XCTAssertEqual(s.cells[0][row]?.processors?.map { $0.type }, [.echo], "row \(row) is a single-slot ECHO in column 0")
+            XCTAssertEqual(s.cells[0][row]?.buses, [.a], "wired to Emitter A")
+            for col in 1..<8 { XCTAssertNil(s.cells[col][row], "sparse — only column 0 populated (the tail rings across the rest)") }
+        }
+        // R1 SLAP = 1 repeat · R5 DUB = 12 · R6 RISER pitches +3 · R8 CANYON offsets the grid
+        XCTAssertEqual(s.cells[0][0]?.processors?.first?.params.echoRepeats, 1)
+        XCTAssertEqual(s.cells[0][4]?.processors?.first?.params.echoRepeats, 12)
+        XCTAssertEqual(s.cells[0][5]?.processors?.first?.params.echoPitch, 3)
+        XCTAssertEqual(s.cells[0][7]?.processors?.first?.params.echoOffset, 0.2)
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.scenes[0].cells[0][4]?.processors?.first?.params.echoRepeats, 12, "echo params round-trip")
+        XCTAssertEqual(back.scenes[0].activeRow, d.scenes[0].activeRow, "the SLAP scene's active rung round-trips")
+    }
+
     func testDefaultArcRoundTrips() {
         let d = PluginState.defaultArc()
         guard let data = PresetStore.encode(d), let back = PresetStore.decode(data) else { return XCTFail("nil") }

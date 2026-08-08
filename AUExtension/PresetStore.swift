@@ -110,6 +110,13 @@ enum CellLibraryStore {
             ("Bloom",   cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 0] }, slot(.arp)])),
             ("Stutter", cell("violet",  [slot(.passgate) { $0.passes = [true, true, true, true] }, slot(.ratchet) { $0.count = 4 }])),
             ("Cascade", cell("magenta", [slot(.arp) { $0.octaves = 2 }, slot(.strum)])),
+            // MIDI DELAYS (user 2026-08-08) — stampable single-slot echoes, each a delay character (wire your own I/O).
+            ("Slap",    cell("gold",    [slot(.echo) { $0.echoDelayDiv = 3; $0.echoRepeats = 1; $0.echoFeedDelay = 0.85; $0.echoFeedback = 0 }])),
+            ("Double",  cell("orange",  [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 3; $0.echoFeedback = 0.5 }])),
+            ("Dub",     cell("wine",    [slot(.echo) { $0.echoDelayDiv = 4; $0.echoRepeats = 12; $0.echoFeedback = 0.85 }])),
+            ("Rise",    cell("magenta", [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoFeedback = 0.6; $0.echoPitch = 3 }])),
+            ("Fall",    cell("purple",  [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoFeedback = 0.6; $0.echoPitch = -3 }])),
+            ("Canyon",  cell("indigo",  [slot(.echo) { $0.echoDelayDiv = 8; $0.echoRepeats = 3; $0.echoFeedback = 0.7; $0.echoOffset = 0.2 }])),
         ]
     }
 }
