@@ -10,6 +10,9 @@ enum ProcessorType: String, Codable, CaseIterable {
     case arp = "ARP", ratchet = "RATCHET", passgate = "PASSGATE"
     case strum = "STRUM", chance = "CHANCE", harmonize = "HARMONIZE"
     case echo = "ECHO"   // the first TAIL stage — repeats a note at delayed beats (reuses rate=TIME · count=REPEATS · ramp=DECAY)
+    case euclid = "EUCLID"     // GENERATOR — a K-of-N euclidean rhythm; strikes the chord on the evenly-spread pulses
+    case burst = "BURST"       // GENERATOR — a one-shot accel/decel roll at step entry (reuses count · curve)
+    case cascade = "CASCADE"   // GENERATOR — reveal the chord's notes one at a time, each held to the boundary (reuses rate · strumDir)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -75,6 +78,10 @@ struct ColourParams: Codable, Equatable {
     var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending)
     var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
     var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
+    // EUCLID generator (user 2026-08-08). BURST reuses count+curve; CASCADE reuses rate+strumDir — no new fields.
+    var euclidPulses: Int? = 5          // K — hits per cycle (1…16)
+    var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
+    var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

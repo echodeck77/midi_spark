@@ -450,6 +450,26 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(p.srcAscending(0, filter: 5, cableMask: 0b0010), 64)  // channel 5 + cable 2
     }
 
+    // GENERATORS (user 2026-08-08) — the pure pattern derivations.
+    func testEuclidPatternSpreadsKHitsEvenly() {
+        XCTAssertEqual(euclidPattern(pulses: 3, steps: 8).map { $0 ? 1 : 0 }, [1, 0, 0, 1, 0, 0, 1, 0], "tresillo: hits at 0,3,6")
+        XCTAssertEqual(euclidPattern(pulses: 3, steps: 8).filter { $0 }.count, 3, "exactly K hits")
+        XCTAssertEqual(euclidPattern(pulses: 5, steps: 8).filter { $0 }.count, 5)
+        XCTAssertEqual(euclidPattern(pulses: 4, steps: 4).filter { $0 }.count, 4, "K==N → every step")
+        XCTAssertEqual(euclidPattern(pulses: 0, steps: 8).filter { $0 }.count, 0, "K==0 → silence")
+        XCTAssertTrue(euclidPattern(pulses: 3, steps: 8)[0], "a hit on step 0 before rotation")
+        let base = euclidPattern(pulses: 3, steps: 8)
+        XCTAssertEqual(euclidPattern(pulses: 3, steps: 8, rotation: 1), (0..<8).map { base[($0 + 1) % 8] }, "rotation cycles the pattern")
+    }
+    func testBurstFractionsCountFirstZeroAndCurve() {
+        XCTAssertEqual(burstFractions(count: 4, curve: 0), [0, 0.25, 0.5, 0.75], "even spacing at curve 0")
+        XCTAssertEqual(burstFractions(count: 4, curve: 0).first, 0, "first strike at step entry")
+        let accel = burstFractions(count: 5, curve: 1)
+        XCTAssertGreaterThan(accel[1] - accel[0], accel[4] - accel[3], "ACCEL: gaps shrink over the roll")
+        let decel = burstFractions(count: 5, curve: -1)
+        XCTAssertLessThan(decel[1] - decel[0], decel[4] - decel[3], "DECEL: gaps grow over the roll")
+    }
+
     func testAsPlayedHonoursCableMask() {
         let p = NotePool()
         p.noteOn(67, velocity: 100, channel: 0, cable: 2)   // press order: 67 …

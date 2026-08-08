@@ -107,6 +107,32 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(both.ons.filter { $0.cable == 2 }.count, 0)
     }
 
+    // GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE render integration.
+    func testEuclidStrikesChordOnEuclideanPulses() {
+        // 4-of-8 euclid over a 3-note chord in one column (S = 2 beats): 4 pulses × 3 notes = 12 note-ons, no stuck.
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "4 euclid pulses × the 3-note chord")
+        assertNothingLeftSounding(e)
+    }
+    func testBurstEmitsCountStrikes() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "a 4-strike burst on one note")
+        assertNothingLeftSounding(e)
+    }
+    func testCascadeRevealsEachChordNoteOnce() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
+            c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the 3-note chord revealed one note at a time")
+        assertNothingLeftSounding(e)
+    }
     func testEveryArticulationEmitsOnItsBusCableAndTheAllCable() {
         // delta §7b: each articulation emits on its own bus cable (A = cable 1) AND the ALL cable (0),
         // and on NO other cable (only bus A is lit).

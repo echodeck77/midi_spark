@@ -281,6 +281,9 @@ enum SnapshotBuilder {
         if let v = p.echoPitch { out.echoPitch = clamp(v, -24, 24) }
         if let v = p.echoThru { out.echoThru = v }
         if let v = p.echoSpill { out.echoSpill = v }
+        if let v = p.euclidSteps { out.euclidSteps = clamp(v, 2, 16) }
+        if let v = p.euclidPulses { out.euclidPulses = clamp(v, 1, 16) }
+        if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         return out
     }
 }

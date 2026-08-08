@@ -1364,6 +1364,9 @@ struct ProcessorBox: View {
         case .chance:    return "let notes through by probability"
         case .harmonize: return "add tuned voices to each note"
         case .echo:      return "repeat the note at a delay, decaying"
+        case .euclid:    return "spread K hits evenly across N steps"
+        case .burst:     return "a one-shot accelerating/decelerating roll"
+        case .cascade:   return "reveal the chord one note at a time"
         }
     }
 
@@ -1450,6 +1453,19 @@ struct ProcessorBox: View {
             // TAIL SPILL (design 2026-08-07): RING lets echoes spill past the bar; CUT keeps them inside it (the note
             // already sounding always finishes). HAND is a birthstone (deferred) — not offered yet.
             field("SPILL") { seg(["RING", "CUT"], sel: spill == .cut ? "CUT" : "RING") { i in setParam { $0.echoSpill = (i == 0 ? .ring : .cut) } } }
+        case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08)
+            let steps = p.euclidSteps ?? 8
+            field("PULSES  \(p.euclidPulses ?? 5)  of  \(steps)") { grid16(sel: p.euclidPulses ?? 5) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } } }
+            field("STEPS  \(steps)") { grid16(sel: steps) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
+            field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
+        case .burst:    // GENERATOR — accel/decel roll
+            field("STRIKES  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }
+            let cv = p.curve ?? 0
+            field("CURVE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
+                Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
+        case .cascade:  // GENERATOR — incremental chord reveal
+            field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
+            field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

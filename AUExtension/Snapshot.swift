@@ -92,6 +92,10 @@ struct SnapParams {
     var echoPitch: Int = 0           // semitones per echo
     var echoThru: Bool = true        // THRU vs MUTE
     var echoSpill: EchoSpill = .ring // RING past the bar · CUT inside it · HAND (deferred)
+    // EUCLID generator (user 2026-08-08); BURST reuses count+curve, CASCADE reuses rateIndex+strumDir.
+    var euclidPulses: Int = 5
+    var euclidSteps: Int = 8
+    var euclidRot: Int = 0
 }
 
 struct SnapColour {

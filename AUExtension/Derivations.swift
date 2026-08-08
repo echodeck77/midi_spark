@@ -534,7 +534,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -739,6 +739,9 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .chance:    return .chance
     case .harmonize: return .harmonize
     case .echo:      return .echo                          // the tail stage — its dry strikes + registers repeats
+    case .euclid:    return .euclid                         // GENERATOR — K-of-N euclidean rhythm
+    case .burst:     return .burst                          // GENERATOR — accel/decel roll at step entry
+    case .cascade:   return .cascade                        // GENERATOR — incremental chord reveal
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -872,7 +875,33 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .chance:    return "die.face.5.fill"             // the die
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
     case .echo:      return "repeat"                       // the tail
+    case .euclid:    return "circle.grid.cross"            // the K-of-N grid
+    case .burst:     return "wind"                         // the accelerating gust
+    case .cascade:   return "arrow.down.right.and.arrow.up.left.circle"   // the incremental reveal
     }
+}
+
+// MARK: - GENERATORS (user 2026-08-08) — pure pattern derivations, testable off-device.
+
+/// EUCLID — the K-of-N euclidean rhythm: `pulses` hits spread as evenly as possible across `steps`, a hit on step 0
+/// (before rotation). `pattern[i] == true` ⇒ strike on step i. Exactly `pulses` hits. `rotation` cycles the pattern.
+func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
+    let n = max(1, min(64, steps))
+    let k = max(0, min(n, pulses))
+    var p = (0..<n).map { ($0 * k) % n < k }              // the Bresenham/euclidean spread — a hit at step 0
+    let rot = ((rotation % n) + n) % n
+    if rot != 0 { p = (0..<n).map { p[($0 + rot) % n] } }
+    return p
+}
+
+/// BURST — the fractional positions (0…<1 of the step) of a `count`-strike roll. `curve` bends the spacing:
+/// 0 = even, +1 = ACCELERATE (gaps shrink → strikes bunch late), −1 = DECELERATE (gaps grow → bunch early).
+/// The first strike is always at 0 (step entry). Pure/testable.
+func burstFractions(count: Int, curve: Double) -> [Double] {
+    let c = max(1, min(16, count))
+    if c == 1 { return [0] }
+    let gamma = pow(2.0, -max(-1.0, min(1.0, curve)))     // +1 → 0.5 (accel) · 0 → 1 (even) · −1 → 2 (decel)
+    return (0..<c).map { pow(Double($0) / Double(c), gamma) }
 }
 
 // MARK: - THE SEAL (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md

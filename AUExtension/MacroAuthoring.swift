@@ -147,6 +147,18 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "rate", label: "TIME", kind: .option(ArpRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "count", label: "REPEATS", kind: .stepper(lo: 2, hi: 8)),
                 MacroControlParam(key: "ramp", label: "DECAY", kind: .continuous(lo: 0, hi: 1))]
+    case .euclid:
+        return [bypass,
+                MacroControlParam(key: "euclidPulses", label: "PULSES", kind: .stepper(lo: 1, hi: 16)),
+                MacroControlParam(key: "euclidSteps", label: "STEPS", kind: .stepper(lo: 2, hi: 16)),
+                MacroControlParam(key: "euclidRot", label: "ROTATE", kind: .stepper(lo: 0, hi: 15))]
+    case .burst:
+        return [bypass,
+                MacroControlParam(key: "count", label: "STRIKES", kind: .stepper(lo: 2, hi: 16)),
+                MacroControlParam(key: "curve", label: "CURVE", kind: .continuous(lo: -1, hi: 1))]
+    case .cascade:
+        return [bypass,
+                MacroControlParam(key: "rate", label: "RATE", kind: .option(ArpRate.allCases.map(\.rawValue)))]
     }
 }
 

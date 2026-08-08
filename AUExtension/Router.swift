@@ -1595,6 +1595,11 @@ final class Router {
                 emitStrumRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+            case .euclid, .burst, .cascade:
+                emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                 S: S, a: a, out: out, diag: &diag)
             case .echo, .identity, .chance, .harmonize:
                 break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
             case .silent:
@@ -1603,6 +1608,75 @@ final class Router {
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+    }
+
+    // MARK: - GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE, single-slot tick emitters. Each computes its
+    // strike beats for the current column and emits those landing in this window (half-open, so each fires once).
+    private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+                                  emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
+                                  windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                                  out: MIDIEmitter?, diag: inout KernelDiag) {
+        let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let p = colour.a
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        let colStart = (mWinStart / S).rounded(.down) * S
+
+        // ONE chord strike at musical beat `tau` (all held source notes, chop-routed), gated `gateBeats` long.
+        func strikeChord(tau: Double, vel: UInt8, gateBeats: Double, onlyIndex: Int? = nil) {
+            let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            let tbm = chopMask(cell, m: tau, S: S, base: bm)
+            let srcN = pool.srcCount(for: cell)
+            for k in 0..<srcN {
+                if let only = onlyIndex, k != only { continue }
+                let n = Int(pool.srcAscending(k, for: cell)) + transpose
+                guard n >= 0 && n <= 127 else { continue }
+                storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
+                if emits && tbm != 0 {
+                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            }
+        }
+        func inWindow(_ tau: Double) -> Bool { tau >= mWinStart && tau < mWinEnd }
+
+        switch mode {
+        case .euclid:
+            let n = max(2, min(16, p.euclidSteps))
+            let pat = euclidPattern(pulses: p.euclidPulses, steps: n, rotation: p.euclidRot)
+            let sub = S / Double(n)
+            for j in 0..<n where pat[j] {
+                let tau = colStart + Double(j) * sub
+                if inWindow(tau) { strikeChord(tau: tau, vel: 100, gateBeats: min(sub * 0.9, S * 0.9)) }
+            }
+        case .burst:
+            let count = Int(max(2, min(16, p.count)))
+            let fracs = burstFractions(count: count, curve: p.curve)
+            let minGap = S / Double(count) * 0.9
+            for (i, f) in fracs.enumerated() {
+                let tau = colStart + f * S
+                if inWindow(tau) {
+                    let vel = UInt8(max(1, min(127, 100 - i * (60 / max(1, count)))))   // fade across the roll
+                    strikeChord(tau: tau, vel: vel, gateBeats: minGap)
+                }
+            }
+        case .cascade:
+            let sub = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+            guard sub > 0 else { break }
+            let srcN = pool.srcCount(for: cell)
+            for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
+                let tau = colStart + Double(j) * sub
+                if tau >= colStart + S { break }                  // ran past the column — the rest reveal next entry
+                if inWindow(tau) {
+                    let idx = p.strumDir == .down ? (srcN - 1 - j) : j   // reveal order (UP default · DOWN top-first)
+                    let gate = (colStart + S) - tau                // sustain to the column boundary
+                    strikeChord(tau: tau, vel: 100, gateBeats: max(0.01, gate), onlyIndex: idx)
+                }
+            }
+        default:
+            break
+        }
     }
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
