@@ -133,6 +133,33 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the 3-note chord revealed one note at a time")
         assertNothingLeftSounding(e)
     }
+    func testDroneHoldsTheChordAsAPad() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .drone)
+            c.paramsA.gate = 0.6; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the chord held once as a pad")
+        assertNothingLeftSounding(e)
+    }
+    func testShiftNudgesTheChordLate() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .shift)
+            c.paramsA.spread = 0.5; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the chord, nudged late, once")
+        assertNothingLeftSounding(e)
+    }
+    func testHumanizeIsSeededAndReplaySafe() {
+        func mk() -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .humanize)
+                c.paramsA.spread = 0.8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let e1 = RecordingEmitter(); run(mk(), chord([60, 64, 67]), beats: 2, into: e1)
+        let e2 = RecordingEmitter(); run(mk(), chord([60, 64, 67]), beats: 2, into: e2)
+        XCTAssertEqual(e1.ons.filter { $0.cable == 1 }.count, 3, "each note struck once, humanized")
+        XCTAssertEqual(e1.ons.map { $0.note }, e2.ons.map { $0.note }, "seeded → replay-safe (byte-identical)")
+        assertNothingLeftSounding(e1)
+    }
     func testEveryArticulationEmitsOnItsBusCableAndTheAllCable() {
         // delta §7b: each articulation emits on its own bus cable (A = cable 1) AND the ALL cable (0),
         // and on NO other cable (only bus A is lit).

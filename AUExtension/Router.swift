@@ -1595,7 +1595,7 @@ final class Router {
                 emitStrumRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-            case .euclid, .burst, .cascade:
+            case .euclid, .burst, .cascade, .drone, .shift, .humanize:
                 emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
@@ -1673,6 +1673,33 @@ final class Router {
                     let gate = (colStart + S) - tau                // sustain to the column boundary
                     strikeChord(tau: tau, vel: 100, gateBeats: max(0.01, gate), onlyIndex: idx)
                 }
+            }
+        case .drone:
+            // PAD: strike the whole entry chord ONCE, held to the boundary, at a flat pad level (gate = level).
+            if inWindow(colStart) {
+                let padVel = UInt8(max(1, min(127, Int(p.gate * 127))))
+                strikeChord(tau: colStart, vel: padVel, gateBeats: S)
+            }
+        case .shift:
+            // GROOVE: push the chord's onset LATE by up to ~40% of the step (spread 0…1), held to the boundary.
+            let push = max(0, min(1, p.spread)) * 0.4 * S
+            let tau = colStart + push
+            if inWindow(tau) { strikeChord(tau: tau, vel: 100, gateBeats: max(0.05, S - push)) }
+        case .humanize:
+            // THE DETERMINISTIC HUMAN: each note strikes at a seeded late offset (0…~15% step) with a seeded velocity
+            // duck — replay-safe (seed = column · note · index). AMOUNT (spread) scales both. Held to the boundary.
+            let amt = max(0, min(1, p.spread))
+            let col = UInt64(bitPattern: Int64((colStart / S).rounded()))
+            let srcN = pool.srcCount(for: cell)
+            for k in 0..<srcN {
+                let note = Int(pool.srcAscending(k, for: cell)) + transpose
+                guard note >= 0 && note <= 127 else { continue }
+                let h = splitmix64Mix(col &* 2_654_435_761 &+ UInt64(note) &* 131 &+ UInt64(k) &* 17)
+                let tFrac = Double(h & 0xFFFF) / 65535.0                     // 0…1 → late offset
+                let vFrac = Double((h >> 16) & 0xFFFF) / 65535.0             // 0…1 → velocity duck
+                let tau = colStart + tFrac * amt * 0.15 * S
+                let vel = UInt8(max(1, min(127, 100 - Int(vFrac * amt * 45))))
+                if inWindow(tau) { strikeChord(tau: tau, vel: vel, gateBeats: max(0.05, colStart + S - tau), onlyIndex: k) }
             }
         default:
             break

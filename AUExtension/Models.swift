@@ -13,6 +13,9 @@ enum ProcessorType: String, Codable, CaseIterable {
     case euclid = "EUCLID"     // GENERATOR — a K-of-N euclidean rhythm; strikes the chord on the evenly-spread pulses
     case burst = "BURST"       // GENERATOR — a one-shot accel/decel roll at step entry (reuses count · curve)
     case cascade = "CASCADE"   // GENERATOR — reveal the chord's notes one at a time, each held to the boundary (reuses rate · strumDir)
+    case drone = "DRONE"       // GENERATOR — a flat sustained PAD: the entry chord held to the boundary (reuses gate = pad level)
+    case shift = "SHIFT"       // GENERATOR — a groove NUDGE: push the chord's onset late (reuses spread = push amount)
+    case humanize = "HUMANIZE" // GENERATOR — seeded per-note timing + velocity jitter, replay-safe (reuses spread = amount)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 

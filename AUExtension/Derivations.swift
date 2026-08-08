@@ -534,7 +534,7 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -742,6 +742,9 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .euclid:    return .euclid                         // GENERATOR — K-of-N euclidean rhythm
     case .burst:     return .burst                          // GENERATOR — accel/decel roll at step entry
     case .cascade:   return .cascade                        // GENERATOR — incremental chord reveal
+    case .drone:     return .drone                          // GENERATOR — flat sustained pad
+    case .shift:     return .shift                          // GENERATOR — groove nudge
+    case .humanize:  return .humanize                       // GENERATOR — seeded jitter
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -878,6 +881,9 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .euclid:    return "circle.grid.cross"            // the K-of-N grid
     case .burst:     return "wind"                         // the accelerating gust
     case .cascade:   return "arrow.down.right.and.arrow.up.left.circle"   // the incremental reveal
+    case .drone:     return "waveform.path"               // the sustained pad
+    case .shift:     return "arrow.right.to.line"         // the nudge
+    case .humanize:  return "hand.draw"                   // the human hand
     }
 }
 

@@ -1367,6 +1367,9 @@ struct ProcessorBox: View {
         case .euclid:    return "spread K hits evenly across N steps"
         case .burst:     return "a one-shot accelerating/decelerating roll"
         case .cascade:   return "reveal the chord one note at a time"
+        case .drone:     return "a flat sustained pad, held to the boundary"
+        case .shift:     return "nudge the chord late — behind the beat"
+        case .humanize:  return "seeded per-note timing + velocity jitter"
         }
     }
 
@@ -1466,6 +1469,15 @@ struct ProcessorBox: View {
         case .cascade:  // GENERATOR — incremental chord reveal
             field("RATE") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
+        case .drone:    // GENERATOR — flat sustained pad (gate = pad level)
+            field("PAD LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
+                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
+        case .shift:    // GENERATOR — groove nudge (spread = push late)
+            field("PUSH  \(Int((p.spread ?? 0.1) * 100))% late") {
+                Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+        case .humanize: // GENERATOR — seeded jitter (spread = amount)
+            field("AMOUNT  \(Int((p.spread ?? 0.5) * 100))%") {
+                Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

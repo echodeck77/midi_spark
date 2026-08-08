@@ -159,6 +159,12 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     case .cascade:
         return [bypass,
                 MacroControlParam(key: "rate", label: "RATE", kind: .option(ArpRate.allCases.map(\.rawValue)))]
+    case .drone:
+        return [bypass, MacroControlParam(key: "gate", label: "PAD LEVEL", kind: .continuous(lo: 0.05, hi: 1))]
+    case .shift:
+        return [bypass, MacroControlParam(key: "spread", label: "PUSH", kind: .continuous(lo: 0, hi: 1))]
+    case .humanize:
+        return [bypass, MacroControlParam(key: "spread", label: "AMOUNT", kind: .continuous(lo: 0, hi: 1))]
     }
 }
 
