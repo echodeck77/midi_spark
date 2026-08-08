@@ -78,13 +78,13 @@ enum SnapshotBuilder {
                 }
                 sc.muted = cell.muted
                 sc.dormant = ladderOn && r != (ladderActive ?? -1)   // LADDER: non-active rungs are silent (visible + dimmed in the UI)
-                sc.busMask = cell.buses.reduce(0) { $0 | (1 << $1.cable) }
+                sc.busMask = busBitmask(cell.buses)
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
                 sc.velFloor = UInt8(max(1, min(127, vw.floor))); sc.velCeil = UInt8(max(1, min(127, vw.ceil)))
                 let chp = cell.chopResolved                      // §cell-edit F: per-slice output chop (independent main/alt/mute)
                 sc.chopMain = chp.mainMask; sc.chopAlt = chp.altMask; sc.chopMute = chp.muteMask
-                sc.chopAltMask = chp.altDest.reduce(0) { $0 | (1 << $1.cable) }
+                sc.chopAltMask = busBitmask(chp.altDest)
                 sc.chopActive = chp.mainMask != 0xFF || chp.altMask != 0 || chp.muteMask != 0
                 // CELL MACHINE (grid-chaining retired): a cell is always MIDI-IN — resolvedParent stays −1.
                 // `cell.inputRow` is now inert decode-only legacy (kept for old-doc/preset compat).

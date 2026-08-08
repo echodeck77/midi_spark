@@ -30,6 +30,9 @@ enum ArpRate: String, Codable, CaseIterable {
 enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D"
     var cable: UInt8 { UInt8(Bus.allCases.firstIndex(of: self)!) }
 }
+/// Pack a set/list of buses into the per-cable bitmask (bit i = cable i). One place so the builder's bus/chop-alt
+/// mask packing can't drift. Pure.
+@inline(__always) func busBitmask<S: Sequence>(_ buses: S) -> UInt8 where S.Element == Bus { buses.reduce(0) { $0 | (1 << $1.cable) } }
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
 enum TapAction: String, Codable, CaseIterable {
     case alt = "ALT", byp = "BYP", mute = "MUTE"

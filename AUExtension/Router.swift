@@ -497,8 +497,9 @@ final class Router {
         diag.lastParamValue = value
     }
 
-    // Topmost occupied, non-muted cell in a grid column — the single active cell (no chains until
-    // commit 5). cells index = column*8 + row (Snapshot.swift). Muted cells produce nothing (§6.2).
+    // Topmost occupied, non-muted cell in a grid column — the single active cell (grid-chaining across
+    // cells is retired; a cell's OWN processor chain runs in emitColumnHolds / the tick loop). cells
+    // index = column*8 + row (Snapshot.swift). Muted cells produce nothing (§6.2).
     @inline(__always)
     private func topCell(in column: Int, _ box: SnapshotBox) -> (row: Int, cell: SnapCell)? {
         let c = ((column % Snap.cols) + Snap.cols) % Snap.cols

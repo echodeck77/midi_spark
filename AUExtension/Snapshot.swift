@@ -236,14 +236,10 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
 
 // MARK: - Effective params (render-side, §3.2: stepped fields quantize, never glide)
 
-/// The effective morph position for ONE CELL — the value every effective* helper takes as `t` to
-/// interpolate a→b. Tier-aware (delta §9 item 5): `none` (unpaired) → 0, always A; `full`/`partial`
-/// (same-ish type) → ALT pins full-B, else the Colour's morph macro (0…1); `swap` (cross-type) → a BINARY
-/// flip on the ALT bit (0 or 1, no intermediate — the morph fader is inert for a swap pair). The global
-/// morphMaster (param #300) is RETIRED — morph is per-Colour only. Cells differ only by their alt bit.
 // CELL MACHINE (morph removed): the A/B blend is gone — every effective* reads the single (A) param bag.
 // They keep a `t` arg (always 0, ignored) so the render call sites are unchanged; the render feeds them the
-// per-cell chain slot via the `treat.a = head` injection SnapColour.
+// per-cell chain slot via the `treat.a = head` injection SnapColour. (The retired a→b interpolation, tiers,
+// and morphMaster #300 are history — Codable fields + the param address stay reserved per CLAUDE.md.)
 @inline(__always)
 func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { c.a.type }
 
@@ -271,13 +267,13 @@ func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
 }
 
 @inline(__always)
-func effectiveRamp(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.ramp)) }
+func effectiveRamp(_ c: SnapColour, t: Double) -> Double { clamp(c.a.ramp, 0, 1) }
 
 @inline(__always)
-func effectiveSpread(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.spread)) }
+func effectiveSpread(_ c: SnapColour, t: Double) -> Double { clamp(c.a.spread, 0, 1) }
 
 @inline(__always)
-func effectiveProbability(_ c: SnapColour, t: Double) -> Double { max(0, min(1, c.a.probability)) }
+func effectiveProbability(_ c: SnapColour, t: Double) -> Double { clamp(c.a.probability, 0, 1) }
 
 @inline(__always)
 func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
@@ -287,8 +283,8 @@ func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
     case 1: a = Int(c.a.harmIntervals.1)
     default: a = Int(c.a.harmIntervals.2)
     }
-    return max(-24, min(24, a))
+    return clamp(a, -24, 24)
 }
 
 @inline(__always)
-func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double { max(0.1, min(1, c.a.harmVelScale)) }
+func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }

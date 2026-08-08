@@ -690,8 +690,6 @@ func tapOverlayMasks(_ overlays: [TapOverlay], now: Double, footSolo: UInt8 = 0)
 /// never trips it, so detection is meaningful only under OMNI / MPE-merge).
 func mpeLikely(channelMask: UInt16) -> Bool { channelMask.nonzeroBitCount >= 2 }
 
-/// `effectiveT` with ON ARRIVE applied — the alt/morph-based arrive treatments fold in here so the three
-
 // MARK: - UMP (MIDI 2.0 / eventList) → legacy 3-byte MIDI (§item 11 INPUT CABLES — the eventList path)
 
 /// UMP message word count by Message Type (top nibble of word0), per the UMP spec — lets the parser
