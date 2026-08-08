@@ -63,6 +63,17 @@ struct ColourParams: Codable, Equatable {
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]
     var harmVelScale: Double? = 0.8
+    // ECHO (the TAIL era, user 2026-08-08): the delay-echo controls. Append-only Optional (old docs decode nil →
+    // defaults). SUPERSEDES echo's earlier reuse of rate/count/ramp; those keys are ignored for echo now.
+    var echoSync: Bool? = true          // ON = beat divisions · OFF = milliseconds
+    var echoDelayDiv: Int? = 4          // synced: delay in 16th-notes (1…16; 4 = one beat)
+    var echoDelayMs: Double? = 250      // free: delay in ms
+    var echoRepeats: Int? = 3           // number of echoes 1…16
+    var echoOffset: Double? = 0         // ±0.33 — nudge echoes ahead of / behind the grid (fraction of the interval)
+    var echoFeedDelay: Double? = 0.7    // 0…1 — input send: how loud the FIRST echo is (+ how fast repeats fade)
+    var echoFeedback: Double? = 0.5     // 0…1 — regeneration: decay ratio between echoes / tail length
+    var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending)
+    var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
 }
 
 struct Colour: Codable, Equatable {

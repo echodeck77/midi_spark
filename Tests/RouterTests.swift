@@ -3383,14 +3383,17 @@ final class RouterTests: XCTestCase {
 
     // MARK: - ECHO (the tail era) — AcceptanceCriteria-tail-era-delay-echo, Phase 0+1
 
-    private func echoColours(time: ArpRate = .r1_16, repeats: Int = 4, decay: Double = 0.5) -> [Colour] {
+    private func echoColours(div: Int = 1, repeats: Int = 4, feedDelay: Double = 0.5, feedback: Double = 0.5,
+                             thru: Bool = true, pitch: Int = 0, offset: Double = 0) -> [Colour] {
         colourIDs.map { var c = Colour(colourID: $0, type: .echo)
-            c.paramsA.rate = time; c.paramsA.count = repeats; c.paramsA.ramp = decay; return c }
+            c.paramsA.echoSync = true; c.paramsA.echoDelayDiv = div; c.paramsA.echoRepeats = repeats
+            c.paramsA.echoFeedDelay = feedDelay; c.paramsA.echoFeedback = feedback
+            c.paramsA.echoThru = thru; c.paramsA.echoPitch = pitch; c.paramsA.echoOffset = offset; return c }
     }
 
     /// A single-slot [ECHO] cell re-strikes its held note the DRY + REPEATS times, velocities DECAYING, no stuck notes.
     func testEchoRepeatsHeldNoteWithDecay() {
-        let b = box(colours: echoColours(time: .r1_16, repeats: 4, decay: 0.5)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(colours: echoColours(div: 1, repeats: 4, feedDelay: 0.5, feedback: 0.5)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 1.5, into: e)                 // one column entry (S = 2 beats); TIME 1/16 = 0.25
         let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
@@ -3405,7 +3408,7 @@ final class RouterTests: XCTestCase {
     /// emitted as a velocity-0 note-on (which a synth reads as a note-off). Harsh decay ⇒ late repeats vanish.
     func testEchoDecayFloorDropsRepeatsBelowVelocityOneNeverEmitsZero() {
         // dry vel 96, decay 0.2, 8 repeats: k=1→19, k=2→4, k=3→1, k≥4 rounds to 0 ⇒ dropped by the floor.
-        let b = box(colours: echoColours(time: .r1_16, repeats: 8, decay: 0.2)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(colours: echoColours(div: 1, repeats: 8, feedDelay: 0.2, feedback: 0.2)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 2.5, into: e)                 // long enough that all 8 repeat windows elapse
         let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
@@ -3422,7 +3425,7 @@ final class RouterTests: XCTestCase {
     func testEchoViaExplicitSingleSlotChainStillRepeats() {
         let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
             var c = Cell(colourID: "gold", buses: [.a])
-            var s = ProcessorSlot(type: .echo); s.params.rate = .r1_16; s.params.count = 4; s.params.ramp = 0.5
+            var s = ProcessorSlot(type: .echo); s.params.echoDelayDiv = 1; s.params.echoRepeats = 4; s.params.echoFeedDelay = 0.5; s.params.echoFeedback = 0.5
             c.processors = [s]
             $0.cells[0][0] = c
         }
@@ -3438,7 +3441,7 @@ final class RouterTests: XCTestCase {
         let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
             var c = Cell(colourID: "gold", buses: [.a])
             var s0 = ProcessorSlot(type: .passgate); s0.bypassed = true         // passthrough upstream
-            var s1 = ProcessorSlot(type: .echo); s1.params.rate = .r1_16; s1.params.count = 4; s1.params.ramp = 0.5
+            var s1 = ProcessorSlot(type: .echo); s1.params.echoDelayDiv = 1; s1.params.echoRepeats = 4; s1.params.echoFeedDelay = 0.5; s1.params.echoFeedback = 0.5
             c.processors = [s0, s1]
             $0.cells[0][0] = c
         }
@@ -3449,7 +3452,7 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
-        let b = box(colours: echoColours(time: .r1_16, repeats: 6, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(colours: echoColours(div: 1, repeats: 6, feedDelay: 0.7, feedback: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
         let pool = chord([60])
@@ -3472,7 +3475,7 @@ final class RouterTests: XCTestCase {
     /// The echo schedule is a pure function of musical time → the SAME strike count at any render block size (a
     /// repeat due mid-window lands in exactly the window that contains it, never bunched at the block head).
     func testEchoIsBlockSizeInvariant() {
-        let b = box(colours: echoColours(time: .r1_16, repeats: 4, decay: 0.6)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(colours: echoColours(div: 1, repeats: 4, feedDelay: 0.6, feedback: 0.6)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         func strikeCount(_ frames: UInt32) -> Int {
             let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e, frames: frames)
             return e.ons.filter { $0.note == 60 && $0.cable == 1 }.count

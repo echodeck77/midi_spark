@@ -289,6 +289,19 @@ struct DiagView: View {
                     if wasEmpty { sel.markBorn(pos) }        // an empty cell cloned into the group is "born" (deselect deletes)
                 }
                 sel.add(pos)
+                // user 2026-08-08: directly selecting a MUTED cell for edit UNMUTES it (single/multi applies to the
+                // column — in SINGLE it becomes the column's active rung so it plays). Twins that auto-join below stay
+                // as they are; only the tapped cell unmutes. (Deselecting a still-muted twin just drops it — handled above.)
+                if scene.cellAt(col, row)?.muted == true {
+                    au?.editScene { $0.cells[col][row]?.muted = false }
+                    if ladderMode {
+                        au?.editScene(record: false) { s in
+                            var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                            ar[col] = row; s.activeRow = ar
+                        }
+                    }
+                    refreshFromDocument()
+                }
                 for t in au?.twinPositions(col: col, row: row) ?? [] {   // twins JOIN the selection (user 2026-08-07: selected, not just pulsing)
                     sel.add(GridView.GridPos(col: t.col, row: t.row))   // add() dedups
                 }
@@ -1287,7 +1300,16 @@ struct DiagView: View {
     }
     // The row selector's ONE behaviour: apply the per-cell tap to all 8 cells in the row (mute in MULTI, arm-the-rung
     // in SINGLE, place/delete under a held verb, select in EDIT — whatever a single tap does, done across the row).
-    func tapRow(_ row: Int) { for c in 0..<8 { tapCell(c, row) } }
+    func tapRow(_ row: Int) {
+        // ROW RULE (user 2026-08-08 rev): a UNIFORM row (all populated cells muted, or all unmuted) taps EVERY cell;
+        // a MIXED row taps ONLY the unmuted cells (so a mixed row converges to all-muted rather than inverting).
+        let populated = (0..<8).filter { scene.cellAt($0, row) != nil }
+        guard !populated.isEmpty else { return }
+        let muted = populated.filter { scene.cellAt($0, row)?.muted == true }.count
+        let mixed = muted > 0 && muted < populated.count
+        let targets = mixed ? populated.filter { scene.cellAt($0, row)?.muted != true } : populated
+        for c in targets { tapCell(c, row) }
+    }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
     var strokeActive: Bool { heldVerb == .place || heldVerb == .delete }

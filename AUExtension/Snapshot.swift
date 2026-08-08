@@ -81,6 +81,16 @@ struct SnapParams {
     var probability: Double = 1      // chance: pass-through probability 0…1
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
+    // ECHO (user 2026-08-08)
+    var echoSync: Bool = true
+    var echoDelayDiv: Int = 4        // 16th-notes (1…16)
+    var echoDelayMs: Double = 250
+    var echoRepeats: Int = 3         // 1…16
+    var echoOffset: Double = 0       // ±0.33
+    var echoFeedDelay: Double = 0.7  // 0…1
+    var echoFeedback: Double = 0.5   // 0…1
+    var echoPitch: Int = 0           // semitones per echo
+    var echoThru: Bool = true        // THRU vs MUTE
 }
 
 struct SnapColour {

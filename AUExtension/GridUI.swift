@@ -1427,13 +1427,42 @@ struct ProcessorBox: View {
                     stepper(iv[k], -24, 24) { v in setParam { var a = $0.harmIntervals ?? [0,0,0]; a[k] = v; $0.harmIntervals = a } }
                 }
             }
-        case .echo:   // TIME=rate · REPEATS=count · DECAY=ramp (reused fields — no new schema)
-            field("TIME") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in
-                setParam { $0.rate = ArpRate.allCases[i] } } }
-            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
-                setParam { $0.count = [2,3,4,6,8][i] } } }
-            field("DECAY \(Int((p.ramp ?? 0.7) * 100))%") {
-                Slider(value: bind(p.ramp ?? 0.7) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
+        case .echo:   // the DELAY-ECHO controls (user 2026-08-08)
+            let reps = p.echoRepeats ?? 3, sync = p.echoSync ?? true, div = p.echoDelayDiv ?? 4
+            let ms = p.echoDelayMs ?? 250, off = p.echoOffset ?? 0, fd = p.echoFeedDelay ?? 0.7
+            let fb = p.echoFeedback ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
+            field("REPEATS  \(reps)") { grid16(sel: reps) { v in setParam { $0.echoRepeats = v } } }
+            field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
+            if sync {
+                field("DELAY  \(div)/16 note\(div == 4 ? "  (1 beat)" : "")") { grid16(sel: div) { v in setParam { $0.echoDelayDiv = v } } }
+            } else {
+                field("DELAY  \(Int(ms)) ms") { Slider(value: bind(ms) { v in setParam { $0.echoDelayMs = v } }, in: 10...2000).tint(accent) }
+            }
+            field("OFFSET  \(off > 0 ? "+" : "")\(Int(off * 100))%") {
+                Slider(value: bind(off) { v in setParam { $0.echoOffset = v } }, in: -0.33...0.33).tint(accent) }
+            field("FEED DELAY  \(Int(fd * 100))%") {
+                Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) }
+            field("FEEDBACK  \(Int(fb * 100))%") {
+                Slider(value: bind(fb) { v in setParam { $0.echoFeedback = v } }, in: 0...1).tint(accent) }
+            field("PITCH  \(pit > 0 ? "+" : "")\(pit) st / echo") { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
+            field("ORIGINAL") { seg(["THRU", "MUTE"], sel: thru ? "THRU" : "MUTE") { i in setParam { $0.echoThru = (i == 0) } } }
+        }
+    }
+    // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
+    private func grid16(sel: Int, _ set: @escaping (Int) -> Void) -> some View {
+        VStack(spacing: 6) {
+            ForEach(0..<2, id: \.self) { row in
+                HStack(spacing: 6) {
+                    ForEach(0..<8, id: \.self) { coln in
+                        let val = 1 + row * 8 + coln
+                        let on = val == sel
+                        Text("\(val)").font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.5)
+                            .frame(maxWidth: .infinity).frame(height: 36)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent : Color.white.opacity(0.09)))
+                            .contentShape(Rectangle()).onTapGesture { set(val) }
+                    }
+                }
             }
         }
     }

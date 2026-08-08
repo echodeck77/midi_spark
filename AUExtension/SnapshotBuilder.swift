@@ -270,6 +270,16 @@ enum SnapshotBuilder {
                                  clampInt(v.count > 2 ? v[2] : 0))
         }
         if let v = p.harmVelScale { out.harmVelScale = clamp(v, 0.1, 1) }
+        // ECHO (user 2026-08-08)
+        if let v = p.echoSync { out.echoSync = v }
+        if let v = p.echoDelayDiv { out.echoDelayDiv = clamp(v, 1, 16) }
+        if let v = p.echoDelayMs { out.echoDelayMs = clamp(v, 1, 5000) }
+        if let v = p.echoRepeats { out.echoRepeats = clamp(v, 1, 16) }
+        if let v = p.echoOffset { out.echoOffset = clamp(v, -0.33, 0.33) }
+        if let v = p.echoFeedDelay { out.echoFeedDelay = clamp(v, 0, 1) }
+        if let v = p.echoFeedback { out.echoFeedback = clamp(v, 0, 1) }
+        if let v = p.echoPitch { out.echoPitch = clamp(v, -24, 24) }
+        if let v = p.echoThru { out.echoThru = v }
         return out
     }
 }

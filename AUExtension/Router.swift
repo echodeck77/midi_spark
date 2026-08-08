@@ -407,13 +407,16 @@ final class Router {
     // discontinuity, so tails die on stop (v1) and never leak (the fuzz `quiescent` check guards it).
     private struct EchoTail {
         var active = false
-        var onset: Double = 0        // musical beat of the dry strike (repeats at onset + k·timeBeats)
+        var onset: Double = 0        // musical beat of the dry strike (echo k at onset + (k + offset)·timeBeats)
         var note: UInt8 = 0
-        var vel: UInt8 = 0           // the dry velocity; repeat k = vel · decay^k
+        var vel: UInt8 = 0           // the DRY velocity; echo k = vel · feedDelay · feedback^(k-1)
         var busMask: UInt8 = 0
         var timeBeats: Double = 0.5
-        var repeats: Int = 0
-        var decay: Double = 0.7
+        var repeats: Int = 0         // 1…16
+        var feedDelay: Double = 0.7  // input send — first echo level
+        var feedback: Double = 0.5   // regeneration — decay ratio between echoes
+        var offset: Double = 0       // ±0.33 nudge off the grid
+        var pitch: Int = 0           // semitones per successive echo
         var gateBeats: Double = 0.25
     }
     private static let echoTailCap = 256
@@ -422,8 +425,8 @@ final class Router {
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
-    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8,
-                              timeBeats: Double, repeats: Int, decay: Double, gateBeats: Double) {
+    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double,
+                              repeats: Int, feedDelay: Double, feedback: Double, offset: Double, pitch: Int, gateBeats: Double) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -433,7 +436,8 @@ final class Router {
             slot = oldest
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
-                                   timeBeats: timeBeats, repeats: min(8, repeats), decay: decay, gateBeats: gateBeats)
+                                   timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
+                                   feedback: feedback, offset: offset, pitch: pitch, gateBeats: gateBeats)
     }
 
     func reset() {
@@ -1124,7 +1128,7 @@ final class Router {
     /// on the synth) and REGISTER a tail per struck note. Single-slot `[ECHO]` cells only (v1): a multi-slot chain's
     /// echo folds as pass-through (mode is taken from the head). Called once per column transition; the repeats
     /// themselves emit from `drainEchoTails` every window.
-    private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double,
+    private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double, tempo: Double,
                                mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
                                windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard pool.count > 0 || latchMask != 0 else { return }
@@ -1140,33 +1144,45 @@ final class Router {
             if !onSceneAudible(colour.on, pass: pass) { continue }
             guard isEchoTail(cell) else { continue }   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
             let tailIdx = cell.procs.count - 1
-            let p = cell.procs[tailIdx]                 // the ECHO slot's own TIME/REPEATS/DECAY (not the head's)
-            let timeBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
-            guard timeBeats > 0 else { continue }
-            let repeats = max(1, min(8, Int(p.count)))
-            let decay = max(0, min(1, p.ramp))
-            let gateBeats = min(timeBeats * 0.9, S * 0.9)
-            let offSample = sampleOf(musical: colStart + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                     windowStart: windowStart, S: S, a: a)
-            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
-            let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)
-            currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
-            currentCellIndex = column * Snap.rows + r
-            // SOURCE: a multi-slot chain echoes its upstream stages' composed hold set ([PASSGATE→ECHO] echoes the
-            // gated chord, [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
-            let cellPool = effectivePool(for: cell, live: pool)
-            let multi = cell.procs.count >= 2
-            if multi { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
-            let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
-            for k in 0..<srcN {
-                let base = multi ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-                let n = base + transpose
-                guard n >= 0 && n <= 127 else { continue }
-                emitArtic(note: UInt8(n), busMask: bm, onSample: onSample, offSample: offSample,   // the DRY strike
+            let p = cell.procs[tailIdx]                 // the ECHO slot's own controls (user 2026-08-08)
+            registerEcho(p, cell: cell, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
+                         colStart: colStart, onSample: onSample, S: S, a: a, beatPos: beatPos,
+                         beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+        }
+    }
+    /// Strike the DRY note (only when THRU) + register the echo tail for each source note of an echo-tail cell —
+    /// shared by the single/hold-tail path (emitEchoColumn) and the tick-driven path ([ARP→ECHO], per driver tick).
+    private func registerEcho(_ p: SnapParams, cell: SnapCell, colour: SnapColour, ci: Int, column: Int, r: Int,
+                              pool: NotePool, tempo: Double, colStart: Double, onSample: Int64, S: Double, a: Double,
+                              beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
+                              out: MIDIEmitter?, diag: inout KernelDiag) {
+        // DELAY TIME: synced = 16th-notes (div/4 beats; 4 = one beat) · free = ms → beats at the live tempo.
+        let timeBeats = p.echoSync ? Double(p.echoDelayDiv) / 4.0 : max(0.001, p.echoDelayMs / 1000.0 * tempo / 60.0)
+        guard timeBeats > 0 else { return }
+        let repeats = max(1, min(16, p.echoRepeats))
+        let gateBeats = min(timeBeats * 0.9, S * 0.9)
+        let offSample = sampleOf(musical: colStart + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                 windowStart: windowStart, S: S, a: a)
+        let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
+        currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
+        currentCellIndex = column * Snap.rows + r
+        // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([PASSGATE→ECHO] the gated chord,
+        // [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
+        let cellPool = effectivePool(for: cell, live: pool)
+        let multi = cell.procs.count >= 2
+        if multi { composeChainSet(cell: cell, pool: cellPool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
+        let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
+        for k in 0..<srcN {
+            let base = multi ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
+            let n = base + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            if p.echoThru {                               // THRU passes the dry note; MUTE = echoes only
+                emitArtic(note: UInt8(n), busMask: bm, onSample: onSample, offSample: offSample,
                           windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
-                pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: bm,
-                             timeBeats: timeBeats, repeats: repeats, decay: decay, gateBeats: gateBeats)
             }
+            pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: bm, timeBeats: timeBeats, repeats: repeats,
+                         feedDelay: p.echoFeedDelay, feedback: p.echoFeedback, offset: p.echoOffset, pitch: p.echoPitch, gateBeats: gateBeats)
         }
     }
 
@@ -1182,17 +1198,20 @@ final class Router {
         echoPrevMEnd = mEnd
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
-            if e.onset + Double(e.repeats) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
+            if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
             for k in 1...e.repeats {
-                let tau = e.onset + Double(k) * e.timeBeats
+                let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
                 if tau < mStart || tau >= mEnd { continue }                 // half-open: fires in exactly one window
-                let v = Int((Double(e.vel) * pow(e.decay, Double(k))).rounded())
-                if v < 1 { continue }                                       // decay floor kills
+                // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
+                let v = Int((Double(e.vel) * e.feedDelay * pow(e.feedback, Double(k - 1))).rounded())
+                if v < 1 { continue }                                       // level floor kills the tail
+                let n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each successive echo
+                guard n >= 0 && n <= 127 else { continue }
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
-                emitArtic(note: e.note, busMask: e.busMask, onSample: onT, offSample: offT,
+                emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT,
                           windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
             }
         }
@@ -1477,7 +1496,7 @@ final class Router {
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
             emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,   // ECHO: strike the dry + register the tail
-                           S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                           S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a SINGLE-COLUMN lap pins effColumn, so the column-change reconcile above never fires — a
