@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ GENERATORS — EUCLID · BURST · CASCADE (three new processor types) (2026-08-08, on `main`, PUSHED `41fee32`;
+  macOS 529 green, iOS builds; DEVICE ear-check owed). The spec's generator brainstorm, first three: single-slot tick
+  processors that generate from the held chord. **EUCLID** — K-of-N euclidean rhythm (PULSES hits spread across STEPS,
+  rotatable; strikes the whole chord per pulse); pure `euclidPattern(pulses:steps:rotation:)` (hit on step 0, exactly
+  K). **BURST** — one-shot accel/decel roll (COUNT strikes, CURVE bends spacing +1 accel/0 even/−1 decel, vel fades);
+  pure `burstFractions(count:curve:)`. **CASCADE** — reveals the chord one note at a time (RATE, UP/DOWN), each held
+  to the boundary. EUCLID adds 3 append-only params (euclidPulses/Steps/Rot); BURST reuses count+curve, CASCADE reuses
+  rate+strumDir. Wiring: ProcessorType/CellMode/cellMode/emblem/typeDescription/macroParams + resolve + shared
+  `emitGeneratorRow` (window-scan, half-open, chop-routed, offs scheduled). **Single-slot only in v1** (not chain
+  drivers yet — like echo's intro; the driver dispatch + chainDriverIndex are unchanged). Tests: pure pattern + render
+  (euclid=12·burst=4·cascade=3) + all three added to the fuzz `randomDoc` (no-stuck-notes across every edge). ROSTER
+  is now 10 types. DEFERRED: generators as chain drivers · the rest of the brainstorm (DRONE·HUMANIZE·SHIFT·MOD·BEND).**
 - **▶ ECHO: FEEDBACK removed (→ DECAY) + TAIL SPILL RING|CUT — design ferry (2026-08-08, on `main`, PUSHED `802e6ac`;
   macOS 524 green, iOS builds; DEVICE ear-check owed). Actioned `_dear_claude_code/ASK-echo-feedback-removal` (design
   2026-08-07). §1: my echo is TAPS-EQUIVALENT (drainEchoTails computes each repeat directly; no repeat REGISTERS a
