@@ -342,7 +342,7 @@ extension DiagView {
                  cellHeight: cellHeight, editing: false,
                  selCol: selCol, selRow: selRow, onTap: tapCell,
                  onAuditionStart: editGridLongPress, onAuditionEnd: editGridLongEnd,
-                 laneMask: laneMask, onLaneMask: nil, onColumnKey: toggleLoopColumn, holdLatch: false,
+                 laneMask: laneMask, onColumnKey: toggleLoopColumn, holdLatch: false,
                  onMoveCell: editMode == .move ? moveCell : nil, moveMode: editMode == .move, flagNoDest: false, animateSelection: true,
                  showAddPlus: editMode == .addEdit && !sel.isEmpty,
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
@@ -494,7 +494,15 @@ extension DiagView {
         let targets: [MacroTarget] = deltas.compactMap { k, d in
             (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
         }
-        if !targets.isEmpty { au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8) }
+        if !targets.isEmpty {
+            au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8)
+            // BUG FIX (user 2026-08-08): a freshly-bound macro sat at VALUE 0 → base + 0·delta = MAIN, so "applying"
+            // the macro did nothing audible until it was driven from the grid. Drive it to FULL on bind so the
+            // authored WITH-MACRO sound is live immediately (the grid slider can pull it back to MAIN).
+            if let macros = au?.uiMacros(), macros.indices.contains(macroIndex), macros[macroIndex].value == 0 {
+                au?.setMacroValue(macroIndex, 1.0)
+            }
+        }
         refreshFromDocument()
     }
     /// UNBIND — "Remove from M{n}": drop THIS slot's targets on this macro (reflected live in the MIDI out).

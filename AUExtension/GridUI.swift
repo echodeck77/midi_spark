@@ -160,7 +160,6 @@ struct GridView: View {
     var onLongPressStageCell: ((Int, Int) -> Void)? = nil   // EDIT: long-press a populated cell → put it in cell-edit (+ armed for relocate)
     var laneMask: UInt8 = 0                          // §5b: held columns (bit i = column i) — for the LOOP highlight
     var laneHue: Color = accentCyan                  // the COLUMN SELECTOR tint — GRID mode colour (SINGLE green · MULTI yellow), user 2026-08-05
-    var onLaneMask: ((UInt8) -> Void)? = nil         // PERFORM: multi-column HOLD on the keys → held-set bitmask
     var onColumnKey: ((Int) -> Void)? = nil          // MODE ROW · EDIT page: TAP a column key → toggle it in the loop set
     var holdLatch: Bool = false                      // §5c: while ON, an audition release LATCHES (keeps droning)
     var onMoveCell: ((_ from: (col: Int, row: Int), _ to: (col: Int, row: Int)) -> Void)? = nil   // §5 drag-and-drop (EDIT)
@@ -274,14 +273,13 @@ struct GridView: View {
                     .overlay(RoundedRectangle(cornerRadius: 6)                 // LOOP state = held key ring (§5b)
                         .stroke(held ? laneHue : .clear, lineWidth: 2).padding(1))
                     .contentShape(Rectangle())
-                    .onTapGesture { onColumnKey?(col) }             // MODE ROW · EDIT page: tap toggles this column in the loop
-                    .onLongPressGesture(minimumDuration: 0.3) { onColumnKey?(col) }   // tap OR long-press toggles (user 2026-08-06); the main grid's ColumnHoldOverlay already toggles on touch-down
+                    // HARD RULE (user 2026-08-08): ANY gesture on a column selector toggles that column in the LOOP
+                    // set, regardless of mode/page — ONE code path (tap + long-press → onColumnKey), no separate
+                    // multi-touch overlay. Other looped columns persist alongside it.
+                    .onTapGesture { onColumnKey?(col) }
+                    .onLongPressGesture(minimumDuration: 0.3) { onColumnKey?(col) }
             }
         }
-        // PERFORM: a transparent multi-touch layer over the key row → held-column bitmask (the LAP). ALWAYS LATCHED
-        // now (user 2026-08-03): a tap toggles a column into the loop set and it PERSISTS (like Hold was on), showing
-        // the "repeat" LOOP glyph — the same tap-toggle behaviour + icon as the EDIT page's column keys.
-        .overlay { if !editing, let cb = onLaneMask { ColumnHoldOverlay(gap: Self.vGap, latched: true, onChange: cb) } }
     }
 
     // (Master playhead ARROW retired 2026-08-06 — the sweeping ▼ across the key row is gone; the active column's
@@ -1192,59 +1190,6 @@ struct MasterView: View {
 
 /// HEADER (delta §6): logotype · STEP rate · SWING · PASS/transport readout. STEP/SWING are the
 /// scene-level timing controls (AUParameters 0/1) — the only in-plugin way to set them.
-/// §5b COLUMN-SUBSET LAP — the multi-column HOLD gesture. A `UIView` (not a SwiftUI gesture) because
-/// SwiftUI can't reliably track SIMULTANEOUS touches across the sibling column keys; this one view
-/// receives every touch, maps each to a column, and reports the held-column BITMASK. Being UIKit, it
-/// SURVIVES SwiftUI re-renders — so the 4 Hz poll can never tear a hold down mid-gesture. Only mounted
-/// in PERFORM; unmounting (mode switch) cancels its touches → the parent gets mask 0.
-private struct ColumnHoldOverlay: UIViewRepresentable {
-    let gap: CGFloat
-    var latched: Bool = false          // §5c HOLD: column keys become membership TOGGLES (editable lap set)
-    let onChange: (UInt8) -> Void
-
-    func makeUIView(context: Context) -> TouchRow { let v = TouchRow(); v.gap = gap; v.onChange = onChange; v.latched = latched; return v }
-    func updateUIView(_ v: TouchRow, context: Context) { v.gap = gap; v.onChange = onChange; v.latched = latched }
-
-    final class TouchRow: UIView {
-        var gap: CGFloat = 3
-        var onChange: ((UInt8) -> Void)?
-        // §5c: while latched, a TAP toggles a column's membership and the set persists (release does
-        // nothing). HOLD-on GRADUATES the currently-held columns into the set; HOLD-off clears it (the
-        // VC also drops the engine lap). Momentary hold is the un-latched behaviour, unchanged.
-        var latched: Bool = false {
-            didSet { if latched != oldValue { latchedMask = latched ? currentTouchMask() : 0 } }
-        }
-        private var latchedMask: UInt8 = 0
-        private var active: Set<UITouch> = []
-
-        override init(frame: CGRect) { super.init(frame: frame); isMultipleTouchEnabled = true; backgroundColor = .clear }
-        required init?(coder: NSCoder) { fatalError("no coder") }
-
-        private func column(_ t: UITouch) -> Int? {
-            let w = bounds.width; guard w > 0 else { return nil }
-            let stride = (w + gap) / 8            // per-key stride: 8 keys + 7 inter-key gaps ⇒ (w+gap)/8
-            let c = Int((t.location(in: self).x / stride).rounded(.down))
-            return (c >= 0 && c < 8) ? c : nil
-        }
-        private func currentTouchMask() -> UInt8 {
-            var mask: UInt8 = 0
-            for t in active where t.phase != .ended && t.phase != .cancelled {
-                if let c = column(t) { mask |= 1 << UInt8(c) }
-            }
-            return mask
-        }
-        private func report() { onChange?(latched ? latchedMask : currentTouchMask()) }
-
-        override func touchesBegan(_ ts: Set<UITouch>, with e: UIEvent?) {
-            active.formUnion(ts)
-            if latched { for t in ts { if let c = column(t) { latchedMask ^= (1 << UInt8(c)) } } }   // tap = toggle
-            report()
-        }
-        override func touchesMoved(_ ts: Set<UITouch>, with e: UIEvent?)     { if !latched { report() } }
-        override func touchesEnded(_ ts: Set<UITouch>, with e: UIEvent?)     { active.subtract(ts); if !latched { report() } }
-        override func touchesCancelled(_ ts: Set<UITouch>, with e: UIEvent?) { active.subtract(ts); if !latched { report() } }
-    }
-}
 
 // (HeaderView retired — the header + scene strip merged into the VC's `arrangementBar` for AB-1; its
 //  logotype / mode-toggle / undo-redo / PASS-readout live inline there now.)

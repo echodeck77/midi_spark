@@ -305,6 +305,14 @@ struct DiagView: View {
     /// the dormant rungs; tap again restores). Tapping a DORMANT rung makes it the active one — but BLINK-arm (commit
     /// at the column's next entry) ONLY if the playhead is sounding this column right now; otherwise flip instantly.
     func armLadderRung(_ col: Int, _ row: Int) {
+        if scene.cellAt(col, row)?.muted == true {       // BUG FIX (user 2026-08-08): a MULTI/edit-muted cell was
+            au?.editScene { $0.cells[col][row]?.muted = false }   // un-clearable in SINGLE (the tap only armed a rung, never
+            au?.editScene(record: false) { s in          // touched `muted`). Now tapping a muted cell UNMUTES it AND makes
+                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                ar[col] = row; s.activeRow = ar          // it the active rung (so it plays) — the single-mode path to clear a stuck mute.
+            }
+            ladderPending[col] = nil; refreshFromDocument(); return
+        }
         if row == scene.ladderActiveRow(col) {           // re-tap the active rung → DESELECT: nothing speaks this column
             au?.editScene(record: false) { s in          // (a −1 sentinel — SINGLE never touches `muted`, so MULTI's mutes are preserved)
                 var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
@@ -320,21 +328,6 @@ struct DiagView: View {
             }
         }
         ladderPending[col] = armed ? row : nil
-        refreshFromDocument()
-    }
-    /// LADDER · row selector (user 2026-08-03, revised 2026-08-07): select the whole row — make it the active rung in
-    /// EVERY column. A column whose cell at `row` is OCCUPIED plays it; a column whose cell at `row` is EMPTY MUTES
-    /// (nothing speaks). The currently-sounding column ARMS (flashes, deactivates when the playhead leaves) instead of
-    /// cutting mid-note; the rest flip now. (No `muted` change — SINGLE is selection-only; MULTI owns mute.)
-    func setLadderRow(_ row: Int) {
-        let playingCol = d.playing ? d.effColumn : -1
-        au?.editScene(record: false) { s in
-            var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
-            for c in 0..<8 where c != playingCol { ar[c] = row }   // instant flip for every column except the one playing
-            s.activeRow = ar
-        }
-        ladderPending = [:]                                  // an explicit row select supersedes any prior armed per-column switch…
-        if playingCol >= 0 { ladderPending[playingCol] = row }   // …but the SOUNDING column arms (populated → switch · empty → mute)
         refreshFromDocument()
     }
     /// The dormant rungs (dimmed) while LADDER is on: every occupied cell that is NOT its column's active rung.
@@ -1252,7 +1245,7 @@ struct DiagView: View {
                      cellHeight: cellHeight, editing: false,   // demolition: the grid is PERFORM/triggers-only now
                      selCol: selCol, selRow: selRow, onTap: tapCell,
                      onAuditionStart: startAudition, onAuditionEnd: endAudition,
-                     laneMask: laneMask, laneHue: ladderMode ? ladderHue : sceneAmberHue, onLaneMask: setLane, holdLatch: holdLatch,
+                     laneMask: laneMask, laneHue: ladderMode ? ladderHue : sceneAmberHue, onColumnKey: toggleLoopColumn, holdLatch: holdLatch,
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      cellStrikeSeq: cellStrikeSeq,                   // MOSAIC: per-cell moment counter (one rectangle per moment)
@@ -1285,20 +1278,16 @@ struct DiagView: View {
                     .frame(width: 40, height: cellHeight)
                     .background(RoundedRectangle(cornerRadius: 5).fill(hue.opacity(0.1)))
                     .contentShape(Rectangle())
-                    .onTapGesture { if ladderMode { setLadderRow(r) } else if let v = activeVerb { doVerbOnRow(v, r) } }
+                    // HARD RULE (user 2026-08-08): ANY gesture on a row selector == tapping EVERY cell in that row,
+                    // regardless of mode. No mode-specific branch — `tapCell` already does the right per-cell thing.
+                    .onTapGesture { tapRow(r) }
+                    .onLongPressGesture(minimumDuration: 0.3) { tapRow(r) }
             }
         }
     }
-    // §11 apply the active verb across a whole row (all 8 columns).
-    func doVerbOnRow(_ v: Verb, _ row: Int) {
-        guard let au else { return }
-        switch v {
-        case .place: au.editScene { for c in 0..<8 { placeToggle(&$0, c, row) } }; refreshFromDocument()   // row toggle-with-memory
-        case .delete: au.editScene { for c in 0..<8 { $0.deleteCellSever(col: c, row: row) } }
-                      for c in 0..<8 { selection.remove(GridView.GridPos(col: c, row: row)) }; refreshFromDocument()
-        case .copy, .paste: break                           // row-scope copy/paste is deferred (ambiguous)
-        }
-    }
+    // The row selector's ONE behaviour: apply the per-cell tap to all 8 cells in the row (mute in MULTI, arm-the-rung
+    // in SINGLE, place/delete under a held verb, select in EDIT — whatever a single tap does, done across the row).
+    func tapRow(_ row: Int) { for c in 0..<8 { tapCell(c, row) } }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
     var strokeActive: Bool { heldVerb == .place || heldVerb == .delete }
