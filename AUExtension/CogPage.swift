@@ -93,6 +93,7 @@ struct CogPage: View {
             healthStat("VOICES", Int(d.activeVoiceCount))
             healthStat("HELD", Int(d.poolCount))
             healthStat("PANICS", Int(d.panics), alert: d.panics > 0)
+            healthStat("DROPPED", d.floodDropped, alert: d.floodDropped > 0)   // FLOOD GOVERNOR tell (incident 2026-08-08)
             Spacer()
         }
     }

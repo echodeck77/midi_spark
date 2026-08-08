@@ -65,3 +65,9 @@ The shape gains a second, separable layer — WHAT × WHEN:
   routing rhythm · GROOVE = articulation rhythm · THE MASK =
   melodic rhythm** — each at its own level, all composable on one
   cell.
+
+## §3 — EUCLID MEETS THE POOL (Paul, 2026-08-08)
+- **THE MASK: k gains the value N** — EUCLID(N, M): the hit-count
+  follows the pool size live (three held = E(3,M); five = E(5,M)).
+  Density from the hand; one chip value; the count family's
+  missing member.
