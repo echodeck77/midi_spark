@@ -277,9 +277,10 @@ enum SnapshotBuilder {
         if let v = p.echoRepeats { out.echoRepeats = clamp(v, 1, 16) }
         if let v = p.echoOffset { out.echoOffset = clamp(v, -0.33, 0.33) }
         if let v = p.echoFeedDelay { out.echoFeedDelay = clamp(v, 0, 1) }
-        if let v = p.echoFeedback { out.echoFeedback = clamp(v, 0, 1) }
+        if let v = p.echoDecay { out.echoDecay = clamp(v, 0, 1) }
         if let v = p.echoPitch { out.echoPitch = clamp(v, -24, 24) }
         if let v = p.echoThru { out.echoThru = v }
+        if let v = p.echoSpill { out.echoSpill = v }
         return out
     }
 }

@@ -409,15 +409,16 @@ final class Router {
         var active = false
         var onset: Double = 0        // musical beat of the dry strike (echo k at onset + (k + offset)·timeBeats)
         var note: UInt8 = 0
-        var vel: UInt8 = 0           // the DRY velocity; echo k = vel · feedDelay · feedback^(k-1)
+        var vel: UInt8 = 0           // the DRY velocity; echo k = vel · feedDelay · decay^(k-1)
         var busMask: UInt8 = 0
         var timeBeats: Double = 0.5
         var repeats: Int = 0         // 1…16
         var feedDelay: Double = 0.7  // input send — first echo level
-        var feedback: Double = 0.5   // regeneration — decay ratio between echoes
+        var decay: Double = 0.5   // regeneration — decay ratio between echoes
         var offset: Double = 0       // ±0.33 nudge off the grid
         var pitch: Int = 0           // semitones per successive echo
         var gateBeats: Double = 0.25
+        var spill: EchoSpill = .ring // RING = tail spills past the column · CUT = pending repeats die at column exit
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -425,8 +426,9 @@ final class Router {
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
-    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double,
-                              repeats: Int, feedDelay: Double, feedback: Double, offset: Double, pitch: Int, gateBeats: Double) {
+    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
+                              feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double,
+                              spill: EchoSpill = .ring) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -437,7 +439,7 @@ final class Router {
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
-                                   feedback: feedback, offset: offset, pitch: pitch, gateBeats: gateBeats)
+                                   decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill)
     }
 
     func reset() {
@@ -1182,7 +1184,8 @@ final class Router {
                           windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
             }
             pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: bm, timeBeats: timeBeats, repeats: repeats,
-                         feedDelay: p.echoFeedDelay, feedback: p.echoFeedback, offset: p.echoOffset, pitch: p.echoPitch, gateBeats: gateBeats)
+                         feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
+                         gateBeats: gateBeats, spill: p.echoSpill)
         }
     }
 
@@ -1198,12 +1201,15 @@ final class Router {
         echoPrevMEnd = mEnd
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
+            // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
+            // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
+            if e.spill == .cut && mStart >= (e.onset / S).rounded(.down) * S + S { echoTails[i].active = false; continue }
             if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
                 if tau < mStart || tau >= mEnd { continue }                 // half-open: fires in exactly one window
                 // FEED DELAY = the first echo's send level · FEEDBACK = the per-echo decay ratio (tail length)
-                let v = Int((Double(e.vel) * e.feedDelay * pow(e.feedback, Double(k - 1))).rounded())
+                let v = Int((Double(e.vel) * e.feedDelay * pow(e.decay, Double(k - 1))).rounded())
                 if v < 1 { continue }                                       // level floor kills the tail
                 let n = Int(e.note) + k * e.pitch                           // PITCH: climb/descend each successive echo
                 guard n >= 0 && n <= 127 else { continue }
@@ -1741,8 +1747,8 @@ final class Router {
         guard note >= 0 && note <= 127, p.echoSync else { return }
         let timeBeats = Double(p.echoDelayDiv) / 4.0
         pushEchoTail(onset: onset, note: UInt8(note), vel: vel, busMask: bm, timeBeats: timeBeats,
-                     repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, feedback: p.echoFeedback,
-                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9))
+                     repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, decay: p.echoDecay,
+                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9), spill: p.echoSpill)
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {

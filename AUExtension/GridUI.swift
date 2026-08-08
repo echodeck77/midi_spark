@@ -1430,7 +1430,8 @@ struct ProcessorBox: View {
         case .echo:   // the DELAY-ECHO controls (user 2026-08-08)
             let reps = p.echoRepeats ?? 3, sync = p.echoSync ?? true, div = p.echoDelayDiv ?? 4
             let ms = p.echoDelayMs ?? 250, off = p.echoOffset ?? 0, fd = p.echoFeedDelay ?? 0.7
-            let fb = p.echoFeedback ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
+            let dec = p.echoDecay ?? 0.5, pit = p.echoPitch ?? 0, thru = p.echoThru ?? true
+            let spill = p.echoSpill ?? .ring
             field("REPEATS  \(reps)") { grid16(sel: reps) { v in setParam { $0.echoRepeats = v } } }
             field("SYNC") { seg(["ON", "OFF"], sel: sync ? "ON" : "OFF") { i in setParam { $0.echoSync = (i == 0) } } }
             if sync {
@@ -1442,10 +1443,13 @@ struct ProcessorBox: View {
                 Slider(value: bind(off) { v in setParam { $0.echoOffset = v } }, in: -0.33...0.33).tint(accent) }
             field("FEED DELAY  \(Int(fd * 100))%") {
                 Slider(value: bind(fd) { v in setParam { $0.echoFeedDelay = v } }, in: 0...1).tint(accent) }
-            field("FEEDBACK  \(Int(fb * 100))%") {
-                Slider(value: bind(fb) { v in setParam { $0.echoFeedback = v } }, in: 0...1).tint(accent) }
+            field("DECAY  \(Int(dec * 100))%") {
+                Slider(value: bind(dec) { v in setParam { $0.echoDecay = v } }, in: 0...1).tint(accent) }
             field("PITCH  \(pit > 0 ? "+" : "")\(pit) st / echo") { stepper(pit, -24, 24) { v in setParam { $0.echoPitch = v } } }
             field("ORIGINAL") { seg(["THRU", "MUTE"], sel: thru ? "THRU" : "MUTE") { i in setParam { $0.echoThru = (i == 0) } } }
+            // TAIL SPILL (design 2026-08-07): RING lets echoes spill past the bar; CUT keeps them inside it (the note
+            // already sounding always finishes). HAND is a birthstone (deferred) — not offered yet.
+            field("SPILL") { seg(["RING", "CUT"], sel: spill == .cut ? "CUT" : "RING") { i in setParam { $0.echoSpill = (i == 0 ? .ring : .cut) } } }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

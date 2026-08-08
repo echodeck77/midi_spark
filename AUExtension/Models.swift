@@ -70,11 +70,16 @@ struct ColourParams: Codable, Equatable {
     var echoDelayMs: Double? = 250      // free: delay in ms
     var echoRepeats: Int? = 3           // number of echoes 1…16
     var echoOffset: Double? = 0         // ±0.33 — nudge echoes ahead of / behind the grid (fraction of the interval)
-    var echoFeedDelay: Double? = 0.7    // 0…1 — input send: how loud the FIRST echo is (+ how fast repeats fade)
-    var echoFeedback: Double? = 0.5     // 0…1 — regeneration: decay ratio between echoes / tail length
+    var echoFeedDelay: Double? = 0.7    // 0…1 — input send: how loud the FIRST echo is
+    var echoDecay: Double? = 0.5        // 0…1 — per-echo velocity FALLOFF (was FEEDBACK; removed per design 2026-08-07)
     var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending)
     var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
+    var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
 }
+/// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
+/// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its
+/// gate); HAND is the deferred BIRTHSTONE (handed repeats fire into the pool below). Enum three-valued from day one.
+enum EchoSpill: String, Codable, CaseIterable { case ring = "RING", cut = "CUT", hand = "HAND" }
 
 struct Colour: Codable, Equatable {
     var colourID: String
@@ -895,11 +900,11 @@ struct PluginState: Codable, Equatable {
     private static func lRtc(_ count: Int) -> ProcessorSlot { var p = ColourParams(); p.count = count; return ProcessorSlot(type: .ratchet, params: p) }
     private static func lChnc(_ prob: Double) -> ProcessorSlot { var p = ColourParams(); p.probability = prob; return ProcessorSlot(type: .chance, params: p) }
     /// A configured ECHO (delay) slot — synced 16th-note divisions by default (user 2026-08-08 delay controls).
-    static func lEcho(div: Int = 4, repeats: Int = 4, feedDelay: Double = 0.7, feedback: Double = 0.5,
+    static func lEcho(div: Int = 4, repeats: Int = 4, feedDelay: Double = 0.7, decay: Double = 0.5,
                       offset: Double = 0, pitch: Int = 0, thru: Bool = true, sync: Bool = true, ms: Double = 250) -> ProcessorSlot {
         var p = ColourParams()
         p.echoSync = sync; p.echoDelayDiv = div; p.echoDelayMs = ms; p.echoRepeats = repeats
-        p.echoFeedDelay = feedDelay; p.echoFeedback = feedback; p.echoOffset = offset; p.echoPitch = pitch; p.echoThru = thru
+        p.echoFeedDelay = feedDelay; p.echoDecay = decay; p.echoOffset = offset; p.echoPitch = pitch; p.echoThru = thru
         return ProcessorSlot(type: .echo, params: p)
     }
 
@@ -1001,14 +1006,14 @@ struct PluginState: Codable, Equatable {
     static func makeDelays() -> PluginState {
         let hues = ["gold", "orange", "vermilion", "wine", "magenta", "purple", "violet", "indigo"]
         let machines: [[ProcessorSlot]] = [
-            [lEcho(div: 3, repeats: 1, feedDelay: 0.85, feedback: 0)],                 // R1 SLAP — one quick echo
-            [lEcho(div: 2, repeats: 3, feedDelay: 0.8,  feedback: 0.5)],               // R2 DOUBLE — 1/8, a few taps
-            [lEcho(div: 3, repeats: 4, feedDelay: 0.75, feedback: 0.55)],              // R3 DOTTED — dotted-note swing
-            [lEcho(div: 4, repeats: 4, feedDelay: 0.75, feedback: 0.6)],               // R4 QUARTER — one per beat
-            [lEcho(div: 4, repeats: 12, feedDelay: 0.7, feedback: 0.85)],              // R5 DUB — long feedback tail
-            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  feedback: 0.6, pitch: 3)],     // R6 RISER — climbing +3
-            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  feedback: 0.6, pitch: -3)],    // R7 FALLER — descending −3
-            [lEcho(div: 8, repeats: 3, feedDelay: 0.75, feedback: 0.7, offset: 0.2)]]  // R8 CANYON — half-note, wide
+            [lEcho(div: 3, repeats: 1, feedDelay: 0.85, decay: 0)],                 // R1 SLAP — one quick echo
+            [lEcho(div: 2, repeats: 3, feedDelay: 0.8,  decay: 0.5)],               // R2 DOUBLE — 1/8, a few taps
+            [lEcho(div: 3, repeats: 4, feedDelay: 0.75, decay: 0.55)],              // R3 DOTTED — dotted-note swing
+            [lEcho(div: 4, repeats: 4, feedDelay: 0.75, decay: 0.6)],               // R4 QUARTER — one per beat
+            [lEcho(div: 4, repeats: 12, feedDelay: 0.7, decay: 0.85)],              // R5 DUB — long decay tail
+            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  decay: 0.6, pitch: 3)],     // R6 RISER — climbing +3
+            [lEcho(div: 2, repeats: 6, feedDelay: 0.7,  decay: 0.6, pitch: -3)],    // R7 FALLER — descending −3
+            [lEcho(div: 8, repeats: 3, feedDelay: 0.75, decay: 0.7, offset: 0.2)]]  // R8 CANYON — half-note, wide
         var grid = SceneState.empty()
         for row in 0..<8 {
             var c = Cell(colourID: hues[row]); c.inputReceiver = 0; c.buses = [.a]; c.processors = machines[row]

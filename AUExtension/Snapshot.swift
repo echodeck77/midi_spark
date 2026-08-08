@@ -88,9 +88,10 @@ struct SnapParams {
     var echoRepeats: Int = 3         // 1…16
     var echoOffset: Double = 0       // ±0.33
     var echoFeedDelay: Double = 0.7  // 0…1
-    var echoFeedback: Double = 0.5   // 0…1
+    var echoDecay: Double = 0.5      // 0…1 per-echo falloff
     var echoPitch: Int = 0           // semitones per echo
     var echoThru: Bool = true        // THRU vs MUTE
+    var echoSpill: EchoSpill = .ring // RING past the bar · CUT inside it · HAND (deferred)
 }
 
 struct SnapColour {
