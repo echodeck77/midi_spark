@@ -23,6 +23,7 @@ struct KernelDiag {
     var effRateBeats: Double = 0
     var effSwing: Double = 50
     var emitCount: UInt64 = 0
+    var floodDropped = 0               // FLOOD GOVERNOR: note-ons dropped this session (the cog HEALTH tell)
     var lastEmitNote: UInt8 = 0
     var lastEmitChan: UInt8 = 0        // 0-based wire channel (bus stamp); panel shows +1 (human)
     var effColumn = 0                  // active grid column (0…7), derived (§7)

@@ -193,12 +193,15 @@ final class FuzzTests: XCTestCase {
         var boundsBad: String?
         var last: [Int: UInt8] = [:]
         for ev in out.events {
-            if !(ev.status == 0x80 || ev.status == 0x90) { boundsBad = boundsBad ?? "status \(ev.status)" }
+            // NOTE on/off OR CC (0xB0 — the panic's CC120/CC123 blast, valid MIDI). All 3 data bytes stay in range.
+            if !(ev.status == 0x80 || ev.status == 0x90 || ev.status == 0xB0) { boundsBad = boundsBad ?? "status \(ev.status)" }
             if ev.note > 127 { boundsBad = boundsBad ?? "note \(ev.note)" }
             if ev.vel > 127 { boundsBad = boundsBad ?? "vel \(ev.vel)" }
             if ev.cable > 4 { boundsBad = boundsBad ?? "cable \(ev.cable)" }
             if ev.chan > 15 { boundsBad = boundsBad ?? "chan \(ev.chan)" }
-            last[(Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)] = ev.status
+            if ev.status == 0x80 || ev.status == 0x90 {   // stuck-note tracking is NOTES only — CC never "sounds"
+                last[(Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)] = ev.status
+            }
         }
         let sounding = last.values.filter { $0 == 0x90 }.count
         return FuzzResult(events: out.events, quiescent: router.quiescent, soundingKeys: sounding, boundsBad: boundsBad)

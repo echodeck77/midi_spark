@@ -424,6 +424,15 @@ final class Router {
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
     private var echoPrevMEnd: Double = .nan   // last window's musical end — a large gap ⇒ a seek/loop discontinuity
 
+    // THE FLOOD GOVERNOR (incident 2026-08-08: a runaway ECHO×HARM patch fed thousands of ev/s and wedged the
+    // downstream synths). A hard per-EMITTER note-on cap per BEAT — overflow DROPS (counted), so we stay a good
+    // citizen at our wire beneath every synth's allocator floor. Offs are NEVER capped (no stuck notes). Bounded,
+    // visible (the cog HEALTH counter), never silent-failing. Reset each beat + on transport reset.
+    static let floodCapPerBeat = 48           // dev-tunable; ~48/beat/emitter ≈ 384 ev/s total @ 120bpm
+    private var noteOnsThisBeat = [Int](repeating: 0, count: 4)
+    private var lastGovBeat = Int.min
+    private(set) var floodDropped = 0          // session total surfaced to HEALTH ("dropped N this session")
+
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
@@ -452,6 +461,7 @@ final class Router {
         prevBusEnabledMask = 0b1111
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0; soundCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
+        for i in 0..<4 { noteOnsThisBeat[i] = 0 }; lastGovBeat = Int.min   // FLOOD GOVERNOR: fresh budget on transport reset (floodDropped is a session total)
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
@@ -683,6 +693,18 @@ final class Router {
     func allNotesOff(atSample time: Int64, out: MIDIEmitter?, includeBypass: Bool = false) {
         for i in voices.indices where voices[i].active && (includeBypass || voices[i].bypassRecv < 0) {
             closeVoice(i, atSample: time, out: out)
+        }
+    }
+    /// PANIC belt-and-braces (incident 2026-08-08 §3): beyond our own tracked note-offs, blast CC120 (all-sound-off)
+    /// + CC123 (all-notes-off) on every channel and every cable, so a wedged synth we can't fully account for gets a
+    /// blameless reset. Only on the hard flush (master-MUTE long-press / panic) — never on ordinary edges.
+    func panicControllers(atSample time: Int64, out: MIDIEmitter?) {
+        guard let out else { return }
+        for cable: UInt8 in 0...4 {
+            for ch: UInt8 in 0...15 {
+                out.emit(sampleTime: time, cable: cable, 0xB0 | ch, 120, 0)   // All Sound Off
+                out.emit(sampleTime: time, cable: cable, 0xB0 | ch, 123, 0)   // All Notes Off
+            }
         }
     }
 
@@ -968,6 +990,13 @@ final class Router {
                     closeVoice(i, atSample: onSample, out: out)
                 }
             }
+        }
+        // THE FLOOD GOVERNOR: this note-on has passed every suppression gate and WOULD sound. Cap it — a hard
+        // per-emitter budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a
+        // dropped on simply never opens a voice → nothing to leave stuck. previewMode (stopped audition) is exempt.
+        if !previewMode {
+            if noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
+            noteOnsThisBeat[bus] &+= 1
         }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
@@ -1372,6 +1401,7 @@ final class Router {
         drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out)
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+        diag.floodDropped = floodDropped              // FLOOD GOVERNOR: surface the session drop total to HEALTH
 
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
@@ -1386,6 +1416,7 @@ final class Router {
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
             allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)   // the one hard flush — bypass included
+            panicControllers(atSample: renderSampleImmediate, out: out)   // §3: CC120 + CC123 on every channel/cable
             prevEffColumn = -1
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
@@ -1458,6 +1489,8 @@ final class Router {
         //      with the arp ticks below. The COLUMN-SUBSET LAP (§5b) warps WHICH column is effective
         //      (held keys); the TRUE timeline — pass, passgate, swing — is unwarped (all off mNow). ----
         let mNow = musicalOf(beatPos, stepBeats: S, a: a)
+        let govBeat = Int(beatPos.rounded(.down))                  // FLOOD GOVERNOR: reset the per-emitter budget each beat
+        if govBeat != lastGovBeat { lastGovBeat = govBeat; for i in 0..<4 { noteOnsThisBeat[i] = 0 } }
         let cycleBeats = Double(Snap.cols) * S
         let posInCycle = mNow - (mNow / cycleBeats).rounded(.down) * cycleBeats
         let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))

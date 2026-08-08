@@ -66,7 +66,7 @@ final class RouterTests: XCTestCase {
     /// instance releases, so on,on,off is legal — but the sequence must never END on an ON.
     private func assertNothingLeftSounding(_ e: RecordingEmitter, file: StaticString = #filePath, line: UInt = #line) {
         var last: [Int: UInt8] = [:]   // key → last status
-        for ev in e.events {
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {   // NOTES only — ignore CC (e.g. panic's CC120/123)
             let key = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
             last[key] = ev.status
         }
@@ -159,6 +159,50 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e1.ons.filter { $0.cable == 1 }.count, 3, "each note struck once, humanized")
         XCTAssertEqual(e1.ons.map { $0.note }, e2.ons.map { $0.note }, "seeded → replay-safe (byte-identical)")
         assertNothingLeftSounding(e1)
+    }
+    // THE FLOOD (incident 2026-08-08) — the range-drop guard, the governor, and the panic controllers.
+    func testEchoPitchClimbNeverEncodesAboveMidi127() {
+        // ECHO +12/repeat from a high note climbs out of MIDI range; those repeats must be DROPPED at the ring
+        // drain, NEVER encoded as a byte ≥128 (which a synth reads as a status → parser desync → every synth mutes).
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .echo)
+            c.paramsA.echoDelayDiv = 1; c.paramsA.echoRepeats = 12; c.paramsA.echoFeedDelay = 1
+            c.paramsA.echoDecay = 1; c.paramsA.echoPitch = 12; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([100]), beats: 3, into: e)             // 100 → 112 → 124 → 136 (out of range → dropped) …
+        XCTAssertTrue(e.events.allSatisfy { $0.note <= 127 }, "no wire byte encodes a note above 127")
+        assertNothingLeftSounding(e)
+    }
+    func testFloodGovernorCapsAndCountsDrops() {
+        // Pathological flood: 8 dense euclid cells in column 0, all on emitter A, over a big chord — far past the
+        // per-beat cap. The governor drops the overflow (counted, surfaced to HEALTH) and leaves nothing stuck.
+        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 16; c.paramsA.euclidSteps = 16; return c }
+        let b = box(colours: cs) { for r in 0..<8 { $0.cells[0][r] = Cell(colourID: colourIDs[r], buses: [.a]) } }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0, wb = Double(2048) * 120.0 / 60.0 / 48_000.0
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<40 {
+            router.process(box: b, pool: chord([48, 50, 52, 55, 57, 60, 62, 64]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop flush
+        XCTAssertGreaterThan(router.floodDropped, 0, "the flood tripped the governor")
+        XCTAssertEqual(diag.floodDropped, router.floodDropped, "the drop total is surfaced to HEALTH")
+        assertNothingLeftSounding(e)
+    }
+    func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 0.1, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 2048, frameCount: 2048, panic: true, out: e, diag: &diag)
+        let ccs = e.events.filter { $0.status == 0xB0 }
+        XCTAssertEqual(ccs.filter { $0.note == 123 }.count, 5 * 16, "CC123 (All-Notes-Off) on every channel of every cable")
+        XCTAssertEqual(ccs.filter { $0.note == 120 }.count, 5 * 16, "CC120 (All-Sound-Off) on every channel of every cable")
+        assertNothingLeftSounding(e)
     }
     func testEveryArticulationEmitsOnItsBusCableAndTheAllCable() {
         // delta §7b: each articulation emits on its own bus cable (A = cable 1) AND the ALL cable (0),
