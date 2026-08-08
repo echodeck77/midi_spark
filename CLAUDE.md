@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO: FEEDBACK removed (→ DECAY) + TAIL SPILL RING|CUT — design ferry (2026-08-08, on `main`, PUSHED `802e6ac`;
+  macOS 524 green, iOS builds; DEVICE ear-check owed). Actioned `_dear_claude_code/ASK-echo-feedback-removal` (design
+  2026-08-07). §1: my echo is TAPS-EQUIVALENT (drainEchoTails computes each repeat directly; no repeat REGISTERS a
+  repeat) → the FEEDBACK param is removed, renamed `echoFeedback`→`echoDecay` (per-echo falloff) everywhere. KEPT
+  FEED DELAY (Paul's 2026-08-08 ask, not named in the ruling) — flagged to design to reconcile. §3: `EchoSpill` enum
+  three-valued (RING·CUT·HAND); RING (default) spills past the column, CUT kills pending repeats once the playhead
+  crosses the tail's column boundary (last repeat finishes its gate — lap-safe, done in drainEchoTails, no stuck
+  notes), HAND is birthstone (in enum, not in UI). ProcessorBox RING|CUT chip. §2 ROUTE (CHAIN|DIRECT) stays moot
+  (echo always last); §4 TAILS DOOR/HAND captured. Test `testEchoSpillCutStopsRepeatsAtColumnExit`. Reply
+  `_dear_claude/REPLY-2026-08-08-echo-feedback-and-spill` (awaits design ack).**
 - **▶ MIDI DELAYS — playable preset + stampable cells (2026-08-08, on `main`, PUSHED `edd6f19`; macOS 523 green, iOS
   builds; DEVICE ear-check owed). Built on the echo engine. `PluginState.makeDelays()` (factory preset "DELAYS"): 8
   delay flavours (SLAP·DOUBLE·DOTTED·QUARTER·DUB·RISER·FALLER·CANYON), one per ROW in COLUMN 0 only (sparse → tails
