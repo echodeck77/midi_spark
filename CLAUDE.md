@@ -157,6 +157,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ GENERATORS II — DRONE · SHIFT · HUMANIZE (2026-08-08, on `main`, PUSHED `095f5b7`; macOS 532 green, iOS builds;
+  DEVICE ear-check owed). Three more feel/texture processors via the shared `emitGeneratorRow` — NO new schema (each
+  reuses a param). **DRONE** — flat sustained pad, entry chord held to boundary (reuses `gate`=level). **SHIFT** —
+  groove nudge, pushes the onset late 0…~40% of the step (reuses `spread`). **HUMANIZE** — seeded per-note timing +
+  velocity jitter, replay-safe (seed = column·note·index, `splitmix64Mix`; AMOUNT=`spread`). Wiring mirrors euclid/
+  burst/cascade; all added to fuzz `randomDoc`. Tests: DRONE/SHIFT once (3 ons), HUMANIZE replay-safe. **ROSTER NOW
+  13 types.** Remaining list: generators-as-chain-drivers · SCALE (pitch-correct, a transform path) · MOD/BEND (need
+  CC/bend emission infra).**
 - **▶ GENERATORS — EUCLID · BURST · CASCADE (three new processor types) (2026-08-08, on `main`, PUSHED `41fee32`;
   macOS 529 green, iOS builds; DEVICE ear-check owed). The spec's generator brainstorm, first three: single-slot tick
   processors that generate from the held chord. **EUCLID** — K-of-N euclidean rhythm (PULSES hits spread across STEPS,
