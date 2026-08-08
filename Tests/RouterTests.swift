@@ -3417,6 +3417,37 @@ final class RouterTests: XCTestCase {
 
     /// THE TAIL: echo repeats keep sounding AFTER the source chord releases (the activation ring, not a re-derivation
     /// of the current pool) — and the transport-stop edge clears the ring so nothing leaks (quiescent).
+    /// ECHO via the REAL creation path: a cell whose COLOUR A-face is passgate, carrying an explicit single-slot
+    /// [ECHO] processor chain (what addSlotCells builds) — must still dry + repeat (guards the chain→proc resolution).
+    func testEchoViaExplicitSingleSlotChainStillRepeats() {
+        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var s = ProcessorSlot(type: .echo); s.params.rate = .r1_16; s.params.count = 4; s.params.ramp = 0.5
+            c.processors = [s]
+            $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 1.5, into: e)
+        let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
+        XCTAssertGreaterThanOrEqual(strikes.count, 5, "single-slot [ECHO] via cell.processors should dry + repeat")
+        assertNothingLeftSounding(e)
+    }
+    /// ECHO as a chain TAIL (user 2026-08-08 bug): `[PASSGATE(bypassed) → ECHO]` must echo the upstream hold set, not
+    /// fall through to a silent passthrough (emitEchoColumn read the HEAD, so echo-as-tail did nothing).
+    func testEchoAsChainTailEchoesUpstreamSet() {
+        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var s0 = ProcessorSlot(type: .passgate); s0.bypassed = true         // passthrough upstream
+            var s1 = ProcessorSlot(type: .echo); s1.params.rate = .r1_16; s1.params.count = 4; s1.params.ramp = 0.5
+            c.processors = [s0, s1]
+            $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 1.5, into: e)
+        let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
+        XCTAssertGreaterThanOrEqual(strikes.count, 5, "[…→ECHO] echoes the upstream set, not a silent passthrough")
+        assertNothingLeftSounding(e)
+    }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
         let b = box(colours: echoColours(time: .r1_16, repeats: 6, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()

@@ -1043,6 +1043,7 @@ final class Router {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || cellSoloedOut(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
+            if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
@@ -1137,11 +1138,9 @@ final class Router {
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: pass) { continue }
-            var treat = colour; treat.a = cell.proc
-            let mode = cellMode(type: effectiveType(treat, t: 0), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(treat, t: 0), pass: pass)
-            guard mode == .echo else { continue }
-            let p = cell.proc
+            guard isEchoTail(cell) else { continue }   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
+            let tailIdx = cell.procs.count - 1
+            let p = cell.procs[tailIdx]                 // the ECHO slot's own TIME/REPEATS/DECAY (not the head's)
             let timeBeats = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
             guard timeBeats > 0 else { continue }
             let repeats = max(1, min(8, Int(p.count)))
@@ -1153,9 +1152,15 @@ final class Router {
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)
             currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
             currentCellIndex = column * Snap.rows + r
+            // SOURCE: a multi-slot chain echoes its upstream stages' composed hold set ([PASSGATE→ECHO] echoes the
+            // gated chord, [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
             let cellPool = effectivePool(for: cell, live: pool)
-            for k in 0..<cellPool.srcCount(for: cell) {
-                let n = Int(cellPool.srcAscending(k, for: cell)) + transpose
+            let multi = cell.procs.count >= 2
+            if multi { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
+            let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
+            for k in 0..<srcN {
+                let base = multi ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
+                let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 emitArtic(note: UInt8(n), busMask: bm, onSample: onSample, offSample: offSample,   // the DRY strike
                           windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
@@ -1602,6 +1607,13 @@ final class Router {
         guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
         if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
         switch last.type { case .passgate, .chance, .harmonize: return true; default: return false }
+    }
+    /// A cell whose chain TAIL is ECHO and is NOT tick-driven: single-slot `[ECHO]`, or a hold-upstream chain like
+    /// `[PASSGATE→ECHO]` / `[HARMONIZE→ECHO]`. `emitEchoColumn` registers its tail from the composed upstream set;
+    /// `emitColumnHolds` + the tick loop leave it alone. (An `[ARP→ECHO]` tick echo stays Phase-2 — isCoveredChain.)
+    private func isEchoTail(_ cell: SnapCell) -> Bool {
+        guard !isCoveredChain(cell), let last = cell.procs.last, !(cell.slotBypass.last ?? false) else { return false }
+        return last.type == .echo
     }
 
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
