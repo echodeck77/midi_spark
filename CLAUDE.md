@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SELECTOR CONSISTENCY + 3 BUG FIXES (2026-08-08, on `main`, PUSHED `5c42a37`; macOS 519→521 green, iOS builds;
+  DEVICE pass owed). Paul's batch. **SELECTORS (hard rules, mode-independent):** ROW selector — ANY gesture now ==
+  tapping EVERY cell in that row (`tapRow`→`tapCell` per cell); removed `setLadderRow`/`doVerbOnRow` (the mode
+  branches). COLUMN selector — ANY gesture toggles that column in the LOOP set via ONE path (`onColumnKey`, tap +
+  long-press, both pages); removed the separate multi-touch `ColumnHoldOverlay` UIView + `onLaneMask` param. (Row-tap
+  in MULTI is now 8 undo steps — matches "tap every cell". Stale ColumnHoldOverlay comments remain; scroll behaviour
+  untouched.) **BUG — single-mode unmute:** a MULTI/edit-muted cell was un-clearable in SINGLE (tap only armed a
+  rung); now tapping a muted cell in SINGLE unmutes it + makes it the active rung. **BUG — echo as a chain tail:**
+  `[…→ECHO]` had no effect (emitEchoColumn read the HEAD); new `isEchoTail` recognises a non-tick-driven ECHO-tail,
+  echoes the composed upstream set; emitColumnHolds skips it. **Single-slot [ECHO] already worked** (proven by
+  `testEchoViaExplicitSingleSlotChainStillRepeats`) — so if a single-slot echo is still silent on device the cause is
+  wiring, not the engine. `[ARP→ECHO]` tick echo stays Phase-2. **BUG — macro apply inaudible:** a freshly-bound
+  macro sat at value 0; `macroAuthorBind` now drives it to FULL (1.0) on bind so the authored sound is live (grid
+  slider pulls back). +2 echo tests. FLAGGED: discrete-param macros (PATTERN/DIR) still don't fold (Phase-2).**
 - **▶ COVERAGE + REFACTOR PASS — audit-driven (2026-08-08, on `main`, PUSHED `df27ae2`; macOS 514→519 green, iOS
   builds). Two parallel survey agents (missing tests · safe refactorings), findings VERIFIED against the code before
   acting. **+5 TESTS** closing verified pure-core gaps: `resolvedCellChain`/`sealHash` explicit-empty `[]` seals
