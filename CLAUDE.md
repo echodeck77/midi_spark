@@ -157,6 +157,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MIDI DELAYS — playable preset + stampable cells (2026-08-08, on `main`, PUSHED `edd6f19`; macOS 523 green, iOS
+  builds; DEVICE ear-check owed). Built on the echo engine. `PluginState.makeDelays()` (factory preset "DELAYS"): 8
+  delay flavours (SLAP·DOUBLE·DOTTED·QUARTER·DUB·RISER·FALLER·CANYON), one per ROW in COLUMN 0 only (sparse → tails
+  ring across the empty columns), SINGLE mode, 3 scenes (SLAP·DUB·CANYON), OMNI-in→Emit A. Six stampable factory
+  delay CELLS (`CellLibraryStore.factory`: Slap·Double·Dub·Rise·Fall·Canyon — single-slot echoes, machine-minus-
+  routing). Shared `PluginState.lEcho(...)` builder. Test `testMidiDelaysPresetIsEightSparseEchoes` + the factory-
+  cell test covers the new cells.**
 - **▶ ECHO REDESIGN + [ARP→ECHO] + selector/mute rule revisions (2026-08-08, on `main`, PUSHED `ec2a4d9`→`f1800e4`;
   macOS 521→522 green, iOS builds; DEVICE ear-check owed). Paul's batch. **ECHO now a real delay engine** (replaces
   rate/count/ramp reuse): new append-only `ColourParams`/`SnapParams` echo fields — REPEATS 1–16 (8×2 box) · SYNC
