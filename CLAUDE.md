@@ -157,6 +157,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO REDESIGN + [ARP→ECHO] + selector/mute rule revisions (2026-08-08, on `main`, PUSHED `ec2a4d9`→`f1800e4`;
+  macOS 521→522 green, iOS builds; DEVICE ear-check owed). Paul's batch. **ECHO now a real delay engine** (replaces
+  rate/count/ramp reuse): new append-only `ColourParams`/`SnapParams` echo fields — REPEATS 1–16 (8×2 box) · SYNC
+  on/off · DELAY synced (1–16 sixteenths, 4=beat) or free (ms @ tempo) · OFFSET ±33% · FEED DELAY (first-echo send)
+  · FEEDBACK (per-echo decay/tail) · PITCH (semitones/echo, climb/descend) · THRU/MUTE · Bypass (existing).
+  `EchoTail`/`drainEchoTails`/`registerEcho` reworked (echo k at onset+(k+offset)·time, vel=dry·feedDelay·feedback^
+  (k-1), note=dry+k·pitch; repeats cap 16; offs always scheduled → no real stuck notes). Full 8×2+slider editor in
+  ProcessorBox. **[ARP→ECHO]** (answers Paul's "hard rule" Q — yes, the chain is serial): the post-driver fold
+  (`emitDriverNote`) now registers an echo tail per driver TICK (`pushEchoForNote`) instead of passing echo through
+  applyStage; THRU keeps the dry tick, MUTE drops it. v1 tick-echo = SYNCED-delay only (tick emitters don't thread
+  tempo). **SELECTOR rule (revised, supersedes prior):** a row selector taps EVERY cell when the row is uniform (all
+  muted/all unmuted); MIXED → taps only the UNMUTED cells. Double-tap not special-cased. **CELL-EDIT mute:** directly
+  selecting a MUTED cell unmutes it (+ becomes the SINGLE active rung); auto-joined muted twins stay muted; tapping a
+  selected muted twin deselects. +3 echo tests (single-slot real-path · echo-as-tail · [ARP→ECHO]). FLAGGED:
+  free-ms tick echo + discrete-param echo macros deferred.**
 - **▶ SELECTOR CONSISTENCY + 3 BUG FIXES (2026-08-08, on `main`, PUSHED `5c42a37`; macOS 519→521 green, iOS builds;
   DEVICE pass owed). Paul's batch. **SELECTORS (hard rules, mode-independent):** ROW selector — ANY gesture now ==
   tapping EVERY cell in that row (`tapRow`→`tapCell` per cell); removed `setLadderRow`/`doVerbOnRow` (the mode
