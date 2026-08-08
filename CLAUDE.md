@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ COVERAGE + REFACTOR PASS — audit-driven (2026-08-08, on `main`, PUSHED `df27ae2`; macOS 514→519 green, iOS
+  builds). Two parallel survey agents (missing tests · safe refactorings), findings VERIFIED against the code before
+  acting. **+5 TESTS** closing verified pure-core gaps: `resolvedCellChain`/`sealHash` explicit-empty `[]` seals
+  distinctly from the A-face cell (`testExplicitEmptyChain…`) · `NotePool.srcPlayed(noteLo:noteHi:)` RANGE variant
+  (`testAsPlayedRangeWindow…`) · echo DECAY FLOOR drops <1-vel repeats, never emits vel-0 (`testEchoDecayFloor…`) ·
+  `macroSlotBindings` SUMS same-(slot,param) targets (`testMacroSlotBindingsSums…`) · the unit-range `effective*`
+  reads clamp (`testEffectiveUnitRangeScalarsClamp`). **REFACTOR** (behavior-identical): the survey found NO safe
+  dead code (all inert pure logic is deliberately kept per this file) — so comments + a small dedup only: deleted the
+  orphaned `effectiveT` doc comment; trimmed the stale a→b-morph block (Snapshot); reworded Router `topCell`'s stale
+  "commit 5"; adopted `clamp()` in the 5 test-covered `effective*` reads; extracted `busBitmask(_:)` (Models) for the
+  two SnapshotBuilder Set<Bus>→mask sites. Left the broad Models/Builder clamp sweep alone (low value, hot-path
+  blast radius). ALSO wrote `_dear_paul/concepts-of-8x8-state.md` — a 12-section plain-language concepts map (not
+  tracked; a note to Paul).**
 - **▶ FLOW-DIAGRAM PROCESSOR POP-UP + MACRO MERGE + CELL-SOLO (2026-08-08, on `main`, PUSHED `196d9cd`→`a16b19c`;
   iOS builds, macOS 514 green; DEVICE pass owed). Paul's batch on the cell edit page's flow diagram. (1) **INTERACTIVE
   BOXES** (`196d9cd`): tap a POPULATED processor box → a modal pop-up with the FULL controls (reuses `ProcessorBox`
