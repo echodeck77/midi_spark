@@ -1715,6 +1715,14 @@ final class Router {
         var j = driver + 1
         while j < cell.procs.count {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
+                if cell.procs[j].type == .echo {   // [ARP→ECHO] (user 2026-08-08): each driver TICK spawns an echo tail
+                    let ep = cell.procs[j]
+                    for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+                        pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: bm, p: ep, onset: m, S: S)
+                    }
+                    if !ep.echoThru { cur.reset() }   // MUTE → drop the dry tick (echoes only)
+                    break                             // echo is the terminal stage of the fold
+                }
                 let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                 nxt.reset()
                 applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
@@ -1726,6 +1734,15 @@ final class Router {
             emitChop(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), cell: cell, bm: bm,
                      onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
         }
+    }
+    /// Register an echo tail for ONE tick note ([ARP→ECHO]) at beat `onset`. v1 tick-echo is SYNCED-delay only (the
+    /// tick emitters don't thread tempo, so free-ms tick echo is deferred); the single/hold-tail path supports both.
+    private func pushEchoForNote(_ note: Int, vel: UInt8, bm: UInt8, p: SnapParams, onset: Double, S: Double) {
+        guard note >= 0 && note <= 127, p.echoSync else { return }
+        let timeBeats = Double(p.echoDelayDiv) / 4.0
+        pushEchoTail(onset: onset, note: UInt8(note), vel: vel, busMask: bm, timeBeats: timeBeats,
+                     repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, feedback: p.echoFeedback,
+                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9))
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {

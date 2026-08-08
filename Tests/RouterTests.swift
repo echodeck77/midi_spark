@@ -3451,6 +3451,27 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(strikes.count, 5, "[…→ECHO] echoes the upstream set, not a silent passthrough")
         assertNothingLeftSounding(e)
     }
+    /// ECHO downstream of an ARP (user 2026-08-08): each arp TICK spawns echo repeats, so [ARP→ECHO] emits strictly
+    /// more note-ons than a bare arp — and MUTE (thru off) drops the dry ticks but keeps the echoes. No stuck notes.
+    func testArpThenEchoSpawnsEchoesPerTick() {
+        func chainBox(echo: Bool, thru: Bool = true) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var e = ProcessorSlot(type: .echo)
+                e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoFeedDelay = 0.6; e.params.echoFeedback = 0.5; e.params.echoThru = thru
+                c.processors = echo ? [arp, e] : [arp]
+                $0.cells[0][0] = c
+            }
+        }
+        let bare = RecordingEmitter(); run(chainBox(echo: false), chord([60, 64, 67]), beats: 4, into: bare)
+        let echoed = RecordingEmitter(); run(chainBox(echo: true), chord([60, 64, 67]), beats: 4, into: echoed)
+        XCTAssertGreaterThan(echoed.ons.count, bare.ons.count, "[ARP→ECHO] adds echo strikes on top of the arp ticks")
+        assertNothingLeftSounding(echoed)
+        let muted = RecordingEmitter(); run(chainBox(echo: true, thru: false), chord([60, 64, 67]), beats: 4, into: muted)
+        XCTAssertGreaterThan(muted.ons.count, 0, "MUTE still emits the echoes")
+        assertNothingLeftSounding(muted)
+    }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
         let b = box(colours: echoColours(div: 1, repeats: 6, feedDelay: 0.7, feedback: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
