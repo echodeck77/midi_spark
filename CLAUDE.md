@@ -172,6 +172,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   ring in the edit hue, LITTER glows red under a hovering drag); the LITTER FLASHES what it took ("−1 colour · N
   cells"). Remaining Drag&Drop work is all big-ticket + needs Paul's steer: the per-colour machine model, SINGLE|MULTI|
   FREE (FREE launcher = engine work), palette↔palette reorg.**
+- **▶ PER-COLOUR EDITING MODEL (2026-08-09, on `main`, PUSHED `894abde`; iOS builds). "You only ever edit colours":
+  selecting a colour on the DRAG&DROP page scopes the edit to EVERY cell of that colour (editPointedCell/editChop/
+  {add,edit,remove}SlotCells already fan out to `sel`); siblings ring on the grid, the machinery shows the swatch +
+  cell count. This is the model's BEHAVIOUR on the existing per-cell storage. The deeper STORAGE move (machine
+  physically on Colour; cells → position+mute; presets carry colour-machines) is LARGER than it looks + has a real
+  design fork: **colours are document-global but cells are per-scene**, so "a colour is a machine" implies cross-scene
+  sharing — a semantic change with hairy migration (divergent per-cell machines → one) and a full RouterTests rewrite
+  (every test sets cell.processors/buses). Not started; awaiting Paul's call on cross-scene semantics + whether the
+  storage purity is worth the churn now.**
 - **▶ DRAG&DROP page — new first tab, phase 1 (2026-08-09, on `main`, PUSHED `230f5bb`; iOS builds, tests untouched;
   DEVICE eye owed). From `Docs/design-dragdrop-page-2026-08-08.md` (ferried in, preserved `ce6d170`). Paul's forks:
   grid 8×8 · palette 4×4 · scaffold on the per-cell flow diagram · first cut = layout+selection+machinery. New
