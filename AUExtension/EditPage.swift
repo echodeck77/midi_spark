@@ -605,7 +605,7 @@ extension DiagView {
                 // (SELECTED-CELL indicator + INPUT/OUTPUT FILTER removed — user 2026-08-07/09; the flow is RECEIVERS → PROCESSORS → EMITTERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS (8 slots)
-                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 48).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% height (user 2026-08-09)
+                    slotOrGhost(i, chain, bg: bg, hue: hue).frame(width: sw, height: 48).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% height (user 2026-08-09)
                 }
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
@@ -613,11 +613,11 @@ extension DiagView {
         .frame(width: flowW, height: 268)
     }
     // A set slot (tap → edit pop-up) or an empty dashed "+" ghost (tap → type picker) — user 2026-08-07.
-    @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color) -> some View {
+    @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color, hue: Color) -> some View {
         if i < chain.count {
-            flowSlot(chain[i], bg: bg).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
+            flowSlot(chain[i], bg: bg, hue: hue).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
         } else {
-            flowGhost("+", bg: bg, plus: false).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
+            flowGhost("+", bg: bg, plus: false, hue: hue).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
@@ -741,14 +741,14 @@ extension DiagView {
             .padding(20)
         }
     }
-    private func flowSlot(_ slot: ProcessorSlot, bg: Color) -> some View {
-        VStack(spacing: 3) {
+    // Styled EXACTLY like the emitter box (user 2026-08-09): opaque dark fill + a selected-colour frame, cornerRadius 10.
+    private func flowSlot(_ slot: ProcessorSlot, bg: Color, hue: Color) -> some View {
+        VStack(spacing: 1) {
             Text(slot.type.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)   // emblem icon removed (user 2026-08-09)
         }
         .foregroundColor(.white.opacity(0.9)).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 8).fill(bg)                    // OPAQUE — occludes the dotted line behind
-            .overlay(RoundedRectangle(cornerRadius: 8).fill(mainDestHue.opacity(0.15)))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.55), lineWidth: 1.5)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder — matches the emitter box
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.7), lineWidth: 1.5))
         .overlay(alignment: .topTrailing) {
             if slot.bypassed { Circle().fill(.white.opacity(0.5)).frame(width: 7, height: 7).padding(3) }   // bypass dot
         }
@@ -817,14 +817,15 @@ extension DiagView {
     // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet. `plus` adds
     // a trailing plus icon after the label (the Output Filter reads "Output Filter +"); pass a "+" label with plus:false
     // for a plus-only box (the processor ghost, user 2026-08-09).
-    private func flowGhost(_ label: String, bg: Color, plus: Bool = true) -> some View {
-        HStack(spacing: 4) {
+    private func flowGhost(_ label: String, bg: Color, plus: Bool = true, hue: Color? = nil) -> some View {
+        let h = hue ?? mainDestHue
+        return HStack(spacing: 4) {
             Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
             if plus { Image(systemName: "plus").font(.system(size: 11, weight: .heavy)) }     // the ADD affordance
         }
-        .foregroundColor(mainDestHue.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 8).fill(bg)                // OPAQUE occluder
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(mainDestHue.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))))
+        .foregroundColor(h.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(bg)               // OPAQUE occluder — matches the emitter box
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(h.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))))
     }
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
