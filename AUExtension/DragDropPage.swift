@@ -77,9 +77,9 @@ extension DiagView {
     private func ddZone(_ key: String) -> some View {
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
     }
-    // The custom drag (user 2026-08-09): a LONG PRESS (0.25s) ARMS the drag — the drop-zone highlights + ghost appear
-    // at the finger BEFORE any motion, and stay until dropped/released. A quick tap still flows to onTapGesture. The
-    // inner DragGesture has minimumDistance 0 so `.second` fires at the press point the instant the hold completes.
+    // The custom drag (user 2026-08-09): a LONG PRESS (0.25s) ARMS the drag — the ghost appears + the actual move/copy
+    // begins. A quick tap still flows to onTapGesture. The inner DragGesture has minimumDistance 0 so `.second` fires
+    // at the press point the instant the hold completes.
     private func ddDragGesture(_ payload: String) -> some Gesture {
         LongPressGesture(minimumDuration: 0.25)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("dd")))
@@ -95,15 +95,25 @@ extension DiagView {
                 ddDragPayload = nil; ddDropHover = nil
             }
     }
-    // The colour currently in-hand (a dragged colour, or the dragged cell's colour) → the drop-zone highlight hue.
-    private var ddDragColourID: String? {
-        guard let p = ddDragPayload else { return nil }
+    // Drop-target HIGHLIGHT-on-TOUCH (user 2026-08-09): a bare minimumDistance-0 drag fires the instant a finger lands
+    // on a draggable source, so the potential destinations light up BEFORE the long-press arms the real drag. Cleared
+    // the moment the finger lifts (or the drag drops). Runs simultaneously with the tap + the long-press-drag above.
+    private func ddTouchGesture(_ payload: String) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("dd"))
+            .onChanged { _ in if ddTouchSource != payload { ddTouchSource = payload } }
+            .onEnded { _ in ddTouchSource = nil }
+    }
+    // What's active for the HIGHLIGHT: the in-hand drag payload, or (before the long-press arms) the touched source.
+    private var ddActivePayload: String? { ddDragPayload ?? ddTouchSource }
+    // The colour of a payload ("colour:<id>" or "cell:<c>:<r>") → the drop-zone highlight hue.
+    private func ddPayloadColourID(_ payload: String?) -> String? {
+        guard let p = payload else { return nil }
         let t = p.split(separator: ":").map(String.init)
         if t.first == "colour", t.count == 2 { return t[1] }
         if t.first == "cell", t.count == 3, let c = Int(t[1]), let r = Int(t[2]) { return scene.cellAt(c, r)?.colourID }
         return nil
     }
-    private var ddDragHue: Color { ddDragColourID.flatMap { colourColor($0) } ?? Self.editHue }
+    private var ddDragHue: Color { ddPayloadColourID(ddActivePayload).flatMap { colourColor($0) } ?? Self.editHue }
     private func ddZoneAt(_ p: CGPoint, excluding payload: String) -> String? {
         // a cell dragged onto its OWN frame isn't a landing — skip it so the ghost reads the litter/palette behind
         let selfKey = payload.hasPrefix("cell:") ? "grid:" + payload.dropFirst("cell:".count) : nil
@@ -166,7 +176,7 @@ extension DiagView {
         let selected = ddColourSel == i
         let defined = ddColourShown(i)
         let hover = ddDropHover == "palette:\(i)"
-        let dragging = ddDragPayload != nil                          // a drag is in progress → light the drop zones in the drag colour
+        let dragging = ddActivePayload != nil                        // a source is touched/dragged → light the drop zones in its colour
         let brdr: Color = hover ? (dragging ? ddDragHue : Self.editHue)
                                 : (dragging ? ddDragHue.opacity(0.65) : (selected ? .white : .white.opacity(0.12)))
         let brdrW: CGFloat = hover ? 3 : (dragging ? 2 : (selected ? 3 : 1))
@@ -187,6 +197,7 @@ extension DiagView {
         .background(ddZone("palette:\(i)"))                                             // drop-zone frame (cell → FORK/ADOPT)
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { if defined { ddSelectColour(i) } else { ddCreateColour(i) } }   // tap "+" → create a new colour
+        .simultaneousGesture(ddTouchGesture("colour:\(id)"), including: defined ? .all : .subviews)  // touch → highlight targets
         .simultaneousGesture(ddDragGesture("colour:\(id)"), including: defined ? .all : .subviews)   // only defined colours drag
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
@@ -210,7 +221,7 @@ extension DiagView {
     private func ddLitter(height: CGFloat = 36) -> some View {
         let hover = ddDropHover == "litter"
         let flashing = ddLitterFlash != nil
-        let dragging = ddDragPayload != nil
+        let dragging = ddActivePayload != nil                        // a source is touched/dragged → the delete zone is a live target
         let lit = hover || flashing || dragging
         // The DELETE icon/label appears ONLY while a drag is live (this is the delete target) or the delete-FLASH is up
         // ("−1 cell" etc.); otherwise the box carries a prominent drag-and-drop instruction (user 2026-08-09).
@@ -281,7 +292,7 @@ extension DiagView {
     @ViewBuilder private func ddGridCell(_ c: Int, _ r: Int, size: CGFloat) -> some View {
         let cell = scene.cellAt(c, r)
         let hover = ddDropHover == "grid:\(c):\(r)"
-        let dragging = ddDragPayload != nil                                          // a drag is in progress → light the drop zones
+        let dragging = ddActivePayload != nil                                        // a source is touched/dragged → light the drop zones
         // NO grid cell is ever shown as SELECTED (user 2026-08-09) — only the hover/drag drop highlights. The selection
         // lives in the palette + machinery, never on the grid.
         let stroke: Color = hover ? (dragging ? ddDragHue : Self.editHue)
@@ -301,6 +312,7 @@ extension DiagView {
             .background(ddZone("grid:\(c):\(r)"))                                          // drop-zone frame (colour → PLACE · cell → MOVE)
             .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { ddGridTap(c, r) }
+            .simultaneousGesture(ddTouchGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)  // touch → highlight targets
             .simultaneousGesture(ddDragGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)   // only occupied cells drag
     }
 

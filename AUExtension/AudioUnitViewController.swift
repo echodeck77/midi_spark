@@ -89,6 +89,7 @@ struct DiagView: View {
     @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
     @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")
     @State var ddDragPayload: String? = nil   // DRAG&DROP custom drag: what's in hand ("colour:<id>" / "cell:<c>:<r>"); nil = idle
+    @State var ddTouchSource: String? = nil   // DRAG&DROP: a draggable source is being TOUCHED (pre-drag) → highlight targets; cleared on release
     @State var ddDragLoc: CGPoint = .zero      // …the finger's location in the page ("dd") coordinate space
     @State var ddZones: [String: CGRect] = [:] // …measured drop-zone frames (grid cells · palette swatches · litter)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
