@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DRAG&DROP phase 2 — row selectors · drag · randomize · playhead (2026-08-09, on `main`, PUSHED `ea0647b`,
+  `4fca424`; iOS builds, tests untouched; DEVICE eye owed). Paul's answers: RANDOMIZE = reroll chain+params · modes
+  DEFERRED. **ROW SELECTORS** (left of the grid) paint a row with the selected colour. **RANDOMIZE** rerolls the
+  selected colour's processor chain (1–3 random procs) + params. **PALETTE PLAYHEAD** ("THE REFILL") — a swatch fills
+  downward while its colour has an unmuted cell in the active column (v1 column-rate, not yet phase-locked). The grid
+  is now a **flat-colour 8×8** I fully own (design v1 "flat, calm"), so tap/drag/drop live in one place. **SIX DRAG
+  LANDINGS** via .onDrag/.onDrop: palette→grid PLACE · grid→grid MOVE · grid→occupied-palette ADOPT · grid→empty-
+  palette FORK · cell→LITTER clear · colour→LITTER delete-colour+cells. Deferred: palette↔palette reorg, SINGLE|MULTI|
+  FREE, the true per-colour machine model (FORK/ADOPT copy machines cell-wise for now). ⚠ .onDrag/.onDrop needs device
+  verification inside the AU host.**
 - **▶ DRAG&DROP page — new first tab, phase 1 (2026-08-09, on `main`, PUSHED `230f5bb`; iOS builds, tests untouched;
   DEVICE eye owed). From `Docs/design-dragdrop-page-2026-08-08.md` (ferried in, preserved `ce6d170`). Paul's forks:
   grid 8×8 · palette 4×4 · scaffold on the per-cell flow diagram · first cut = layout+selection+machinery. New
