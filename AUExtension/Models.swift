@@ -858,8 +858,11 @@ struct PluginState: Codable, Equatable {
         state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
+        // Start with ONE colour on the grid (user 2026-08-09): so the DRAG&DROP palette shows a single colour and
+        // there is a piece to drag onto an empty slot (FORK → a new colour). GOLD, plain passthrough, top row.
+        for c in 0..<4 { state.scenes[0].cells[c][0] = Cell(colourID: "gold", buses: [.a]) }
         state.padScenes()
-        state.markDefinedFromUsage()   // no cells → a fully sparse palette (all "+" slots)
+        state.markDefinedFromUsage()   // one used Colour (GOLD) → palette shows GOLD + fifteen "+" slots
         return state
     }
 

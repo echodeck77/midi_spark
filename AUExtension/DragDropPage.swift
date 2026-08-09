@@ -96,25 +96,32 @@ extension DiagView {
             ddLitter()
         }
     }
+    // A palette slot: a DEFINED colour (has placed cells) shows as a flat swatch; an UNDEFINED one is an empty "+"
+    // slot — the FORK target (drag a grid cell here to CREATE a new colour). The palette starts with one colour.
     @ViewBuilder private func ddSwatch(_ i: Int, side: CGFloat) -> some View {
         let id = colourIDs[i]
         let selected = ddColourSel == i
-        let placed = ddColourIsPlaced(id)
+        let defined = ddColourIsPlaced(id)
         let hover = ddDropHover == "palette:\(i)"
-        RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
-            .frame(width: side, height: side)
-            .overlay { ddSwatchPlayhead(id, side: side) }             // THE REFILL: a downward fill-wipe on the active column
-            .overlay(alignment: .topTrailing) {
-                if placed { Circle().fill(.white.opacity(0.85)).frame(width: 6, height: 6).padding(4) }   // has placed cells
+        Group {
+            if defined {
+                RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
+                    .overlay { ddSwatchPlayhead(id, side: side) }        // THE REFILL: a downward fill-wipe on the active column
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .opacity(ddDragPayload == "colour:\(id)" ? 0.35 : 1)  // lift the source while dragging
+            } else {
+                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.035))       // EMPTY slot — a FORK target
+                    .overlay(Image(systemName: "plus").font(.system(size: side * 0.3, weight: .heavy)).foregroundColor(.white.opacity(hover ? 0.8 : 0.22)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover ? Self.editHue : .white.opacity(0.12), style: StrokeStyle(lineWidth: hover ? 2.5 : 1, dash: [4, 3])))
             }
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .opacity(ddDragPayload == "colour:\(id)" ? 0.35 : 1)                        // lift the source while dragging
-            .background(ddZone("palette:\(i)"))                                         // drop-zone frame (a cell → FORK/ADOPT)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-            .onTapGesture { ddSelectColour(i) }
-            .simultaneousGesture(ddDragGesture("colour:\(id)"))                         // drag a colour → grid (PLACE) / litter (DELETE)
+        }
+        .frame(width: side, height: side)
+        .background(ddZone("palette:\(i)"))                                             // drop-zone frame (cell → FORK/ADOPT)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture { if defined { ddSelectColour(i) } }
+        .simultaneousGesture(ddDragGesture("colour:\(id)"), including: defined ? .all : .subviews)   // only defined colours drag
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
     // fills downward over the column window. v1 sweeps at the column rate (not yet phase-locked to the exact playhead).
