@@ -324,16 +324,23 @@ extension DiagView {
 
     // THE MACHINERY — the selected colour's flow diagram (full-width), with the LIBRARY button to the LEFT of the
     // receivers and RANDOMIZE · MUTATE stacked to the RIGHT of them (user 2026-08-09).
+    // The cell the machinery draws: a PLACED cell of the selected colour, else a SYNTHETIC cell for the selected
+    // colour (so the machine is ALWAYS visible — a freshly-created, not-yet-placed colour still shows its chain via
+    // the 3-tier resolution, and edits are colour-scoped so they persist). (user 2026-08-09)
+    private var ddMachineryCell: Cell? {
+        if let c = editingCell { return c }
+        guard let cid = ddSelectedColourID else { return nil }
+        return Cell(colourID: cid)
+    }
     @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
-        if editArmed, let cell = editingCell {
+        if editArmed, let cell = ddMachineryCell {
             flowDiagram(cell, width: width)
                 .overlay(alignment: .topLeading) { ddLibraryButton().padding(.leading, 10).padding(.top, 14) }
                 .overlay(alignment: .topTrailing) {
                     VStack(spacing: 6) { ddRandomizeButton(); ddMutateButton() }.padding(.trailing, 10).padding(.top, 6)
                 }
         } else {
-            Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — drag it onto the grid, or use a row selector"
-                                  : "Tap a colour, or a placed cell, to edit its machine")
+            Text("Tap a colour to edit its machine")
                 .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -431,7 +431,9 @@ extension DiagView {
     // colour, in every scene, stays uniform. Elsewhere (the PROCESSORS tab's manual selection) edits apply per-cell.
     // (user 2026-08-09: processor settings must change uniformly across all instances of a colour.)
     private var editColourScoped: Bool { activeTab == .dragDrop }
-    private var editScopeColourID: String? { editingCell?.colourID }
+    // On the DRAG&DROP page use the SELECTED palette colour (works even before the colour has a placed cell — its
+    // machinery is always shown on a synthetic cell); elsewhere fall back to the anchor cell's colour.
+    private var editScopeColourID: String? { (activeTab == .dragDrop ? ddSelectedColourID : nil) ?? editingCell?.colourID }
     func chainAddSlot(type: ProcessorType) {
         if editColourScoped, let cid = editScopeColourID { au?.addSlotColour(cid, type: type) } else { au?.addSlotCells(editSelTargets, type: type) }
         refreshFromDocument()
