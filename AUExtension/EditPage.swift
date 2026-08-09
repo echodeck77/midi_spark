@@ -239,17 +239,9 @@ extension DiagView {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 22) {                            // the FLOW is CENTRED + full-width (user 2026-08-07)
                         flowDiagram(cell, size)
-                        VStack(alignment: .leading, spacing: 22) {   // the existing sections stay (a 560 content block)
-                            sectionSeam()
-                            sectionHeader("IDENTITY");       identitySection(cell, swatch: max(38, cellH))
-                            sectionSeam()
-                            midiSectionHeader("FROM · MIDI IN"); inputSection(cell)   // the signal path reads FROM → CHAIN → TO
-                            sectionSeam()
-                            chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
-                            chainStack(cell, boxWidth: min(540, size.width - 48))
-                            // TO · MIDI OUT (the output SPLIT) moved into the flow-diagram SPLIT pop-up (user 2026-08-09) —
-                            // reached from the emitters box; the under-flow-diagram sections are being retired.
-                        }.frame(maxWidth: 560, alignment: .leading)
+                        // Everything from IDENTITY down retired off this page (user 2026-08-09): identity, FROM · MIDI IN,
+                        // CHAIN and the output SPLIT are all reached from the flow diagram now (tap a box / the + ghost /
+                        // the emitters SPLIT). The flow diagram is the whole cell-edit surface.
                     }.frame(maxWidth: .infinity).padding(.bottom, 8)
                 }.frame(maxWidth: .infinity)
             } else {
@@ -565,7 +557,7 @@ extension DiagView {
         GeometryReader { g in
             let W = g.size.width
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
-            let sw = max(64, (W - 7 * 8) / 8)                    // 8 processor slots span the width (≈doubled on the wide canvas)
+            let sw = max(64, (W - 3 * 8) / 4)                    // 4 processor slots span the width (user 2026-08-09: was 8)
             let yRecv: CGFloat = 32, yProc: CGFloat = 178, yEm: CGFloat = 324
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
@@ -579,7 +571,7 @@ extension DiagView {
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
                 // (SELECTED-CELL indicator + INPUT FILTER removed — user 2026-08-07; the flow starts at RECEIVERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
-                ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS
+                ForEach(0..<4, id: \.self) { i in                                                                // PROCESSORS (4 slots)
                     slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
                 }
                 flowGhost("Output Filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
@@ -593,7 +585,7 @@ extension DiagView {
         if i < chain.count {
             flowSlot(chain[i], bg: bg).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
         } else {
-            flowGhost("Processor", bg: bg).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
+            flowGhost("+", bg: bg, plus: false).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
@@ -789,11 +781,13 @@ extension DiagView {
             }.padding(5))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.75), lineWidth: 2.5))
     }
-    // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet.
-    private func flowGhost(_ label: String, bg: Color) -> some View {
+    // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet. `plus` adds
+    // a trailing plus icon after the label (the Output Filter reads "Output Filter +"); pass a "+" label with plus:false
+    // for a plus-only box (the processor ghost, user 2026-08-09).
+    private func flowGhost(_ label: String, bg: Color, plus: Bool = true) -> some View {
         HStack(spacing: 4) {
             Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
-            Image(systemName: "plus").font(.system(size: 11, weight: .heavy))     // the ADD affordance
+            if plus { Image(systemName: "plus").font(.system(size: 11, weight: .heavy)) }     // the ADD affordance
         }
         .foregroundColor(mainDestHue.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 8).fill(bg)                // OPAQUE occluder
