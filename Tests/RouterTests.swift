@@ -1478,6 +1478,77 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "main OFF → the hold does not sound on Emit A")
         assertNothingLeftSounding(e)
     }
+    // §cell-edit F CHOP + ECHO (user 2026-08-09 bug): echo repeats were emitted on the RAW bus, bypassing the split.
+    // Now the tail inherits its source note's slice destination — [ARP→ECHO] with alt→C puts BOTH the arp dry AND its
+    // echoes on Emit C (cable 3), nothing on the cell's own Emit A (cable 1).
+    func testChopRoutesEchoRepeatsToTheAltDestination() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoThru = true
+            c.processors = [arp, e]
+            c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])   // every slice → ALT dest C
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 3 }.count, 0, "arp + its echoes route to the ALT destination (Emit C)")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "main OFF for every slice → NOTHING on Emit A — the echoes obey the split too")
+        assertNothingLeftSounding(e)
+    }
+    // The classic single-slot [ECHO] hold-tail path also routes its dry + tail through the chop (was raw `bm`).
+    func testChopRoutesClassicEchoToTheAltDestination() {
+        let b = box(colours: echoColours(div: 2, repeats: 3, feedDelay: 0.7, decay: 0.6)) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a])
+            c.chop = Chop(mainMask: 0, altMask: 0xFF, muteMask: 0, altDest: [.c])
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 3 }.count, 0, "the classic echo (dry + tail) routes to the ALT destination")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "main OFF → the classic echo does not sound on Emit A")
+        assertNothingLeftSounding(e)
+    }
+    // A MUTED slice silences the note AND its echoes — the tail resolves to mask 0, so no repeats are scheduled.
+    func testChopMuteSilencesTheEchoesToo() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+            var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 4; e.params.echoThru = true
+            c.processors = [arp, e]
+            c.chop = Chop(mainMask: 0xFF, altMask: 0, muteMask: 0xFF, altDest: [])   // every slice muted
+            return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 8, into: e)
+        XCTAssertTrue(e.ons.isEmpty, "a muted slice silences the note and its echoes — no tail escapes the split")
+        assertNothingLeftSounding(e)
+    }
+    // GUARD (user 2026-08-09, option A): every processor placed AFTER the driver must forward its parent's output to
+    // the NEXT stage — no stage may be terminal (the ECHO `break` bug that skipped a downstream HARMONIZE). Put each
+    // downstream-capable type, configured to PASS, between an arp driver and a final +12 harmonize; the harmony (72)
+    // proves the probe flowed all the way through. If a future processor re-introduces a terminal break, list it here
+    // and this fails.
+    func testNoDownstreamProcessorTerminatesTheFold() {
+        func passThrough(_ type: ProcessorType) -> ProcessorSlot {
+            var s = ProcessorSlot(type: type)
+            switch type {
+            case .chance: s.params.probability = 1.0            // always passes
+            case .harmonize: s.params.harmIntervals = [0, 0, 0] // identity (root only)
+            case .echo: s.params.echoDelayDiv = 2; s.params.echoRepeats = 1; s.params.echoThru = true
+            default: break                                      // passgate: default passMask 0b1111 = open
+            }
+            return s
+        }
+        for mid in [ProcessorType.passgate, .chance, .harmonize, .echo] {
+            let b = box(colours: arpColours()) { $0.cells[0][0] = {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
+                c.processors = [arp, passThrough(mid), h]
+                return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 4, into: e)
+            XCTAssertTrue(e.ons.contains { $0.cable == 1 && $0.note == 72 },
+                          "[ARP→\(mid)→HARMONIZE]: the downstream harmonize must fire — \(mid) forwarded its parent's output")
+            assertNothingLeftSounding(e)
+        }
+    }
 
     // LADDER mode: at most ONE rung speaks per column. OFF = both rungs layer; ON = only the active rung
     // (topmost-occupied by default, or the scene's chosen `activeRow`); the dormant rung is silent.

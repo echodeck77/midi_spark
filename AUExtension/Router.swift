@@ -1214,11 +1214,14 @@ final class Router {
             let base = multi ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
             let n = base + transpose
             guard n >= 0 && n <= 127 else { continue }
-            if p.echoThru {                               // THRU passes the dry note; MUTE = echoes only
-                emitArtic(note: UInt8(n), busMask: bm, onSample: onSample, offSample: offSample,
+            // §cell-edit F CHOP: the dry AND the tail route through the per-slice split (was raw `bm` — echo bypassed
+            // it). Both take the source note's slice destination, so a muted slice silences the note and its echoes.
+            let chopped = chopMask(cell, m: colStart, S: S, base: bm)   // (user 2026-08-09)
+            if p.echoThru && chopped != 0 {               // THRU passes the dry note; MUTE = echoes only
+                emitArtic(note: UInt8(n), busMask: chopped, onSample: onSample, offSample: offSample,
                           windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
             }
-            pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: bm, timeBeats: timeBeats, repeats: repeats,
+            pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
                          feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
                          gateBeats: gateBeats, spill: p.echoSpill)
         }
@@ -1905,8 +1908,11 @@ final class Router {
             j += 1
         }
         if let ep = echoP {   // echo the fully-processed set (all downstream stages applied)
+            // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
+            // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
+            let echoBM = chopMask(cell, m: m, S: S, base: bm)
             for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: bm, p: ep, onset: m, S: S)
+                pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: echoBM, p: ep, onset: m, S: S)
             }
             if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry)
         }
