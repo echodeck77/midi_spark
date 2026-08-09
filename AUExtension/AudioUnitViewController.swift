@@ -109,6 +109,7 @@ struct DiagView: View {
     @State var procEditDocBaseline: PluginState? = nil
     @State var procTypePickerOpen = false
     @State var procMacroEngaged = false                                      // pop-up: the embedded macro section is open + auditioning
+    @State var splitEditorOpen = false                                       // FLOW-DIAGRAM: tap the emitters' SPLIT → the output-split editor (user 2026-08-09)
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
@@ -843,6 +844,7 @@ struct DiagView: View {
                 }
                 if procTypePickerOpen { procTypePickerPopup() }   // FLOW-DIAGRAM: empty box → the welcoming type picker
                 if procEditOpen { procEditPopup() }               // FLOW-DIAGRAM: populated box → the full processor controls
+                if splitEditorOpen, let cell = editingCell { splitEditorPopup(cell) }   // FLOW-DIAGRAM: emitters SPLIT → the output-split editor
                 if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up (opens ON TOP of the proc pop-up)
                     MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting, accent: mainDestHue,
                                        base: macroAuthorBase,

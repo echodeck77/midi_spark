@@ -202,7 +202,6 @@ extension DiagView {
         let gridW = min(pageW - rightW - 16, landscape ? 384 : 512)  // grid WIDTH 512 · LANDSCAPE −25% → 384 (user 2026-08-07)
         let gridH = gridW / 1.3                                      // height PROPORTIONAL to the width (keeps the grid's aspect)
         let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
-        let inspectorW = min(360, size.width - 24)
         let canCommit = !sel.isEmpty
         VStack(spacing: 8) {
             // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
@@ -248,8 +247,8 @@ extension DiagView {
                             sectionSeam()
                             chainSectionHeader()                                  // CHAIN + the LIBRARY button (top-right of the chain)
                             chainStack(cell, boxWidth: min(540, size.width - 48))
-                            sectionSeam()
-                            midiSectionHeader("TO · MIDI OUT");  outputSection(cell, emitterWidth: min(320, inspectorW))
+                            // TO · MIDI OUT (the output SPLIT) moved into the flow-diagram SPLIT pop-up (user 2026-08-09) —
+                            // reached from the emitters box; the under-flow-diagram sections are being retired.
                         }.frame(maxWidth: 560, alignment: .leading)
                     }.frame(maxWidth: .infinity).padding(.bottom, 8)
                 }.frame(maxWidth: .infinity)
@@ -694,6 +693,30 @@ extension DiagView {
             .padding(20)
         }
     }
+    // The OUTPUT SPLIT editor (user 2026-08-09) — the MAIN destination · the 8×3 CHOP grid · the ALT destination,
+    // lifted off the cell-edit page into an add-processor-style pop-up so the under-flow-diagram sections can retire.
+    // Reached by tapping the emitters' SPLIT affordance in the flow diagram. Edits are LIVE (the same setters as the
+    // old inline block); DONE / scrim-tap closes.
+    @ViewBuilder func splitEditorPopup(_ cell: Cell) -> some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { splitEditorOpen = false }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("OUTPUT SPLIT").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
+                Text("Redirect each of the 8 slices to the MAIN emitters, MUTE, or the ALT destination.")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+                outputSection(cell, emitterWidth: 480)
+                HStack {
+                    Spacer()
+                    Button { splitEditorOpen = false } label: { transactChip("DONE", enabled: true, fill: true) }.buttonStyle(.plain)
+                }
+            }
+            .padding(18).frame(maxWidth: 560)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
+            .padding(20)
+        }
+    }
     private func flowSlot(_ slot: ProcessorSlot, bg: Color) -> some View {
         VStack(spacing: 3) {
             Image(systemName: emblemSymbol(slot.type)).font(.system(size: 17, weight: .black))
@@ -740,10 +763,22 @@ extension DiagView {
                 .background(RoundedRectangle(cornerRadius: 7).fill(on ? mainDestHue : Color.white.opacity(0.06)))
                 .contentShape(Rectangle()).onTapGesture { toggleMainBus(b) }
             }
-            dinMark(ink: .white.opacity(0.5), size: 26)   // MIDI OUT mark (right)
+            splitAffordance()                              // → the OUTPUT SPLIT editor (user 2026-08-09)
         }.padding(6)
         .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
+    }
+    // The SPLIT affordance on the emitters box — opens the OUTPUT SPLIT pop-up (extracted so emitterBox type-checks).
+    private func splitAffordance() -> some View {
+        let dashed = RoundedRectangle(cornerRadius: 6).strokeBorder(mainDestHue.opacity(0.5), style: StrokeStyle(lineWidth: 1.2, dash: [3, 2]))
+        return Button { splitEditorOpen = true } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "arrow.triangle.branch").font(.system(size: 15, weight: .heavy))
+                Text("SPLIT").font(.system(size: 8, weight: .heavy, design: .monospaced))
+            }
+            .foregroundColor(mainDestHue).frame(width: 48).frame(maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 6).fill(mainDestHue.opacity(0.14)).overlay(dashed))
+        }.buttonStyle(.plain)
     }
     // The cell face, drawn to MATCH the grid cells (the same mosaic + seal hash); rectangular via the caller's frame.
     private func flowCellFace(_ cell: Cell) -> some View {
