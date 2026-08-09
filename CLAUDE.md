@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CHOP-ON-ECHO + fold guard + SPLIT pop-up (2026-08-09, on `main`, PUSHED `60853b1`; macOS 546 green FROM SCRATCH,
+  iOS builds; DEVICE ear owed). Paul: the 8×3 output SPLIT worked on the arp but not the echo after it. **BUG:**
+  `drainEchoTails` emitted repeats on the RAW bus mask — the per-slice chop was never applied; the classic
+  `registerEcho` path bypassed it for BOTH dry + tail. **FIX:** resolve `chopMask` at the source note's slice and
+  store it in the tail (echoes inherit the note's destination; a muted slice → mask 0 → the `pushEchoTail` guard
+  drops the tail, silencing note + echoes). Tests: testChopRoutesEchoRepeats… / …ClassicEcho… / testChopMuteSilences-
+  TheEchoesToo. **GUARD (Paul's option A):** testNoDownstreamProcessorTerminatesTheFold — each downstream type
+  (passgate/chance/harmonize/echo) between an arp driver and a +12 harmonize must let the harmony fire; locks "no
+  stage is terminal" (the echo `break` bug). **UI:** the SPLIT (MAIN·CHOP·ALT / outputSection) moved OFF the cell-edit
+  page into `splitEditorPopup`, reached via a dashed SPLIT button on the flow-diagram emitters box — step one of
+  retiring the under-flow-diagram sections. ⚠ BUILD TRAP: the session clock jumps break xcodebuild incrementals (it
+  reused a stale binary → phantom "546 green" that skipped new tests); `rm -rf DerivedData/MidiSpark-*` before
+  trusting results. See memory `midispark-stale-build-clock-skew`.**
 - **▶ ECHO IN A CHAIN + flow-diagram labels (2026-08-09, on `main`, PUSHED `eb1bc3c`→`96af278`; macOS 542 green, iOS
   builds; DEVICE ear owed). Paul's `[ARP→ECHO→HARMONIZE]` heard no harmonize. First fix `eb1bc3c`: `emitDriverNote`'s
   echo branch `break`ed → any slot after echo was skipped; removed the break so the fold reaches harmonize.
