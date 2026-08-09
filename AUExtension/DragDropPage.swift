@@ -524,10 +524,17 @@ extension DiagView {
     // MARK: - RANDOMIZE (reroll the selected colour's chain)
 
     func ddRandomize() {
-        guard editArmed, editingCell != nil, !editSelTargets.isEmpty else { return }
+        // Reroll the COLOUR'S machine, not per-cell overrides. A colour IS a machine (GLOBAL by construction), so
+        // `withChainColour` writes the templateChain AND clears every cell's per-cell override across all scenes —
+        // so ALL cells of the colour (placed now or later) render the one rerolled chain. Writing per-cell overrides
+        // to only editSelTargets left un-selected / later-placed cells on the OLD chain → the grid split into two
+        // sequences (user 2026-08-09: "identical gold cells identified as different").
+        guard editArmed else { return }
+        let cid = editingCell?.colourID ?? (ddColourSel >= 0 && ddColourSel < colourIDs.count ? colourIDs[ddColourSel] : nil)
+        guard let colourID = cid else { return }
         let n = Int.random(in: 1...3)
         let chain = (0..<n).map { _ in ddRandomProcessor() }
-        au?.editCells(editSelTargets) { $0.processors = chain }
+        au?.withChainColour(colourID) { $0 = chain }
         refreshFromDocument()
     }
     private func ddRandomProcessor() -> ProcessorSlot {

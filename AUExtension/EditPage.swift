@@ -554,7 +554,8 @@ extension DiagView {
         GeometryReader { g in
             let W = g.size.width
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
-            let sw = max(64, (W - 3 * 8) / 4)                    // 4 processor slots span the width (user 2026-08-09: was 8)
+            let gap: CGFloat = 6
+            let sw = max(40, (W - 7 * gap) / 8)                  // 8 processor slots span the width (user 2026-08-09: restored from 4)
             let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 324   // receiver→processor gap tightened (user 2026-08-09)
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
@@ -567,8 +568,8 @@ extension DiagView {
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
                 // (SELECTED-CELL indicator + INPUT FILTER removed — user 2026-08-07; the flow starts at RECEIVERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
-                ForEach(0..<4, id: \.self) { i in                                                                // PROCESSORS (4 slots)
-                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
+                ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS (8 slots)
+                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)
                 }
                 flowGhost("Output Filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
