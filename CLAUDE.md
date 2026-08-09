@@ -157,6 +157,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DRAG&DROP dynamic palette + drag rebuild + FORK (2026-08-09, on `main`, PUSHED …→`96cb114`; macOS 550 green, iOS
+  builds; Paul confirms drag works on device). System `.onDrag/.onDrop` doesn't survive the AU host → rebuilt as a
+  CUSTOM finger-tracking drag (onTapGesture + simultaneousGesture(DragGesture) in a shared "dd" space, measured drop
+  zones via `DDZonePref`, floating ghost, source-lift). Held the 1024 content cap. PALETTE is now DYNAMIC: renders
+  only DEFINED colours (has cells, via `ddColourIsPlaced`) as swatches, undefined as "+" FORK slots; `makeInit` starts
+  with ONE colour (GOLD, top row). Grid→"+"-slot = FORK (recolour + keep machine); grid→swatch = ADOPT. Playhead
+  phase-locked + swing-warped; litter flashes.**
+- **▶ PER-COLOUR STORAGE MOVE — decision: GLOBAL (Paul 2026-08-09), NOT YET STARTED. Colour-scoped EDITING is live on
+  the DRAG&DROP page (edit a colour = edit all its cells, current scene). The PHYSICAL move (machine fields
+  processors/buses/inputReceiver/chop off Cell → onto the global Colour; cells → position+mute; SnapshotBuilder reads
+  the colour's machine; migration folds divergent per-cell machines) is a MULTI-TURN refactor: ~330 test sites set
+  cell machine fields (223 in RouterTests) + a real semantic shift (per-colour cells share one machine) + no device
+  verification. Deliberately not half-started (would break the suite + app). Needs its own staged effort.**
 - **▶ VELOCITY INHERITANCE — soundcheck paths (2026-08-09, on `main`, PUSHED `ea8fe81`; macOS 550 green FROM SCRATCH,
   iOS builds). Closes the follow-up from `28dbd29`: previewStopped/previewPlaying/previewChordHold/auditionRender/
   auditionChordHold/auditionStrum took a flat 96, so audition ≠ playback. They now inherit the source velocity too
