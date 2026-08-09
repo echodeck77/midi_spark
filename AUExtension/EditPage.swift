@@ -404,7 +404,7 @@ extension DiagView {
     @ViewBuilder func processorTypeRow(boxWidth: CGFloat) -> some View {
         HStack(spacing: 8) {
             ForEach(ProcessorType.allCases, id: \.self) { t in
-                Button { au?.addSlotCells(editSelTargets, type: t); refreshFromDocument() } label: {
+                Button { chainAddSlot(type: t) } label: {
                     VStack(spacing: 5) {
                         Image(systemName: emblemSymbol(t)).font(.system(size: 22, weight: .black))
                         Text(t.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
@@ -426,28 +426,59 @@ extension DiagView {
             Spacer(minLength: 0)
         }
     }
+    // The active edit SCOPE for machine edits. On the DRAG&DROP page a colour IS a machine — edits are GLOBAL, so they
+    // write the colour's TEMPLATE chain (and clear every per-cell override across all scenes) → every cell of the
+    // colour, in every scene, stays uniform. Elsewhere (the PROCESSORS tab's manual selection) edits apply per-cell.
+    // (user 2026-08-09: processor settings must change uniformly across all instances of a colour.)
+    private var editColourScoped: Bool { activeTab == .dragDrop }
+    private var editScopeColourID: String? { editingCell?.colourID }
+    func chainAddSlot(type: ProcessorType) {
+        if editColourScoped, let cid = editScopeColourID { au?.addSlotColour(cid, type: type) } else { au?.addSlotCells(editSelTargets, type: type) }
+        refreshFromDocument()
+    }
+    func chainSetType(slot i: Int, _ type: ProcessorType) {
+        if editColourScoped, let cid = editScopeColourID { au?.setSlotTypeColour(cid, slot: i, type) } else { au?.setSlotTypeCells(editSelTargets, slot: i, type) }
+        refreshFromDocument()
+    }
+    func chainToggleBypass(slot i: Int) {
+        if editColourScoped, let cid = editScopeColourID { au?.toggleSlotBypassColour(cid, slot: i) } else { au?.toggleSlotBypassCells(editSelTargets, slot: i) }
+        refreshFromDocument()
+    }
+    func chainRemoveSlot(slot i: Int) {
+        if editColourScoped, let cid = editScopeColourID { au?.removeSlotColour(cid, slot: i) } else { au?.removeSlotCells(editSelTargets, slot: i) }
+        refreshFromDocument()
+    }
+    func chainEditSlot(slot i: Int, _ mutate: @escaping (inout ProcessorSlot) -> Void) {
+        if editColourScoped, let cid = editScopeColourID { au?.editSlotColour(cid, slot: i, mutate) } else { au?.editSlotCells(editSelTargets, slot: i, mutate) }
+        refreshFromDocument()
+    }
+    func chainReplace(_ chain: [ProcessorSlot]) {
+        if editColourScoped, let cid = editScopeColourID { au?.withChainColour(cid) { $0 = chain } } else { au?.editCells(editSelTargets) { $0.processors = chain } }
+        refreshFromDocument()
+    }
+
     @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell,
                               plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil,
                               onRemoved: (() -> Void)? = nil) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
-        let cid = cell.colourID, targets = editSelTargets
+        let cid = cell.colourID
         ProcessorBox(
             colour: sc, colourIndex: -1, face: .a,
             onEdit: { mutate in
-                au?.editSlotCells(targets, slot: i) { s in
+                chainEditSlot(slot: i) { s in
                     var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
                     mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
                 }
-                refreshFromDocument(); onEdited?()                         // pop-up: re-snapshot the macro BASE from the edited params
+                onEdited?()                                                // pop-up: re-snapshot the macro BASE from the edited params
             },
             onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in au?.setSlotTypeCells(targets, slot: i, t); refreshFromDocument() },
+            onSetTypeA: { t in chainSetType(slot: i, t) },
             height: 260, slotMode: true, slotBypassed: slot.bypassed,
             accentOverride: mainDestHue,               // same blue as the emitters
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
-            onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
+            onBypass: { chainToggleBypass(slot: i) },
             // user 2026-08-09: EVERY slot is deletable, incl. the head — deleting the last one leaves an empty passthrough.
-            onRemove: { au?.removeSlotCells(targets, slot: i); refreshFromDocument(); onRemoved?() },
+            onRemove: { chainRemoveSlot(slot: i); onRemoved?() },
             onMacro: showMacro ? { openMacroAuthoring(slot: i, slotData: slot) } : nil, plainTitle: plainTitle)
     }
 
@@ -608,7 +639,7 @@ extension DiagView {
             // slot → BASE: clears any unbound morph residue. macroAuthorBase tracks ProcessorBox param edits (onEdited),
             // so this KEEPS the edits while the macro holds its delta as an offset. (Editing params AFTER binding a
             // macro in the same session is not fully reconciled — author macros as the last step. Flagged.)
-            if apply { au?.editSlotCells(editSelTargets, slot: procEditSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) } }
+            if apply { chainEditSlot(slot: procEditSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) } }
         }
         if !apply, let b = procEditDocBaseline { au?.restoreDocument(b) }   // revert every edit since it opened
         procEditOpen = false; procEditDocBaseline = nil; procMacroEngaged = false; macroAuthorGroup = nil
@@ -661,7 +692,7 @@ extension DiagView {
                     ForEach(ProcessorType.allCases, id: \.self) { t in
                         Button {
                             let newIdx = editingCell.map { cellChain($0).count } ?? 0   // the slot the append will create
-                            au?.addSlotCells(editSelTargets, type: t); refreshFromDocument()
+                            chainAddSlot(type: t)
                             procTypePickerOpen = false
                             openProcEdit(slot: newIdx)                                   // straight into the edit form (user 2026-08-08)
                         } label: {
@@ -994,8 +1025,8 @@ extension DiagView {
     func applyLibraryChain(_ cell: Cell?) {
         guard let cell, !sel.isEmpty else { return }
         let chain = cell.processors ?? []          // the saved cell's materialised chain (empty = passthrough)
-        au?.editCells(editSelTargets) { $0.processors = chain }
-        refreshFromDocument(); showCellLibrary = false
+        chainReplace(chain)
+        showCellLibrary = false
     }
     func stampFromLibrary(_ name: String) { applyLibraryChain(au?.loadLibraryCell(name: name)) }
     func stampFromFactory(_ name: String) { applyLibraryChain(au?.factoryLibraryCell(name: name)) }
