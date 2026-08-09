@@ -154,14 +154,20 @@ extension DiagView {
     }
     // THE COLOUR IDENTITY (landscape) — the swatch + colour name, with the cell count beneath; sits top-left, lined
     // up with the tops of the palette + grid (user 2026-08-09).
+    // The colour whose identity/machine the page is showing: the SELECTED palette colour (shows even with 0 placed
+    // cells, so a freshly-created colour labels immediately), falling back to the anchor cell's colour. (user 2026-08-09)
+    var ddSelectedColourID: String? {
+        if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
+        return editingCell?.colourID
+    }
     @ViewBuilder private func ddColourIdentity(showPlay: Bool = true) -> some View {
-        if editArmed, let cell = editingCell {
-            let hue = colourColor(cell.colourID) ?? .white
+        if editArmed, let cid = ddSelectedColourID {
+            let hue = colourColor(cid) ?? .white
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     RoundedRectangle(cornerRadius: 6).fill(hue).frame(width: 30, height: 30)
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.55), lineWidth: 1.2))
-                    Text(cell.colourID.uppercased()).font(.system(size: 18, weight: .black, design: .monospaced)).foregroundColor(hue).lineLimit(1).minimumScaleFactor(0.6)
+                    Text(cid.uppercased()).font(.system(size: 18, weight: .black, design: .monospaced)).foregroundColor(hue).lineLimit(1).minimumScaleFactor(0.6)
                 }
                 Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
@@ -439,6 +445,12 @@ extension DiagView {
         guard i >= 0 && i < colourIDs.count else { return }
         ddColourSel = i
         ddScopeToColour(colourIDs[i], anchor: nil)
+    }
+    /// Open the DRAG&DROP page with a colour selected: keep a valid current selection, else fall back to GOLD (the
+    /// default colour that's always present). Re-scopes so the selection picks up any newly-placed cells. (user 2026-08-09)
+    func ddEnsureSelection() {
+        let valid = ddColourSel >= 0 && ddColourSel < colourIDs.count && ddColourShown(ddColourSel)
+        ddSelectColour(valid ? ddColourSel : (colourIDs.firstIndex(of: "gold") ?? 0))
     }
     /// Grid tap = MUTE/UNMUTE + SELECT the cell's colour (palette + machinery follow), per the design.
     func ddGridTap(_ col: Int, _ row: Int) {

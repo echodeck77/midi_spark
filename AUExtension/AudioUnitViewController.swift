@@ -68,7 +68,7 @@ enum EditPageMode { case addEdit, move, mute, clear }
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
 enum AppTab: String, CaseIterable {
     case dragDrop = "DRAG&DROP"   // design-stage: the new first tab (palette · grid · machinery), user 2026-08-09
-    case grid = "GRID", processors = "PROCESSORS", receivers = "RECEIVERS", emitters = "EMITTERS"
+    case grid = "GRID", processors = "PROCESSORS", receivers = "MIDI IN", emitters = "MIDI OUT"
     case macros = "MACROS", automation = "AUTOMATION"
     var live: Bool { self != .macros && self != .automation }
 }
@@ -898,6 +898,7 @@ struct DiagView: View {
             editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
             if tab != .grid { heldVerb = nil }
             if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
+            if tab == .dragDrop { ddEnsureSelection() }            // open the page with a colour selected (GOLD by default, user 2026-08-09)
         }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE

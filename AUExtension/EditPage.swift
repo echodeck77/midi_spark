@@ -605,7 +605,7 @@ extension DiagView {
                 // (SELECTED-CELL indicator + INPUT/OUTPUT FILTER removed — user 2026-08-07/09; the flow is RECEIVERS → PROCESSORS → EMITTERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS (8 slots)
-                    slotOrGhost(i, chain, bg: bg, hue: hue).frame(width: sw, height: 48).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% height (user 2026-08-09)
+                    slotOrGhost(i, chain, bg: bg, hue: hue).frame(width: sw, height: 38).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% then −20% height (user 2026-08-09)
                 }
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
