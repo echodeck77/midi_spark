@@ -122,7 +122,8 @@ extension DiagView {
         if d.playing && ddColourInActiveColumn(id) {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
-                let raw = stepBeats > 0 ? (live / stepBeats).truncatingRemainder(dividingBy: 1) : 0     // fraction through the current column
+                let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0))   // column progress runs in MUSICAL time (swing-warped)
+                let raw = stepBeats > 0 ? (musical / stepBeats).truncatingRemainder(dividingBy: 1) : 0  // fraction through the current column
                 let f = max(0, min(1, raw < 0 ? raw + 1 : raw))                                         // phase-locked to the column boundary
                 VStack(spacing: 0) {
                     Rectangle().fill(.white.opacity(0.4)).frame(height: side * CGFloat(f))
