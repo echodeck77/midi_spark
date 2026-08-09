@@ -41,7 +41,7 @@ extension DiagView {
         .padding(.vertical, 12)
         .coordinateSpace(name: "dd")                                               // the drag's shared frame of reference
         .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
-        .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(ddDragLoc).allowsHitTesting(false) } }   // the in-hand ghost
+        .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(x: ddDragLoc.x, y: ddDragLoc.y - 32).allowsHitTesting(false) } }   // the in-hand ghost, above the finger
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
     }
     // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
@@ -110,6 +110,7 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .opacity(ddDragPayload == "colour:\(id)" ? 0.35 : 1)                        // lift the source while dragging
             .background(ddZone("palette:\(i)"))                                         // drop-zone frame (a cell → FORK/ADOPT)
             .contentShape(RoundedRectangle(cornerRadius: 8))
             .onTapGesture { ddSelectColour(i) }
@@ -187,6 +188,7 @@ extension DiagView {
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(stroke, lineWidth: strokeW))
+            .opacity(ddDragPayload == "cell:\(c):\(r)" ? 0.35 : 1)                         // lift the source while dragging
             .background(ddZone("grid:\(c):\(r)"))                                          // drop-zone frame (colour → PLACE · cell → MOVE)
             .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { ddGridTap(c, r) }
