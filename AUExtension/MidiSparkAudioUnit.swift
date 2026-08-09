@@ -218,6 +218,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     func clearEditSolo() { kernel.setSoloCellMask(0) }
 
+    /// PLAY: THIS CELL (user 2026-08-09) — isolate ONE cell and freeze the timeline on its column, so ONLY that
+    /// cell's colour machine sounds, ungated by the grid sequence (the grid's active column is ignored). The full
+    /// chain renders (normal render path, just held on this column). `clearColourSolo` restores normal play.
+    func setColourSolo(col: Int, row: Int) {
+        guard col >= 0, col < 8, row >= 0, row < 8 else { clearColourSolo(); return }
+        kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
+        kernel.setSoloColumn(col)
+    }
+    func clearColourSolo() { kernel.setSoloCellMask(0); kernel.setSoloColumn(-1) }
+
     /// §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM — its ON HOLD
     /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
     func setHoldCell(_ cell: Int) { kernel.setHoldCell(cell) }

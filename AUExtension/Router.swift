@@ -1315,6 +1315,7 @@ final class Router {
                  timestampSample: Double,
                  frameCount: UInt32,
                  audition: Int = -1,
+                 forceColumn: Int = -1,   // PLAY: THIS CELL — freeze the effective column here (isolated ungated play), −1 = normal
                  laneMask: UInt8 = 0,
                  velOverride: UInt32 = 0,
                  heldCell: Int = -1,
@@ -1506,7 +1507,8 @@ final class Router {
         let posInCycle = mNow - (mNow / cycleBeats).rounded(.down) * cycleBeats
         let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
         let absoluteStep = Int((mNow / S).rounded(.down))          // global step counter (derived)
-        let effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
+        var effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
+        if forceColumn >= 0 && forceColumn < Snap.cols { effColumn = forceColumn }   // PLAY: THIS CELL — hold the soloed cell's column so its machine plays every window, ungated (user 2026-08-09)
         diag.effColumn = effColumn
         diag.absoluteStep = absoluteStep                           // LADDER commit signal: increments EACH step even during a column LAP (effColumn stays put)
         diag.pass = Int((mNow / cycleBeats).rounded(.down))        // TRUE pass — never remapped (§5b)

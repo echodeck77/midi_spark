@@ -199,7 +199,7 @@ extension DiagView {
         HStack(spacing: 4) {
             ForEach(0..<8, id: \.self) { c in
                 let held = laneMask & (1 << UInt8(c)) != 0
-                let active = d.playing && d.effColumn == c
+                let active = d.playing && d.effColumn == c && !ddSolo   // solo freezes the timeline — no active-column ring
                 RoundedRectangle(cornerRadius: 4).fill(held ? Self.editHue : Color.white.opacity(0.08))
                     .overlay(Image(systemName: "repeat").font(.system(size: 9, weight: .black)).foregroundColor(held ? .black : .white.opacity(0.4)))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white.opacity(active ? 0.8 : 0), lineWidth: 1.5))
@@ -260,7 +260,7 @@ extension DiagView {
                         Spacer(minLength: 0)
                     }
                     HStack(spacing: 8) {       // the three actions, CENTRED on the line
-                        playScopeButton()      // PLAY: THIS CELL (solo the selected cell)
+                        ddPlayCellButton()     // PLAY: THIS CELL — isolate + freeze on this cell's column
                         ddRandomizeButton()
                         ddMutateButton()        // MUTATE — placeholder
                     }
@@ -274,6 +274,23 @@ extension DiagView {
                 .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+    // PLAY: THIS CELL (user 2026-08-09) — isolate the selected cell's colour and freeze the timeline on its column, so
+    // ONLY that machine sounds, ungated by the grid sequence (the grid's active column is ignored). Toggle.
+    private func ddPlayCellButton() -> some View {
+        let on = ddSolo
+        return Button {
+            ddSolo.toggle()
+            if ddSolo, selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow) } else { ddSolo = false; au?.clearColourSolo() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 11, weight: .heavy))
+                Text("PLAY: THIS CELL").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundColor(on ? .black : Self.editHue).padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Self.editHue : Self.editHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
+        }.buttonStyle(.plain)
     }
     // RANDOMIZE — reroll the selected colour's PROCESSOR CHAIN + params (user 2026-08-09; receivers/emitters kept).
     private func ddRandomizeButton() -> some View {
@@ -340,6 +357,7 @@ extension DiagView {
         if let a = anchor { selCol = a.0; selRow = a.1 }
         else if let first = cells.first { selCol = first.col; selRow = first.row }
         else { selCol = -1; selRow = -1 }
+        if ddSolo { if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow) } else { au?.clearColourSolo() } }   // PLAY: THIS CELL follows the selection
     }
     private func ddSelect(_ c: Int, _ r: Int) {
         guard let cell = scene.cellAt(c, r) else { return }

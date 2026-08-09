@@ -187,6 +187,27 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the COLOUR's euclid template (2 cells × 4-of-8 × 3 notes)")
         assertNothingLeftSounding(e)
     }
+    // PLAY: THIS CELL (user 2026-08-09): forcing the effective column HOLDS the cell in that column playing every
+    // window, regardless of the natural timeline — so an isolated cell sounds continuously, ungated by the sequence.
+    func testForceColumnHoldsTheCellPlayingEveryColumn() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        func play(forceColumn: Int) -> Int {
+            let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+            let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+            let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+            while beat < 16.0 {   // one full pass (8 columns, S = 2 beats)
+                router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, forceColumn: forceColumn, out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let normal = play(forceColumn: -1)   // gold (column 0) strikes only while column 0 is the active column
+        let forced = play(forceColumn: 0)    // …held on column 0 → strikes EVERY column
+        XCTAssertGreaterThan(forced, normal * 3, "forcing the column holds the cell playing every column (\(forced) vs \(normal))")
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

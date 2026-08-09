@@ -68,6 +68,8 @@ final class Kernel {
     // cells sound. Ephemeral like laneMask; the UI sets it from the edit selection and clears it on OFF / leaving EDIT.
     private var soloCellMask: UInt64 = 0
     func setSoloCellMask(_ mask: UInt64) { soloCellMask = mask }
+    private var soloColumn: Int32 = -1   // PLAY: THIS CELL — the column to freeze on (−1 = normal timeline)
+    func setSoloColumn(_ c: Int) { soloColumn = Int32(c) }
     // §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM. Ephemeral like
     // laneMask; the UI sets it while a cell is held and clears it on release / stop / EDIT switch.
     private var heldCell: Int32 = -1
@@ -482,7 +484,7 @@ final class Kernel {
                         playing: playing, beatPos: beatPos, tempo: tempo,
                         sampleRate: sampleRate,
                         timestampSample: timestamp.pointee.mSampleTime,
-                        frameCount: frameCount, audition: audition, laneMask: laneMask,
+                        frameCount: frameCount, audition: audition, forceColumn: Int(soloColumn), laneMask: laneMask,
                         velOverride: velOverride, heldCell: Int(heldCell), tapAltMask: tapAltMask,
                         tapMuteMask: tapMuteMask, soloCellMask: soloCellMask, soloEmitterMask: soloEmitterMask,
                         soloReceiverMask: soloReceiverMask, inputOctave: inputOctave, inputSemitone: inputSemitone, inputVelOverride: inputVelOverride,
