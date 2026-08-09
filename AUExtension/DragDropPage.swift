@@ -29,6 +29,11 @@ extension DiagView {
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
             ddMachinery(width: size.width - 24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // BOTTOM band
         }.padding(12)
+        .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
+    }
+    // A drop-target highlight binding: SwiftUI drives it true while a drag hovers this target, false when it leaves.
+    private func ddHoverBinding(_ key: String) -> Binding<Bool> {
+        Binding(get: { ddDropHover == key }, set: { ddDropHover = $0 ? key : (ddDropHover == key ? nil : ddDropHover) })
     }
 
     // THE PALETTE — the 16 colours as a 4×4 of flat swatches (v1), with the LITTER box in the spare vertical below.
@@ -48,6 +53,7 @@ extension DiagView {
         let id = colourIDs[i]
         let selected = ddColourSel == i
         let placed = ddColourIsPlaced(id)
+        let hover = ddDropHover == "palette:\(i)"
         RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
             .frame(width: side, height: side)
             .overlay { ddSwatchPlayhead(id, side: side) }             // THE REFILL: a downward fill-wipe on the active column
@@ -55,20 +61,21 @@ extension DiagView {
                 if placed { Circle().fill(.white.opacity(0.85)).frame(width: 6, height: 6).padding(4) }   // has placed cells
             }
             .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? Color.white : Color.white.opacity(0.12), lineWidth: selected ? 3 : 1))
+                .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
             .onTapGesture { ddSelectColour(i) }
             .onDrag { NSItemProvider(object: "colour:\(id)" as NSString) }              // drag a colour → grid (PLACE) / litter (DELETE)
-            .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .palette(i)) }   // a cell dropped here → FORK/ADOPT
+            .onDrop(of: [.text], isTargeted: ddHoverBinding("palette:\(i)")) { ddHandleDrop($0, onto: .palette(i)) }   // a cell dropped here → FORK/ADOPT
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
     // fills downward over the column window. v1 sweeps at the column rate (not yet phase-locked to the exact playhead).
     @ViewBuilder private func ddSwatchPlayhead(_ id: String, side: CGFloat) -> some View {
         if d.playing && ddColourInActiveColumn(id) {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let colDur = max(0.08, stepBeats * 60.0 / max(1, d.tempo))
-                let f = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: colDur) / colDur
+                let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
+                let raw = stepBeats > 0 ? (live / stepBeats).truncatingRemainder(dividingBy: 1) : 0     // fraction through the current column
+                let f = max(0, min(1, raw < 0 ? raw + 1 : raw))                                         // phase-locked to the column boundary
                 VStack(spacing: 0) {
                     Rectangle().fill(.white.opacity(0.4)).frame(height: side * CGFloat(f))
                     Spacer(minLength: 0)
@@ -78,14 +85,16 @@ extension DiagView {
     }
     // THE LITTER (design): drop a colour here → delete it AND all its cells; drop a cell here → clear that cell.
     private func ddLitter() -> some View {
-        HStack(spacing: 6) {
+        let hover = ddDropHover == "litter"
+        return HStack(spacing: 6) {
             Image(systemName: "trash").font(.system(size: 13, weight: .heavy))
             Text("LITTER").font(.system(size: 10, weight: .heavy, design: .monospaced))
         }
-        .foregroundColor(.white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
+        .foregroundColor(hover ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? Verb.delete.hue.opacity(0.18) : .clear)
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: hover ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
-        .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .litter) }
+        .onDrop(of: [.text], isTargeted: ddHoverBinding("litter")) { ddHandleDrop($0, onto: .litter) }
     }
 
     // ROW SELECTORS (user 2026-08-09) — one key per grid row; a tap PAINTS the whole row with the selected colour
@@ -115,6 +124,7 @@ extension DiagView {
     @ViewBuilder private func ddGridCell(_ c: Int, _ r: Int, size: CGFloat) -> some View {
         let cell = scene.cellAt(c, r)
         let selected = selCol == c && selRow == r
+        let hover = ddDropHover == "grid:\(c):\(r)"
         let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
         RoundedRectangle(cornerRadius: 5)
             .fill(fill.opacity(cell?.muted == true ? 0.28 : 1))
@@ -124,11 +134,11 @@ extension DiagView {
                     Image(systemName: "speaker.slash.fill").font(.system(size: size * 0.3, weight: .heavy)).foregroundColor(.black.opacity(0.5))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.white : Color.white.opacity(0.12), lineWidth: selected ? 2.5 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 2.5 : 1))
             .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { ddGridTap(c, r) }
             .onDrag { NSItemProvider(object: "cell:\(c):\(r)" as NSString) }               // drag this cell → palette / litter / grid
-            .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .grid(c, r)) }   // a colour / cell dropped here
+            .onDrop(of: [.text], isTargeted: ddHoverBinding("grid:\(c):\(r)")) { ddHandleDrop($0, onto: .grid(c, r)) }   // a colour / cell dropped here
     }
 
     // THE MACHINERY — the selected colour's flow diagram, full-width, with PLAY THIS CELL + RANDOMIZE on the right.
