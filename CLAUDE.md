@@ -185,6 +185,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   the two halves were each covered before but never combined. ⏸ STILL PER-CELL (not colour-owned STORAGE): the
   chain templateChain is colour-owned but buses/receiver/chop are per-cell (fanned out on edit, not stored on the
   Colour); an unplaced colour can't store routing (no cells yet). MUTATE still a placeholder.**
+- **▶ DRAG&DROP SINGLE|MULTI honored on the grid (2026-08-09, on `main`, PUSHED next; iOS builds). SINGLE|MULTI is the
+  GLOBAL title-bar toggle = the LADDER engine (`ladderMode` → `SnapCell.dormant`, already tested). Wired it into the
+  DRAG&DROP grid: SINGLE dims the non-active rungs (`ladderDim`) and a tap CHOOSES the column's one active rung
+  (reuses `armLadderRung` — a populated cell plays / an EMPTY cell silences the column); MULTI keeps tap = mute/unmute.
+  Either way a populated tap still selects the colour. Deferred polish: the arm-at-boundary BLINK isn't drawn on the
+  DD grid yet (instant switches work; a switch while the playhead is on that column arms + commits at the next entry,
+  just without the blink cue). FREE mode still deferred per the user.**
 - **▶ PER-COLOUR MACHINE — step 1 FOUNDATION (2026-08-09, on `main`, PUSHED `fb576e5`; macOS 551 green, iOS builds).
   The GLOBAL storage move WITHOUT the ~330-test field-move: the engine has a dormant per-colour mechanism —
   SnapshotBuilder resolves a chain as per-cell OVERRIDE → colour TEMPLATE (`Colour.templateChain`) → legacy; colours

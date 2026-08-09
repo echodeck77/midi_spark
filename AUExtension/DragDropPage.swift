@@ -305,6 +305,7 @@ extension DiagView {
     }
     @ViewBuilder private func ddGridCell(_ c: Int, _ r: Int, size: CGFloat) -> some View {
         let cell = scene.cellAt(c, r)
+        let dormant = ladderDim.contains(GridView.GridPos(col: c, row: r))           // SINGLE (ladder): a non-active rung is silent → dim it
         let hover = ddDropHover == "grid:\(c):\(r)"
         let dragging = ddActivePayload != nil                                        // a source is touched/dragged → light the drop zones
         // NO grid cell is ever shown as SELECTED (user 2026-08-09) — only the hover/drag drop highlights. The selection
@@ -314,7 +315,7 @@ extension DiagView {
         let strokeW: CGFloat = hover ? 3 : (dragging ? 2 : 1)
         let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
         RoundedRectangle(cornerRadius: 5)
-            .fill(fill.opacity(cell?.muted == true ? 0.28 : 1))
+            .fill(fill.opacity(cell?.muted == true || dormant ? 0.28 : 1))
             .frame(width: size, height: size)
             .overlay {
                 if cell?.muted == true {
@@ -467,8 +468,15 @@ extension DiagView {
         let valid = ddColourSel >= 0 && ddColourSel < colourIDs.count && ddColourShown(ddColourSel)
         ddSelectColour(valid ? ddColourSel : (colourIDs.firstIndex(of: "gold") ?? 0))
     }
-    /// Grid tap = MUTE/UNMUTE + SELECT the cell's colour (palette + machinery follow), per the design.
+    /// Grid tap. SINGLE (ladder) — the tap chooses the column's ONE active rung (a populated cell plays, an EMPTY cell
+    /// silences the column), reusing the GRID page's `armLadderRung`; MULTI — the tap MUTES/UNMUTES the cell. Either
+    /// way, tapping a populated cell SELECTS its colour so the palette + machinery follow. (user 2026-08-09)
     func ddGridTap(_ col: Int, _ row: Int) {
+        if ladderMode {
+            if scene.cellAt(col, row) != nil { ddSelect(col, row) }
+            armLadderRung(col, row)                              // one cell at a time — switch/mute the column's active rung
+            return
+        }
         guard scene.cellAt(col, row) != nil else { return }
         au?.editScene { $0.cells[col][row]?.muted.toggle() }
         refreshFromDocument(); ddSelect(col, row)
