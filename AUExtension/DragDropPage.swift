@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // THE DRAG&DROP PAGE (design stage, user 2026-08-09) — a NEW first tab. Per DESIGN-dragdrop-page.md: a colour is a
 // machine; you edit colours, placed as cells. LANDSCAPE-first, ONE non-scrolling panel:
@@ -9,6 +8,12 @@ import UniformTypeIdentifiers
 // (palette→grid PLACE · grid→grid MOVE · grid→occupied-palette ADOPT · grid→empty-palette FORK · →LITTER delete).
 // Deferred: palette↔palette reorg, SINGLE|MULTI|FREE, the true per-colour machine model.
 private enum DDTarget { case grid(Int, Int), palette(Int), litter }
+
+// Drop-zone frames for the CUSTOM finger-tracking drag (SwiftUI's .onDrag/.onDrop don't survive the AU host).
+struct DDZonePref: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
+}
 
 extension DiagView {
     @ViewBuilder func dragDropPage(_ size: CGSize) -> some View {
@@ -29,11 +34,48 @@ extension DiagView {
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
             ddMachinery(width: size.width - 24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // BOTTOM band
         }.padding(12)
+        .coordinateSpace(name: "dd")                                               // the drag's shared frame of reference
+        .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
+        .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(ddDragLoc).allowsHitTesting(false) } }   // the in-hand ghost
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
     }
-    // A drop-target highlight binding: SwiftUI drives it true while a drag hovers this target, false when it leaves.
-    private func ddHoverBinding(_ key: String) -> Binding<Bool> {
-        Binding(get: { ddDropHover == key }, set: { ddDropHover = $0 ? key : (ddDropHover == key ? nil : ddDropHover) })
+    // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
+    private func ddZone(_ key: String) -> some View {
+        GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
+    }
+    // The custom drag: a real move (≥12pt) picks `payload` up; a plain tap flows to onTapGesture untouched. onChanged
+    // tracks the finger + highlights the zone under it; onEnded hit-tests the drop and runs the landing.
+    private func ddDragGesture(_ payload: String) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .named("dd"))
+            .onChanged { v in ddDragPayload = payload; ddDragLoc = v.location; ddDropHover = ddZoneAt(v.location, excluding: payload) }
+            .onEnded { v in
+                let target = ddZoneAt(v.location, excluding: payload)
+                ddDragPayload = nil; ddDropHover = nil
+                if let target { ddLandingKey(payload: payload, targetKey: target) }
+            }
+    }
+    private func ddZoneAt(_ p: CGPoint, excluding payload: String) -> String? {
+        // a cell dragged onto its OWN frame isn't a landing — skip it so the ghost reads the litter/palette behind
+        let selfKey = payload.hasPrefix("cell:") ? "grid:" + payload.dropFirst("cell:".count) : nil
+        return ddZones.first(where: { $0.value.contains(p) && $0.key != selfKey })?.key
+    }
+    private func ddLandingKey(payload: String, targetKey k: String) {
+        let t = k.split(separator: ":").map(String.init)
+        if t.first == "grid", t.count == 3, let c = Int(t[1]), let r = Int(t[2]) { ddApplyDrop(payload: payload, onto: .grid(c, r)) }
+        else if t.first == "palette", t.count == 2, let i = Int(t[1]) { ddApplyDrop(payload: payload, onto: .palette(i)) }
+        else if t.first == "litter" { ddApplyDrop(payload: payload, onto: .litter) }
+    }
+    // The floating in-hand token that follows the finger.
+    @ViewBuilder private func ddGhost(_ payload: String) -> some View {
+        let hue: Color = {
+            let t = payload.split(separator: ":").map(String.init)
+            if t.first == "colour", t.count == 2 { return colourColor(t[1]) ?? .gray }
+            if t.first == "cell", t.count == 3, let c = Int(t[1]), let r = Int(t[2]), let cell = scene.cellAt(c, r) { return colourColor(cell.colourID) ?? .gray }
+            return .gray
+        }()
+        RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 40, height: 40).opacity(0.9)
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.8), lineWidth: 2))
+            .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
     }
 
     // THE PALETTE — the 16 colours as a 4×4 of flat swatches (v1), with the LITTER box in the spare vertical below.
@@ -63,10 +105,10 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .background(ddZone("palette:\(i)"))                                         // drop-zone frame (a cell → FORK/ADOPT)
             .contentShape(RoundedRectangle(cornerRadius: 8))
             .onTapGesture { ddSelectColour(i) }
-            .onDrag { NSItemProvider(object: "colour:\(id)" as NSString) }              // drag a colour → grid (PLACE) / litter (DELETE)
-            .onDrop(of: [.text], isTargeted: ddHoverBinding("palette:\(i)")) { ddHandleDrop($0, onto: .palette(i)) }   // a cell dropped here → FORK/ADOPT
+            .simultaneousGesture(ddDragGesture("colour:\(id)"))                         // drag a colour → grid (PLACE) / litter (DELETE)
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
     // fills downward over the column window. v1 sweeps at the column rate (not yet phase-locked to the exact playhead).
@@ -95,8 +137,8 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : .clear)
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover || flashing ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: hover || flashing ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
+        .background(ddZone("litter"))                                                  // drop-zone frame (a drop target only)
         .animation(.easeOut(duration: 0.15), value: flashing)
-        .onDrop(of: [.text], isTargeted: ddHoverBinding("litter")) { ddHandleDrop($0, onto: .litter) }
     }
 
     // ROW SELECTORS (user 2026-08-09) — one key per grid row; a tap PAINTS the whole row with the selected colour
@@ -140,10 +182,10 @@ extension DiagView {
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(stroke, lineWidth: strokeW))
+            .background(ddZone("grid:\(c):\(r)"))                                          // drop-zone frame (colour → PLACE · cell → MOVE)
             .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { ddGridTap(c, r) }
-            .onDrag { NSItemProvider(object: "cell:\(c):\(r)" as NSString) }               // drag this cell → palette / litter / grid
-            .onDrop(of: [.text], isTargeted: ddHoverBinding("grid:\(c):\(r)")) { ddHandleDrop($0, onto: .grid(c, r)) }   // a colour / cell dropped here
+            .simultaneousGesture(ddDragGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)   // only occupied cells drag
     }
 
     // THE MACHINERY — the selected colour's flow diagram, full-width, with PLAY THIS CELL + RANDOMIZE on the right.
@@ -255,14 +297,6 @@ extension DiagView {
 
     // MARK: - the six drag landings
 
-    private func ddHandleDrop(_ providers: [NSItemProvider], onto target: DDTarget) -> Bool {
-        guard let p = providers.first else { return false }
-        _ = p.loadObject(ofClass: NSString.self) { obj, _ in
-            guard let s = obj as? String else { return }
-            DispatchQueue.main.async { ddApplyDrop(payload: s, onto: target) }
-        }
-        return true
-    }
     private func ddApplyDrop(payload: String, onto target: DDTarget) {
         let parts = payload.split(separator: ":").map(String.init)
         if parts.first == "colour", parts.count == 2 {
