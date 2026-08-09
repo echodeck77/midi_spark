@@ -28,8 +28,11 @@ extension DiagView {
                 Spacer(minLength: 0)
                 ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
                 HStack(alignment: .top, spacing: 5) {
-                    ddRowSelectors(cell: gridCell)                    // paint a row with the selected colour
-                    ddGrid(cell: gridCell)
+                    ddRowSelectors(cell: gridCell, topInset: 18)      // paint a row with the selected colour (inset below the loop row)
+                    VStack(spacing: 4) {
+                        ddColumnLoopRow(cell: gridCell)               // a row of COLUMN LOOP buttons over the grid
+                        ddGrid(cell: gridCell)
+                    }
                 }
                 Spacer(minLength: 0)
             }.frame(height: topH, alignment: .top)
@@ -96,12 +99,12 @@ extension DiagView {
             ddLitter()
         }
     }
-    // A palette slot: a DEFINED colour (has placed cells) shows as a flat swatch; an UNDEFINED one is an empty "+"
-    // slot — the FORK target (drag a grid cell here to CREATE a new colour). The palette starts with one colour.
+    // A palette slot: a DEFINED colour (created, or has placed cells) shows as a flat swatch; an UNDEFINED one is an
+    // empty "+" slot — tap it to CREATE a new colour, or drag a grid cell onto it to FORK. Palette starts with one.
     @ViewBuilder private func ddSwatch(_ i: Int, side: CGFloat) -> some View {
         let id = colourIDs[i]
         let selected = ddColourSel == i
-        let defined = ddColourIsPlaced(id)
+        let defined = ddColourShown(i)
         let hover = ddDropHover == "palette:\(i)"
         Group {
             if defined {
@@ -120,7 +123,7 @@ extension DiagView {
         .frame(width: side, height: side)
         .background(ddZone("palette:\(i)"))                                             // drop-zone frame (cell → FORK/ADOPT)
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { if defined { ddSelectColour(i) } }
+        .onTapGesture { if defined { ddSelectColour(i) } else { ddCreateColour(i) } }   // tap "+" → create a new colour
         .simultaneousGesture(ddDragGesture("colour:\(id)"), including: defined ? .all : .subviews)   // only defined colours drag
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
@@ -157,9 +160,10 @@ extension DiagView {
 
     // ROW SELECTORS (user 2026-08-09) — one key per grid row; a tap PAINTS the whole row with the selected colour
     // (its representative machine, or a default passthrough if unplaced). No column paint (by design).
-    @ViewBuilder private func ddRowSelectors(cell: CGFloat) -> some View {
+    @ViewBuilder private func ddRowSelectors(cell: CGFloat, topInset: CGFloat) -> some View {
         let tint = ddColourSel >= 0 ? (colourColor(colourIDs[ddColourSel]) ?? Color.white) : Color.white.opacity(0.25)
         VStack(spacing: 4) {
+            Color.clear.frame(width: 18, height: topInset)   // align the row keys below the column-loop row
             ForEach(0..<8, id: \.self) { r in
                 RoundedRectangle(cornerRadius: 4).fill(tint.opacity(ddColourSel >= 0 ? 0.6 : 0.12))
                     .overlay(Image(systemName: "arrow.left").font(.system(size: 9, weight: .black)).foregroundColor(.black.opacity(0.55)))
@@ -170,6 +174,22 @@ extension DiagView {
         }
     }
 
+    // COLUMN LOOP buttons (user 2026-08-09) — one per grid column, aligned over the grid; tap to hold/release that
+    // column in the loop set (the same `laneMask` the perform grid drives). Lit = held; the active column is ringed.
+    @ViewBuilder private func ddColumnLoopRow(cell size: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<8, id: \.self) { c in
+                let held = laneMask & (1 << UInt8(c)) != 0
+                let active = d.playing && d.effColumn == c
+                RoundedRectangle(cornerRadius: 4).fill(held ? Self.editHue : Color.white.opacity(0.08))
+                    .overlay(Image(systemName: "repeat").font(.system(size: 9, weight: .black)).foregroundColor(held ? .black : .white.opacity(0.4)))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(.white.opacity(active ? 0.8 : 0), lineWidth: 1.5))
+                    .frame(width: size, height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleLoopColumn(c) }
+            }
+        }
+    }
     // THE GRID — flat-colour 8×8 (design v1: cells are flat colour, the grid stays calm). Tap = mute/unmute + select;
     // drag a cell → palette (FORK/ADOPT) / litter (clear) / another cell (MOVE); a colour drops here to PLACE.
     @ViewBuilder private func ddGrid(cell size: CGFloat) -> some View {
@@ -203,28 +223,29 @@ extension DiagView {
             .simultaneousGesture(ddDragGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)   // only occupied cells drag
     }
 
-    // THE MACHINERY — the selected colour's flow diagram, full-width, with PLAY THIS CELL + RANDOMIZE on the right.
+    // THE MACHINERY — the selected colour's flow diagram (full-width), led by a prominent header: the colour identity
+    // on the left, and PLAY THIS CELL · RANDOMIZE · MUTATE centred on the same line (user 2026-08-09).
     @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
         if editArmed, let cell = editingCell {
             let hue = colourColor(cell.colourID) ?? .white
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 12) {          // PROMINENT colour header — this machine IS the selected colour (user 2026-08-09)
-                    RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
-                    Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
-                    Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
-                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                    Spacer(minLength: 0)
-                }
-                Rectangle().fill(hue.opacity(0.7)).frame(height: 2)
-                HStack(alignment: .top, spacing: 12) {
-                    flowDiagram(cell, width: width - 140)
-                    VStack(spacing: 8) {
-                        playScopeButton()      // PLAY THIS CELL (solo the selected cell) — reuses the play-scope button
-                        ddRandomizeButton()
+                ZStack {
+                    HStack(spacing: 12) {      // colour identity — this machine IS the selected colour
+                        RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
+                        Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
+                        Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                            .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                         Spacer(minLength: 0)
-                    }.frame(width: 128)
-                }
+                    }
+                    HStack(spacing: 8) {       // the three actions, CENTRED on the line
+                        playScopeButton()      // PLAY: THIS CELL (solo the selected cell)
+                        ddRandomizeButton()
+                        ddMutateButton()        // MUTATE — placeholder
+                    }
+                }.frame(height: 44)
+                Rectangle().fill(hue.opacity(0.7)).frame(height: 2)
+                flowDiagram(cell, width: width)     // the flow diagram now spans the full width
             }
         } else {
             Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — drag it onto the grid, or use a row selector"
@@ -240,10 +261,19 @@ extension DiagView {
                 Image(systemName: "die.face.5.fill").font(.system(size: 12, weight: .heavy))
                 Text("RANDOMIZE").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
             }
-            .foregroundColor(Self.editHue).frame(maxWidth: .infinity).frame(height: 30)
+            .foregroundColor(Self.editHue).padding(.horizontal, 12).frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 7).fill(Self.editHue.opacity(0.12))
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
+    }
+    // MUTATE — placeholder (a nudged variation of the colour, to come). Inert dashed chip for now.
+    private func ddMutateButton() -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .heavy))
+            Text("MUTATE").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .foregroundColor(.white.opacity(0.28)).padding(.horizontal, 12).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
     }
 
     // MARK: - selection helpers
@@ -251,6 +281,19 @@ extension DiagView {
     private func ddColourIsPlaced(_ id: String) -> Bool {
         for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { return true } }
         return false
+    }
+    /// A palette slot shows a colour when it's been CREATED (defined flag) or has placed cells; else it's a "+" slot.
+    private func ddColourShown(_ i: Int) -> Bool {
+        (i < docColours.count && docColours[i].defined == true) || ddColourIsPlaced(colourIDs[i])
+    }
+    /// Tap a "+" slot → CREATE a new colour (mark it defined; its default machine is the colour's own head). It shows
+    /// as a swatch, selected; drag it onto the grid to place + edit (no cells yet, so the machinery invites a place).
+    func ddCreateColour(_ i: Int) {
+        guard i >= 0 && i < colourIDs.count else { return }
+        au?.editDocument { doc in if i < doc.colours.count { doc.colours[i].defined = true } }
+        refreshFromDocument()
+        ddColourSel = i
+        ddScopeToColour(colourIDs[i], anchor: nil)
     }
     private func ddColourInActiveColumn(_ id: String) -> Bool {
         let col = d.effColumn
@@ -364,6 +407,7 @@ extension DiagView {
         au?.editScene { s in
             for c in 0..<8 { for r in 0..<8 where s.cellAt(c, r)?.colourID == id { s.cells[c][r] = nil; removed += 1 } }
         }
+        au?.editDocument { doc in if let ci = doc.colours.firstIndex(where: { $0.colourID == id }) { doc.colours[ci].defined = false } }   // un-create → back to a "+" slot
         refreshFromDocument()
         if ddColourSel >= 0 && colourIDs[ddColourSel] == id { ddColourSel = -1; selCol = -1; selRow = -1; sel.reset() }
         ddFlashLitter("−1 colour · \(removed) cell\(removed == 1 ? "" : "s")")
