@@ -1,12 +1,15 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // THE DRAG&DROP PAGE (design stage, user 2026-08-09) — a NEW first tab. Per DESIGN-dragdrop-page.md: a colour is a
 // machine; you edit colours, placed as cells. LANDSCAPE-first, ONE non-scrolling panel:
-//   TOP band  = the 4×4 PALETTE (the 16 colours, flat swatches) + ROW SELECTORS + the 8×8 GRID.
+//   TOP band  = the 4×4 PALETTE (16 colours, flat swatches) + ROW SELECTORS + the 8×8 GRID (flat colour v1, calm).
 //   BOTTOM band = the MACHINERY (the existing flow diagram) full-width, with PLAY THIS CELL + RANDOMIZE at its right.
-// Built: layout · selection · machinery · ROW SELECTORS (paint a row with the selected colour) · RANDOMIZE (reroll
-// the selected colour's chain + params) · the PALETTE PLAYHEAD (a downward fill-wipe while a colour is in the active
-// column). Deferred: the six drag landings (next), SINGLE|MULTI|FREE, the true per-colour machine model.
+// Built: layout · selection · machinery · row selectors · RANDOMIZE · the palette playhead · the SIX DRAG LANDINGS
+// (palette→grid PLACE · grid→grid MOVE · grid→occupied-palette ADOPT · grid→empty-palette FORK · →LITTER delete).
+// Deferred: palette↔palette reorg, SINGLE|MULTI|FREE, the true per-colour machine model.
+private enum DDTarget { case grid(Int, Int), palette(Int), litter }
+
 extension DiagView {
     @ViewBuilder func dragDropPage(_ size: CGSize) -> some View {
         let topH = min(size.height * 0.46, 400)
@@ -17,14 +20,9 @@ extension DiagView {
         VStack(spacing: 12) {
             HStack(alignment: .top, spacing: 20) {                    // TOP band: palette LEFT · row selectors + grid RIGHT
                 ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
-                HStack(spacing: 5) {
-                    ddRowSelectors(cell: gridCell, top: GridGeometry.headH + GridGeometry.vGap)   // paint a row with the selected colour
-                    GridView(scene: scene, colours: docColours, playColumn: d.effColumn,
-                             trueColumn: d.playing ? ((d.absoluteStep % 8) + 8) % 8 : -1, playing: d.playing,
-                             beat: d.beat, tempo: d.tempo, stepBeats: stepBeats, swing: swing,
-                             cellHeight: gridCell, editing: false,
-                             selCol: selCol, selRow: selRow, onTap: ddGridTap, flagNoDest: false)
-                        .frame(width: gridCell * 8, height: topH, alignment: .topLeading)
+                HStack(alignment: .top, spacing: 5) {
+                    ddRowSelectors(cell: gridCell)                    // paint a row with the selected colour
+                    ddGrid(cell: gridCell)
                 }
                 Spacer(minLength: 0)
             }.frame(height: topH, alignment: .top)
@@ -50,17 +48,19 @@ extension DiagView {
         let id = colourIDs[i]
         let selected = ddColourSel == i
         let placed = ddColourIsPlaced(id)
-        Button { ddSelectColour(i) } label: {
-            RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
-                .frame(width: side, height: side)
-                .overlay { ddSwatchPlayhead(id, side: side) }          // THE REFILL: a downward fill-wipe on the active column
-                .overlay(alignment: .topTrailing) {
-                    if placed { Circle().fill(.white.opacity(0.85)).frame(width: 6, height: 6).padding(4) }   // has placed cells
-                }
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.white : Color.white.opacity(0.12), lineWidth: selected ? 3 : 1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        }.buttonStyle(.plain)
+        RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
+            .frame(width: side, height: side)
+            .overlay { ddSwatchPlayhead(id, side: side) }             // THE REFILL: a downward fill-wipe on the active column
+            .overlay(alignment: .topTrailing) {
+                if placed { Circle().fill(.white.opacity(0.85)).frame(width: 6, height: 6).padding(4) }   // has placed cells
+            }
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(selected ? Color.white : Color.white.opacity(0.12), lineWidth: selected ? 3 : 1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture { ddSelectColour(i) }
+            .onDrag { NSItemProvider(object: "colour:\(id)" as NSString) }              // drag a colour → grid (PLACE) / litter (DELETE)
+            .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .palette(i)) }   // a cell dropped here → FORK/ADOPT
     }
     // THE PALETTE PLAYHEAD (design "THE REFILL"): while a colour has an UNMUTED cell in the ACTIVE column, its swatch
     // fills downward over the column window. v1 sweeps at the column rate (not yet phase-locked to the exact playhead).
@@ -76,7 +76,7 @@ extension DiagView {
             }
         }
     }
-    // THE LITTER (design): drop a colour here to delete it, a cell to clear it. Visual only for now (drag arrives next).
+    // THE LITTER (design): drop a colour here → delete it AND all its cells; drop a cell here → clear that cell.
     private func ddLitter() -> some View {
         HStack(spacing: 6) {
             Image(systemName: "trash").font(.system(size: 13, weight: .heavy))
@@ -84,22 +84,51 @@ extension DiagView {
         }
         .foregroundColor(.white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
         .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
+        .contentShape(Rectangle())
+        .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .litter) }
     }
 
     // ROW SELECTORS (user 2026-08-09) — one key per grid row; a tap PAINTS the whole row with the selected colour
-    // (its representative machine, or a default passthrough if the colour isn't placed). No column paint (by design).
-    @ViewBuilder private func ddRowSelectors(cell: CGFloat, top: CGFloat) -> some View {
+    // (its representative machine, or a default passthrough if unplaced). No column paint (by design).
+    @ViewBuilder private func ddRowSelectors(cell: CGFloat) -> some View {
         let tint = ddColourSel >= 0 ? (colourColor(colourIDs[ddColourSel]) ?? Color.white) : Color.white.opacity(0.25)
-        VStack(spacing: GridGeometry.vGap) {
-            Color.clear.frame(width: 18, height: top)                 // align with the grid's column-key row
+        VStack(spacing: 4) {
             ForEach(0..<8, id: \.self) { r in
-                Button { ddPaintRow(r) } label: {
-                    RoundedRectangle(cornerRadius: 4).fill(tint.opacity(ddColourSel >= 0 ? 0.6 : 0.12))
-                        .overlay(Image(systemName: "arrow.left").font(.system(size: 9, weight: .black)).foregroundColor(.black.opacity(0.55)))
-                        .frame(width: 18, height: cell)
-                }.buttonStyle(.plain).disabled(ddColourSel < 0)
+                RoundedRectangle(cornerRadius: 4).fill(tint.opacity(ddColourSel >= 0 ? 0.6 : 0.12))
+                    .overlay(Image(systemName: "arrow.left").font(.system(size: 9, weight: .black)).foregroundColor(.black.opacity(0.55)))
+                    .frame(width: 18, height: cell)
+                    .contentShape(Rectangle())
+                    .onTapGesture { ddPaintRow(r) }
             }
         }
+    }
+
+    // THE GRID — flat-colour 8×8 (design v1: cells are flat colour, the grid stays calm). Tap = mute/unmute + select;
+    // drag a cell → palette (FORK/ADOPT) / litter (clear) / another cell (MOVE); a colour drops here to PLACE.
+    @ViewBuilder private func ddGrid(cell size: CGFloat) -> some View {
+        VStack(spacing: 4) {
+            ForEach(0..<8, id: \.self) { r in
+                HStack(spacing: 4) { ForEach(0..<8, id: \.self) { c in ddGridCell(c, r, size: size) } }
+            }
+        }
+    }
+    @ViewBuilder private func ddGridCell(_ c: Int, _ r: Int, size: CGFloat) -> some View {
+        let cell = scene.cellAt(c, r)
+        let selected = selCol == c && selRow == r
+        let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
+        RoundedRectangle(cornerRadius: 5)
+            .fill(fill.opacity(cell?.muted == true ? 0.28 : 1))
+            .frame(width: size, height: size)
+            .overlay {
+                if cell?.muted == true {
+                    Image(systemName: "speaker.slash.fill").font(.system(size: size * 0.3, weight: .heavy)).foregroundColor(.black.opacity(0.5))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.white : Color.white.opacity(0.12), lineWidth: selected ? 2.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .onTapGesture { ddGridTap(c, r) }
+            .onDrag { NSItemProvider(object: "cell:\(c):\(r)" as NSString) }               // drag this cell → palette / litter / grid
+            .onDrop(of: [.text], isTargeted: nil) { ddHandleDrop($0, onto: .grid(c, r)) }   // a colour / cell dropped here
     }
 
     // THE MACHINERY — the selected colour's flow diagram, full-width, with PLAY THIS CELL + RANDOMIZE on the right.
@@ -114,7 +143,7 @@ extension DiagView {
                 }.frame(width: 128)
             }
         } else {
-            Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — place it with a row selector (or drag, coming next)"
+            Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — drag it onto the grid, or use a row selector"
                                   : "Tap a colour, or a placed cell, to edit its machine")
                 .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,7 +162,7 @@ extension DiagView {
         }.buttonStyle(.plain)
     }
 
-    // MARK: - selection (drives the existing flow-diagram selection: selCol/selRow/sel + ddColourSel)
+    // MARK: - selection helpers
 
     private func ddColourIsPlaced(_ id: String) -> Bool {
         for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { return true } }
@@ -149,8 +178,12 @@ extension DiagView {
         for c in 0..<8 { for r in 0..<8 { if let cell = scene.cellAt(c, r), cell.colourID == id { return cell } } }
         return nil
     }
-    /// Select a palette colour → point the machinery at the FIRST placed cell of that colour (its representative
-    /// machine). No placed cell → nothing to edit yet (the machinery shows a hint; place it via a row selector/drag).
+    private func ddSelect(_ c: Int, _ r: Int) {
+        if let cell = scene.cellAt(c, r), let i = colourIDs.firstIndex(of: cell.colourID) { ddColourSel = i }
+        selCol = c; selRow = r; sel.reset(); sel.add(GridView.GridPos(col: c, row: r))
+    }
+    /// Select a palette colour → point the machinery at the FIRST placed cell of that colour (the representative
+    /// machine). No placed cell → nothing to edit yet (place it via a row selector or a drag).
     func ddSelectColour(_ i: Int) {
         guard i >= 0 && i < colourIDs.count else { return }
         ddColourSel = i
@@ -162,11 +195,9 @@ extension DiagView {
     }
     /// Grid tap = MUTE/UNMUTE + SELECT the cell's colour (palette + machinery follow), per the design.
     func ddGridTap(_ col: Int, _ row: Int) {
-        guard let cell = scene.cellAt(col, row) else { return }
+        guard scene.cellAt(col, row) != nil else { return }
         au?.editScene { $0.cells[col][row]?.muted.toggle() }
-        refreshFromDocument()
-        if let i = colourIDs.firstIndex(of: cell.colourID) { ddColourSel = i }
-        selCol = col; selRow = row; sel.reset(); sel.add(GridView.GridPos(col: col, row: row))
+        refreshFromDocument(); ddSelect(col, row)
     }
     /// Paint the whole row with the selected colour — its representative machine, or a default passthrough cell.
     func ddPaintRow(_ r: Int) {
@@ -181,6 +212,69 @@ extension DiagView {
             }
         }
         refreshFromDocument()
+    }
+
+    // MARK: - the six drag landings
+
+    private func ddHandleDrop(_ providers: [NSItemProvider], onto target: DDTarget) -> Bool {
+        guard let p = providers.first else { return false }
+        _ = p.loadObject(ofClass: NSString.self) { obj, _ in
+            guard let s = obj as? String else { return }
+            DispatchQueue.main.async { ddApplyDrop(payload: s, onto: target) }
+        }
+        return true
+    }
+    private func ddApplyDrop(payload: String, onto target: DDTarget) {
+        let parts = payload.split(separator: ":").map(String.init)
+        if parts.first == "colour", parts.count == 2 {
+            let id = parts[1]
+            switch target {
+            case .grid(let c, let r): ddPlace(id, at: c, r)          // palette → grid = PLACE
+            case .litter:             ddDeleteColour(id)             // colour → litter = DELETE the colour + its cells
+            case .palette:            break                          // palette → palette reorg (deferred)
+            }
+        } else if parts.first == "cell", parts.count == 3, let sc = Int(parts[1]), let sr = Int(parts[2]) {
+            switch target {
+            case .grid(let dc, let dr): if sc != dc || sr != dr { moveCell((sc, sr), (dc, dr)); ddSelect(dc, dr) }   // grid → grid = MOVE
+            case .palette(let i):       ddRecolour(sc, sr, toSlot: i)   // grid → palette = ADOPT (occupied) / FORK (empty)
+            case .litter:               ddClearCell(sc, sr)             // grid cell → litter = clear that cell
+            }
+        }
+    }
+    private func ddPlace(_ id: String, at c: Int, _ r: Int) {
+        let template = ddRepresentativeCell(id)
+        au?.editScene { s in
+            var cell = template ?? newbornCell()
+            cell.colourID = id; cell.muted = false
+            s.cells[c][r] = cell
+        }
+        refreshFromDocument(); ddSelect(c, r)
+    }
+    /// Grid cell dropped on a palette slot: OCCUPIED slot = ADOPT (the cell takes that colour's machine); EMPTY
+    /// (unused) slot = FORK (the cell keeps its own machine, just recolours to the unused colour).
+    private func ddRecolour(_ sc: Int, _ sr: Int, toSlot i: Int) {
+        guard i >= 0 && i < colourIDs.count else { return }
+        let id = colourIDs[i]
+        let adopt = ddColourIsPlaced(id) ? ddRepresentativeCell(id) : nil
+        au?.editScene { s in
+            guard var cell = s.cellAt(sc, sr) else { return }
+            if let rep = adopt { let keepMuted = cell.muted; cell = rep; cell.muted = keepMuted }   // ADOPT the target's machine
+            cell.colourID = id                                                                      // FORK just recolours
+            s.cells[sc][sr] = cell
+        }
+        refreshFromDocument(); ddColourSel = i; ddSelect(sc, sr)
+    }
+    private func ddClearCell(_ c: Int, _ r: Int) {
+        au?.editScene { $0.cells[c][r] = nil }
+        refreshFromDocument()
+        if selCol == c && selRow == r { selCol = -1; selRow = -1; sel.reset() }
+    }
+    private func ddDeleteColour(_ id: String) {
+        au?.editScene { s in
+            for c in 0..<8 { for r in 0..<8 where s.cellAt(c, r)?.colourID == id { s.cells[c][r] = nil } }
+        }
+        refreshFromDocument()
+        if ddColourSel >= 0 && colourIDs[ddColourSel] == id { ddColourSel = -1; selCol = -1; selRow = -1; sel.reset() }
     }
 
     // MARK: - RANDOMIZE (reroll the selected colour's chain)
