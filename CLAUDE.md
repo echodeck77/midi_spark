@@ -157,6 +157,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ VELOCITY INHERITANCE + cell-edit page reshape (2026-08-09, on `main`, PUSHED `28dbd29`,`c1bf1f5`; macOS 549 green
+  FROM SCRATCH, iOS builds; DEVICE ear/eye owed). Paul: the arp (and in fact every processor) emitted a flat velocity
+  96. **FIX:** the whole REAL signal path now carries the source note's velocity — `arpPick()` returns note+velocity
+  (octave-invariant); `applyStage`/`composeChainSet`/`emitDriverNote` carry it through the chain; ARP/RATCHET/STRUM
+  pass the picked source velocity (ratchet ramp + strum tilt shape RELATIVE to it, via their `base:` param); the
+  generators scale it by their envelope (`strikeChord` takes a `velScale`); column holds + classic ECHO inherit too.
+  Preview/audition paths still sound a flat default (soundcheck only — honest follow-up). Tests: testArpInherits… /
+  testChainInherits…Harmonize / testEuclidGeneratorInherits…; updated the tests that had baked the old 96 as
+  "natural" (now the source velocity, e.g. 100 from `chord()`). **LAYOUT `c1bf1f5`:** the cell-edit page is now ONE
+  non-scrolling panel — LANDSCAPE: grid LEFT · flow RIGHT · mode buttons row along the BOTTOM; PORTRAIT: grid TOP ·
+  slim mode-button column to its right · flow in the BOTTOM half. Removed the informational/guidance text; "Play from
+  grid" → a single enable/disable `playScopeButton` by the flow; `flowDiagram` takes an explicit width. Earlier this
+  turn (`4d7693b`): flow-diagram tightened receiver→processor gap + centre-bottom drop; (`8f5e3b7`): 4 processor
+  slots, plus-only ghost, retired everything below IDENTITY.**
 - **▶ CHOP-ON-ECHO + fold guard + SPLIT pop-up (2026-08-09, on `main`, PUSHED `60853b1`; macOS 546 green FROM SCRATCH,
   iOS builds; DEVICE ear owed). Paul: the 8×3 output SPLIT worked on the arp but not the echo after it. **BUG:**
   `drainEchoTails` emitted repeats on the RAW bus mask — the per-slice chop was never applied; the classic
