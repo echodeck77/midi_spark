@@ -17,13 +17,15 @@ struct DDZonePref: PreferenceKey {
 
 extension DiagView {
     @ViewBuilder func dragDropPage(_ size: CGSize) -> some View {
+        let pageW = min(size.width - 24, 1024)                       // hold the global 1024 content cap (user 2026-08-09)
         let topH = min(size.height * 0.46, 400)
         let swatch = max(28, min((topH - 58) / 4, 64))               // 4×4 palette; leave room for the litter box below
         let paletteW = swatch * 4 + 18
         let rowSelW: CGFloat = 22
-        let gridCell = max(16, min(46, min((size.width - paletteW - rowSelW - 74) / 8, topH / 8.5)))
+        let gridCell = max(16, min(46, min((pageW - paletteW - rowSelW - 74) / 8, topH / 8.5)))
         VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 20) {                    // TOP band: palette LEFT · row selectors + grid RIGHT
+            HStack(alignment: .top, spacing: 20) {                    // TOP band CENTRED in the cap: palette LEFT · grid RIGHT
+                Spacer(minLength: 0)
                 ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
                 HStack(alignment: .top, spacing: 5) {
                     ddRowSelectors(cell: gridCell)                    // paint a row with the selected colour
@@ -32,8 +34,11 @@ extension DiagView {
                 Spacer(minLength: 0)
             }.frame(height: topH, alignment: .top)
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-            ddMachinery(width: size.width - 24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // BOTTOM band
-        }.padding(12)
+            ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // BOTTOM band, full cap width
+        }
+        .frame(width: pageW)
+        .frame(maxWidth: .infinity)                                  // centre the capped content on wider canvases
+        .padding(.vertical, 12)
         .coordinateSpace(name: "dd")                                               // the drag's shared frame of reference
         .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
         .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(ddDragLoc).allowsHitTesting(false) } }   // the in-hand ghost
