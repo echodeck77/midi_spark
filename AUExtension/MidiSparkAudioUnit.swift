@@ -154,6 +154,21 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func editSlotColour(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainColour(id) { if slot < $0.count { mutate(&$0[slot]) } } }
     func setSlotTypeColour(_ id: String, slot: Int, _ type: ProcessorType) { editSlotColour(id, slot: slot) { $0.type = type } }
     func toggleSlotBypassColour(_ id: String, slot: Int) { editSlotColour(id, slot: slot) { $0.bypassed.toggle() } }
+    /// Apply `mutate` to EVERY cell of a colour, across all scenes — the colour-scoped path for the per-cell ROUTING
+    /// fields (receiver / emitters / chop are stored on the Cell, not the Colour, so "edit the colour" fans out to
+    /// all its cells). Used by the DRAG&DROP page so a receiver/emitter pick pushes to every instance. ONE undoable
+    /// document edit. (user 2026-08-09)
+    func editCellsOfColour(_ colourID: String, _ mutate: (inout Cell) -> Void) {
+        editDocument { doc in
+            for si in doc.scenes.indices {
+                for c in doc.scenes[si].cells.indices {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
+                        if var cell = doc.scenes[si].cells[c][r] { mutate(&cell); doc.scenes[si].cells[c][r] = cell }
+                    }
+                }
+            }
+        }
+    }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
     func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
         twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }

@@ -993,7 +993,11 @@ extension DiagView {
     /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
     /// The edit applies to every selected cell; with a single cell selected it's just that cell.
     func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
-        guard let au, !sel.isEmpty else { return }
+        guard let au else { return }
+        // On the DRAG&DROP page a colour IS a machine — the per-cell ROUTING edit (receiver / emitters / chop) pushes
+        // to EVERY cell of the selected colour, in every scene (not just the captured selection). (user 2026-08-09)
+        if editColourScoped, let cid = editScopeColourID { au.editCellsOfColour(cid, mutate); refreshFromDocument(); return }
+        guard !sel.isEmpty else { return }
         au.editCells(editSelTargets, mutate); refreshFromDocument()
     }
     /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
