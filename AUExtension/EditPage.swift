@@ -305,7 +305,9 @@ extension DiagView {
     /// writes `activeRow`, which rides the STANDING TRANSACTION — APPLY persists it, CANCEL reverts it with
     /// everything else (cancelEditSession restores the whole document). MULTI editing is untouched.
     func syncSingleModeActivation() {
-        guard ladderMode, editMode == .addEdit, let au else { return }
+        // NOT on the DRAG&DROP page: there the selection is the WHOLE colour, so deriving the active rung from it would
+        // activate every column the colour occupies (user 2026-08-09 bug). The DD grid sets the rung via armLadderRung.
+        guard ladderMode, editMode == .addEdit, activeTab != .dragDrop, let au else { return }
         var topByColumn: [Int: Int] = [:]
         for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
         guard !topByColumn.isEmpty else { return }

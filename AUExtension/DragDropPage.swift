@@ -48,17 +48,16 @@ extension DiagView {
                 }
             } else {
                 VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity LEFT · grid RIGHT
-                        Spacer(minLength: 0)
-                        VStack(alignment: .leading, spacing: 10) {   // palette · DELETE · GOLD swatch+label · "1 cell" — matched to the grid
+                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity + PLAY LEFT-aligned · grid RIGHT-aligned (user 2026-08-09)
+                        VStack(alignment: .leading, spacing: 10) {   // palette · DELETE · colour swatch+label · "N cells" · PLAY: THIS CELL
                             ddPalette(swatch: swatch, litterHeight: swatch)
                             ddColourIdentity()
-                        }.frame(width: paletteW, alignment: .top)
+                        }.frame(width: paletteW, alignment: .topLeading)
+                        Spacer(minLength: 0)                          // push the grid to the RIGHT edge
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
                         }
-                        Spacer(minLength: 0)
                     }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
                     ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -427,7 +426,10 @@ extension DiagView {
     private func ddColourInActiveColumn(_ id: String) -> Bool {
         let col = d.effColumn
         guard col >= 0 && col < 8 else { return false }
-        for r in 0..<8 { if let cell = scene.cellAt(col, r), cell.colourID == id, !cell.muted { return true } }
+        // SINGLE (ladder): a DORMANT rung isn't firing, so its colour must NOT sweep — only the active rung's colour does.
+        for r in 0..<8 where !ladderDim.contains(GridView.GridPos(col: col, row: r)) {
+            if let cell = scene.cellAt(col, r), cell.colourID == id, !cell.muted { return true }
+        }
         return false
     }
     private func ddRepresentativeCell(_ id: String) -> Cell? {
@@ -509,7 +511,17 @@ extension DiagView {
     private func ddFillRow(_ r: Int, _ id: String, wholeRow: Bool) {
         let template = ddCellOfColour(id)
         au?.editScene { s in for c in 0..<8 where wholeRow || s.cells[c][r] == nil { s.cells[c][r] = template } }
+        // SINGLE (ladder): make the painted row the ACTIVE rung wherever it now sits, so a just-added colour is visible
+        // + plays (otherwise it defaults to dormant behind an existing rung and reads as "not added"). (user 2026-08-09)
+        if ladderMode {
+            au?.editScene(record: false) { s in
+                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                for c in 0..<8 where s.cellAt(c, r)?.colourID == id { ar[c] = r }
+                s.activeRow = ar
+            }
+        }
         refreshFromDocument()
+        ddScopeToColour(id, anchor: nil)                     // the palette + machinery follow the painted colour (confirms the add)
     }
     private func ddRevertRow(_ r: Int, _ original: [Cell?]) {
         au?.editScene { s in for c in 0..<8 { s.cells[c][r] = c < original.count ? original[c] : nil } }
