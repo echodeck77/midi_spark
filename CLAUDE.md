@@ -167,6 +167,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   palette FORK · cell→LITTER clear · colour→LITTER delete-colour+cells. Deferred: palette↔palette reorg, SINGLE|MULTI|
   FREE, the true per-colour machine model (FORK/ADOPT copy machines cell-wise for now). ⚠ .onDrag/.onDrop needs device
   verification inside the AU host.**
+- **▶ DRAG&DROP polish (2026-08-09, on `main`, PUSHED `8fd10a6`,`dcba092`; iOS builds). Playhead PHASE-LOCKED to the
+  column boundary (extrapolates the ~4Hz beat; swing warp still a follow-up); DROP-TARGET HIGHLIGHT (cells/swatches
+  ring in the edit hue, LITTER glows red under a hovering drag); the LITTER FLASHES what it took ("−1 colour · N
+  cells"). Remaining Drag&Drop work is all big-ticket + needs Paul's steer: the per-colour machine model, SINGLE|MULTI|
+  FREE (FREE launcher = engine work), palette↔palette reorg.**
 - **▶ DRAG&DROP page — new first tab, phase 1 (2026-08-09, on `main`, PUSHED `230f5bb`; iOS builds, tests untouched;
   DEVICE eye owed). From `Docs/design-dragdrop-page-2026-08-08.md` (ferried in, preserved `ce6d170`). Paul's forks:
   grid 8×8 · palette 4×4 · scaffold on the per-cell flow diagram · first cut = layout+selection+machinery. New
