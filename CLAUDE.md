@@ -157,6 +157,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DECISIONS BATCH — generators-as-drivers · RESTRIKE · EUCLID POOL · SELECT retire · INIT default · macro/undo
+  (2026-08-09, on `main`, PUSHED `4f06d47`→`204432d`; macOS 540 green, iOS builds; DEVICE ear owed). Paul's rulings.
+  **#1 GENERATORS ARE CHAIN DRIVERS** — euclid/burst/cascade/drone/shift/humanize join arp/ratchet/strum (shared
+  `isDriverType`); `emitGeneratorRow` gained `chainDriver`/`cycleBeats` — composes upstream (composeChainSet) + folds
+  downstream (emitDriverNote). `[EUCLID→PASSGATE]` generates+gates; `[HARMONIZE→EUCLID]` pulses the composed set.
+  Single-slot unchanged. **#2 WIRE = RESTRIKE** — a strike on an already-sounding (cable,ch,note) emits a clean
+  off→on (off first, same ts); refcount unchanged (governs the true release) → no stuck notes. In `openVoice`;
+  collision test updated + `testRestrikeEmitsOffBeforeOnForAnAlreadySoundingNote`. **#5 EUCLID PULSES = FIXED|POOL**
+  (POOL → K tracks the held-note count; append-only `euclidPulsesFromPool`). **#6 SELECT retired** — the always-empty
+  `selection` vestige removed (GridView param, the dead two-sources onChange, doVerb/strokeCell/cancel writes,
+  selectionMixed); EDIT's `sel` untouched. **#8** macro bind stays SILENT until the grid slider moves (reverted
+  drive-to-full). **#9** row-selector tap = ONE undo (per-row `coalesceKey`); behaviour identical. **INIT** (mid-turn)
+  — a blank grid is the new FACTORY DEFAULT (fresh instance loads it); the 3-scene arc kept as the "ARC" preset.
+  Deferred by ruling: #3 SCALE (leave), #4 DRONE (keep), #7 TURNS (no change), #10 MIDI-delays (spec to follow), #11
+  governor cap (fixed at 48).**
 - **▶ THE FLOOD GOVERNOR — field-incident safety (2026-08-09, on `main`, PUSHED `f16500b`→`db0b928`; macOS 535 green,
   iOS builds; DEVICE re-test owed). Paul's AUM incident: a runaway ECHO patch (+12/repeat, high repeats, dense Scaler
   chord feed) flooded thousands of note-ons/sec → two synths cut simultaneously, crash-free, no MIDI from 8x8. Design
