@@ -93,6 +93,7 @@ struct DiagView: View {
     @State var ddZones: [String: CGRect] = [:] // …measured drop-zone frames (grid cells · palette swatches · litter)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
     @State var ddBeatAnchorAt: Date = Date()
+    @State var ddRowCycle: DDRowCycle? = nil   // DRAG&DROP row selector: the 3-press paint cycle (fill empties → fill row → revert)
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)

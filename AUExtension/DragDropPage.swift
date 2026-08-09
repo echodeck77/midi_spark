@@ -9,6 +9,10 @@ import SwiftUI
 // Deferred: palette↔palette reorg, SINGLE|MULTI|FREE, the true per-colour machine model.
 private enum DDTarget { case grid(Int, Int), palette(Int), litter }
 
+// The row-selector PAINT cycle (user 2026-08-09): press 1 fills the row's EMPTY cells with the colour; press 2 fills
+// the WHOLE row (only if the row is now mixed, else it reverts like press 3); press 3 reverts to the original row.
+struct DDRowCycle { var row: Int; var colour: Int; var phase: Int; var original: [Cell?] }
+
 // Drop-zone frames for the CUSTOM finger-tracking drag (SwiftUI's .onDrag/.onDrop don't survive the AU host).
 struct DDZonePref: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
@@ -338,20 +342,41 @@ extension DiagView {
         au?.editScene { $0.cells[col][row]?.muted.toggle() }
         refreshFromDocument(); ddSelect(col, row)
     }
-    /// Paint the whole row with the selected colour — its representative machine, or a default passthrough cell.
+    /// Row-selector PAINT — a 3-press cycle for the selected colour (user 2026-08-09):
+    ///   1st press  → fill only the EMPTY cells (populated cells kept).
+    ///   2nd press  → fill the WHOLE row, IF the row is now mixed (>1 colour); else revert (as a 3rd press would).
+    ///   3rd press  → revert the row to its original state. Switching row/colour restarts the cycle.
     func ddPaintRow(_ r: Int) {
         guard ddColourSel >= 0 else { return }
-        let id = colourIDs[ddColourSel]
-        let template = ddRepresentativeCell(id)
-        au?.editScene { s in
-            for c in 0..<8 {
-                var cell = template ?? newbornCell()
-                cell.colourID = id; cell.muted = false
-                s.cells[c][r] = cell
+        let colour = ddColourSel, id = colourIDs[colour]
+        if let cyc = ddRowCycle, cyc.row == r, cyc.colour == colour {
+            if cyc.phase == 1 && ddRowDistinctColours(r) > 1 {
+                ddFillRow(r, id, wholeRow: true)                                       // press 2: mixed row → fill it
+                ddRowCycle = DDRowCycle(row: r, colour: colour, phase: 2, original: cyc.original)
+            } else {
+                ddRevertRow(r, cyc.original); ddRowCycle = nil                         // press 2 (uniform) or press 3 → revert
             }
+        } else {
+            let original = (0..<8).map { scene.cellAt($0, r) }                         // press 1: capture + fill empties
+            ddFillRow(r, id, wholeRow: false)
+            ddRowCycle = DDRowCycle(row: r, colour: colour, phase: 1, original: original)
         }
+    }
+    private func ddCellOfColour(_ id: String) -> Cell {
+        var cell = ddRepresentativeCell(id) ?? newbornCell()
+        cell.colourID = id; cell.muted = false; cell.processors = nil   // inherit the colour's machine (per-colour model)
+        return cell
+    }
+    private func ddFillRow(_ r: Int, _ id: String, wholeRow: Bool) {
+        let template = ddCellOfColour(id)
+        au?.editScene { s in for c in 0..<8 where wholeRow || s.cells[c][r] == nil { s.cells[c][r] = template } }
         refreshFromDocument()
     }
+    private func ddRevertRow(_ r: Int, _ original: [Cell?]) {
+        au?.editScene { s in for c in 0..<8 { s.cells[c][r] = c < original.count ? original[c] : nil } }
+        refreshFromDocument()
+    }
+    private func ddRowDistinctColours(_ r: Int) -> Int { Set((0..<8).compactMap { scene.cellAt($0, r)?.colourID }).count }
 
     // MARK: - the six drag landings
 
