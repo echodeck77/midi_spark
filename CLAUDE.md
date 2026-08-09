@@ -157,6 +157,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DRAG&DROP page — new first tab, phase 1 (2026-08-09, on `main`, PUSHED `230f5bb`; iOS builds, tests untouched;
+  DEVICE eye owed). From `Docs/design-dragdrop-page-2026-08-08.md` (ferried in, preserved `ce6d170`). Paul's forks:
+  grid 8×8 · palette 4×4 · scaffold on the per-cell flow diagram · first cut = layout+selection+machinery. New
+  `AppTab.dragDrop` leads the bar; `DragDropPage.swift` = ONE non-scrolling panel — TOP: 4×4 palette (16 colours, dot
+  = has placed cells) + 8×8 GridView; BOTTOM: the flow diagram full-width + PLAY THIS CELL (reuses `playScopeButton`)
+  + RANDOMIZE placeholder; LITTER box under the palette. Palette tap → edit the colour's FIRST placed cell; grid tap →
+  mute/unmute + select. `editArmed` now also arms on `.dragDrop` so the flow diagram + its pop-ups work unchanged.
+  New file added via `xcodegen generate` (project.yml includes the whole AUExtension folder). DEFERRED (in the doc):
+  the six drag landings, the palette fill-wipe playhead, SINGLE|MULTI|FREE, a real RANDOMIZE + LITTER delete, and the
+  true per-colour machine model. Reply in `_dear_paul/reply-2026-08-09-dragdrop-phase1.md`.**
 - **▶ VELOCITY INHERITANCE + cell-edit page reshape (2026-08-09, on `main`, PUSHED `28dbd29`,`c1bf1f5`; macOS 549 green
   FROM SCRATCH, iOS builds; DEVICE ear/eye owed). Paul: the arp (and in fact every processor) emitted a flat velocity
   96. **FIX:** the whole REAL signal path now carries the source note's velocity — `arpPick()` returns note+velocity
