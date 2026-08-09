@@ -14,7 +14,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
     private var _parameterTree: AUParameterTree!
-    private var document = PluginState.defaultArc()   // §3b first launch IS music (the 3-scene arc, not a blank grid)
+    private var document = PluginState.makeInit()   // user 2026-08-09: a fresh instance loads the EMPTY "INIT" (the ARC is a named preset)
     private let store: SnapshotStore
     private var rebuildPending = false
     private var snapshotGeneration: UInt64 = 1
@@ -680,7 +680,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
-        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.defaultArc(), generation: 1))
+        store = SnapshotStore(initial: SnapshotBuilder.build(from: PluginState.makeInit(), generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
 
         // aumi units still require audio busses; a silent stereo pair is conventional.
@@ -885,7 +885,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // §3 FACTORY presets (READ-ONLY): DEFAULT (the 3-scene arc) + THE CURRICULUM (SceneFactory's teaching scenes).
     // Code-defined builders, not files — so no save/overwrite/delete. Numbered non-negative for the host API.
     static let factoryPresetBuilders: [(name: String, make: () -> PluginState)] =
-        [("DEFAULT", PluginState.defaultArc),
+        [("INIT", PluginState.makeInit), ("ARC", PluginState.defaultArc),
          ("THE LADDER", PluginState.makeLadder), ("TIDE", PluginState.makeLadderTide),
          ("FORGE", PluginState.makeLadderForge), ("CHIME", PluginState.makeLadderChime),
          ("SPARK", PluginState.makeLadderSpark), ("DELAYS", PluginState.makeDelays)] + SceneFactory.scenes.map { s in (s.name, s.make) }

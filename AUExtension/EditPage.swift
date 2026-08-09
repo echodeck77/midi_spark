@@ -347,7 +347,7 @@ extension DiagView {
                  showAddPlus: editMode == .addEdit && !sel.isEmpty,
                  cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                  cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
-                 selection: [],
+
                  whiteBorder: sel.asSet, ladderDim: ladderDim, verbInvite: nil,   // LADDER: dim dormant rungs + no playhead in EDIT too
                  routeFoci: [], routeIn: [], routeOut: [],
                  tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
@@ -494,15 +494,9 @@ extension DiagView {
         let targets: [MacroTarget] = deltas.compactMap { k, d in
             (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
         }
-        if !targets.isEmpty {
-            au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8)
-            // BUG FIX (user 2026-08-08): a freshly-bound macro sat at VALUE 0 → base + 0·delta = MAIN, so "applying"
-            // the macro did nothing audible until it was driven from the grid. Drive it to FULL on bind so the
-            // authored WITH-MACRO sound is live immediately (the grid slider can pull it back to MAIN).
-            if let macros = au?.uiMacros(), macros.indices.contains(macroIndex), macros[macroIndex].value == 0 {
-                au?.setMacroValue(macroIndex, 1.0)
-            }
-        }
+        // A freshly-bound macro stays at its current VALUE (0 by default) — the offset is authored but SILENT until
+        // it's driven from the grid slider (user ruling 2026-08-09: don't jump the sound on bind).
+        if !targets.isEmpty { au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8) }
         refreshFromDocument()
     }
     /// UNBIND — "Remove from M{n}": drop THIS slot's targets on this macro (reflected live in the MIDI out).

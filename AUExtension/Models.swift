@@ -82,9 +82,10 @@ struct ColourParams: Codable, Equatable {
     var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
     var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
     // EUCLID generator (user 2026-08-08). BURST reuses count+curve; CASCADE reuses rate+strumDir — no new fields.
-    var euclidPulses: Int? = 5          // K — hits per cycle (1…16)
+    var euclidPulses: Int? = 5          // K — hits per cycle (1…16) when PULSES = FIXED
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
+    var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its
@@ -846,6 +847,19 @@ struct PluginState: Codable, Equatable {
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
         state.padScenes()   // MULTI-SCENE: slot 0 = the designed scene, slots 1–15 empty (+) — the strip is 16
         state.markDefinedFromUsage()   // D1: sparse palette — only the painted Colours are defined chips
+        return state
+    }
+
+    /// INIT — a blank starting point (user 2026-08-09): the 16-colour palette + 4 receivers (R1 OMNI · B/C/D ch 2/3/4)
+    /// + ONE EMPTY scene, NO cells placed. Set as the FACTORY DEFAULT (what a fresh instance loads); the DEFAULT ARC
+    /// + curriculum stay available as named presets.
+    static func makeInit() -> PluginState {
+        var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        state.formatVersion = 4
+        state.synthesizeReceiversIfNeeded()
+        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
+        state.padScenes()
+        state.markDefinedFromUsage()   // no cells → a fully sparse palette (all "+" slots)
         return state
     }
 

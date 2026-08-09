@@ -1677,7 +1677,8 @@ final class Router {
         switch mode {
         case .euclid:
             let n = max(2, min(16, p.euclidSteps))
-            let pat = euclidPattern(pulses: p.euclidPulses, steps: n, rotation: p.euclidRot)
+            let k = p.euclidPulsesFromPool ? pool.srcCount(for: cell) : p.euclidPulses   // POOL: K = held-note count
+            let pat = euclidPattern(pulses: k, steps: n, rotation: p.euclidRot)
             let sub = S / Double(n)
             for j in 0..<n where pat[j] {
                 let tau = colStart + Double(j) * sub

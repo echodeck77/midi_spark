@@ -177,7 +177,6 @@ struct GridView: View {
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
     var stagedCells: Set<GridPos> = []               // cells placed this staging session: pulse colour↔black; gate the empty flash
     var hiddenPending: GridPos? = nil                // a just-hidden cell in its undo window: ring in its own colour, tap to restore
-    var selection: Set<GridPos> = []                 // §11 SELECT: the built set — each member wears a ring
     var whiteBorder: Set<GridPos> = []               // §11 PLACE: cells placed this hold — a white "selected" border
     var removeMarks: Set<GridPos> = []               // MODE ROW · CLEAR mode: cells marked for transactional removal — dashed red ring + ✕ + dim
     var ladderDim: Set<GridPos> = []                 // LADDER: dormant rungs — dimmed (present + visible, but silent)
@@ -396,7 +395,7 @@ struct GridView: View {
                 routeLabel("IN", Color(red: 0.15, green: 0.88, blue: 0.94))
             } else if routeOut.contains(pos) {              // a cell below → tap makes it an OUTPUT of the focus
                 routeLabel("OUT", Color(red: 0.35, green: 0.92, blue: 0.50))
-            } else if whiteBorder.contains(pos) || selection.contains(pos) {
+            } else if whiteBorder.contains(pos) {
                 // /btw ③ THE TWO-SOURCES LAW + item 4: a SELECTED or PLACED cell ALWAYS draws WHITE — never a
                 // yellow ring (a yellow outline is invisible on a yellow cell). On the setup grid the ring BREATHES.
                 if animateSelection {
@@ -1456,9 +1455,13 @@ struct ProcessorBox: View {
             // TAIL SPILL (design 2026-08-07): RING lets echoes spill past the bar; CUT keeps them inside it (the note
             // already sounding always finishes). HAND is a birthstone (deferred) — not offered yet.
             field("SPILL") { seg(["RING", "CUT"], sel: spill == .cut ? "CUT" : "RING") { i in setParam { $0.echoSpill = (i == 0 ? .ring : .cut) } } }
-        case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08)
+        case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08); PULSES FIXED | POOL (2026-08-09)
             let steps = p.euclidSteps ?? 8
-            field("PULSES  \(p.euclidPulses ?? 5)  of  \(steps)") { grid16(sel: p.euclidPulses ?? 5) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } } }
+            let fromPool = p.euclidPulsesFromPool ?? false
+            field("PULSES") { seg(["FIXED", "POOL"], sel: fromPool ? "POOL" : "FIXED") { i in setParam { $0.euclidPulsesFromPool = (i == 1) } } }
+            if !fromPool {
+                field("  \(p.euclidPulses ?? 5)  of  \(steps)") { grid16(sel: p.euclidPulses ?? 5) { v in setParam { $0.euclidPulses = min(v, $0.euclidSteps ?? steps) } } }
+            }
             field("STEPS  \(steps)") { grid16(sel: steps) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
             field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
         case .burst:    // GENERATOR — accel/decel roll

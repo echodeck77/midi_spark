@@ -96,6 +96,7 @@ struct SnapParams {
     var euclidPulses: Int = 5
     var euclidSteps: Int = 8
     var euclidRot: Int = 0
+    var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
 }
 
 struct SnapColour {

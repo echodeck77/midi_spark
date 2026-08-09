@@ -284,6 +284,7 @@ enum SnapshotBuilder {
         if let v = p.euclidSteps { out.euclidSteps = clamp(v, 2, 16) }
         if let v = p.euclidPulses { out.euclidPulses = clamp(v, 1, 16) }
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
+        if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         return out
     }
 }

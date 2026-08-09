@@ -114,7 +114,6 @@ struct DiagView: View {
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
     @State var heldVerb: Verb? = nil          // the currently-pressed verb
-    @State var selection: Set<GridView.GridPos> = []   // SELECT: the built set (outlives the hold)
     // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
     // stamps it (PASTE is disabled while this is nil). Replaces the old per-hold moveSource/copySource.
     @State var clipboard: Cell? = nil
@@ -134,6 +133,8 @@ struct DiagView: View {
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State var editArmed = false
     @State var playCellOnly = false                                          // EDIT: "play this cell only" vs "play from grid" (user 2026-08-08)
+    @State var tapCoalesceKey: String? = nil                                 // ROW SELECTOR: coalesce a whole-row tap into ONE undo (user 2026-08-09)
+    @State var tapSeq = 0
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
     @State var editMode: EditPageMode = .addEdit
@@ -424,12 +425,12 @@ struct DiagView: View {
         switch v {
         case .place:                                        // PLACE CELL(S) — toggle-with-restore; a candidate tap WIRES the focus
             if wireRouteCandidate(pos) { return }           // §10 route-as-you-place: a SRC/DEST of the last-placed cell wires it
-            au.editScene { placeToggle(&$0, col, row) }
+            au.editScene(coalesceKey: tapCoalesceKey) { placeToggle(&$0, col, row) }
             refreshFromDocument()
         case .delete:                                       // §10b heal-on-delete: children inherit the input
             guard scene.cells[col][row] != nil else { return }
-            au.editScene { $0.deleteCellSever(col: col, row: row) }
-            selection.remove(pos); refreshFromDocument()
+            au.editScene(coalesceKey: tapCoalesceKey) { $0.deleteCellSever(col: col, row: row) }
+            refreshFromDocument()
         case .copy:                                         // capture the tapped cell into the session clipboard (persists after release)
             if let cell = scene.cells[col][row] { clipboard = cell }
         case .paste:                                        // stamp the clipboard cell wherever tapped (every tap while held)
@@ -480,7 +481,7 @@ struct DiagView: View {
         let kind: TapKind
         switch on.tap {
         case .none:                                       // DEFAULT grid tap = persisted MUTE-toggle (dimmed).
-            au?.editScene { $0.cells[col][row]?.muted.toggle() }   // no emitter output; children read raw MIDI-IN
+            au?.editScene(coalesceKey: tapCoalesceKey) { $0.cells[col][row]?.muted.toggle() }   // no emitter output; children read raw MIDI-IN
             refreshFromDocument(); return
         case .mute:        kind = .mute
         case .solo:        kind = .solo
@@ -534,7 +535,6 @@ struct DiagView: View {
             placeFresh = []; placeUndo = [:]
         default: break
         }
-        selection.removeAll()                               // CANCEL clears the stack (user 2026-07-28)
         heldVerb = nil                                      // end the held status
     }
     // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
@@ -898,14 +898,6 @@ struct DiagView: View {
                 // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
             }
         }
-        .onChange(of: selection) { sel in
-            // HARD RULE: selecting a Colour ALWAYS re-points the processor desk to it. A SELECT set of ONE
-            // distinct Colour sets brush = that Colour, so the COLOUR + PROCESSOR panels edit the SELECTED
-            // cells' Colour (brush is the desk pointer). Multi-Colour → MIXED (handled elsewhere); empty → the
-            // brush stays as-is.
-            let ids = Set(sel.compactMap { scene.cellAt($0.col, $0.row)?.colourID })
-            if ids.count == 1, let id = ids.first, id != brush { brush = id }
-        }
         .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
             if playCellOnly { au?.setEditSolo(editSelTargets) }   // "play this cell only" follows the selection
@@ -1262,7 +1254,6 @@ struct DiagView: View {
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      cellStrikeSeq: cellStrikeSeq,                   // MOSAIC: per-cell moment counter (one rectangle per moment)
-                     selection: selection,
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
@@ -1308,7 +1299,9 @@ struct DiagView: View {
         let muted = populated.filter { scene.cellAt($0, row)?.muted == true }.count
         let mixed = muted > 0 && muted < populated.count
         let targets = mixed ? populated.filter { scene.cellAt($0, row)?.muted != true } : populated
+        tapSeq += 1; tapCoalesceKey = "rowtap-\(tapSeq)"   // one undo for the whole row (user 2026-08-09) — behaviour unchanged
         for c in targets { tapCell(c, row) }
+        tapCoalesceKey = nil
     }
 
     // STROKES: a stroke is live while PLACE/DELETE/SELECT is held (COPY/PASTE don't stroke).
@@ -1327,7 +1320,7 @@ struct DiagView: View {
         case .delete:
             guard scene.cells[col][row] != nil else { return }
             au.editScene(coalesceKey: strokeKey) { $0.deleteCellSever(col: col, row: row) }
-            selection.remove(pos); refreshFromDocument()
+            refreshFromDocument()
         default: break
         }
     }
@@ -1429,7 +1422,7 @@ struct DiagView: View {
     // MIXED-SET law: a SELECT set spanning >1 distinct Colour has no honest Colour-level edit, so the
     // PROCESSOR panels dim to "MIXED" (cell-level edits still apply). Single-Colour (or empty→brush) = normal.
     var selectionMixed: Bool {
-        Set(selection.compactMap { scene.cellAt($0.col, $0.row)?.colourID }).count > 1
+        false   // SELECT retired (user 2026-08-09): the old perform-select set is gone; EDIT uses `sel`
     }
 
     // (processorPanels — the retired shared-Colour A/B desk — removed with the morph layer; all processor
