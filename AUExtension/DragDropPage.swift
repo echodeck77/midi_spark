@@ -149,20 +149,25 @@ extension DiagView {
     // THE MACHINERY — the selected colour's flow diagram, full-width, with PLAY THIS CELL + RANDOMIZE on the right.
     @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
         if editArmed, let cell = editingCell {
-            HStack(alignment: .top, spacing: 12) {
-                flowDiagram(cell, width: width - 140)
-                VStack(spacing: 8) {
-                    if ddColourSel >= 0 {      // THE PER-COLOUR SCOPE: this machine plays on every cell of the colour
-                        HStack(spacing: 5) {
-                            RoundedRectangle(cornerRadius: 3).fill(colourColor(colourIDs[ddColourSel]) ?? .gray).frame(width: 12, height: 12)
-                            Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
-                                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    playScopeButton()          // PLAY THIS CELL (solo the selected cell) — reuses the play-scope button
-                    ddRandomizeButton()
+            let hue = colourColor(cell.colourID) ?? .white
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {          // PROMINENT colour header — this machine IS the selected colour (user 2026-08-09)
+                    RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
+                    Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
+                    Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
                     Spacer(minLength: 0)
-                }.frame(width: 128)
+                }
+                Rectangle().fill(hue.opacity(0.7)).frame(height: 2)
+                HStack(alignment: .top, spacing: 12) {
+                    flowDiagram(cell, width: width - 140)
+                    VStack(spacing: 8) {
+                        playScopeButton()      // PLAY THIS CELL (solo the selected cell) — reuses the play-scope button
+                        ddRandomizeButton()
+                        Spacer(minLength: 0)
+                    }.frame(width: 128)
+                }
             }
         } else {
             Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — drag it onto the grid, or use a row selector"
