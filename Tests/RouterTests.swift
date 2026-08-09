@@ -156,6 +156,22 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(a.filter { $0.note == 64 }.allSatisfy { $0.vel == 110 }, "euclid note 64 → source velocity 110")
         assertNothingLeftSounding(e)
     }
+    // The soundcheck path inherits velocity too (user 2026-08-09): a stopped-transport AUDITION of an arp cell sounds
+    // at the source velocity, not a flat 96 — audition matches playback.
+    func testAuditionInheritsSourceVelocity() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let pool = velChord([(60, 40), (67, 118)])
+        var ts = 0.0
+        for _ in 0..<10 {   // stopped transport, cell 0 (col 0·row 0) auditioned
+            router.process(box: b, pool: pool, playing: false, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                           timestampSample: ts, frameCount: 2048, audition: 0, out: e, diag: &diag)
+            ts += 2048
+        }
+        let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
+        XCTAssertFalse(vels.isEmpty, "the audition sounded")
+        XCTAssertTrue(vels.isSubset(of: [40, 118]), "audition inherits the source velocity (40/118), not a flat 96 — got \(vels)")
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

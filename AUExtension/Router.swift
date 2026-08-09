@@ -2136,11 +2136,11 @@ final class Router {
         let octaves = effectiveOctaves(colour, t: t)
         auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
                       windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
-            let base = arpPickSource(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
-                                     pool: pool, filter: UInt8(clamping: filter))
-            guard base >= 0 else { return }
-            let n = base + transpose; guard n >= 0 && n <= 127 else { return }
-            emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, out: out, diag: &diag)
+            let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
+                               pool: pool, filter: UInt8(clamping: filter))
+            guard pick.note >= 0 else { return }
+            let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
+            emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
         }
     }
 
@@ -2190,10 +2190,10 @@ final class Router {
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                 let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                       cycleBeats: cycleBeats, phase: colour.a.phase, runStartColumn: -1)
-                let base = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f)
-                guard base >= 0 else { return }
-                let n = base + transpose; guard n >= 0 && n <= 127 else { return }
-                emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, out: out, diag: &diag)
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f)
+                guard pick.note >= 0 else { return }
+                let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
+                emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
             }
         case .ratchet:
             let repeats = effectiveRepeats(colour, t: t)
@@ -2203,11 +2203,12 @@ final class Router {
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
                 let colStart = (mTickBeat / S).rounded(.down) * S
                 let repIdx = Int(((mTickBeat - colStart) / sub).rounded())
-                let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
                 let srcN = pool.srcCount(filter: f)
                 for k in 0..<srcN {
-                    let n = Int(pool.srcAscending(k, filter: f)) + transpose
+                    let sn = pool.srcAscending(k, filter: f)
+                    let n = Int(sn) + transpose
                     guard n >= 0 && n <= 127 else { continue }
+                    let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // inherit
                     emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
             }
@@ -2225,9 +2226,10 @@ final class Router {
                     if onsetSample >= windowEnd { break }
                     strumProgress[vr] += 1
                     let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-                    let n = Int(pool.srcAscending(sortedIdx, filter: f)) + transpose
+                    let sn = pool.srcAscending(sortedIdx, filter: f)
+                    let n = Int(sn) + transpose
                     guard n >= 0 && n <= 127 else { continue }
-                    let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
+                    let vel = strumVelocity(index: j, count: count, tilt: tilt, base: max(1, Int(pool.velocity(sn))))   // inherit
                     emitArtic(note: UInt8(n), busMask: busMask, onSample: max(onsetSample, windowStart),
                               offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
@@ -2249,14 +2251,16 @@ final class Router {
         let prob = isChance ? effectiveProbability(colour, t: t) : 1
         let srcN = pool.srcCount(filter: filter)
         for k in 0..<srcN {
-            let n = Int(pool.srcAscending(k, filter: filter)) + transpose
+            let sn = pool.srcAscending(k, filter: filter)
+            let n = Int(sn) + transpose
             guard n >= 0 && n <= 127 else { continue }
             if isChance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
+            let vel = max(1, pool.velocity(sn))   // inherit the source velocity
             if isHarmonize {
-                emitHarmony(base: n, colour: colour, t: t, baseVel: 96, row: 0, storeArtics: false,
+                emitHarmony(base: n, colour: colour, t: t, baseVel: vel, row: 0, storeArtics: false,
                             busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd, out: out, diag: &diag)
             } else {
-                emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, out: out, diag: &diag)
+                emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
             }
         }
     }
@@ -2307,12 +2311,12 @@ final class Router {
             let octaves = effectiveOctaves(treat, t: t)
             auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
-                let base = arpPickSource(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
-                                         pattern: treat.a.patternIndex, pool: pool, for: cell)
-                guard base >= 0 else { return }
-                let n = base + transpose; guard n >= 0 && n <= 127 else { return }
+                let pick = arpPick(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
+                                   pattern: treat.a.patternIndex, pool: pool, for: cell)
+                guard pick.note >= 0 else { return }
+                let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
-                          windowEnd: windowEnd, out: out, diag: &diag)
+                          windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
             }
         case .ratchet:
             let repeats = effectiveRepeats(treat, t: t)
@@ -2321,11 +2325,12 @@ final class Router {
             auditionTicks(sub: sub, gateFraction: 0.6, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let repIdx = ((Int(tick) % repeats) + repeats) % repeats
-                let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
                 let srcN = pool.srcCount(for: cell)
                 for k in 0..<srcN {
-                    let n = Int(pool.srcAscending(k, for: cell)) + transpose
+                    let sn = pool.srcAscending(k, for: cell)
+                    let n = Int(sn) + transpose
                     guard n >= 0 && n <= 127 else { continue }
+                    let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // inherit
                     emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
@@ -2356,22 +2361,24 @@ final class Router {
         let prob = (type == .chance) ? effectiveProbability(colour, t: t) : 1
         let srcN = pool.srcCount(for: cell)         // §7 source filter, forced source
         for k in 0..<srcN {
-            let base = Int(pool.srcAscending(k, for: cell)) + transpose
+            let sn = pool.srcAscending(k, for: cell)
+            let base = Int(sn) + transpose
             guard base >= 0 && base <= 127 else { continue }
+            let bv = max(1, pool.velocity(sn))   // inherit the source velocity
             switch type {
             case .harmonize:
                 let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
                           Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
                           Int8(effectiveHarmInterval(colour, voice: 2, t: t)))
                 let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
-                                          vel: 96, velScale: effectiveHarmVelScale(colour, t: t), vels: &harmVels)
+                                          vel: bv, velScale: effectiveHarmVelScale(colour, t: t), vels: &harmVels)
                 for j in 0..<cnt where harmNotes[j] >= 0 && harmNotes[j] <= 127 {
                     auditionDesired[harmNotes[j]] = true; auditionVel[harmNotes[j]] = harmVels[j]
                 }
             case .chance:
-                if chancePasses(beat: 0, note: base, probability: prob) { auditionDesired[base] = true; auditionVel[base] = 96 }
+                if chancePasses(beat: 0, note: base, probability: prob) { auditionDesired[base] = true; auditionVel[base] = bv }
             default:                                                 // passgate all-open (sustain the chord)
-                auditionDesired[base] = true; auditionVel[base] = 96
+                auditionDesired[base] = true; auditionVel[base] = bv
             }
         }
         reconcileAuditionVoices(busMask: cell.busMask, windowEnd: windowEnd, out: out, diag: &diag)
@@ -2391,10 +2398,11 @@ final class Router {
             guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve)
             else { continue }                                   // this note's onset hasn't arrived yet
             let sortedIdx = strumSortedIndex(position: j, count: count, direction: colour.a.strumDir, pass: 0)
-            let n = Int(pool.srcAscending(sortedIdx, for: cell)) + transpose
+            let sn = pool.srcAscending(sortedIdx, for: cell)
+            let n = Int(sn) + transpose
             guard n >= 0 && n <= 127 else { continue }
             auditionDesired[n] = true
-            auditionVel[n] = strumVelocity(index: j, count: count, tilt: colour.a.velTilt, base: 96)
+            auditionVel[n] = strumVelocity(index: j, count: count, tilt: colour.a.velTilt, base: max(1, Int(pool.velocity(sn))))   // inherit
         }
         reconcileAuditionVoices(busMask: cell.busMask, windowEnd: windowEnd, out: out, diag: &diag)
     }
