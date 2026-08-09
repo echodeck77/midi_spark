@@ -44,7 +44,7 @@ extension DiagView {
                         ddPlayCellButton()                            // PLAY: THIS CELL — right of the grid, top-aligned
                         Spacer(minLength: 0)
                     }
-                    ddMachinery(width: pageW, showIdentity: false).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // buttons + flow, no identity/line
+                    ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // buttons + flow, no identity/line
                 }
             } else {
                 VStack(spacing: 12) {
@@ -61,7 +61,7 @@ extension DiagView {
                         Spacer(minLength: 0)
                     }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-                    ddMachinery(width: pageW, showIdentity: false).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
         }
@@ -291,31 +291,15 @@ extension DiagView {
             .simultaneousGesture(ddDragGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)   // only occupied cells drag
     }
 
-    // THE MACHINERY — the selected colour's flow diagram (full-width), led by a prominent header: the colour identity
-    // on the left, and PLAY THIS CELL · RANDOMIZE · MUTATE centred on the same line (user 2026-08-09).
-    @ViewBuilder private func ddMachinery(width: CGFloat, showIdentity: Bool = true) -> some View {
+    // THE MACHINERY — the selected colour's flow diagram (full-width), with the LIBRARY button to the LEFT of the
+    // receivers and RANDOMIZE · MUTATE stacked to the RIGHT of them (user 2026-08-09).
+    @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
         if editArmed, let cell = editingCell {
-            let hue = colourColor(cell.colourID) ?? .white
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack {
-                    if showIdentity {          // PORTRAIT keeps the identity on this line; LANDSCAPE moves it top-left
-                        HStack(spacing: 12) {
-                            RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
-                            Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
-                            Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
-                                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    HStack(spacing: 8) {       // RANDOMIZE · MUTATE, centred (PLAY: THIS CELL now sits under the identity)
-                        ddRandomizeButton()
-                        ddMutateButton()        // MUTATE — placeholder
-                    }
-                }.frame(height: 44)
-                if showIdentity { Rectangle().fill(hue.opacity(0.7)).frame(height: 2) }   // the dividing line (removed in landscape)
-                flowDiagram(cell, width: width)     // the flow diagram now spans the full width
-            }
+            flowDiagram(cell, width: width)
+                .overlay(alignment: .topLeading) { ddLibraryButton().padding(.leading, 10).padding(.top, 14) }
+                .overlay(alignment: .topTrailing) {
+                    VStack(spacing: 6) { ddRandomizeButton(); ddMutateButton() }.padding(.trailing, 10).padding(.top, 6)
+                }
         } else {
             Text(ddColourSel >= 0 ? "This colour isn't on the grid yet — drag it onto the grid, or use a row selector"
                                   : "Tap a colour, or a placed cell, to edit its machine")
@@ -337,6 +321,18 @@ extension DiagView {
             }
             .foregroundColor(on ? .black : Self.editHue).padding(.horizontal, 12).frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 7).fill(on ? Self.editHue : Self.editHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
+        }.buttonStyle(.plain)
+    }
+    // LIBRARY — open the cell library (left of the receivers).
+    private func ddLibraryButton() -> some View {
+        Button { openCellLibrary() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "books.vertical.fill").font(.system(size: 12, weight: .heavy))
+                Text("LIBRARY").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundColor(Self.editHue).padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Self.editHue.opacity(0.12))
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
     }
