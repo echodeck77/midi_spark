@@ -579,7 +579,7 @@ extension DiagView {
     @ViewBuilder func flowDiagram(_ cell: Cell, width: CGFloat) -> some View {
         let chain = cellChain(cell)
         let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
-        let hue = mainDestHue
+        let hue = colourColor(cell.colourID) ?? mainDestHue     // the SELECTED colour tints the thread + the R/E box frames (user 2026-08-09)
         let idW: CGFloat = 120   // reserves the (now-hidden) ID-cell margin so RECEIVERS stays clear of the left
         let flowW = min(max(280, width), 1040)
         GeometryReader { g in
@@ -756,6 +756,7 @@ extension DiagView {
     // The RECEIVERS box — R1–R4 with the MIDI CHANNEL prominent; selected lit; OPAQUE (occludes the line). Toggles in place.
     private func receiverBox(_ cell: Cell, bg: Color) -> some View {
         let recvs = au?.uiReceivers() ?? []
+        let hue = colourColor(cell.colourID) ?? mainDestHue     // frame in the SELECTED colour (user 2026-08-09)
         return HStack(spacing: 8) {
             dinMark(ink: .white.opacity(0.5), size: 26)   // MIDI IN mark (left)
             ForEach(0..<4, id: \.self) { r in
@@ -771,11 +772,12 @@ extension DiagView {
             }
         }.padding(6)
         .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.7), lineWidth: 1.5))
     }
     // The EMITTERS box — mirror of the receivers box (in/out symmetry): A–D with channels prominent. Toggles in place.
     private func emitterBox(_ cell: Cell, bg: Color) -> some View {
-        HStack(spacing: 8) {
+        let hue = colourColor(cell.colourID) ?? mainDestHue     // frame in the SELECTED colour (user 2026-08-09)
+        return HStack(spacing: 8) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in
                 let on = cell.buses.contains(b)
                 VStack(spacing: 1) {
@@ -789,7 +791,7 @@ extension DiagView {
             splitAffordance()                              // → the OUTPUT SPLIT editor (user 2026-08-09)
         }.padding(6)
         .background(RoundedRectangle(cornerRadius: 10).fill(bg))                  // OPAQUE occluder
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.7), lineWidth: 1.5))
     }
     // The SPLIT affordance on the emitters box — opens the OUTPUT SPLIT pop-up (extracted so emitterBox type-checks).
     private func splitAffordance() -> some View {
