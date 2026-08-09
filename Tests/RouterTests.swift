@@ -172,6 +172,21 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(vels.isEmpty, "the audition sounded")
         XCTAssertTrue(vels.isSubset(of: [40, 118]), "audition inherits the source velocity (40/118), not a flat 96 — got \(vels)")
     }
+    // THE PER-COLOUR MACHINE (user 2026-08-09, GLOBAL): a colour's `templateChain` drives EVERY cell of that colour
+    // that has no per-cell override — the machine lives on the (document-global) COLOUR, not the cell.
+    func testColourTemplateChainDrivesAllItsCells() {
+        var cs = arpColours()                                   // gold head = arp…
+        let gi = colourIDs.firstIndex(of: "gold")!
+        var tmpl = ProcessorSlot(type: .euclid); tmpl.params.euclidPulses = 4; tmpl.params.euclidSteps = 8
+        cs[gi].templateChain = [tmpl]                           // …but the COLOUR owns a euclid machine
+        let b = box(colours: cs) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // processors == nil → inherit the colour template
+            $0.cells[0][1] = Cell(colourID: "gold", buses: [.a])
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 24, "both gold cells render the COLOUR's euclid template (2 cells × 4-of-8 × 3 notes)")
+        assertNothingLeftSounding(e)
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

@@ -121,6 +121,39 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Remove a chain slot — ANY slot, incl. the head and the LAST one (user 2026-08-09: all processors are deletable).
     /// Deleting the final slot leaves an EMPTY chain `[]` = the born-audible passthrough (the source flows untreated).
     func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count { $0.remove(at: slot) } } }
+
+    // MARK: - COLOUR-OWNED chain (the per-colour machine — GLOBAL by construction: colours are document-level, and a
+    // cell with no per-cell override inherits its colour's `templateChain`, so every cell of the colour, in EVERY
+    // scene, renders the one machine. "You only ever edit colours." (user 2026-08-09: per-colour model, GLOBAL.)
+    private func colourTemplateChain(_ colourID: String) -> [ProcessorSlot] {
+        let c = document.colours.first { $0.colourID == colourID }
+        if let t = c?.templateChain, !t.isEmpty { return t }
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // materialise the legacy A face on first edit
+    }
+    private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
+    /// Mutate the colour's chain and clear the per-cell overrides of every cell of that colour (all scenes) so they
+    /// inherit it. An empty result stores a single bypassed slot = the born-audible passthrough (an empty template
+    /// would fall through to the legacy face). ONE undoable document edit.
+    func withChainColour(_ colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        var chain = colourTemplateChain(colourID)
+        mutate(&chain)
+        let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
+        editDocument { doc in
+            if let ci = doc.colours.firstIndex(where: { $0.colourID == colourID }) { doc.colours[ci].templateChain = stored }
+            for si in doc.scenes.indices {
+                for c in doc.scenes[si].cells.indices {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
+                        doc.scenes[si].cells[c][r]?.processors = nil     // inherit the template (drop any stale override)
+                    }
+                }
+            }
+        }
+    }
+    func addSlotColour(_ id: String, type: ProcessorType = .passgate) { withChainColour(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
+    func removeSlotColour(_ id: String, slot: Int) { withChainColour(id) { if slot < $0.count { $0.remove(at: slot) } } }
+    func editSlotColour(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainColour(id) { if slot < $0.count { mutate(&$0[slot]) } } }
+    func setSlotTypeColour(_ id: String, slot: Int, _ type: ProcessorType) { editSlotColour(id, slot: slot) { $0.type = type } }
+    func toggleSlotBypassColour(_ id: String, slot: Int) { editSlotColour(id, slot: slot) { $0.bypassed.toggle() } }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
     func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
         twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }

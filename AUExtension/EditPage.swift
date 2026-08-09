@@ -355,10 +355,11 @@ extension DiagView {
     // CELL MACHINE (feat/EditPageSpike): the selected cell's processor CHAIN as a VERTICAL STACK of slot boxes,
     // each 50% of screen width, head first, plus [+ ADD] (≤ 8 slots). Stage 1 renders the HEAD; slots 2…8 are
     // stored + editable but not yet executed (serial run is Phase 2). Reuses ProcessorBox in `slotMode`.
-    func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // the cell's own chain; nil → materialise the Colour head
-        if let p = cell.processors { return p }                       // incl. an EXPLICIT empty chain (passthrough → the invitation)
+    func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // the cell's effective chain — the engine's 3-tier resolution
+        if let p = cell.processors { return p }                       // per-cell OVERRIDE (incl. an EXPLICIT empty chain = passthrough)
         let c = docColours.first { $0.colourID == cell.colourID }
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]
+        if let t = c?.templateChain, !t.isEmpty { return t }          // colour TEMPLATE (the per-colour machine — matches the builder)
+        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
     }
     @ViewBuilder func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
         let chain = cellChain(cell)
