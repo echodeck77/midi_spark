@@ -22,26 +22,44 @@ struct DDZonePref: PreferenceKey {
 extension DiagView {
     @ViewBuilder func dragDropPage(_ size: CGSize) -> some View {
         let pageW = min(size.width - 24, 1024)                       // hold the global 1024 content cap (user 2026-08-09)
-        let topH = min(size.height * 0.46, 400)
-        let swatch = max(28, min((topH - 58) / 4, 64))               // 4×4 palette; leave room for the litter box below
+        let landscape = size.width > size.height
+        // grid + palette are HEIGHT-MATCHED (user 2026-08-09): the grid = loop row (18) + 8 cells; the palette = 4
+        // swatches + the DELETE box (= a swatch). gridCell drives, swatch is derived so both stack to the same height.
+        let H = min(size.height * (landscape ? 0.52 : 0.46), landscape ? 480 : 400)
+        let gridCell = max(16, min(48, (H - 50) / 8))
+        let matchedH = gridCell * 8 + 50                             // the actual grid height after clamping
+        let swatch = landscape ? max(24, (matchedH - 28) / 5)        // palette + DELETE matches the grid height
+                               : max(28, min((H - 58) / 4, 64))
         let paletteW = swatch * 4 + 18
-        let rowSelW: CGFloat = 22
-        let gridCell = max(16, min(46, min((pageW - paletteW - rowSelW - 74) / 8, topH / 8.5)))
-        VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 20) {                    // TOP band CENTRED in the cap: palette LEFT · grid RIGHT
-                Spacer(minLength: 0)
-                ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
-                HStack(alignment: .top, spacing: 5) {
-                    ddRowSelectors(cell: gridCell, topInset: 18)      // paint a row with the selected colour (inset below the loop row)
-                    VStack(spacing: 4) {
-                        ddColumnLoopRow(cell: gridCell)               // a row of COLUMN LOOP buttons over the grid
-                        ddGrid(cell: gridCell)
+        Group {
+            if landscape {
+                VStack(spacing: 10) {
+                    HStack(alignment: .top, spacing: 16) {            // TOP band, LEFT-aligned: identity · palette+DELETE · grid
+                        ddColourIdentity().frame(width: 130, alignment: .topLeading)
+                        ddPalette(swatch: swatch, litterHeight: swatch).frame(width: paletteW, alignment: .top)
+                        HStack(alignment: .top, spacing: 5) {
+                            ddRowSelectors(cell: gridCell, topInset: 18)
+                            VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
+                        }
+                        Spacer(minLength: 0)
                     }
+                    ddMachinery(width: pageW, showIdentity: false).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // buttons + flow, no identity/line
                 }
-                Spacer(minLength: 0)
-            }.frame(height: topH, alignment: .top)
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-            ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // BOTTOM band, full cap width
+            } else {
+                VStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette LEFT · grid RIGHT, centred
+                        Spacer(minLength: 0)
+                        ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
+                        HStack(alignment: .top, spacing: 5) {
+                            ddRowSelectors(cell: gridCell, topInset: 18)
+                            VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
+                        }
+                        Spacer(minLength: 0)
+                    }.frame(height: H, alignment: .top)
+                    Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+                    ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+            }
         }
         .frame(width: pageW)
         .frame(maxWidth: .infinity)                                  // centre the capped content on wider canvases
@@ -55,15 +73,22 @@ extension DiagView {
     private func ddZone(_ key: String) -> some View {
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
     }
-    // The custom drag: a real move (≥12pt) picks `payload` up; a plain tap flows to onTapGesture untouched. onChanged
-    // tracks the finger + highlights the zone under it; onEnded hit-tests the drop and runs the landing.
+    // The custom drag (user 2026-08-09): a LONG PRESS (0.25s) ARMS the drag — the drop-zone highlights + ghost appear
+    // at the finger BEFORE any motion, and stay until dropped/released. A quick tap still flows to onTapGesture. The
+    // inner DragGesture has minimumDistance 0 so `.second` fires at the press point the instant the hold completes.
     private func ddDragGesture(_ payload: String) -> some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .named("dd"))
-            .onChanged { v in ddDragPayload = payload; ddDragLoc = v.location; ddDropHover = ddZoneAt(v.location, excluding: payload) }
-            .onEnded { v in
-                let target = ddZoneAt(v.location, excluding: payload)
+        LongPressGesture(minimumDuration: 0.25)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("dd")))
+            .onChanged { value in
+                if case .second(_, let drag) = value {
+                    ddDragPayload = payload
+                    if let d = drag { ddDragLoc = d.location; ddDropHover = ddZoneAt(d.location, excluding: payload) }
+                }
+            }
+            .onEnded { value in
+                if case .second(_, let drag) = value, let d = drag,
+                   let target = ddZoneAt(d.location, excluding: payload) { ddLandingKey(payload: payload, targetKey: target) }
                 ddDragPayload = nil; ddDropHover = nil
-                if let target { ddLandingKey(payload: payload, targetKey: target) }
             }
     }
     // The colour currently in-hand (a dragged colour, or the dragged cell's colour) → the drop-zone highlight hue.
@@ -99,8 +124,9 @@ extension DiagView {
             .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
     }
 
-    // THE PALETTE — the 16 colours as a 4×4 of flat swatches (v1), with the LITTER box in the spare vertical below.
-    @ViewBuilder private func ddPalette(swatch: CGFloat) -> some View {
+    // THE PALETTE — the 16 colours as a 4×4 of flat swatches (v1), with the DELETE box below. `litterHeight` sizes
+    // the DELETE box (= a swatch in landscape, so palette+DELETE matches the grid height).
+    @ViewBuilder private func ddPalette(swatch: CGFloat, litterHeight: CGFloat = 36) -> some View {
         VStack(spacing: 10) {
             VStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { r in
@@ -109,7 +135,23 @@ extension DiagView {
                     }
                 }
             }
-            ddLitter()
+            ddLitter(height: litterHeight)
+        }
+    }
+    // THE COLOUR IDENTITY (landscape) — the swatch + colour name, with the cell count beneath; sits top-left, lined
+    // up with the tops of the palette + grid (user 2026-08-09).
+    @ViewBuilder private func ddColourIdentity() -> some View {
+        if editArmed, let cell = editingCell {
+            let hue = colourColor(cell.colourID) ?? .white
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 6).fill(hue).frame(width: 30, height: 30)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.55), lineWidth: 1.2))
+                    Text(cell.colourID.uppercased()).font(.system(size: 18, weight: .black, design: .monospaced)).foregroundColor(hue).lineLimit(1).minimumScaleFactor(0.6)
+                }
+                Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            }
         }
     }
     // A palette slot: a DEFINED colour (created, or has placed cells) shows as a flat swatch; an UNDEFINED one is an
@@ -160,16 +202,16 @@ extension DiagView {
     }
     // THE DELETE box (design "litter"): drop a colour here → delete it AND all its cells; a cell → clear that cell.
     // Always RED (user 2026-08-09), and lit throughout a drag so the delete target reads at a glance.
-    private func ddLitter() -> some View {
+    private func ddLitter(height: CGFloat = 36) -> some View {
         let hover = ddDropHover == "litter"
         let flashing = ddLitterFlash != nil
         let dragging = ddDragPayload != nil
         let lit = hover || flashing || dragging
-        return HStack(spacing: 6) {
-            Image(systemName: "trash").font(.system(size: 13, weight: .heavy))
+        return VStack(spacing: 4) {
+            Image(systemName: "trash").font(.system(size: 14, weight: .heavy))
             Text(ddLitterFlash ?? "DELETE").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
         }
-        .foregroundColor(lit ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
+        .foregroundColor(lit ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: height)
         .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : (dragging ? Verb.delete.hue.opacity(0.10) : .clear))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lit ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: lit ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
@@ -246,18 +288,20 @@ extension DiagView {
 
     // THE MACHINERY — the selected colour's flow diagram (full-width), led by a prominent header: the colour identity
     // on the left, and PLAY THIS CELL · RANDOMIZE · MUTATE centred on the same line (user 2026-08-09).
-    @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
+    @ViewBuilder private func ddMachinery(width: CGFloat, showIdentity: Bool = true) -> some View {
         if editArmed, let cell = editingCell {
             let hue = colourColor(cell.colourID) ?? .white
             VStack(alignment: .leading, spacing: 8) {
                 ZStack {
-                    HStack(spacing: 12) {      // colour identity — this machine IS the selected colour
-                        RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
-                        Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
-                        Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
-                            .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                        Spacer(minLength: 0)
+                    if showIdentity {          // PORTRAIT keeps the identity on this line; LANDSCAPE moves it top-left
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 7).fill(hue).frame(width: 44, height: 44)
+                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(.white.opacity(0.55), lineWidth: 1.5))
+                            Text(cell.colourID.uppercased()).font(.system(size: 22, weight: .black, design: .monospaced)).foregroundColor(hue)
+                            Text("· \(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                                .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                            Spacer(minLength: 0)
+                        }
                     }
                     HStack(spacing: 8) {       // the three actions, CENTRED on the line
                         ddPlayCellButton()     // PLAY: THIS CELL — isolate + freeze on this cell's column
@@ -265,7 +309,7 @@ extension DiagView {
                         ddMutateButton()        // MUTATE — placeholder
                     }
                 }.frame(height: 44)
-                Rectangle().fill(hue.opacity(0.7)).frame(height: 2)
+                if showIdentity { Rectangle().fill(hue.opacity(0.7)).frame(height: 2) }   // the dividing line (removed in landscape)
                 flowDiagram(cell, width: width)     // the flow diagram now spans the full width
             }
         } else {
