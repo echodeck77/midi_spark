@@ -90,6 +90,7 @@ struct DiagView: View {
     @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")
     @State var ddDragPayload: String? = nil   // DRAG&DROP custom drag: what's in hand ("colour:<id>" / "cell:<c>:<r>"); nil = idle
     @State var ddTouchSource: String? = nil   // DRAG&DROP: a draggable source is being TOUCHED (pre-drag) → highlight targets; cleared on release
+    @State var ddPaintColour: String? = nil   // DRAG&DROP: a palette colour is HELD DOWN → tapping grid cells PAINTS them that colour; cleared on release
     @State var ddDragLoc: CGPoint = .zero      // …the finger's location in the page ("dd") coordinate space
     @State var ddZones: [String: CGRect] = [:] // …measured drop-zone frames (grid cells · palette swatches · litter)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
@@ -898,7 +899,7 @@ struct DiagView: View {
             editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
             if tab != .grid { heldVerb = nil }
             if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
-            ddResetDrag()                                          // never carry a stuck ghost/highlight across a tab switch
+            ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
             if tab == .dragDrop { ddEnsureSelection() }            // open the page with a colour selected (GOLD by default, user 2026-08-09)
         }
         .onChange(of: editArmed) { on in

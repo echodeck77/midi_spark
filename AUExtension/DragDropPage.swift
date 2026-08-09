@@ -91,12 +91,15 @@ extension DiagView {
             .onChanged { value in
                 if case .second(_, let drag) = value {
                     ddDragPayload = payload
+                    // A HELD palette colour arms PAINT: while it's down, tapping grid cells sets them to it (user 2026-08-09).
+                    if payload.hasPrefix("colour:") { ddPaintColour = String(payload.dropFirst("colour:".count)) }
                     if let d = drag { ddDragLoc = d.location; ddDropHover = ddZoneAt(d.location, excluding: payload) }
                 }
             }
             .onEnded { value in
                 if case .second(_, let drag) = value, let d = drag,
                    let target = ddZoneAt(d.location, excluding: payload) { ddLandingKey(payload: payload, targetKey: target) }
+                if payload.hasPrefix("colour:") { ddPaintColour = nil }   // the held colour was released → paint off
                 ddResetDrag()
             }
     }
@@ -113,8 +116,9 @@ extension DiagView {
             .onChanged { _ in if ddTouchSource != payload { ddTouchSource = payload } }
             .onEnded { _ in ddResetDrag() }
     }
-    // What's active for the HIGHLIGHT: the in-hand drag payload, or (before the long-press arms) the touched source.
-    private var ddActivePayload: String? { ddDragPayload ?? ddTouchSource }
+    // What's active for the HIGHLIGHT: the in-hand drag payload, a HELD paint colour, or the touched source. (The
+    // paint colour keeps the grid lit even after the first paint tap clears the ghost.)
+    private var ddActivePayload: String? { ddDragPayload ?? ddPaintColour.map { "colour:\($0)" } ?? ddTouchSource }
     // The colour of a payload ("colour:<id>" or "cell:<c>:<r>") → the drop-zone highlight hue.
     private func ddPayloadColourID(_ payload: String?) -> String? {
         guard let p = payload else { return nil }
@@ -480,6 +484,11 @@ extension DiagView {
     /// silences the column), reusing the GRID page's `armLadderRung`; MULTI — the tap MUTES/UNMUTES the cell. Either
     /// way, tapping a populated cell SELECTS its colour so the palette + machinery follow. (user 2026-08-09)
     func ddGridTap(_ col: Int, _ row: Int) {
+        if let pc = ddPaintColour {                          // a palette colour is HELD → PAINT the tapped cell with it (user 2026-08-09)
+            if let i = colourIDs.firstIndex(of: pc) { ddColourSel = i }
+            ddPaintCell(col, row, pc)
+            return
+        }
         if ladderMode {
             if scene.cellAt(col, row) != nil { ddSelect(col, row) }
             armLadderRung(col, row)                              // one cell at a time — switch/mute the column's active rung
@@ -508,6 +517,19 @@ extension DiagView {
             ddFillRow(r, id, wholeRow: false)
             ddRowCycle = DDRowCycle(row: r, colour: colour, phase: 1, original: original)
         }
+    }
+    /// Paint one cell with a colour (its machine + routing via the colour's representative / template). In SINGLE it
+    /// becomes its column's active rung so it's visible + plays. Used by the HELD-colour paint gesture. (user 2026-08-09)
+    private func ddPaintCell(_ c: Int, _ r: Int, _ id: String) {
+        let template = ddCellOfColour(id)
+        au?.editScene { s in s.cells[c][r] = template }
+        if ladderMode {
+            au?.editScene(record: false) { s in
+                var ar = s.activeRow ?? [Int?](repeating: nil, count: 8); while ar.count < 8 { ar.append(nil) }
+                ar[c] = r; s.activeRow = ar
+            }
+        }
+        refreshFromDocument()
     }
     private func ddCellOfColour(_ id: String) -> Cell {
         var cell = ddRepresentativeCell(id) ?? newbornCell()
