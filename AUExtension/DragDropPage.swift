@@ -29,13 +29,13 @@ extension DiagView {
         let gridCell = max(16, min(48, (H - 50) / 8))
         let matchedH = gridCell * 8 + 50                             // the actual grid height after clamping
         let swatch = landscape ? max(24, (matchedH - 28) / 5)        // landscape: palette + DELETE matches the grid height
-                               : max(24, (matchedH - 94) / 5)        // portrait: palette + DELETE + identity block matches it (~66 reserved)
+                               : max(22, (matchedH - 128) / 5)       // portrait: palette + DELETE + identity (name·count·PLAY) matches it
         let paletteW = swatch * 4 + 18
         Group {
             if landscape {
                 VStack(spacing: 10) {
                     HStack(alignment: .top, spacing: 16) {            // TOP band, LEFT-aligned: identity · palette+DELETE · grid
-                        ddColourIdentity().frame(width: 130, alignment: .topLeading)
+                        ddColourIdentity().frame(width: 156, alignment: .topLeading)
                         ddPalette(swatch: swatch, litterHeight: swatch).frame(width: paletteW, alignment: .top)
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
@@ -154,6 +154,7 @@ extension DiagView {
                 }
                 Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+                ddPlayCellButton()   // PLAY: THIS CELL — below the name + cell count (user 2026-08-09)
             }
         }
     }
@@ -306,8 +307,7 @@ extension DiagView {
                             Spacer(minLength: 0)
                         }
                     }
-                    HStack(spacing: 8) {       // the three actions, CENTRED on the line
-                        ddPlayCellButton()     // PLAY: THIS CELL — isolate + freeze on this cell's column
+                    HStack(spacing: 8) {       // RANDOMIZE · MUTATE, centred (PLAY: THIS CELL now sits under the identity)
                         ddRandomizeButton()
                         ddMutateButton()        // MUTATE — placeholder
                     }
