@@ -1502,6 +1502,30 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // The chain's INPUT LAW, end to end (user 2026-08-09): the HEAD reads the CELL'S RECEIVER-filtered source, and a
+    // downstream slot reads its PARENT's output — never the raw receiver again. Prior tests proved each half alone
+    // (channel filter on single-stage cells · harmonize→arp threading); this COMBINES them. A cell filtering IN CH 2
+    // (wire ch 1) runs [harmonize +7 → arp], fed two notes on different wire channels. Only the admitted note (64)
+    // may enter the chain, and only via the HEAD — so the tail arps {64, 71 (=64+7)} and NOTHING derived from 60.
+    func testChainHeadReadsReceiverFilterAndTailReadsParentOutput() {
+        let cs = arpColours()
+        var harm = ProcessorSlot(type: .harmonize); harm.params.harmIntervals = [7, 0, 0]
+        let arp = ProcessorSlot(type: .arp)
+        let b = box(colours: cs) {
+            $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputChannel = 2; c.processors = [harm, arp]; return c }()  // IN CH 2 = wire 1
+        }
+        let pool = NotePool()
+        pool.noteOn(60, velocity: 100, channel: 0)   // wire ch 0 — NOT admitted by this cell's receiver
+        pool.noteOn(64, velocity: 100, channel: 1)   // wire ch 1 — admitted (IN CH 2)
+        let e = RecordingEmitter(); run(b, pool, beats: 16, into: e)
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertTrue(notes.contains(64), "the HEAD reads the RECEIVER-filtered source (only the ch-2 note 64 enters)")
+        XCTAssertTrue(notes.contains(71), "the TAIL arps the HEAD's OUTPUT — 64's +7 harmony (parent-threaded, not re-read from source)")
+        XCTAssertFalse(notes.contains(60), "the unadmitted note is filtered AT THE HEAD — it never reaches the chain")
+        XCTAssertFalse(notes.contains(67), "…so 60's +7 harmony (67) never appears either — no downstream leak of the raw receiver")
+        assertNothingLeftSounding(e)
+    }
+
     // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed passgate] gates every re-strike →
     // silence; [ratchet → open passgate] re-strikes as a plain ratchet (the gate is transparent).
     func testRatchetThenClosedPassgateIsSilent() {

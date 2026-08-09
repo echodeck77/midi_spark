@@ -46,7 +46,7 @@ enum TapAction: String, Codable, CaseIterable {
 enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
-                           "indigo","azure","cyan","teal","mint","green","chartreuse","bronze"]
+                           "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
 
 // MARK: - Colour (the treatment) — §1/§9
 
@@ -877,7 +877,7 @@ struct PluginState: Codable, Equatable {
         set("gold")      { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 1 }
         set("cyan")      { $0.type = .arp; $0.paramsA.pattern = .upDown; $0.paramsA.rate = .r1_8 }
         set("azure")     { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_16; $0.paramsA.octaves = 2 }  // sparkle up
-        set("bronze")    { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_8;  $0.transpose = -12 }       // bass octave down
+        set("slate")    { $0.type = .arp; $0.paramsA.pattern = .up;     $0.paramsA.rate = .r1_8;  $0.transpose = -12 }       // bass octave down
         set("magenta")   { $0.type = .harmonize; $0.paramsA.harmIntervals = [4, 7, 0]; $0.paramsA.harmVelScale = 0.7 }        // + third + fifth bloom
         set("teal")      { $0.type = .chance; $0.paramsA.probability = 0.6 }                                                  // shimmer
 
@@ -890,14 +890,14 @@ struct PluginState: Codable, Equatable {
 
         // Scene 2 — adds elements (a bass octave + a harmonize bloom under the arps)
         var s2 = s1
-        s2.cells[0][1] = Cell(colourID: "bronze")
+        s2.cells[0][1] = Cell(colourID: "slate")
         s2.cells[4][1] = Cell(colourID: "magenta")
 
         // Scene 3 — EPIC: dense · OCT register spread · harmonize + chance shimmer · rhythmic interlock (all → A)
         var s3 = SceneState.empty()
         for c in [0, 2, 4, 6] { s3.cells[c][0] = Cell(colourID: "gold") }
         for c in [1, 3, 5, 7] { s3.cells[c][0] = Cell(colourID: "azure") }
-        s3.cells[0][1] = Cell(colourID: "bronze"); s3.cells[4][1] = Cell(colourID: "bronze")
+        s3.cells[0][1] = Cell(colourID: "slate"); s3.cells[4][1] = Cell(colourID: "slate")
         s3.cells[2][1] = Cell(colourID: "magenta"); s3.cells[6][1] = Cell(colourID: "magenta")
         s3.cells[3][2] = Cell(colourID: "teal");   s3.cells[7][2] = Cell(colourID: "teal")
 
@@ -955,7 +955,7 @@ struct PluginState: Codable, Equatable {
     /// THE LADDER — the flagship (§PART 2): R1 STILL → R8 STORM. Warm gold → deep indigo.
     static func makeLadder() -> PluginState {
         ladderPreset(
-            ["gold", "bronze", "orange", "vermilion", "wine", "purple", "violet", "indigo"],
+            ["gold", "slate", "orange", "vermilion", "wine", "purple", "violet", "indigo"],
             [[lPass(1.0)],                                                        // R1 STILL — the held-chord bed
              [lArp(.up, .r1_4, oct: 1, gate: 0.92, legato: true)],               // R2 ROLL
              [lArp(.up, .r1_8, oct: 1, gate: 0.70)],                             // R3 PULSE
@@ -985,7 +985,7 @@ struct PluginState: Codable, Equatable {
     /// FORGE — mechanical RATCHET bursts, humming → hammering. Hot chartreuse → purple.
     static func makeLadderForge() -> PluginState {
         ladderPreset(
-            ["chartreuse", "gold", "bronze", "orange", "vermilion", "wine", "magenta", "purple"],
+            ["chartreuse", "gold", "slate", "orange", "vermilion", "wine", "magenta", "purple"],
             [[lPass(1.0)],
              [lArp(.up, .r1_8, oct: 1, gate: 0.62)],
              [lArp(.up, .r1_8, oct: 1, gate: 0.55), lRtc(2)],

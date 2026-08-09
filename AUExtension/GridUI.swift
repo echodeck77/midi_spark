@@ -100,7 +100,7 @@ func drawSeal(_ geo: SealGeometry, into ctx: GraphicsContext, size: CGSize, padF
 /// Canonical Colour hexes, in colourIDs / bank order (docs/ui-port-guide.md). Index = colour index.
 let colourHexes: [UInt32] = [
     0xFFC53D, 0xFF7A1A, 0xFF4B33, 0xC2244B, 0xFF4D9E, 0xFFA8B8, 0xB44DFF, 0x7A3DF0,
-    0x5566FF, 0x38A6FF, 0x25E0F0, 0x148F80, 0x7BF2CE, 0x2ECC5E, 0xC6F23D, 0xC9A227,
+    0x5566FF, 0x38A6FF, 0x25E0F0, 0x148F80, 0x7BF2CE, 0x2ECC5E, 0xC6F23D, 0x4C6E8F,   // [15] SLATE (was BRONZE 0xC9A227 — too close to GOLD, user 2026-08-09)
 ]
 // delta §9 item 11: the four receivers' fixed "infrastructure family" hues (muted), shared by the
 // RECEIVERS panel and the cells' band-as-deviation marker.

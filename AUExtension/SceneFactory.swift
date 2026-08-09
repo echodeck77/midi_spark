@@ -212,11 +212,11 @@ enum SceneFactory {
         Scene(name: "TWO ROOMS") {
             let b = B(); b.global(); b.buses(1, 2, 3, 10)
             b.arp("gold", .up, .r1_16); b.arp("wine", .asPlayed, .r1_4, gate: 1.0, t: -24)   // doc says 1/2; slowest arp rate is 1/4
-            b.arp("azure", .upDown, .r1_16t, t: 12); b.ratchet("bronze", count: 3)
+            b.arp("azure", .upDown, .r1_16t, t: 12); b.ratchet("slate", count: 3)
             for col in 1...8 { b.put(col, 1, "gold", to: [.a]) }
             for col in 1...8 { b.put(col, 2, "wine", to: [.b]) }
             for col in [3, 7] { b.put(col, 3, "azure", to: [.c]) }
-            for col in [4, 8] { b.put(col, 4, "bronze", from: 1, to: [.d]) }
+            for col in [4, 8] { b.put(col, 4, "slate", from: 1, to: [.d]) }
             return b.build()
         },
 
