@@ -157,6 +157,34 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DRAG&DROP page — colour-GLOBAL edit model + machinery restyle + drag robustness (2026-08-09, on `main`, PUSHED
+  `fbd6fc4`→`5892801`; macOS 553 green, iOS builds; DEVICE eye owed on layout/colours). A long polish/bug batch on
+  the DRAG&DROP page. **THE COLOUR-GLOBAL EDIT LAW (the recurring bug: "settings not applied uniformly across a
+  colour"):** on this page a colour IS a machine, so edits are GLOBAL by construction. RANDOMIZE (`86836cd`) rerolls
+  the colour's `templateChain` via `withChainColour` (clears every per-cell override, all scenes); the flow-diagram
+  MACHINERY edits (`4e7f1ce` — add/remove/type/bypass/param + library-chain) route through scope-aware helpers
+  (`chainAddSlot`/`SetType`/`ToggleBypass`/`RemoveSlot`/`EditSlot`/`Replace`) that write the colour template on
+  DRAG&DROP (per-cell on the PROCESSORS tab, via `editScopeColourID = ddSelectedColourID` there); the RECEIVER/
+  emitters/chop ROUTING pick (`5892801`) fans out to EVERY cell of the colour, all scenes, via new AU
+  `editCellsOfColour` (routing is per-cell storage). **MACHINERY ALWAYS PRESENT (`9e85626`):** the flow diagram now
+  renders on a SYNTHETIC cell for the selected colour when none is placed, so a freshly-created colour shows its
+  machine immediately (chain via 3-tier resolution; edits persist colour-scoped). **RESTYLE:** OUTPUT FILTER box
+  removed + the dotted thread re-drawn to TRACE THE FLOW (receivers→L→down into proc-1 top→through the row→out
+  proc-8 bottom→down→L→emitters top) (`7e7109e`,`11dc1ef`); receivers/emitters/processor boxes + the thread all take
+  the SELECTED colour (`7e6f741`,`404ff22`); processor boxes styled like the emitter box (dark fill + colour frame),
+  icons dropped, −25% then −20% height. **UX:** LIBRARY left of the flow, RANDOMIZE+MUTATE stacked right (`fbd6fc4`);
+  the DELETE box reads "Drag and Drop to place and copy cells" when idle (`0b69cdc`); drop targets HIGHLIGHT on TOUCH
+  (not just long-press) via a bare min-distance-0 gesture (`2f6c37b`); the colour LABEL shows on select (not only
+  when placed) + GOLD is auto-selected on page open + 8 proc slots (`7de9bb4`,`86836cd`). **DRAG STUCK-STATE FIX
+  (`e8fa1bc`):** a drop's document mutation re-renders/re-identifies the source cell mid-gesture → SwiftUI CANCELS it
+  (no `.onEnded`) → the ghost + target highlights stuck ON; fixed with a page-level release gesture (root survives
+  the re-render) calling a shared `ddResetDrag()`, plus tab-switch reset. **TABS:** RECEIVERS→"MIDI IN",
+  EMITTERS→"MIDI OUT" (display only). **PALETTE:** BRONZE→SLATE (`0x4C6E8F`, was too close to GOLD; `65c9d18`). **TEST
+  (`65c9d18`):** `testChainHeadReadsReceiverFilterAndTailReadsParentOutput` — proves in ONE test the chain INPUT LAW
+  (head reads the cell's receiver-filtered source · a downstream slot reads its PARENT's output, no raw-source leak);
+  the two halves were each covered before but never combined. ⏸ STILL PER-CELL (not colour-owned STORAGE): the
+  chain templateChain is colour-owned but buses/receiver/chop are per-cell (fanned out on edit, not stored on the
+  Colour); an unplaced colour can't store routing (no cells yet). MUTATE still a placeholder.**
 - **▶ PER-COLOUR MACHINE — step 1 FOUNDATION (2026-08-09, on `main`, PUSHED `fb576e5`; macOS 551 green, iOS builds).
   The GLOBAL storage move WITHOUT the ~330-test field-move: the engine has a dormant per-colour mechanism —
   SnapshotBuilder resolves a chain as per-cell OVERRIDE → colour TEMPLATE (`Colour.templateChain`) → legacy; colours
