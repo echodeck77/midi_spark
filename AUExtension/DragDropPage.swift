@@ -86,14 +86,16 @@ extension DiagView {
     // THE LITTER (design): drop a colour here → delete it AND all its cells; drop a cell here → clear that cell.
     private func ddLitter() -> some View {
         let hover = ddDropHover == "litter"
+        let flashing = ddLitterFlash != nil
         return HStack(spacing: 6) {
             Image(systemName: "trash").font(.system(size: 13, weight: .heavy))
-            Text("LITTER").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            Text(ddLitterFlash ?? "LITTER").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
         }
-        .foregroundColor(hover ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? Verb.delete.hue.opacity(0.18) : .clear)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: hover ? 2 : 1.2, dash: [4, 3]))))
+        .foregroundColor(hover || flashing ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : .clear)
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover || flashing ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: hover || flashing ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
+        .animation(.easeOut(duration: 0.15), value: flashing)
         .onDrop(of: [.text], isTargeted: ddHoverBinding("litter")) { ddHandleDrop($0, onto: .litter) }
     }
 
@@ -275,16 +277,24 @@ extension DiagView {
         refreshFromDocument(); ddColourSel = i; ddSelect(sc, sr)
     }
     private func ddClearCell(_ c: Int, _ r: Int) {
+        guard scene.cellAt(c, r) != nil else { return }
         au?.editScene { $0.cells[c][r] = nil }
         refreshFromDocument()
         if selCol == c && selRow == r { selCol = -1; selRow = -1; sel.reset() }
+        ddFlashLitter("−1 cell")
     }
     private func ddDeleteColour(_ id: String) {
+        var removed = 0
         au?.editScene { s in
-            for c in 0..<8 { for r in 0..<8 where s.cellAt(c, r)?.colourID == id { s.cells[c][r] = nil } }
+            for c in 0..<8 { for r in 0..<8 where s.cellAt(c, r)?.colourID == id { s.cells[c][r] = nil; removed += 1 } }
         }
         refreshFromDocument()
         if ddColourSel >= 0 && colourIDs[ddColourSel] == id { ddColourSel = -1; selCol = -1; selRow = -1; sel.reset() }
+        ddFlashLitter("−1 colour · \(removed) cell\(removed == 1 ? "" : "s")")
+    }
+    private func ddFlashLitter(_ msg: String) {
+        ddLitterFlash = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { if ddLitterFlash == msg { ddLitterFlash = nil } }
     }
 
     // MARK: - RANDOMIZE (reroll the selected colour's chain)

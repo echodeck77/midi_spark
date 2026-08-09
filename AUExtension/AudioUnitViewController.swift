@@ -87,6 +87,7 @@ struct DiagView: View {
     @State var activeTab: AppTab = .grid      // LAYOUT v2: the selected tab (replaces the PERFORM/EDIT toggle)
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
+    @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
     @State var ddBeatAnchorAt: Date = Date()
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
