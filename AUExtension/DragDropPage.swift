@@ -562,12 +562,15 @@ extension DiagView {
     private func ddRecolour(_ sc: Int, _ sr: Int, toSlot i: Int) {
         guard i >= 0 && i < colourIDs.count else { return }
         let id = colourIDs[i]
-        let adopt = ddColourIsPlaced(id) ? ddRepresentativeCell(id) : nil
-        au?.editScene { s in
-            guard var cell = s.cellAt(sc, sr) else { return }
-            if let rep = adopt { let keepMuted = cell.muted; cell = rep; cell.muted = keepMuted }   // ADOPT the target's machine
-            cell.colourID = id                                                                      // FORK just recolours
-            s.cells[sc][sr] = cell
+        if ddColourIsPlaced(id), let rep = ddRepresentativeCell(id) {
+            au?.editScene { s in                                                                    // ADOPT the target colour's machine
+                guard var cell = s.cellAt(sc, sr) else { return }
+                let keepMuted = cell.muted; cell = rep; cell.muted = keepMuted
+                cell.colourID = id; cell.processors = nil                                           // inherit the target colour's TEMPLATE (no stale override → editor agrees)
+                s.cells[sc][sr] = cell
+            }
+        } else {
+            au?.forkCellToColour(col: sc, row: sr, colourIndex: i)                                  // FORK: the FRESH colour BECOMES the source cell's machine
         }
         refreshFromDocument(); ddColourSel = i; ddSelect(sc, sr)
     }

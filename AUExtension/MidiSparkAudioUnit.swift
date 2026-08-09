@@ -158,6 +158,32 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// fields (receiver / emitters / chop are stored on the Cell, not the Colour, so "edit the colour" fans out to
     /// all its cells). Used by the DRAG&DROP page so a receiver/emitter pick pushes to every instance. ONE undoable
     /// document edit. (user 2026-08-09)
+    /// FORK a grid cell into a FRESH colour (DRAG&DROP grid → empty palette slot): the new colour BECOMES the source
+    /// cell's machine. Materialise the source's RESOLVED chain (per-cell override → old colour's template → legacy) onto
+    /// the new colour's templateChain, mark it defined, and recolour the cell — clearing its per-cell override so it
+    /// inherits the new template. Without this the new colour had NO template, so the colour-scoped editor read the
+    /// legacy A face (default arp) and the processor "jumped" to unrelated settings. Routing (buses/receiver/chop) stays
+    /// on the cell. ONE undoable edit. (user 2026-08-09)
+    func forkCellToColour(col: Int, row: Int, colourIndex ci: Int) {
+        guard ci >= 0 && ci < colourIDs.count else { return }
+        let id = colourIDs[ci]
+        guard let src = document.scenes[document.activeSceneResolved].cellAt(col, row) else { return }
+        let machine = materializedChain(src)
+        let stored = machine.isEmpty ? [passthroughTemplateSlot()] : machine
+        editDocument { doc in
+            if ci < doc.colours.count { doc.colours[ci].defined = true; doc.colours[ci].templateChain = stored }
+            for si in doc.scenes.indices {                    // clear any stale per-cell override of the new colour → inherit the template
+                for c in doc.scenes[si].cells.indices {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == id {
+                        doc.scenes[si].cells[c][r]?.processors = nil
+                    }
+                }
+            }
+            let asi = doc.activeSceneResolved                 // recolour the source cell → inherits the new template
+            doc.scenes[asi].cells[col][row]?.colourID = id
+            doc.scenes[asi].cells[col][row]?.processors = nil
+        }
+    }
     func editCellsOfColour(_ colourID: String, _ mutate: (inout Cell) -> Void) {
         editDocument { doc in
             for si in doc.scenes.indices {
