@@ -212,11 +212,24 @@ extension DiagView {
         let flashing = ddLitterFlash != nil
         let dragging = ddDragPayload != nil
         let lit = hover || flashing || dragging
-        return VStack(spacing: 4) {
-            Image(systemName: "trash").font(.system(size: 14, weight: .heavy))
-            Text(ddLitterFlash ?? "DELETE").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+        // The DELETE icon/label appears ONLY while a drag is live (this is the delete target) or the delete-FLASH is up
+        // ("−1 cell" etc.); otherwise the box carries a prominent drag-and-drop instruction (user 2026-08-09).
+        let showDelete = dragging || flashing
+        return Group {
+            if showDelete {
+                VStack(spacing: 4) {
+                    Image(systemName: "trash").font(.system(size: 14, weight: .heavy))
+                    Text(ddLitterFlash ?? "DELETE").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                }
+                .foregroundColor(Verb.delete.hue)
+            } else {
+                Text("Drag and Drop to place and copy cells")
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.6)
+                    .foregroundColor(.white.opacity(0.55)).padding(.horizontal, 6)
+            }
         }
-        .foregroundColor(lit ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: height)
+        .frame(maxWidth: .infinity).frame(height: height)
         .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : (dragging ? Verb.delete.hue.opacity(0.10) : .clear))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lit ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: lit ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
