@@ -127,6 +127,9 @@ extension DiagView {
         let cell = scene.cellAt(c, r)
         let selected = selCol == c && selRow == r
         let hover = ddDropHover == "grid:\(c):\(r)"
+        let inScope = ddColourSel >= 0 && cell?.colourID == colourIDs[ddColourSel]   // a sibling of the edited colour
+        let stroke: Color = hover ? Self.editHue : (selected ? .white : (inScope ? .white.opacity(0.5) : .white.opacity(0.12)))
+        let strokeW: CGFloat = hover || selected ? 2.5 : (inScope ? 1.5 : 1)
         let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
         RoundedRectangle(cornerRadius: 5)
             .fill(fill.opacity(cell?.muted == true ? 0.28 : 1))
@@ -136,7 +139,7 @@ extension DiagView {
                     Image(systemName: "speaker.slash.fill").font(.system(size: size * 0.3, weight: .heavy)).foregroundColor(.black.opacity(0.5))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 2.5 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(stroke, lineWidth: strokeW))
             .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { ddGridTap(c, r) }
             .onDrag { NSItemProvider(object: "cell:\(c):\(r)" as NSString) }               // drag this cell → palette / litter / grid
@@ -149,6 +152,13 @@ extension DiagView {
             HStack(alignment: .top, spacing: 12) {
                 flowDiagram(cell, width: width - 140)
                 VStack(spacing: 8) {
+                    if ddColourSel >= 0 {      // THE PER-COLOUR SCOPE: this machine plays on every cell of the colour
+                        HStack(spacing: 5) {
+                            RoundedRectangle(cornerRadius: 3).fill(colourColor(colourIDs[ddColourSel]) ?? .gray).frame(width: 12, height: 12)
+                            Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                                .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     playScopeButton()          // PLAY THIS CELL (solo the selected cell) — reuses the play-scope button
                     ddRandomizeButton()
                     Spacer(minLength: 0)
@@ -190,20 +200,32 @@ extension DiagView {
         for c in 0..<8 { for r in 0..<8 { if let cell = scene.cellAt(c, r), cell.colourID == id { return cell } } }
         return nil
     }
-    private func ddSelect(_ c: Int, _ r: Int) {
-        if let cell = scene.cellAt(c, r), let i = colourIDs.firstIndex(of: cell.colourID) { ddColourSel = i }
-        selCol = c; selRow = r; sel.reset(); sel.add(GridView.GridPos(col: c, row: r))
+    private func ddColourCells(_ id: String) -> [GridView.GridPos] {
+        var out: [GridView.GridPos] = []
+        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { out.append(GridView.GridPos(col: c, row: r)) } }
+        return out
     }
-    /// Select a palette colour → point the machinery at the FIRST placed cell of that colour (the representative
-    /// machine). No placed cell → nothing to edit yet (place it via a row selector or a drag).
+    /// THE PER-COLOUR MODEL (user 2026-08-09): a colour IS a machine — selecting one scopes the edit to EVERY cell of
+    /// that colour, so every machinery edit (add/remove/params/split) applies colour-wide. The anchor cell just drives
+    /// what the flow diagram DISPLAYS. `editPointedCell`/`editChop`/`{add,edit,remove}SlotCells` all fan out to `sel`.
+    private func ddScopeToColour(_ id: String, anchor: (Int, Int)?) {
+        let cells = ddColourCells(id)
+        sel.reset(); for p in cells { sel.add(p) }
+        if let a = anchor { selCol = a.0; selRow = a.1 }
+        else if let first = cells.first { selCol = first.col; selRow = first.row }
+        else { selCol = -1; selRow = -1 }
+    }
+    private func ddSelect(_ c: Int, _ r: Int) {
+        guard let cell = scene.cellAt(c, r) else { return }
+        if let i = colourIDs.firstIndex(of: cell.colourID) { ddColourSel = i }
+        ddScopeToColour(cell.colourID, anchor: (c, r))
+    }
+    /// Select a palette colour → scope the machinery to the whole colour (anchored on its first placed cell). No
+    /// placed cell → nothing to edit yet (place it via a row selector or a drag).
     func ddSelectColour(_ i: Int) {
         guard i >= 0 && i < colourIDs.count else { return }
         ddColourSel = i
-        let id = colourIDs[i]
-        for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id {
-            selCol = c; selRow = r; sel.reset(); sel.add(GridView.GridPos(col: c, row: r)); return
-        } }
-        selCol = -1; selRow = -1; sel.reset()
+        ddScopeToColour(colourIDs[i], anchor: nil)
     }
     /// Grid tap = MUTE/UNMUTE + SELECT the cell's colour (palette + machinery follow), per the design.
     func ddGridTap(_ col: Int, _ row: Int) {
