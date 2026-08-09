@@ -157,6 +157,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ VELOCITY INHERITANCE — soundcheck paths (2026-08-09, on `main`, PUSHED `ea8fe81`; macOS 550 green FROM SCRATCH,
+  iOS builds). Closes the follow-up from `28dbd29`: previewStopped/previewPlaying/previewChordHold/auditionRender/
+  auditionChordHold/auditionStrum took a flat 96, so audition ≠ playback. They now inherit the source velocity too
+  (arp via `arpPick`; ratchet/strum shape relative; chord-holds/harmonize take the note's velocity). Test
+  `testAuditionInheritsSourceVelocity` drives `process(playing:false, audition:0)`. Velocity inheritance is now
+  complete across the real AND soundcheck paths.**
 - **▶ DRAG&DROP phase 2 — row selectors · drag · randomize · playhead (2026-08-09, on `main`, PUSHED `ea0647b`,
   `4fca424`; iOS builds, tests untouched; DEVICE eye owed). Paul's answers: RANDOMIZE = reroll chain+params · modes
   DEFERRED. **ROW SELECTORS** (left of the grid) paint a row with the selected colour. **RANDOMIZE** rerolls the
