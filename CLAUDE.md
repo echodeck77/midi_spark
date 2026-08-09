@@ -157,6 +157,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO IN A CHAIN + flow-diagram labels (2026-08-09, on `main`, PUSHED `eb1bc3c`→`96af278`; macOS 542 green, iOS
+  builds; DEVICE ear owed). Paul's `[ARP→ECHO→HARMONIZE]` heard no harmonize. First fix `eb1bc3c`: `emitDriverNote`'s
+  echo branch `break`ed → any slot after echo was skipped; removed the break so the fold reaches harmonize.
+  Paul then asked the right question — should harmonize shape echo's OUTPUT? **`96af278`: yes** — echo now passes the
+  fold as IDENTITY and registers its tails AFTER every downstream stage, so the ECHOES are harmonised too (THRU keeps
+  dry, MUTE = echoes only). v1 trade-off: echo's chain position no longer changes tail CONTENT — always echoes the
+  final emitted set (right for linear stages like HARMONIZE; per-repeat-as-it-fires = the deferred "hand the tails"
+  work). Test `testEchoRepeatsTheHarmonizedSetSoTheEchoesAreHarmonised`. Also `dc09cbd`: flow-diagram ghost boxes now
+  read "Output Filter +" / "Processor +" (flowGhost renders the label + a plus-icon add affordance).**
 - **▶ DECISIONS BATCH — generators-as-drivers · RESTRIKE · EUCLID POOL · SELECT retire · INIT default · macro/undo
   (2026-08-09, on `main`, PUSHED `4f06d47`→`204432d`; macOS 540 green, iOS builds; DEVICE ear owed). Paul's rulings.
   **#1 GENERATORS ARE CHAIN DRIVERS** — euclid/burst/cascade/drone/shift/humanize join arp/ratchet/strum (shared
