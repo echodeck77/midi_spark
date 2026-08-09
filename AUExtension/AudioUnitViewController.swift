@@ -898,6 +898,7 @@ struct DiagView: View {
             editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
             if tab != .grid { heldVerb = nil }
             if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
+            ddResetDrag()                                          // never carry a stuck ghost/highlight across a tab switch
             if tab == .dragDrop { ddEnsureSelection() }            // open the page with a colour selected (GOLD by default, user 2026-08-09)
         }
         .onChange(of: editArmed) { on in

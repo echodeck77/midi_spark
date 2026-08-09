@@ -70,6 +70,9 @@ extension DiagView {
         .padding(.vertical, 12)
         .coordinateSpace(name: "dd")                                               // the drag's shared frame of reference
         .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
+        // SAFETY NET: a page-level release clears any stuck drag state. The page root survives the cell re-renders that
+        // can cancel a source cell's own gesture mid-drop (leaving the ghost/highlights stuck). (user 2026-08-09)
+        .simultaneousGesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("dd")).onEnded { _ in ddResetDrag() })
         .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(x: ddDragLoc.x, y: ddDragLoc.y - 32).allowsHitTesting(false) } }   // the in-hand ghost, above the finger
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
     }
@@ -92,16 +95,21 @@ extension DiagView {
             .onEnded { value in
                 if case .second(_, let drag) = value, let d = drag,
                    let target = ddZoneAt(d.location, excluding: payload) { ddLandingKey(payload: payload, targetKey: target) }
-                ddDragPayload = nil; ddDropHover = nil
+                ddResetDrag()
             }
     }
+    /// Clear ALL transient drag state — the in-hand ghost, the touched-source highlight, and the hover. A SAFETY NET:
+    /// SwiftUI can CANCEL a gesture (its `.onEnded` never fires) when the drop's document mutation re-renders/re-identifies
+    /// the source cell mid-gesture, which left the ghost + target highlights stuck on. Called from every gesture's end AND
+    /// a page-level release gesture whose root survives the cell re-renders. (user 2026-08-09)
+    func ddResetDrag() { ddDragPayload = nil; ddTouchSource = nil; ddDropHover = nil }
     // Drop-target HIGHLIGHT-on-TOUCH (user 2026-08-09): a bare minimumDistance-0 drag fires the instant a finger lands
     // on a draggable source, so the potential destinations light up BEFORE the long-press arms the real drag. Cleared
     // the moment the finger lifts (or the drag drops). Runs simultaneously with the tap + the long-press-drag above.
     private func ddTouchGesture(_ payload: String) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named("dd"))
             .onChanged { _ in if ddTouchSource != payload { ddTouchSource = payload } }
-            .onEnded { _ in ddTouchSource = nil }
+            .onEnded { _ in ddResetDrag() }
     }
     // What's active for the HIGHLIGHT: the in-hand drag payload, or (before the long-press arms) the touched source.
     private var ddActivePayload: String? { ddDragPayload ?? ddTouchSource }
