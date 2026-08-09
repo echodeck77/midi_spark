@@ -583,7 +583,7 @@ extension DiagView {
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS
                     slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + 8) + sw / 2, y: yProc)
                 }
-                flowGhost("Output filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
+                flowGhost("Output Filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
         }
@@ -594,7 +594,7 @@ extension DiagView {
         if i < chain.count {
             flowSlot(chain[i], bg: bg).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
         } else {
-            flowGhost("+", bg: bg).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
+            flowGhost("Processor", bg: bg).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
@@ -756,10 +756,13 @@ extension DiagView {
     }
     // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet.
     private func flowGhost(_ label: String, bg: Color) -> some View {
-        Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
-            .foregroundColor(mainDestHue.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).fill(bg)                // OPAQUE occluder
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(mainDestHue.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))))
+        HStack(spacing: 4) {
+            Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+            Image(systemName: "plus").font(.system(size: 11, weight: .heavy))     // the ADD affordance
+        }
+        .foregroundColor(mainDestHue.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8).fill(bg)                // OPAQUE occluder
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(mainDestHue.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))))
     }
     // B5 — a top-level accordion section (one open at a time). `summary` shows on the collapsed header.
     // C — IDENTITY section: swatch · name · position, then §I UTILITIES (apply the input shaping across scope ·
