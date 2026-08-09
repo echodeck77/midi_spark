@@ -480,11 +480,21 @@ func phaseIndex(tick: Int64, mTickBeat: Double, arpBeats: Double, S: Double,
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
                    pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
                    noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> Int {
+    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
+            filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi).note
+}
+
+/// The arp source pick AND the picked note's velocity (user 2026-08-09: processors inherit velocity from their
+/// input source). Velocity is OCTAVE-INVARIANT — it comes from the underlying HELD note, so an octave-arped copy
+/// keeps the source dynamic. Returns (-1, 0) when the pool is empty.
+func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
+             pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
+             noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> (note: Int, vel: UInt8) {
     // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
     let fullRange = noteLo <= 0 && noteHi >= 127
     let count = fullRange ? pool.srcCount(filter: filter, cableMask: cableMask)
                           : pool.srcCount(filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
-    guard count > 0 else { return -1 }
+    guard count > 0 else { return (-1, 0) }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
     let pat = Int(pattern) < ArpPattern.allCases.count ? ArpPattern.allCases[Int(pattern)] : .up
@@ -517,7 +527,8 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         note = Int(fullRange ? pool.srcAscending(pos % count, filter: filter, cableMask: cableMask)
                              : pool.srcAscending(pos % count, filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
     }
-    return note + 12 * (pos / count)
+    guard note >= 0 && note <= 127 else { return (-1, 0) }
+    return (note + 12 * (pos / count), pool.velocity(UInt8(note)))
 }
 
 /// §item 11 convenience — same as above, reading the (channel + cable) filter straight off a SnapCell
@@ -527,6 +538,11 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePo
     arpPickSource(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
                   pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
                   noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)   // RANGE (§2)
+}
+func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> (note: Int, vel: UInt8) {
+    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
+            pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+            noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)   // RANGE (§2)
 }
 
 // MARK: - Processor dispatch (§3/§4)

@@ -1127,9 +1127,10 @@ final class Router {
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
                 guard n >= 0 && n <= 127 else { continue }
+                let vel = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
                 if mode == .harmonize {
-                    emitHarmony(base: n, colour: treat, t: t, baseVel: 96, row: r, storeArtics: false,
+                    emitHarmony(base: n, colour: treat, t: t, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, out: out, diag: &diag)
                 } else if legato {
@@ -1146,12 +1147,12 @@ final class Router {
                     if emitMask != 0 {
                         emitArtic(note: UInt8(n), busMask: emitMask,
                                   onSample: onSample, offSample: .max, windowEnd: windowEnd,
-                                  out: out, diag: &diag)
+                                  velocity: vel, out: out, diag: &diag)
                     }
                 } else {
                     emitArtic(note: UInt8(n), busMask: hbm,
                               onSample: onSample, offSample: offSample, windowEnd: windowEnd,
-                              out: out, diag: &diag)
+                              velocity: vel, out: out, diag: &diag)
                 }
             }
         }
@@ -1211,17 +1212,18 @@ final class Router {
         if multi { composeChainSet(cell: cell, pool: cellPool, upto: cell.procs.count - 2, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
         let srcN = multi ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)
         for k in 0..<srcN {
-            let base = multi ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
-            let n = base + transpose
+            let srcNote = multi ? chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111) : cellPool.srcAscending(k, for: cell)
+            let n = Int(srcNote) + transpose
             guard n >= 0 && n <= 127 else { continue }
+            let vel = max(1, multi ? chainScratch.velocity(srcNote) : cellPool.velocity(srcNote))   // inherit the source velocity (user 2026-08-09)
             // §cell-edit F CHOP: the dry AND the tail route through the per-slice split (was raw `bm` — echo bypassed
             // it). Both take the source note's slice destination, so a muted slice silences the note and its echoes.
             let chopped = chopMask(cell, m: colStart, S: S, base: bm)   // (user 2026-08-09)
             if p.echoThru && chopped != 0 {               // THRU passes the dry note; MUTE = echoes only
                 emitArtic(note: UInt8(n), busMask: chopped, onSample: onSample, offSample: offSample,
-                          windowEnd: windowEnd, velocity: 96, out: out, diag: &diag)
+                          windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
             }
-            pushEchoTail(onset: colStart, note: UInt8(n), vel: 96, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
+            pushEchoTail(onset: colStart, note: UInt8(n), vel: vel, busMask: chopped, timeBeats: timeBeats, repeats: repeats,
                          feedDelay: p.echoFeedDelay, decay: p.echoDecay, offset: p.echoOffset, pitch: p.echoPitch,
                          gateBeats: gateBeats, spill: p.echoSpill)
         }
@@ -1677,23 +1679,26 @@ final class Router {
         // cell's filtered pool directly and emits with emitArtic. `srcNotes` = the raw source notes (transpose added
         // per-strike). Composed once at colStart — the source is stable across the column.
         let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
-        var srcNotes: [Int] = []
+        var srcNotes: [(note: Int, vel: UInt8)] = []   // each source note carries its VELOCITY (user 2026-08-09: generators inherit it)
         if chainDriver > 0 {
             composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
-            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { srcNotes.append(Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))) }
+            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); srcNotes.append((Int(n), chainScratch.velocity(n))) }
         } else {
-            for k in 0..<pool.srcCount(for: cell) { srcNotes.append(Int(pool.srcAscending(k, for: cell))) }
+            for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
         }
 
         // ONE chord strike at musical beat `tau` (source notes, chop-routed / downstream-folded), gated `gateBeats`.
-        func strikeChord(tau: Double, vel: UInt8, gateBeats: Double, onlyIndex: Int? = nil) {
+        // `velScale` is the generator's per-strike envelope level (0…1) RELATIVE to each note's inherited source
+        // velocity — so a soft chord bursts soft, a hard one bursts hard (user 2026-08-09).
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
             for (k, sn) in srcNotes.enumerated() {
                 if let only = onlyIndex, k != only { continue }
-                let n = sn + transpose
+                let n = sn.note + transpose
                 guard n >= 0 && n <= 127 else { continue }
+                let vel = UInt8(max(1, min(127, Int((Double(max(1, sn.vel)) * velScale).rounded()))))   // inherited velocity × envelope
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
                 if !emits { continue }
                 if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream passgate/harmonize/…)
@@ -1714,7 +1719,7 @@ final class Router {
             let sub = S / Double(n)
             for j in 0..<n where pat[j] {
                 let tau = colStart + Double(j) * sub
-                if inWindow(tau) { strikeChord(tau: tau, vel: 100, gateBeats: min(sub * 0.9, S * 0.9)) }
+                if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -1723,8 +1728,8 @@ final class Router {
             for (i, f) in fracs.enumerated() {
                 let tau = colStart + f * S
                 if inWindow(tau) {
-                    let vel = UInt8(max(1, min(127, 100 - i * (60 / max(1, count)))))   // fade across the roll
-                    strikeChord(tau: tau, vel: vel, gateBeats: minGap)
+                    let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
+                    strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
                 }
             }
         case .cascade:
@@ -1737,34 +1742,34 @@ final class Router {
                 if inWindow(tau) {
                     let idx = p.strumDir == .down ? (srcN - 1 - j) : j   // reveal order (UP default · DOWN top-first)
                     let gate = (colStart + S) - tau                // sustain to the column boundary
-                    strikeChord(tau: tau, vel: 100, gateBeats: max(0.01, gate), onlyIndex: idx)
+                    strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.01, gate), onlyIndex: idx)
                 }
             }
         case .drone:
-            // PAD: strike the whole entry chord ONCE, held to the boundary, at a flat pad level (gate = level).
+            // PAD: strike the whole entry chord ONCE, held to the boundary; the GATE knob scales the inherited velocity.
             if inWindow(colStart) {
-                let padVel = UInt8(max(1, min(127, Int(p.gate * 127))))
-                strikeChord(tau: colStart, vel: padVel, gateBeats: S)
+                strikeChord(tau: colStart, velScale: max(0.05, min(1, p.gate)), gateBeats: S)
             }
         case .shift:
             // GROOVE: push the chord's onset LATE by up to ~40% of the step (spread 0…1), held to the boundary.
             let push = max(0, min(1, p.spread)) * 0.4 * S
             let tau = colStart + push
-            if inWindow(tau) { strikeChord(tau: tau, vel: 100, gateBeats: max(0.05, S - push)) }
+            if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.05, S - push)) }
         case .humanize:
             // THE DETERMINISTIC HUMAN: each note strikes at a seeded late offset (0…~15% step) with a seeded velocity
             // duck — replay-safe (seed = column · note · index). AMOUNT (spread) scales both. Held to the boundary.
+            // The duck is RELATIVE, so it ducks the inherited source velocity (user 2026-08-09).
             let amt = max(0, min(1, p.spread))
             let col = UInt64(bitPattern: Int64((colStart / S).rounded()))
             for (k, sn) in srcNotes.enumerated() {
-                let note = sn + transpose
+                let note = sn.note + transpose
                 guard note >= 0 && note <= 127 else { continue }
                 let h = splitmix64Mix(col &* 2_654_435_761 &+ UInt64(note) &* 131 &+ UInt64(k) &* 17)
                 let tFrac = Double(h & 0xFFFF) / 65535.0                     // 0…1 → late offset
                 let vFrac = Double((h >> 16) & 0xFFFF) / 65535.0             // 0…1 → velocity duck
                 let tau = colStart + tFrac * amt * 0.15 * S
-                let vel = UInt8(max(1, min(127, 100 - Int(vFrac * amt * 45))))
-                if inWindow(tau) { strikeChord(tau: tau, vel: vel, gateBeats: max(0.05, colStart + S - tau), onlyIndex: k) }
+                let velScale = max(0.05, (100.0 - vFrac * amt * 45.0) / 100.0)
+                if inWindow(tau) { strikeChord(tau: tau, velScale: velScale, gateBeats: max(0.05, colStart + S - tau), onlyIndex: k) }
             }
         default:
             break
@@ -1824,24 +1829,25 @@ final class Router {
             let tick = Int64((m / arpBeats).rounded(.down))
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: p.phase, runStartColumn: cell.runStartColumn)
-            let n = arpPickSource(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
-                                  pool: src, filter: 0, cableMask: 0b1111)
-            if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: 96, channel: 0) }
+            let pick = arpPick(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
+                               pool: src, filter: 0, cableMask: 0b1111)   // velocity inherited from the picked source note
+            if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
             let colStart = (m / S).rounded(.down) * S
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if chancePasses(beat: colStart, note: Int(n), probability: p.probability) { dst.noteOn(n, velocity: 96, channel: 0) }
+                if chancePasses(beat: colStart, note: Int(n), probability: p.probability) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .harmonize:
             let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
                 let base = Int(src.srcAscending(k, filter: 0, cableMask: 0b1111))
-                dst.noteOn(UInt8(base), velocity: 96, channel: 0)
-                for iv in ivs where iv != 0 { let v = base + Int(iv); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: 96, channel: 0) } }
+                let bv = max(1, src.velocity(UInt8(base)))                // the added voices inherit the base note's velocity
+                dst.noteOn(UInt8(base), velocity: bv, channel: 0)
+                for iv in ivs where iv != 0 { let v = base + Int(iv); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
             }
         default:                                               // identity / open passgate / ratchet / strum → pass through
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { dst.noteOn(src.srcAscending(k, filter: 0, cableMask: 0b1111), velocity: 96, channel: 0) }
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
         }
         dst.rebuildSorted()   // srcAscending reads `sorted`; noteOn doesn't maintain it
     }
@@ -1853,7 +1859,7 @@ final class Router {
         let pass = Int((m / cycleBeats).rounded(.down))
         var cur = chainA, nxt = chainB
         cur.reset()
-        for k in 0..<pool.srcCount(for: cell) { cur.noteOn(pool.srcAscending(k, for: cell), velocity: 96, channel: 0) }
+        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); cur.noteOn(n, velocity: max(1, pool.velocity(n)), channel: 0) }   // seed carries the source velocity
         cur.rebuildSorted()
         var j = 0
         while j <= upto {
@@ -1866,7 +1872,7 @@ final class Router {
             j += 1
         }
         chainScratch.reset()
-        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) { chainScratch.noteOn(cur.srcAscending(k, filter: 0, cableMask: 0b1111), velocity: 96, channel: 0) }
+        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) { let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111); chainScratch.noteOn(n, velocity: max(1, cur.velocity(n)), channel: 0) }   // carry velocity to the tail's source
         chainScratch.rebuildSorted()
     }
 
@@ -1912,13 +1918,15 @@ final class Router {
             // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
             let echoBM = chopMask(cell, m: m, S: S, base: bm)
             for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: echoBM, p: ep, onset: m, S: S)
+                let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
+                pushEchoForNote(Int(n), vel: max(1, cur.velocity(n)), bm: echoBM, p: ep, onset: m, S: S)   // each echo inherits its note's velocity
             }
             if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry)
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-            emitChop(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), cell: cell, bm: bm,
-                     onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
+            let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
+            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd,
+                     velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity
         }
     }
     /// Register an echo tail for ONE tick note ([ARP→ECHO]) at beat `onset`. v1 tick-echo is SYNCED-delay only (the
@@ -1970,18 +1978,20 @@ final class Router {
                                   cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
             let base: Int
+            let srcVel: UInt8   // velocity inherited from the picked source note (user 2026-08-09)
             if chainDriver >= 0 {
                 // CELL MACHINE: this ARP is the chain DRIVER — arp the composed SET of the stages BEFORE it at this
                 // tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL upstream voices).
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                let b = arpPickSource(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
-                                      pool: chainScratch, filter: 0, cableMask: 0b1111)
-                guard b >= 0 else { return }
-                base = b
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
+                                   pool: chainScratch, filter: 0, cableMask: 0b1111)
+                guard pick.note >= 0 else { return }
+                base = pick.note; srcVel = max(1, pick.vel)
             } else {
-                base = arpPickSource(phaseIndex: pIdx, octaves: octaves,
-                                     pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
-                guard base >= 0 else { return }
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
+                                   pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
+                guard pick.note >= 0 else { return }
+                base = pick.note; srcVel = max(1, pick.vel)
             }
             let noteValue = base + transpose
             guard noteValue >= 0 && noteValue <= 127 else { return }
@@ -1990,10 +2000,10 @@ final class Router {
                 // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
                 if chainDriver >= 0 {
                     emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: 96, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
                 } else {
                     emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
-                             velocity: 96, m: mTickBeat, S: S, out: out, diag: &diag)
+                             velocity: srcVel, m: mTickBeat, S: S, out: out, diag: &diag)
                 }
             }
         }
@@ -2019,7 +2029,6 @@ final class Router {
                      beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
             let colStart = (mTickBeat / S).rounded(.down) * S
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
-            let vel = ratchetVelocity(base: 96, ramp: ramp, index: repIdx, count: repeats)
             // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
             let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)
             if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
@@ -2028,10 +2037,12 @@ final class Router {
                 // repeat, then fold each struck note through the stages AFTER it (e.g. a downstream passgate).
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-                    let n = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) + transpose
+                    let sn = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
+                    let n = Int(sn) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                     if emits {
+                        let vel = ratchetVelocity(base: max(1, Int(chainScratch.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // ramp the inherited velocity
                         emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,   // raw bm — emitChop applies the slice
                                        windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
                     }
@@ -2039,10 +2050,12 @@ final class Router {
             } else {
                 let srcN = pool.srcCount(for: cell)            // re-strike every held note passing the filter (§7)
                 for k in 0..<srcN {
-                    let n = Int(pool.srcAscending(k, for: cell)) + transpose
+                    let sn = pool.srcAscending(k, for: cell)
+                    let n = Int(sn) + transpose
                     guard n >= 0 && n <= 127 else { continue }
                     storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
                     if emits {
+                        let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // ramp the inherited velocity
                         emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime,
                                   windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                     }
@@ -2080,9 +2093,11 @@ final class Router {
             strumProgress[r] += 1
 
             let sortedIdx = strumSortedIndex(position: j, count: count, direction: dir, pass: diag.pass)
-            let n = Int(chainDriver >= 0 ? chainScratch.srcAscending(sortedIdx, filter: 0, cableMask: 0b1111) : pool.srcAscending(sortedIdx, for: cell)) + transpose
+            let srcNote = chainDriver >= 0 ? chainScratch.srcAscending(sortedIdx, filter: 0, cableMask: 0b1111) : pool.srcAscending(sortedIdx, for: cell)
+            let n = Int(srcNote) + transpose
             guard n >= 0 && n <= 127 else { continue }
-            let vel = strumVelocity(index: j, count: count, tilt: tilt, base: 96)
+            let srcVel = chainDriver >= 0 ? chainScratch.velocity(srcNote) : pool.velocity(srcNote)   // inherit + tilt
+            let vel = strumVelocity(index: j, count: count, tilt: tilt, base: max(1, Int(srcVel)))
             let onT = max(onsetSample, windowStart)
             storeArtic(row: r, on: onT, off: offSample, note: UInt8(n), beat: onsetMusical)
             if emits {

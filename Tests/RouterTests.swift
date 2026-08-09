@@ -35,6 +35,10 @@ final class RouterTests: XCTestCase {
     private func chord(_ notes: [UInt8], channel: UInt8 = 0) -> NotePool {
         let p = NotePool(); for n in notes { p.noteOn(n, velocity: 100, channel: channel) }; return p
     }
+    /// A held chord with per-note velocities — for the velocity-inheritance tests (user 2026-08-09).
+    private func velChord(_ pairs: [(UInt8, UInt8)], channel: UInt8 = 0) -> NotePool {
+        let p = NotePool(); for (n, v) in pairs { p.noteOn(n, velocity: v, channel: channel) }; return p
+    }
 
     /// Drive the render engine across `beats` musical beats of PLAYING windows, then one STOP window
     /// (the transport edge flushes every voice). Mirrors how the Kernel calls it each render.
@@ -115,6 +119,41 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         run(b, chord([60, 64, 67]), beats: 2, into: e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "4 euclid pulses × the 3-note chord")
+        assertNothingLeftSounding(e)
+    }
+    // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
+    // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
+    func testArpInheritsSourceVelocity() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, velChord([(60, 30), (67, 120)]), beats: 8, into: e)
+        let vels = Set(e.ons.filter { $0.cable == 1 }.map { $0.vel })
+        XCTAssertFalse(vels.isEmpty, "the arp sounded")
+        XCTAssertTrue(vels.isSubset(of: [30, 120]), "every arp note carries a SOURCE velocity (30 or 120), never a flat 96 — got \(vels)")
+        XCTAssertTrue(vels.contains(30) && vels.contains(120), "both source dynamics come through")
+        assertNothingLeftSounding(e)
+    }
+    // A chain carries velocity end-to-end: [ARP → HARMONIZE] — the dry AND the +12 voice inherit the source velocity.
+    func testChainInheritsSourceVelocityThroughHarmonize() {
+        let b = box(colours: arpColours()) { $0.cells[0][0] = {
+            var c = Cell(colourID: "gold", buses: [.a])
+            let arp = ProcessorSlot(type: .arp)
+            var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
+            c.processors = [arp, h]; return c }() }
+        let e = RecordingEmitter(); run(b, velChord([(60, 44)]), beats: 8, into: e)
+        let dry = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        let harm = e.ons.filter { $0.cable == 1 && $0.note == 72 }
+        XCTAssertTrue(!dry.isEmpty && dry.allSatisfy { $0.vel == 44 }, "the dry note keeps its source velocity 44")
+        XCTAssertTrue(!harm.isEmpty && harm.allSatisfy { $0.vel == 44 }, "the +12 harmony voice inherits the base note's velocity 44")
+        assertNothingLeftSounding(e)
+    }
+    // A single-slot GENERATOR inherits too — euclid strikes each note at its own source velocity (envelope × source).
+    func testEuclidGeneratorInheritsSourceVelocity() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); run(b, velChord([(60, 50), (64, 110)]), beats: 2, into: e)
+        let a = e.ons.filter { $0.cable == 1 }
+        XCTAssertTrue(a.filter { $0.note == 60 }.allSatisfy { $0.vel == 50 }, "euclid note 60 → source velocity 50")
+        XCTAssertTrue(a.filter { $0.note == 64 }.allSatisfy { $0.vel == 110 }, "euclid note 64 → source velocity 110")
         assertNothingLeftSounding(e)
     }
     func testEuclidPulsesFromPoolTracksHeldCount() {
@@ -2738,9 +2777,9 @@ final class RouterTests: XCTestCase {
             $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
             $0.cells[0][1] = { var c = Cell(colourID: "cyan", buses: [.b]); c.inputReceiver = 1; return c }()
         }
-        XCTAssertEqual(velsOn(b, inputVel: 0, cable: 1), [96], "natural base velocity when untouched")
+        XCTAssertEqual(velsOn(b, inputVel: 0, cable: 1), [100], "natural base velocity = the source note's velocity (was flat 96)")
         XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 1), [40], "R1 override flattens A to 40")
-        XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 2), [96], "an R1 override leaves R2's B natural")
+        XCTAssertEqual(velsOn(b, inputVel: packVel(0, 40), cable: 2), [100], "an R1 override leaves R2's B natural (source velocity)")
     }
 
     func testEmitterOverrideWinsOverInputOverride() {
@@ -2879,18 +2918,19 @@ final class RouterTests: XCTestCase {
     }
 
     func testFlattenDucksOtherEmittersWhileSounding() {
-        // A (passgate, holds) FLATTENs at 50%; B's new arp notes arrive velocity-scaled to 48 (96·50%).
-        XCTAssertTrue(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 2).contains(48),
-                      "A flatten 50% ⇒ B's new notes duck to 48")
-        XCTAssertEqual(velsForCable(flattenBox(0, [50, 0, 0, 0]), cable: 2), [96], "no flatten ⇒ B natural (96)")
-        XCTAssertEqual(velsForCable(flattenBox(0b0010, [0, 50, 0, 0]), cable: 2), [96],
+        // A (passgate, holds) FLATTENs at 50%; B's new arp notes arrive velocity-scaled to 50 (100·50%).
+        // (Natural velocity is now the SOURCE velocity 100, not a flat 96 — user 2026-08-09.)
+        XCTAssertTrue(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 2).contains(50),
+                      "A flatten 50% ⇒ B's new notes duck to 50")
+        XCTAssertEqual(velsForCable(flattenBox(0, [50, 0, 0, 0]), cable: 2), [100], "no flatten ⇒ B natural (source velocity 100)")
+        XCTAssertEqual(velsForCable(flattenBox(0b0010, [0, 50, 0, 0]), cable: 2), [100],
                        "an emitter's own FLATTEN never ducks itself — only OTHER emitters")
     }
 
     func testFlattenDoesNotDuckTheSoundingEmitter() {
         // A holds and FLATTENs; A's OWN held notes are never lurched — its cable-1 velocity stays natural.
-        XCTAssertEqual(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 1), [96],
-                       "the sounding FLATTEN emitter keeps its own natural velocity")
+        XCTAssertEqual(velsForCable(flattenBox(0b0001, [50, 0, 0, 0]), cable: 1), [100],
+                       "the sounding FLATTEN emitter keeps its own natural (source) velocity")
     }
 
     // MARK: - emitter ALT (role family) — turn-taking among the ALT group
@@ -3635,16 +3675,16 @@ final class RouterTests: XCTestCase {
         run(b, chord([60]), beats: 1.5, into: e)                 // one column entry (S = 2 beats); TIME 1/16 = 0.25
         let strikes = e.ons.filter { $0.note == 60 && $0.cable == 1 }
         XCTAssertGreaterThanOrEqual(strikes.count, 5, "the dry + four repeats")
-        XCTAssertTrue(strikes.contains { $0.vel == 96 }, "the dry is full velocity")
-        XCTAssertTrue(strikes.contains { $0.vel == 48 }, "first repeat = 96 × 0.5")
-        XCTAssertTrue(strikes.contains { $0.vel == 24 }, "second repeat = 96 × 0.5²")
+        XCTAssertTrue(strikes.contains { $0.vel == 100 }, "the dry inherits the source velocity 100 (was flat 96)")
+        XCTAssertTrue(strikes.contains { $0.vel == 50 }, "first repeat = 100 × 0.5")
+        XCTAssertTrue(strikes.contains { $0.vel == 25 }, "second repeat = 100 × 0.5²")
         assertNothingLeftSounding(e)
     }
 
     /// The DECAY FLOOR (drainEchoTails, Router:1184): a repeat whose `vel·decay^k` rounds below 1 is DROPPED, never
     /// emitted as a velocity-0 note-on (which a synth reads as a note-off). Harsh decay ⇒ late repeats vanish.
     func testEchoDecayFloorDropsRepeatsBelowVelocityOneNeverEmitsZero() {
-        // dry vel 96, decay 0.2, 8 repeats: k=1→19, k=2→4, k=3→1, k≥4 rounds to 0 ⇒ dropped by the floor.
+        // dry vel 100 (inherited), decay 0.2, 8 repeats: k=1→20, k=2→4, k=3→1, k≥4 rounds to 0 ⇒ dropped by the floor.
         let b = box(colours: echoColours(div: 1, repeats: 8, feedDelay: 0.2, decay: 0.2)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
         run(b, chord([60]), beats: 2.5, into: e)                 // long enough that all 8 repeat windows elapse
