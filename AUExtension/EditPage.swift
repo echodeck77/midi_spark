@@ -558,14 +558,13 @@ extension DiagView {
             let W = g.size.width
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
             let sw = max(64, (W - 3 * 8) / 4)                    // 4 processor slots span the width (user 2026-08-09: was 8)
-            let yRecv: CGFloat = 32, yProc: CGFloat = 178, yEm: CGFloat = 324
+            let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 324   // receiver→processor gap tightened (user 2026-08-09)
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
-                    // RECEIVERS → first processor: down from the receivers' bottom-centre, LEFT, then DOWN into the
-                    // FIRST processor's TOP-CENTRE (user 2026-08-07). Then thread L→R behind the slots.
-                    p.move(to: CGPoint(x: W / 2, y: 55)); p.addLine(to: CGPoint(x: W / 2, y: 118))
-                    p.addLine(to: CGPoint(x: sw / 2, y: 118)); p.addLine(to: CGPoint(x: sw / 2, y: yProc))
-                    p.addLine(to: CGPoint(x: W, y: yProc))
+                    // RECEIVERS → PROCESSORS: straight DOWN from the receiver row's CENTRE-BOTTOM into the processor
+                    // row (user 2026-08-09), then thread L→R behind the slots.
+                    p.move(to: CGPoint(x: W / 2, y: 55)); p.addLine(to: CGPoint(x: W / 2, y: yProc))
+                    p.move(to: CGPoint(x: sw / 2, y: yProc)); p.addLine(to: CGPoint(x: W, y: yProc))
                     p.addLine(to: CGPoint(x: W, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 232))   // exit RIGHT → output filter
                     p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 301))                // output filter → emitters
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
