@@ -66,6 +66,15 @@ extension DiagView {
                 if let target { ddLandingKey(payload: payload, targetKey: target) }
             }
     }
+    // The colour currently in-hand (a dragged colour, or the dragged cell's colour) → the drop-zone highlight hue.
+    private var ddDragColourID: String? {
+        guard let p = ddDragPayload else { return nil }
+        let t = p.split(separator: ":").map(String.init)
+        if t.first == "colour", t.count == 2 { return t[1] }
+        if t.first == "cell", t.count == 3, let c = Int(t[1]), let r = Int(t[2]) { return scene.cellAt(c, r)?.colourID }
+        return nil
+    }
+    private var ddDragHue: Color { ddDragColourID.flatMap { colourColor($0) } ?? Self.editHue }
     private func ddZoneAt(_ p: CGPoint, excluding payload: String) -> String? {
         // a cell dragged onto its OWN frame isn't a landing — skip it so the ghost reads the litter/palette behind
         let selfKey = payload.hasPrefix("cell:") ? "grid:" + payload.dropFirst("cell:".count) : nil
@@ -110,18 +119,21 @@ extension DiagView {
         let selected = ddColourSel == i
         let defined = ddColourShown(i)
         let hover = ddDropHover == "palette:\(i)"
+        let dragging = ddDragPayload != nil                          // a drag is in progress → light the drop zones in the drag colour
+        let brdr: Color = hover ? (dragging ? ddDragHue : Self.editHue)
+                                : (dragging ? ddDragHue.opacity(0.65) : (selected ? .white : .white.opacity(0.12)))
+        let brdrW: CGFloat = hover ? 3 : (dragging ? 2 : (selected ? 3 : 1))
         Group {
             if defined {
                 RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
                     .overlay { ddSwatchPlayhead(id, side: side) }        // THE REFILL: a downward fill-wipe on the active column
-                    .overlay(RoundedRectangle(cornerRadius: 8)
-                        .stroke(hover ? Self.editHue : (selected ? Color.white : Color.white.opacity(0.12)), lineWidth: hover || selected ? 3 : 1))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(brdr, lineWidth: brdrW))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .opacity(ddDragPayload == "colour:\(id)" ? 0.35 : 1)  // lift the source while dragging
             } else {
                 RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.035))       // EMPTY slot — a FORK target
                     .overlay(Image(systemName: "plus").font(.system(size: side * 0.3, weight: .heavy)).foregroundColor(.white.opacity(hover ? 0.8 : 0.22)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover ? Self.editHue : .white.opacity(0.12), style: StrokeStyle(lineWidth: hover ? 2.5 : 1, dash: [4, 3])))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(brdr, style: StrokeStyle(lineWidth: max(1, brdrW - 0.5), dash: [4, 3])))
             }
         }
         .frame(width: side, height: side)
@@ -146,17 +158,20 @@ extension DiagView {
             }
         }
     }
-    // THE LITTER (design): drop a colour here → delete it AND all its cells; drop a cell here → clear that cell.
+    // THE DELETE box (design "litter"): drop a colour here → delete it AND all its cells; a cell → clear that cell.
+    // Always RED (user 2026-08-09), and lit throughout a drag so the delete target reads at a glance.
     private func ddLitter() -> some View {
         let hover = ddDropHover == "litter"
         let flashing = ddLitterFlash != nil
+        let dragging = ddDragPayload != nil
+        let lit = hover || flashing || dragging
         return HStack(spacing: 6) {
             Image(systemName: "trash").font(.system(size: 13, weight: .heavy))
-            Text(ddLitterFlash ?? "LITTER").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+            Text(ddLitterFlash ?? "DELETE").font(.system(size: 10, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
         }
-        .foregroundColor(hover || flashing ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : .clear)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(hover || flashing ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: hover || flashing ? 2 : 1.2, dash: [4, 3]))))
+        .foregroundColor(lit ? Verb.delete.hue : .white.opacity(0.3)).frame(maxWidth: .infinity).frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : (dragging ? Verb.delete.hue.opacity(0.10) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lit ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: lit ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
         .background(ddZone("litter"))                                                  // drop-zone frame (a drop target only)
         .animation(.easeOut(duration: 0.15), value: flashing)
@@ -205,11 +220,13 @@ extension DiagView {
     }
     @ViewBuilder private func ddGridCell(_ c: Int, _ r: Int, size: CGFloat) -> some View {
         let cell = scene.cellAt(c, r)
-        let selected = selCol == c && selRow == r
         let hover = ddDropHover == "grid:\(c):\(r)"
-        let inScope = ddColourSel >= 0 && cell?.colourID == colourIDs[ddColourSel]   // a sibling of the edited colour
-        let stroke: Color = hover ? Self.editHue : (selected ? .white : (inScope ? .white.opacity(0.5) : .white.opacity(0.12)))
-        let strokeW: CGFloat = hover || selected ? 2.5 : (inScope ? 1.5 : 1)
+        let dragging = ddDragPayload != nil                                          // a drag is in progress → light the drop zones
+        // NO grid cell is ever shown as SELECTED (user 2026-08-09) — only the hover/drag drop highlights. The selection
+        // lives in the palette + machinery, never on the grid.
+        let stroke: Color = hover ? (dragging ? ddDragHue : Self.editHue)
+                                  : (dragging ? ddDragHue.opacity(0.65) : .white.opacity(0.12))
+        let strokeW: CGFloat = hover ? 3 : (dragging ? 2 : 1)
         let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
         RoundedRectangle(cornerRadius: 5)
             .fill(fill.opacity(cell?.muted == true ? 0.28 : 1))
