@@ -170,97 +170,93 @@ extension DiagView {
     // outputSection), all already wired to selCol/selRow/brush. Self-contained so the spike is easy to drop.
     // TOP-OF-PAGE play-scope toggle (user 2026-08-08): PLAY FROM GRID (normal) ↔ PLAY THIS CELL ONLY (solo the edit
     // selection while the transport plays — every other cell falls silent). Ephemeral; clears on leaving EDIT.
-    @ViewBuilder func playScopeToggle() -> some View {
-        HStack(spacing: 0) {
-            playScopeSeg("PLAY FROM GRID", cellOnly: false)
-            playScopeSeg("PLAY THIS CELL ONLY", cellOnly: true)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Self.editHue.opacity(0.4), lineWidth: 1))
-        .frame(maxWidth: 520)
-    }
-    @ViewBuilder private func playScopeSeg(_ label: String, cellOnly: Bool) -> some View {
-        let on = playCellOnly == cellOnly
+    /// A single ENABLE/DISABLE play-scope button (user 2026-08-09, was a 2-segment toggle) — lit = play THIS CELL
+    /// only (solo), unlit = play from the whole grid. Lives beside the flow diagram.
+    @ViewBuilder func playScopeButton() -> some View {
+        let solo = playCellOnly
         Button {
-            playCellOnly = cellOnly
+            playCellOnly.toggle()
             if playCellOnly { au?.setEditSolo(editSelTargets) } else { au?.clearEditSolo() }
         } label: {
-            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(on ? .black : .white.opacity(0.6))
-                .frame(maxWidth: .infinity).frame(height: 34)
-                .background(on ? Self.editHue : Color.white.opacity(0.06))
+            HStack(spacing: 6) {
+                Image(systemName: solo ? "speaker.wave.2.fill" : "square.grid.3x3.fill").font(.system(size: 11, weight: .heavy))
+                Text(solo ? "PLAY: THIS CELL" : "PLAY: FROM GRID").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundColor(solo ? .black : Self.editHue)
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(solo ? Self.editHue : Self.editHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
     }
 
+    /// THE CELL-EDIT PAGE — ONE non-scrolling panel (user 2026-08-09). LANDSCAPE: grid LEFT · flow diagram RIGHT ·
+    /// the mode buttons in a row along the BOTTOM. PORTRAIT: grid TOP with the mode buttons in a slim column to its
+    /// right · flow diagram in the BOTTOM half. No informational text; the play-scope is a single button by the flow.
     @ViewBuilder func editSpikePage(_ size: CGSize) -> some View {
-        // EDIT-PAGE LAYOUT (design ferry 2026-08-06): the grid LEFT-aligned within the 1024pt page; opposite it, top-
-        // aligned within the grid's height, a RIGHT block = the mode controls in a 2×2 (ADD/EDIT · MOVE / MUTE · CLEAR)
-        // → the armed mode's description → APPLY / CANCEL.
-        let pageW = min(size.width - 24, 1024)
-        let rightW: CGFloat = 210
         let landscape = size.width > size.height
-        let gridW = min(pageW - rightW - 16, landscape ? 384 : 512)  // grid WIDTH 512 · LANDSCAPE −25% → 384 (user 2026-08-07)
-        let gridH = gridW / 1.3                                      // height PROPORTIONAL to the width (keeps the grid's aspect)
-        let cellH = max(18, min(46, (gridH - 30) / 9))               // 9 = 8 rows + the column-key row
-        let canCommit = !sel.isEmpty
+        let gridW: CGFloat = landscape
+            ? max(120, min(size.height - 96, (size.width * 0.46) / 1.3)) * 1.3   // landscape: bound by height & ~46% width
+            : max(160, min(size.width - 152, (size.height * 0.46) * 1.3))          // portrait: top half, clear of the 122 button column
+        let gridH = gridW / 1.3
+        let cellH = max(16, min(46, (gridH - 30) / 9))
+
+        if landscape {
+            VStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 14) {
+                    spikeGrid(cellH).frame(width: gridW, height: gridH)
+                    flowRegion(width: size.width - gridW - 44)   // flow diagram + play-scope, on the right
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }.frame(maxHeight: .infinity, alignment: .top)
+                modeButtons(vertical: false)                                  // the mode buttons ALONG THE BOTTOM
+            }.padding(12)
+        } else {
+            VStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    spikeGrid(cellH).frame(width: gridW, height: gridH)
+                    modeButtons(vertical: true).frame(width: 122)             // slim mode-button column, right of the grid
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                flowRegion(width: size.width - 24)               // flow diagram + play-scope, BOTTOM half
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }.padding(12)
+        }
+    }
+    /// The flow-diagram region: the play-scope button above the flow diagram (or a hint when no cell is selected).
+    @ViewBuilder private func flowRegion(width: CGFloat) -> some View {
         VStack(spacing: 8) {
-            // LAYOUT v2: the header + tab bar are rendered ONCE by the parent now — this page is the PROCESSORS tab
-            // body only (no arrangementBar of its own).
-            playScopeToggle()                                      // TOP: play from grid ↔ play this cell only (user 2026-08-08)
-            HStack(alignment: .top, spacing: 16) {                  // grid LEFT · mode block opposite it, tops shared
-                spikeGrid(cellH).frame(width: gridW, height: gridH)
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 10) {          // the RIGHT block — top aligned with the grid (HStack .top)
-                    VStack(spacing: 6) {                            // the mode controls, a vertical rail (user 2026-08-07)
-                        modeChip("ADD/EDIT", .addEdit)
-                        modeChip("MOVE", .move)
-                        modeChip("MUTE", .mute)
-                        modeChip("CLEAR", .clear)
-                    }
-                    Text(modeGuidance)                              // the armed mode's description, below the buttons
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if editMode == .addEdit {                       // APPLY / CANCEL below the description (the one staging mode)
-                        HStack(spacing: 10) {
-                            Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }
-                                .buttonStyle(.plain).disabled(!canCommit)
-                            Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }
-                                .buttonStyle(.plain).disabled(!canCommit)
-                        }
-                    }
-                    Spacer(minLength: 0)                            // the stack lives within the grid's height
-                }
-                .frame(width: rightW, height: gridH, alignment: .top)
-            }
-            .frame(width: pageW, alignment: .leading)               // grid left-aligned in the 1024 page…
-            .frame(maxWidth: .infinity)                             // …the page itself centred on wider canvases
-            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            if editMode == .addEdit, let cell = editingCell {       // controls show ONLY in ADD/EDIT, with a cell selected
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 22) {                            // the FLOW is CENTRED + full-width (user 2026-08-07)
-                        flowDiagram(cell, size)
-                        // Everything from IDENTITY down retired off this page (user 2026-08-09): identity, FROM · MIDI IN,
-                        // CHAIN and the output SPLIT are all reached from the flow diagram now (tap a box / the + ghost /
-                        // the emitters SPLIT). The flow diagram is the whole cell-edit surface.
-                    }.frame(maxWidth: .infinity).padding(.bottom, 8)
-                }.frame(maxWidth: .infinity)
+            if editMode == .addEdit, let cell = editingCell {
+                playScopeButton()
+                flowDiagram(cell, width: width)
             } else {
-                Spacer(minLength: 0)                                  // grid only (nothing selected, or a non-edit mode)
+                Text(editMode == .addEdit ? "Select a cell to edit its chain" : "")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.25))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(12)
+    }
+    /// The mode buttons (ADD/EDIT · MOVE · MUTE · CLEAR) + APPLY/CANCEL — laid as a bottom ROW (landscape) or a slim
+    /// COLUMN (portrait). No guidance text (user 2026-08-09).
+    @ViewBuilder func modeButtons(vertical: Bool) -> some View {
+        let canCommit = !sel.isEmpty
+        if vertical {
+            VStack(spacing: 6) {
+                modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
+                if editMode == .addEdit {
+                    Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }.buttonStyle(.plain).disabled(!canCommit)
+                    Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }.buttonStyle(.plain).disabled(!canCommit)
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                modeChip("ADD/EDIT", .addEdit); modeChip("MOVE", .move); modeChip("MUTE", .mute); modeChip("CLEAR", .clear)
+                if editMode == .addEdit {
+                    Spacer(minLength: 8)
+                    Button { commitSession() } label: { transactChip("APPLY", enabled: canCommit, fill: true) }.buttonStyle(.plain).disabled(!canCommit)
+                    Button { revertSession() } label: { transactChip("CANCEL", enabled: canCommit, fill: false) }.buttonStyle(.plain).disabled(!canCommit)
+                }
+            }
+        }
     }
     private func sectionSeam() -> some View { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.vertical, 2) }
-
-    /// The always-visible guidance line for the current mode (INSTRUCTIONS: the guidance for each button is always shown).
-    var modeGuidance: String {
-        switch editMode {
-        case .addEdit: return "Choose one cell, then choose more to duplicate and edit as a group. Flashing cells are duplicates, so select them if you want them to stay in sync"
-        case .move:    return "Drag and drop a cell to a new position"
-        case .mute:    return "Choose cells to mute"
-        case .clear:   return "Choose cells to clear (tap the empty slot to bring it back)"
-        }
-    }
     func modeChip(_ label: String, _ mode: EditPageMode) -> some View {
         let on = editMode == mode
         return Button { setEditMode(mode) } label: {
@@ -548,12 +544,12 @@ extension DiagView {
     // box immediately BELOW them (dotted connector) → the 8 PROCESSOR boxes (the dotted line enters their LEFT, exits
     // their RIGHT) → the OUTPUT FILTER (centred, above emitters) → the EMITTERS box (centred). One dotted thread; every
     // box is OPAQUE so the line is hidden wherever it passes behind one. Receiver/emitter/processor boxes ~doubled.
-    @ViewBuilder func flowDiagram(_ cell: Cell, _ size: CGSize) -> some View {
+    @ViewBuilder func flowDiagram(_ cell: Cell, width: CGFloat) -> some View {
         let chain = cellChain(cell)
         let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
         let hue = mainDestHue
         let idW: CGFloat = 120, filtW: CGFloat = 190   // idW: reserves the (now-hidden) ID-cell margin so RECEIVERS stays clear of the left
-        let flowW = min(size.width - 48, 1040)
+        let flowW = min(max(280, width), 1040)
         GeometryReader { g in
             let W = g.size.width
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
