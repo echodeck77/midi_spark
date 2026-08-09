@@ -356,6 +356,9 @@ extension DiagView {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+    /// The SELECTED colour's hue — tints the DD action buttons (PLAY · LIBRARY · RANDOMIZE · MUTATE); falls back to the
+    /// edit orchid when nothing resolves. (user 2026-08-09)
+    private var ddSelHue: Color { ddSelectedColourID.flatMap { colourColor($0) } ?? Self.editHue }
     // PLAY: THIS CELL (user 2026-08-09) — isolate the selected cell's colour and freeze the timeline on its column, so
     // ONLY that machine sounds, ungated by the grid sequence (the grid's active column is ignored). Toggle.
     private func ddPlayCellButton() -> some View {
@@ -368,9 +371,9 @@ extension DiagView {
                 Image(systemName: on ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 11, weight: .heavy))
                 Text("PLAY: THIS CELL").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
             }
-            .foregroundColor(on ? .black : Self.editHue).padding(.horizontal, 12).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Self.editHue : Self.editHue.opacity(0.12))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
+            .foregroundColor(on ? .black : ddSelHue).padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? ddSelHue : ddSelHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(ddSelHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
     }
     // LIBRARY — open the cell library (left of the receivers).
@@ -380,9 +383,9 @@ extension DiagView {
                 Image(systemName: "books.vertical.fill").font(.system(size: 12, weight: .heavy))
                 Text("LIBRARY").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
             }
-            .foregroundColor(Self.editHue).padding(.horizontal, 12).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Self.editHue.opacity(0.12))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
+            .foregroundColor(ddSelHue).padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(ddSelHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(ddSelHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
     }
     // RANDOMIZE — reroll the selected colour's PROCESSOR CHAIN + params (user 2026-08-09; receivers/emitters kept).
@@ -392,9 +395,9 @@ extension DiagView {
                 Image(systemName: "die.face.5.fill").font(.system(size: 12, weight: .heavy))
                 Text("RANDOMIZE").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
             }
-            .foregroundColor(Self.editHue).padding(.horizontal, 12).frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Self.editHue.opacity(0.12))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Self.editHue.opacity(0.5), lineWidth: 1)))
+            .foregroundColor(ddSelHue).padding(.horizontal, 12).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(ddSelHue.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(ddSelHue.opacity(0.5), lineWidth: 1)))
         }.buttonStyle(.plain)
     }
     // MUTATE — placeholder (a nudged variation of the colour, to come). Inert dashed chip for now.
@@ -403,8 +406,8 @@ extension DiagView {
             Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .heavy))
             Text("MUTATE").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
         }
-        .foregroundColor(.white.opacity(0.28)).padding(.horizontal, 12).frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
+        .foregroundColor(ddSelHue.opacity(0.4)).padding(.horizontal, 12).frame(height: 30)   // tinted but dashed/dim = still a placeholder
+        .background(RoundedRectangle(cornerRadius: 7).strokeBorder(ddSelHue.opacity(0.35), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
     }
 
     // MARK: - selection helpers
