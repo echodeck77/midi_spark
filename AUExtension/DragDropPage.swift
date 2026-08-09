@@ -40,6 +40,7 @@ extension DiagView {
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
+                            ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
                         }
                         ddPlayCellButton()                            // PLAY: THIS CELL — right of the grid, top-aligned
                         Spacer(minLength: 0)
@@ -48,16 +49,18 @@ extension DiagView {
                 }
             } else {
                 VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity + PLAY LEFT-aligned · grid RIGHT-aligned (user 2026-08-09)
+                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity LEFT · grid RIGHT — CENTRED (align reverted, user 2026-08-09)
+                        Spacer(minLength: 0)
                         VStack(alignment: .leading, spacing: 10) {   // palette · DELETE · colour swatch+label · "N cells" · PLAY: THIS CELL
                             ddPalette(swatch: swatch, litterHeight: swatch)
                             ddColourIdentity()
-                        }.frame(width: paletteW, alignment: .topLeading)
-                        Spacer(minLength: 0)                          // push the grid to the RIGHT edge
+                        }.frame(width: paletteW, alignment: .top)
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
+                            ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
                         }
+                        Spacer(minLength: 0)
                     }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
                     ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -263,13 +266,13 @@ extension DiagView {
 
     // ROW SELECTORS (user 2026-08-09) — one key per grid row; a tap PAINTS the whole row with the selected colour
     // (its representative machine, or a default passthrough if unplaced). No column paint (by design).
-    @ViewBuilder private func ddRowSelectors(cell: CGFloat, topInset: CGFloat) -> some View {
+    @ViewBuilder private func ddRowSelectors(cell: CGFloat, topInset: CGFloat, pointRight: Bool = false) -> some View {
         let tint = ddColourSel >= 0 ? (colourColor(colourIDs[ddColourSel]) ?? Color.white) : Color.white.opacity(0.25)
         VStack(spacing: 4) {
             Color.clear.frame(width: 18, height: topInset)   // align the row keys below the column-loop row
             ForEach(0..<8, id: \.self) { r in
                 RoundedRectangle(cornerRadius: 4).fill(tint.opacity(ddColourSel >= 0 ? 0.6 : 0.12))
-                    .overlay(Image(systemName: "arrow.left").font(.system(size: 9, weight: .black)).foregroundColor(.black.opacity(0.55)))
+                    .overlay(Image(systemName: pointRight ? "arrow.right" : "arrow.left").font(.system(size: 9, weight: .black)).foregroundColor(.black.opacity(0.55)))
                     .frame(width: 18, height: cell)
                     .contentShape(Rectangle())
                     .onTapGesture { ddPaintRow(r) }
