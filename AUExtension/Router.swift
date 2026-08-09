@@ -1613,6 +1613,12 @@ final class Router {
                     emitStrumRow(cell: cell, row: r, colour: treatDrive, t: t, transpose: transpose, emits: emits,
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
+                case .euclid, .burst, .cascade, .drone, .shift, .humanize:   // GENERATORS as chain drivers (user 2026-08-09)
+                    let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
+                    emitGeneratorRow(mode: dm, cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                     pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                     windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 default: break
                 }
                 continue
@@ -1654,26 +1660,43 @@ final class Router {
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
-                                  out: MIDIEmitter?, diag: inout KernelDiag) {
+                                  cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let p = colour.a
+        let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let colStart = (mWinStart / S).rounded(.down) * S
 
-        // ONE chord strike at musical beat `tau` (all held source notes, chop-routed), gated `gateBeats` long.
+        // CELL MACHINE: as a chain DRIVER, the source is the composed set of the stages BEFORE the driver; each note
+        // FOLDS through the stages AFTER it (emitDriverNote). A single-slot generator (chainDriver < 0) reads the
+        // cell's filtered pool directly and emits with emitArtic. `srcNotes` = the raw source notes (transpose added
+        // per-strike). Composed once at colStart — the source is stable across the column.
+        let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
+        var srcNotes: [Int] = []
+        if chainDriver > 0 {
+            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
+            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { srcNotes.append(Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))) }
+        } else {
+            for k in 0..<pool.srcCount(for: cell) { srcNotes.append(Int(pool.srcAscending(k, for: cell))) }
+        }
+
+        // ONE chord strike at musical beat `tau` (source notes, chop-routed / downstream-folded), gated `gateBeats`.
         func strikeChord(tau: Double, vel: UInt8, gateBeats: Double, onlyIndex: Int? = nil) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: tau + gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
-            let srcN = pool.srcCount(for: cell)
-            for k in 0..<srcN {
+            for (k, sn) in srcNotes.enumerated() {
                 if let only = onlyIndex, k != only { continue }
-                let n = Int(pool.srcAscending(k, for: cell)) + transpose
+                let n = sn + transpose
                 guard n >= 0 && n <= 127 else { continue }
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
-                if emits && tbm != 0 {
+                if !emits { continue }
+                if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream passgate/harmonize/…)
+                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
+                                   windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, pass: diag.pass, out: out, diag: &diag)
+                } else if tbm != 0 {
                     emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
             }
@@ -1683,7 +1706,7 @@ final class Router {
         switch mode {
         case .euclid:
             let n = max(2, min(16, p.euclidSteps))
-            let k = p.euclidPulsesFromPool ? pool.srcCount(for: cell) : p.euclidPulses   // POOL: K = held-note count
+            let k = p.euclidPulsesFromPool ? srcNotes.count : p.euclidPulses   // POOL: K = held-note count (composed set if chained)
             let pat = euclidPattern(pulses: k, steps: n, rotation: p.euclidRot)
             let sub = S / Double(n)
             for j in 0..<n where pat[j] {
@@ -1704,7 +1727,7 @@ final class Router {
         case .cascade:
             let sub = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
             guard sub > 0 else { break }
-            let srcN = pool.srcCount(for: cell)
+            let srcN = srcNotes.count
             for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
                 let tau = colStart + Double(j) * sub
                 if tau >= colStart + S { break }                  // ran past the column — the rest reveal next entry
@@ -1730,9 +1753,8 @@ final class Router {
             // duck — replay-safe (seed = column · note · index). AMOUNT (spread) scales both. Held to the boundary.
             let amt = max(0, min(1, p.spread))
             let col = UInt64(bitPattern: Int64((colStart / S).rounded()))
-            let srcN = pool.srcCount(for: cell)
-            for k in 0..<srcN {
-                let note = Int(pool.srcAscending(k, for: cell)) + transpose
+            for (k, sn) in srcNotes.enumerated() {
+                let note = sn + transpose
                 guard note >= 0 && note <= 127 else { continue }
                 let h = splitmix64Mix(col &* 2_654_435_761 &+ UInt64(note) &* 131 &+ UInt64(k) &* 17)
                 let tFrac = Double(h & 0xFFFF) / 65535.0                     // 0…1 → late offset
@@ -1748,22 +1770,25 @@ final class Router {
 
     // MARK: - CELL MACHINE (feat/EditPageSpike) stage-2 — the serial chain feed
 
-    /// The chain's TICK DRIVER — the index of the LAST non-bypassed arp/ratchet/strum slot. It sets the rhythm:
-    /// slots BEFORE it compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a
-    /// passgate gates the pass, chance drops, harmonize expands). -1 = no tick generator (a hold/plain cell). This
-    /// is what makes `[arp → passgate]` keep arpeggiating (the arp drives, the passgate gates it) instead of the
-    /// arp collapsing to one note when it isn't the tail.
+    /// The chain's TICK DRIVER — the index of the LAST non-bypassed rhythm-generating slot (arp/ratchet/strum + the
+    /// generators euclid/burst/cascade/drone/shift/humanize, user 2026-08-09). It sets the rhythm: slots BEFORE it
+    /// compose as its source; slots AFTER it FOLD onto each note it emits (a per-tick hold — a passgate gates the
+    /// pass, chance drops, harmonize expands). -1 = no tick generator (a hold/plain cell). This is what makes
+    /// `[arp → passgate]` or `[euclid → harmonize]` keep generating (the driver drives, the tail folds).
     private func chainDriverIndex(_ cell: SnapCell) -> Int {
         guard cell.procs.count >= 2 else { return -1 }
         var i = cell.procs.count - 1
         while i >= 0 {
-            if !cell.slotBypass[i] {
-                let t = cell.procs[i].type
-                if t == .arp || t == .ratchet || t == .strum { return i }
-            }
+            if !cell.slotBypass[i] && isDriverType(cell.procs[i].type) { return i }
             i -= 1
         }
         return -1
+    }
+    private func isDriverType(_ t: ProcessorType) -> Bool {
+        switch t {
+        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize: return true
+        default: return false
+        }
     }
     private func isCoveredChain(_ cell: SnapCell) -> Bool { chainDriverIndex(cell) >= 0 }
     /// A multi-slot chain whose TAIL holds at column boundaries via `emitColumnHolds` (holding the tail's

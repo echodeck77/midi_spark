@@ -127,6 +127,47 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e4.ons.filter { $0.cable == 1 }.count, 16, "POOL: 4 held → E(4,8)")
         assertNothingLeftSounding(e3); assertNothingLeftSounding(e4)
     }
+    // GENERATORS AS CHAIN DRIVERS (user 2026-08-09): the driver drives, downstream slots fold; upstream composes.
+    func testEuclidThenOpenPassgateStillGenerates() {
+        let b = box(colours: arpColours()) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
+            var gate = ProcessorSlot(type: .passgate); gate.params.passes = [true, true, true, true]
+            c.processors = [eu, gate]; $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "euclid drives; the open gate folds through → 4 pulses × 3 notes")
+        assertNothingLeftSounding(e)
+    }
+    func testEuclidThenClosedPassgateIsSilent() {
+        let b = box(colours: arpColours()) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
+            var gate = ProcessorSlot(type: .passgate); gate.params.passes = [false, false, false, false]
+            c.processors = [eu, gate]; $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "the closed gate after euclid folds to silence")
+        assertNothingLeftSounding(e)
+    }
+    func testHarmonizeThenEuclidGeneratesOverTheComposedSet() {
+        func mk(harm: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 4; eu.params.euclidSteps = 8
+                if harm {
+                    var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
+                    c.processors = [h, eu]
+                } else { c.processors = [eu] }
+                $0.cells[0][0] = c
+            }
+        }
+        let bare = RecordingEmitter(); run(mk(harm: false), chord([60]), beats: 2, into: bare)
+        let harm = RecordingEmitter(); run(mk(harm: true), chord([60]), beats: 2, into: harm)
+        XCTAssertGreaterThan(harm.ons.filter { $0.cable == 1 }.count, bare.ons.filter { $0.cable == 1 }.count,
+                             "[HARMONIZE→EUCLID]: euclid pulses over the harmonized (doubled) upstream set")
+        assertNothingLeftSounding(bare); assertNothingLeftSounding(harm)
+    }
     func testBurstEmitsCountStrikes() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
             c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
