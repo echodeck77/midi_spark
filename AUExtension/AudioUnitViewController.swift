@@ -67,6 +67,7 @@ enum EditPageMode { case addEdit, move, mute, clear }
 /// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
 enum AppTab: String, CaseIterable {
+    case dragDrop = "DRAG&DROP"   // design-stage: the new first tab (palette · grid · machinery), user 2026-08-09
     case grid = "GRID", processors = "PROCESSORS", receivers = "RECEIVERS", emitters = "EMITTERS"
     case macros = "MACROS", automation = "AUTOMATION"
     var live: Bool { self != .macros && self != .automation }
@@ -84,6 +85,7 @@ struct DiagView: View {
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
     @State var activeTab: AppTab = .grid      // LAYOUT v2: the selected tab (replaces the PERFORM/EDIT toggle)
+    @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
@@ -883,7 +885,7 @@ struct DiagView: View {
             // LAYOUT v2: the PROCESSORS tab IS the old EDIT mode — `editArmed` still drives the begin/apply session
             // logic below, so entering/leaving PROCESSORS opens/commits it. Any tab switch clears transient GRID
             // gestures (a held verb, MUTE arm) so state can't leak across tabs.
-            editArmed = (tab == .processors)
+            editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
             if tab != .grid { heldVerb = nil }
         }
         .onChange(of: editArmed) { on in
@@ -1105,6 +1107,8 @@ struct DiagView: View {
 
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
         switch activeTab {
+        case .dragDrop:
+            dragDropPage(geo.size)            // design-stage: palette · grid · machinery (user 2026-08-09)
         case .grid:
             signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)
         case .processors:
