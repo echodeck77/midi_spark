@@ -580,33 +580,31 @@ extension DiagView {
         let chain = cellChain(cell)
         let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
         let hue = mainDestHue
-        let idW: CGFloat = 120, filtW: CGFloat = 190   // idW: reserves the (now-hidden) ID-cell margin so RECEIVERS stays clear of the left
+        let idW: CGFloat = 120   // reserves the (now-hidden) ID-cell margin so RECEIVERS stays clear of the left
         let flowW = min(max(280, width), 1040)
         GeometryReader { g in
             let W = g.size.width
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
             let gap: CGFloat = 6
             let sw = max(40, (W - 7 * gap) / 8)                  // 8 processor slots span the width (user 2026-08-09: restored from 4)
-            let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 324   // receiver→processor gap tightened (user 2026-08-09)
+            let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 236   // OUTPUT FILTER removed → emitters pulled up (user 2026-08-09)
             ZStack(alignment: .topLeading) {
                 Path { p in                                      // ONE dotted thread (hidden where a box sits over it)
                     // RECEIVERS → PROCESSORS: straight DOWN from the receiver row's CENTRE-BOTTOM into the processor
-                    // row (user 2026-08-09), then thread L→R behind the slots.
+                    // row (user 2026-08-09), then thread L→R behind the slots, then drop straight to the emitters.
                     p.move(to: CGPoint(x: W / 2, y: 55)); p.addLine(to: CGPoint(x: W / 2, y: yProc))
                     p.move(to: CGPoint(x: sw / 2, y: yProc)); p.addLine(to: CGPoint(x: W, y: yProc))
-                    p.addLine(to: CGPoint(x: W, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 222)); p.addLine(to: CGPoint(x: W / 2, y: 232))   // exit RIGHT → output filter
-                    p.move(to: CGPoint(x: W / 2, y: 272)); p.addLine(to: CGPoint(x: W / 2, y: 301))                // output filter → emitters
+                    p.addLine(to: CGPoint(x: W, y: 190)); p.addLine(to: CGPoint(x: W / 2, y: 190)); p.addLine(to: CGPoint(x: W / 2, y: 213))   // exit RIGHT → down to emitters
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
-                // (SELECTED-CELL indicator + INPUT FILTER removed — user 2026-08-07; the flow starts at RECEIVERS.)
+                // (SELECTED-CELL indicator + INPUT/OUTPUT FILTER removed — user 2026-08-07/09; the flow is RECEIVERS → PROCESSORS → EMITTERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS (8 slots)
-                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 64).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)
+                    slotOrGhost(i, chain, bg: bg).frame(width: sw, height: 48).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% height (user 2026-08-09)
                 }
-                flowGhost("Output Filter", bg: bg).frame(width: filtW, height: 40).position(x: W / 2, y: 252)     // OUTPUT FILTER (above emitters)
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
         }
-        .frame(width: flowW, height: 356)
+        .frame(width: flowW, height: 268)
     }
     // A set slot (tap → edit pop-up) or an empty dashed "+" ghost (tap → type picker) — user 2026-08-07.
     @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color) -> some View {
@@ -739,8 +737,7 @@ extension DiagView {
     }
     private func flowSlot(_ slot: ProcessorSlot, bg: Color) -> some View {
         VStack(spacing: 3) {
-            Image(systemName: emblemSymbol(slot.type)).font(.system(size: 17, weight: .black))
-            Text(slot.type.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+            Text(slot.type.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)   // emblem icon removed (user 2026-08-09)
         }
         .foregroundColor(.white.opacity(0.9)).frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 8).fill(bg)                    // OPAQUE — occludes the dotted line behind
