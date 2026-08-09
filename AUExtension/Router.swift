@@ -546,8 +546,14 @@ final class Router {
         // §6a CLAIM: a SILENT voice (a muted claimant's reservation) is tracked for exclusivity only —
         // no wire note-on and no refcount, so it can never emit an off or hold a shared channel alive.
         if !silent {
-            out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             let idx = rcIndex(cable, chan, note)
+            // WIRE ARTICULATION = RESTRIKE (user 2026-08-09, spec `-wire-articulation`): a strike on an ALREADY-
+            // sounding (cable,ch,note) emits a clean note-OFF then note-ON at the same timestamp (off first) — a
+            // proper re-attack that retriggers mono synths and pairs offs correctly. The refcount is UNCHANGED by
+            // the re-articulation off (it governs the true release only), so the note still ends solely at
+            // refcount→0 and nothing is left stuck. (MERGE — the old on-only overlap — is the deferred option chip.)
+            if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
+            out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             if refcount[idx] == 0 { distinctSounding += 1 }
             refcount[idx] += 1
         }

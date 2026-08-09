@@ -1084,10 +1084,10 @@ final class RouterTests: XCTestCase {
     // MARK: - COVERAGE HARDENING — device topologies (T-series) with no prior unit coverage
 
     func testCollisionRefcountKeepsSustainedNoteAliveThroughArpRestrikes() {
-        // §7 collision policy (device T7), previously unit-untested: a PASSGATE hold and a same-pitch ARP
-        // on the SAME bus + channel. The arp re-strikes 60 every tick; each strike's off is ABSORBED by
-        // the refcount while the hold keeps 60 sounding — so there are far MORE ons than offs and the
-        // sustained note never drops mid-column. Exactly balanced at the end (nothing stuck).
+        // §7 collision policy + WIRE ARTICULATION = RESTRIKE (user 2026-08-09): a PASSGATE hold and a same-pitch ARP
+        // on the SAME bus + channel. The arp re-strikes 60 every tick; each strike is now a clean OFF→ON re-attack
+        // (retriggering), so ons and offs pace together. The refcount still keeps the hold alive across the strikes
+        // (it never hits 0 mid-column) and pairs the final release exactly — nothing stuck.
         var cs = arpColours()
         cs[colourIDs.firstIndex(of: "gold")!] = passgateColour("gold")   // hold
         cs[colourIDs.firstIndex(of: "cyan")!].paramsA.rate = .r1_16      // arp, same pitch pool
@@ -1100,8 +1100,26 @@ final class RouterTests: XCTestCase {
         let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }.count
         let offs = e.offs.filter { $0.cable == 1 && $0.note == 60 }.count
         XCTAssertGreaterThan(ons, 2, "the arp re-strikes 60 many times over the run")
-        XCTAssertGreaterThan(ons, offs, "same (cable,ch,note) strikes merge — offs are absorbed by the refcount")
-        assertNothingLeftSounding(e)   // the merged off still lands: nothing stuck
+        XCTAssertLessThanOrEqual(abs(ons - offs), 1, "RESTRIKE: each re-strike is a clean off+on — offs pace the ons")
+        assertNothingLeftSounding(e)   // still balanced at the end: nothing stuck
+    }
+    func testRestrikeEmitsOffBeforeOnForAnAlreadySoundingNote() {
+        // Two holders of note 60 on emitter A in one window: the SECOND strike re-articulates — a note-OFF then
+        // note-ON at the same sample (off first), so a mono synth retriggers. Both ons still emit (clause 1).
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: "gold", buses: [.a]); s.cells[0][1] = Cell(colourID: "gold", buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(colours: claimColours(transposeB: 0), scenes: [s]))
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        router.process(box: box, pool: chord([60]), playing: true, beatPos: 0, tempo: 120,
+                       sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        let onA = e.events.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertEqual(onA.filter { $0.status == 0x90 }.count, 2, "both holders' note-ons emit")
+        XCTAssertEqual(onA.filter { $0.status == 0x80 }.count, 1, "the second strike inserts one re-articulation OFF")
+        // and the OFF comes before the second ON (off-first at the same timestamp)
+        if let firstOff = onA.firstIndex(where: { $0.status == 0x80 }) {
+            XCTAssertTrue(onA[..<firstOff].contains { $0.status == 0x90 }, "an ON precedes the re-articulation OFF")
+            XCTAssertTrue(onA[(firstOff + 1)...].contains { $0.status == 0x90 }, "the re-attack ON follows the OFF")
+        }
     }
 
     func testFanOutTreeEmitsThreeDerivedStreams() {
