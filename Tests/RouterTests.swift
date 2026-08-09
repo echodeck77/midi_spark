@@ -189,9 +189,9 @@ final class RouterTests: XCTestCase {
     }
     // PLAY: THIS CELL (user 2026-08-09): forcing the effective column HOLDS the cell in that column playing every
     // window, regardless of the natural timeline — so an isolated cell sounds continuously, ungated by the sequence.
+    // Uses an ARP (tick-emitter) — the case that needs iterateTicks UNGATED; a generator decouples via colStart.
     func testForceColumnHoldsTheCellPlayingEveryColumn() {
-        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
-            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // arp cell in column 0
         func play(forceColumn: Int) -> Int {
             let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
             let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0

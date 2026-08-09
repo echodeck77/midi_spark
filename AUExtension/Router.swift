@@ -231,6 +231,7 @@ final class Router {
     // context); `prevPreviewActive` flushes on the activation edge. Reuses the audition clock/dedup slots
     // (preview and audition are mutually exclusive). Ephemeral, never in the snapshot.
     private var previewMode = false
+    private var forceColumnHold = false        // PLAY: THIS CELL — the effColumn is force-held → tick emitters play UNGATED (continuous)
     private var prevPreviewActive = false
     private var previewPrevColumn = -1        // the virtual cell's column-transition edge (strum reset / chord-hold re-emit)
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
@@ -1290,7 +1291,9 @@ final class Router {
             // lapColumn returns the tick's true column and this is the original `tickCol == effColumn`.
             let tickStep = Int((mTickBeat / S).rounded(.down))
             let tickTrueCol = ((tickStep % Snap.cols) + Snap.cols) % Snap.cols
-            if lapColumn(laneMask: heldColumns, absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
+            // PLAY: THIS CELL holds one column → its ticks fire EVERY window (decoupled from the timeline); normally
+            // a tick fires only in its own effective column.
+            if !forceColumnHold && lapColumn(laneMask: heldColumns, absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
             if tick == lastTick[row] { continue }
             lastTick[row] = tick
 
@@ -1508,7 +1511,8 @@ final class Router {
         let trueColumn = min(Snap.cols - 1, max(0, Int(posInCycle / S)))
         let absoluteStep = Int((mNow / S).rounded(.down))          // global step counter (derived)
         var effColumn = lapColumn(laneMask: heldColumns, absoluteStep: absoluteStep, trueColumn: trueColumn)
-        if forceColumn >= 0 && forceColumn < Snap.cols { effColumn = forceColumn }   // PLAY: THIS CELL — hold the soloed cell's column so its machine plays every window, ungated (user 2026-08-09)
+        forceColumnHold = forceColumn >= 0 && forceColumn < Snap.cols
+        if forceColumnHold { effColumn = forceColumn }   // PLAY: THIS CELL — hold the soloed cell's column so its machine plays every window, ungated (user 2026-08-09)
         diag.effColumn = effColumn
         diag.absoluteStep = absoluteStep                           // LADDER commit signal: increments EACH step even during a column LAP (effColumn stays put)
         diag.pass = Int((mNow / cycleBeats).rounded(.down))        // TRUE pass — never remapped (§5b)
