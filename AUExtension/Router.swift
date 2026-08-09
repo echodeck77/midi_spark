@@ -1884,19 +1884,17 @@ final class Router {
         // downstream passgate opens/closes on the lap the user sees (not a beat-derived recomputation that can drift).
         var cur = chainA, nxt = chainB
         cur.reset(); cur.noteOn(UInt8(note), velocity: velocity, channel: 0); cur.rebuildSorted()
+        // ECHO in a chain repeats the cell's FULLY-PROCESSED output (user 2026-08-09): it passes through the fold as
+        // identity and registers its tails AFTER every downstream stage has run — so a stage after it (HARMONIZE,
+        // GATE, …) shapes the echoes too, honouring "each stage receives its parent's output". THRU keeps the dry,
+        // MUTE drops it (echoes only). (v1: echo's chain POSITION no longer changes the tail's content — it always
+        // echoes the final set; per-repeat-as-it-fires processing is the deeper "hand the tails" work.)
+        var echoP: SnapParams? = nil
         var j = driver + 1
         while j < cell.procs.count {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
-                if cell.procs[j].type == .echo {   // [ARP→ECHO] (user 2026-08-08): each driver TICK spawns an echo tail
-                    let ep = cell.procs[j]
-                    for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                        pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: bm, p: ep, onset: m, S: S)
-                    }
-                    // THRU keeps the dry tick flowing to the REMAINING stages (e.g. a downstream HARMONIZE);
-                    // MUTE drops it (echoes only). No break — the fold continues (user 2026-08-09: [ARP→ECHO→HARM]
-                    // now harmonises the dry). The echo REPEATS themselves are of the pre-downstream note — feeding
-                    // the tails through the later stages is the deferred "hand the tails" work.
-                    if !ep.echoThru { cur.reset(); cur.rebuildSorted() }
+                if cell.procs[j].type == .echo {
+                    echoP = cell.procs[j]   // hold the params; the tails register once the fold completes (below)
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -1905,6 +1903,12 @@ final class Router {
                 }
             }
             j += 1
+        }
+        if let ep = echoP {   // echo the fully-processed set (all downstream stages applied)
+            for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+                pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: bm, p: ep, onset: m, S: S)
+            }
+            if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry)
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             emitChop(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), cell: cell, bm: bm,

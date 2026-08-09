@@ -3674,6 +3674,27 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(noH.ons.contains { $0.cable == 1 && $0.note == 72 }, "without harmonize, no +12")
         assertNothingLeftSounding(noH); assertNothingLeftSounding(withH)
     }
+    /// [ARP → ECHO → HARMONIZE] (user 2026-08-09): echo repeats the cell's FULLY-PROCESSED output, so a stage after
+    /// it shapes the echoes too — the harmony is heard on the echoes, not only the dry tick. Proven two ways: adding
+    /// echo raises the +12 (72) count, and every emitted root (60) is paired with its harmony (72).
+    func testEchoRepeatsTheHarmonizedSetSoTheEchoesAreHarmonised() {
+        func mk(echo: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 2; e.params.echoThru = true
+                var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
+                c.processors = echo ? [arp, e, h] : [arp, h]
+                $0.cells[0][0] = c
+            }
+        }
+        let noEcho = RecordingEmitter(); run(mk(echo: false), chord([60]), beats: 4, into: noEcho)
+        let withEcho = RecordingEmitter(); run(mk(echo: true), chord([60]), beats: 4, into: withEcho)
+        func count(_ e: RecordingEmitter, _ note: UInt8) -> Int { e.ons.filter { $0.cable == 1 && $0.note == note }.count }
+        XCTAssertGreaterThan(count(withEcho, 72), count(noEcho, 72), "echo repeats the harmonised set — the +12 voice echoes too")
+        XCTAssertEqual(count(withEcho, 60), count(withEcho, 72), "every root (dry AND echo repeat) is paired with its harmony")
+        assertNothingLeftSounding(noEcho); assertNothingLeftSounding(withEcho)
+    }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
         let b = box(colours: echoColours(div: 1, repeats: 6, feedDelay: 0.7, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()
