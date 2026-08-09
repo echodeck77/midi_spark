@@ -28,8 +28,8 @@ extension DiagView {
         let H = min(size.height * (landscape ? 0.52 : 0.46), landscape ? 480 : 400)
         let gridCell = max(16, min(48, (H - 50) / 8))
         let matchedH = gridCell * 8 + 50                             // the actual grid height after clamping
-        let swatch = landscape ? max(24, (matchedH - 28) / 5)        // palette + DELETE matches the grid height
-                               : max(28, min((H - 58) / 4, 64))
+        let swatch = landscape ? max(24, (matchedH - 28) / 5)        // landscape: palette + DELETE matches the grid height
+                               : max(24, (matchedH - 94) / 5)        // portrait: palette + DELETE + identity block matches it (~66 reserved)
         let paletteW = swatch * 4 + 18
         Group {
             if landscape {
@@ -47,17 +47,20 @@ extension DiagView {
                 }
             } else {
                 VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette LEFT · grid RIGHT, centred
+                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity LEFT · grid RIGHT
                         Spacer(minLength: 0)
-                        ddPalette(swatch: swatch).frame(width: paletteW, alignment: .top)
+                        VStack(alignment: .leading, spacing: 10) {   // palette · DELETE · GOLD swatch+label · "1 cell" — matched to the grid
+                            ddPalette(swatch: swatch, litterHeight: swatch)
+                            ddColourIdentity()
+                        }.frame(width: paletteW, alignment: .top)
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
                         }
                         Spacer(minLength: 0)
-                    }.frame(height: H, alignment: .top)
+                    }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-                    ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    ddMachinery(width: pageW, showIdentity: false).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
         }
