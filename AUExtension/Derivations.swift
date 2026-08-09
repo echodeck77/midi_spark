@@ -33,6 +33,31 @@ import Foundation
     return h
 }
 
+// MARK: - THE MOD PROCESSOR (CC generator, delta) — pure, beat-derived, replay-safe shape values.
+
+/// The unipolar [0,1] value of a CC shape at `phase` (0…1 through the LFO period). SINE = (1+sin)/2 · RAMP = the
+/// phase (rising saw) · S&H = a value HELD for the whole cycle, seeded by (column, cc, cycleIndex) so it's
+/// REPLAY-SAFE (same beat → same value; no free-running state). Pure.
+@inline(__always)
+func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIndex: Int) -> Double {
+    switch shape {
+    case .sine: return (1 + sin(2 * Double.pi * phase)) / 2
+    case .ramp: return positiveFract(phase)
+    case .sampleHold:
+        let seed = (UInt64(bitPattern: Int64(cycleIndex)) &* 0x9E3779B97F4A7C15)
+                 ^ (UInt64(column & 0xFF) &<< 8) ^ UInt64(cc & 0x7F)
+        return Double(splitmix64Mix(seed) >> 11) / Double(UInt64(1) << 53)   // [0,1)
+    }
+}
+
+/// The generated CC VALUE (0…127) at `phase`: the unipolar shape scaled by depth (0…1). Pure, replay-safe.
+@inline(__always)
+func modCCValue(_ shape: ModShape, phase: Double, depth: Double, column: Int, cc: Int, cycleIndex: Int) -> Int {
+    let d = max(0, min(1, depth))
+    let s = modUnipolar(shape, phase: phase, column: column, cc: cc, cycleIndex: cycleIndex)
+    return max(0, min(127, Int((127.0 * d * s).rounded())))
+}
+
 /// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).
 /// PURE + replay-safe: the step position = `absoluteBeat / stepBeats × rateMul`, wrapped over the 8 steps.
 ///  · STEP   (0) — hold this step's value across the column.
@@ -761,6 +786,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .drone:     return .drone                          // GENERATOR — flat sustained pad
     case .shift:     return .shift                          // GENERATOR — groove nudge
     case .humanize:  return .humanize                       // GENERATOR — seeded jitter
+    case .mod:       return .silent                          // CC GENERATOR — sounds NO notes (its CC is emitted separately)
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -900,6 +926,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .drone:     return "waveform.path"               // the sustained pad
     case .shift:     return "arrow.right.to.line"         // the nudge
     case .humanize:  return "hand.draw"                   // the human hand
+    case .mod:       return "dial.medium"                 // the CC generator (a control dial)
     }
 }
 

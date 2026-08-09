@@ -157,6 +157,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE MOD PROCESSOR — the CC GENERATOR (2026-08-10, on `main`, PUSHED next; macOS 561 green, iOS builds; DEVICE
+  ear/eye owed). From the v3.0 delta brief "THE MOD PROCESSOR (CC shapes)" — the "OUT OF SCOPE: CC/LFO generators"
+  verdict was revised for a BEAT-DERIVED, per-cell, emission-stamped CC (one-clock pure, replay-safe). User forks:
+  standalone + chain-stage · per-cell RESET|LEAVE toggle (default RESET) · shapes SINE·RAMP·S&H. **MODEL:**
+  `ProcessorType.mod` + `ModShape{sine,ramp,sampleHold}`; ColourParams/SnapParams `modCC`(74)·`modShape`·`modDepth`(0-1)·
+  `modReset` (append-only); reuses `rate` as the LFO PERIOD. **PURE (Derivations, tested):** `modUnipolar`/`modCCValue`
+  — sine=(1+sin)/2 · ramp=phase · S&H=seeded-per-cycle random (replay-safe). **ENGINE (Router):** `emitColumnMod`
+  runs BEFORE the held-note guard (MOD needs no keys) — emits at a 1/16-beat control grid on each ENABLED bus's cable
+  + All, stamp channel, DEDUPED per (cable,ch,cc). LEAVE-DISPOSITION: on column exit the departed column's MOD cells
+  (modReset) send CC 0 (`emitModResets`, stateless from the box); `flushMod` on transport/panic edges. NOTE FLOW:
+  `cellMode(.mod)=.silent` (sounds no notes); MOD is note-TRANSPARENT in `composeChainSet` (identity) + `emitDriverNote`
+  (pass-through), so `[ARP→MOD]` keeps arp notes + CC, `[MOD→ARP]` arps the chord + CC. **UI:** ProcessorBox editor
+  (CC#·SHAPE·DEPTH·RATE·ON-LEAVE), emblem `dial.medium`, typeDescription; `modDepth` is a foldable `MacroParam`
+  (macro-bindable). **TESTS:** 5 Router (standalone CC+no-notes · [ARP→MOD] · [MOD→ARP] · reset-disposition differential ·
+  replay-safe) + 3 Derivations (sine/ramp/S&H) + `.mod` in the fuzz `randomDoc` (no stuck notes across every edge).
+  ⚠ v1 LIMITS (tunable follow-ups): LFO period ≤ 1 beat (reuses ArpRate, max r1_4) so it's a FAST wobble; UNIPOLAR
+  shape [0…depth·127] (no bipolar/centre); ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
 - **▶ DRAG&DROP page — colour-GLOBAL edit model + machinery restyle + drag robustness (2026-08-09, on `main`, PUSHED
   `fbd6fc4`→`5892801`; macOS 553 green, iOS builds; DEVICE eye owed on layout/colours). A long polish/bug batch on
   the DRAG&DROP page. **THE COLOUR-GLOBAL EDIT LAW (the recurring bug: "settings not applied uniformly across a

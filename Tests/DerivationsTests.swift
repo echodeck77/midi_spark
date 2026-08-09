@@ -1506,4 +1506,32 @@ final class DerivationsTests: XCTestCase {
         p.noteOff(60)
         XCTAssertEqual(p.heldVelocity(60), 0, "released → 0")
     }
+
+    // MARK: - THE MOD PROCESSOR (CC generator) — pure shape values
+
+    func testModSineShapeAndRange() {
+        XCTAssertEqual(modUnipolar(.sine, phase: 0,    column: 0, cc: 74, cycleIndex: 0), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.sine, phase: 0.25, column: 0, cc: 74, cycleIndex: 0), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.sine, phase: 0.5,  column: 0, cc: 74, cycleIndex: 0), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.sine, phase: 0.75, column: 0, cc: 74, cycleIndex: 0), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(modCCValue(.sine, phase: 0.25, depth: 1,   column: 0, cc: 74, cycleIndex: 0), 127, "depth 1 at the peak = full")
+        XCTAssertEqual(modCCValue(.sine, phase: 0.25, depth: 0.5, column: 0, cc: 74, cycleIndex: 0), 64,  "depth scales the amplitude")
+        for ph in stride(from: 0.0, to: 1.0, by: 0.05) {
+            let v = modCCValue(.sine, phase: ph, depth: 1, column: 0, cc: 74, cycleIndex: 0)
+            XCTAssertTrue(v >= 0 && v <= 127, "value in 0…127")
+        }
+    }
+    func testModRampIsLinear() {
+        XCTAssertEqual(modUnipolar(.ramp, phase: 0,   column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.ramp, phase: 0.5, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, depth: 1, column: 0, cc: 1, cycleIndex: 0), 127, "the ramp rises to full")
+    }
+    func testModSampleHoldIsHeldAndReplaySafe() {
+        let a1 = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 5)
+        let a2 = modUnipolar(.sampleHold, phase: 0.9, column: 2, cc: 74, cycleIndex: 5)
+        XCTAssertEqual(a1, a2, "S&H HOLDS across the cycle (phase-independent)")
+        XCTAssertEqual(a1, modUnipolar(.sampleHold, phase: 0.4, column: 2, cc: 74, cycleIndex: 5), "replay-safe: same (column,cc,cycle) → same value")
+        let next = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 6)
+        XCTAssertNotEqual(a1, next, "S&H picks a NEW value on the next cycle")
+    }
 }

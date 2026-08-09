@@ -232,6 +232,11 @@ final class Router {
     // (preview and audition are mutually exclusive). Ephemeral, never in the snapshot.
     private var previewMode = false
     private var forceColumnHold = false        // PLAY: THIS CELL — the effColumn is force-held → tick emitters play UNGATED (continuous)
+    // THE MOD PROCESSOR (CC generator): a beat-derived shaped CC on the active column's MOD cells. Emitted at a
+    // control grid; deduped per (cable,channel,cc) so a held value doesn't re-send; RESET on column exit.
+    private var modLastColumn: Int32 = -1                                     // the column whose MOD cells emitted last (reset when it exits)
+    private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
+    private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
     private var prevPreviewActive = false
     private var previewPrevColumn = -1        // the virtual cell's column-transition edge (strum reset / chord-hold re-emit)
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
@@ -466,6 +471,7 @@ final class Router {
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
+        modLastColumn = -1; for i in modLastVal.indices { modLastVal[i] = -1 }   // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
     }
 
     // MARK: parameter overrides
@@ -1427,6 +1433,7 @@ final class Router {
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
+            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
@@ -1435,6 +1442,7 @@ final class Router {
             prevEffColumn = -1
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
+            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on panic
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
@@ -1569,6 +1577,10 @@ final class Router {
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
+        // THE MOD PROCESSOR: shaped CC on the active column's MOD cells — BEFORE the pool guard (MOD needs no keys down).
+        emitColumnMod(box: box, column: effColumn, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
+                      beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
@@ -1664,6 +1676,78 @@ final class Router {
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
+    }
+
+    // MARK: - THE MOD PROCESSOR (CC generator, delta) — a beat-derived shaped CC on the active column's MOD cells.
+
+    /// Emit each active-column MOD slot's CC over this window at a control grid (block-size invariant, replay-safe),
+    /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
+    /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
+    private func emitColumnMod(box: SnapshotBox, column: Int, beatPos: Double, windowBeats: Double,
+                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        if modLastColumn != Int32(column) {                       // LEAVE-DISPOSITION: reset the column we just left
+            if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: windowStart, out: out) }
+            modLastColumn = Int32(column)
+        }
+        if masterMute && !previewMode { return }                  // master MUTE kills all output
+        guard column >= 0 && column < Snap.cols else { return }
+        let bEnd = beatPos + windowBeats
+        for r in 0..<Snap.rows {
+            let cell = box.cells[column * Snap.rows + r]
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 { continue }
+            if soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) { continue }
+            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
+                let p = cell.procs[si]
+                var period = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+                if period <= 0 { period = 1 }
+                var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
+                while Double(k) * modCtrlBeats < bEnd {
+                    let b = Double(k) * modCtrlBeats
+                    if b >= beatPos {
+                        let cyc = Int((b / period).rounded(.down))
+                        let value = modCCValue(p.modShape, phase: positiveFract(b / period), depth: p.modDepth,
+                                               column: column, cc: p.modCC, cycleIndex: cyc)
+                        let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
+                        emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
+                    }
+                    k += 1
+                }
+            }
+        }
+    }
+    /// Reset every MOD cell in `column` whose modReset is ON to its default (0) — the CC-pollution guard. Stateless.
+    private func emitModResets(box: SnapshotBox, column: Int, atSample: Int64, out: MIDIEmitter?) {
+        guard column >= 0 && column < Snap.cols, !(masterMute && !previewMode) else { return }
+        for r in 0..<Snap.rows {
+            let cell = box.cells[column * Snap.rows + r]
+            if cell.colourIndex < 0 || cell.busMask == 0 { continue }
+            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset {
+                emitModCC(cc: cell.procs[si].modCC, value: 0, busMask: cell.busMask, atSample: atSample, out: out)
+            }
+        }
+    }
+    /// Transport/scene/panic flush: reset the last MOD column (leave-disposition) + forget the dedup state.
+    private func flushMod(box: SnapshotBox, atSample: Int64, out: MIDIEmitter?) {
+        if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: atSample, out: out) }
+        modLastColumn = -1
+        for i in modLastVal.indices { modLastVal[i] = -1 }
+    }
+    /// Emit a CC on every ENABLED bus in `busMask` — the per-bus cable (bus+1) + All(0), on the bus's stamp channel.
+    /// Deduped per (cable,ch,cc): a repeat of the same value is dropped so a held shape doesn't flood the wire.
+    private func emitModCC(cc: Int, value: Int, busMask: UInt8, atSample: Int64, out: MIDIEmitter?) {
+        guard let out, cc >= 0 && cc <= 127, value >= 0 && value <= 127 else { return }
+        for bus in 0..<4 where bit(busMask, bus) && bit(busEnabledMask, bus) {
+            if soloEmitterMask != 0 && !previewMode && !bit(soloEmitterMask, bus) { continue }
+            let ch = (busChannels[bus] &- 1) & 15
+            emitModCCWire(cable: UInt8(bus + 1), ch: ch, cc: cc, value: value, atSample: atSample, out: out)
+            emitModCCWire(cable: 0,               ch: ch, cc: cc, value: value, atSample: atSample, out: out)   // §7b ALL cable
+        }
+    }
+    @inline(__always)
+    private func emitModCCWire(cable: UInt8, ch: UInt8, cc: Int, value: Int, atSample: Int64, out: MIDIEmitter) {
+        let key = Int(cable) * 2048 + Int(ch) * 128 + cc
+        if key >= 0 && key < modLastVal.count { if modLastVal[key] == Int16(value) { return }; modLastVal[key] = Int16(value) }
+        out.emit(sampleTime: atSample, cable: cable, 0xB0 | ch, UInt8(cc), UInt8(value))
     }
 
     // MARK: - GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE, single-slot tick emitters. Each computes its
@@ -1869,7 +1953,7 @@ final class Router {
         cur.rebuildSorted()
         var j = 0
         while j <= upto {
-            if !cell.slotBypass[j] {   // true-bypass: the set passes untouched
+            if !cell.slotBypass[j] && cell.procs[j].type != .mod {   // true-bypass + MOD (note-transparent, emits CC separately) pass untouched
                 let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                 nxt.reset()
                 applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
@@ -1910,6 +1994,8 @@ final class Router {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
                 if cell.procs[j].type == .echo {
                     echoP = cell.procs[j]   // hold the params; the tails register once the fold completes (below)
+                } else if cell.procs[j].type == .mod {
+                    // MOD is note-transparent — it emits CC separately (emitColumnMod); the note fold passes through it.
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()

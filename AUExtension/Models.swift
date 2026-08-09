@@ -16,9 +16,13 @@ enum ProcessorType: String, Codable, CaseIterable {
     case drone = "DRONE"       // GENERATOR — a flat sustained PAD: the entry chord held to the boundary (reuses gate = pad level)
     case shift = "SHIFT"       // GENERATOR — a groove NUDGE: push the chord's onset late (reuses spread = push amount)
     case humanize = "HUMANIZE" // GENERATOR — seeded per-note timing + velocity jitter, replay-safe (reuses spread = amount)
+    case mod = "MOD"           // CC GENERATOR (delta "THE MOD PROCESSOR") — a beat-derived shaped CC on the cell's emitters; sounds NO notes
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
+// THE MOD PROCESSOR (delta): the shape of the generated CC. SINE = smooth wobble · RAMP = rising saw · S&H =
+// stepped, seeded-per-cycle random (replay-safe). §12: append-only.
+enum ModShape: String, Codable, CaseIterable { case sine = "SINE", ramp = "RAMP", sampleHold = "S&H" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 enum StepRate: String, Codable, CaseIterable {
@@ -86,6 +90,12 @@ struct ColourParams: Codable, Equatable {
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
+    // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
+    // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
+    var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
+    var modShape: ModShape? = .sine     // SINE · RAMP · S&H
+    var modDepth: Double? = 1.0         // 0…1 — scales the shape's amplitude (value = depth·shape·127)
+    var modReset: Bool? = true          // ON LEAVE: reset-to-default (0) on column exit · OFF = leave-as-landed
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

@@ -1526,6 +1526,72 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: - THE MOD PROCESSOR (CC generator, delta)
+
+    private func modCC74Events(_ e: RecordingEmitter) -> [RecordingEmitter.Ev] {
+        e.events.filter { $0.status == 0xB0 && $0.cable == 1 && $0.note == 74 }   // CC 74 on Emit A
+    }
+    /// A standalone [MOD] cell emits a shaped CC (varying values, in range) on its emitter — and sounds NO notes.
+    func testModCellEmitsShapedCCAndNoNotes() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod)
+        mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modDepth = 1; mod.params.rate = .r1_4
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let ccs = modCC74Events(e)
+        XCTAssertGreaterThan(ccs.count, 0, "the MOD cell emits CC 74 on Emit A")
+        XCTAssertGreaterThan(Set(ccs.map { $0.vel }).count, 1, "the SINE shape produces VARYING values")
+        XCTAssertTrue(ccs.allSatisfy { $0.vel <= 127 }, "every value is in 0…127")
+        XCTAssertTrue(e.ons.isEmpty, "a MOD cell sounds NO notes")
+        assertNothingLeftSounding(e)
+    }
+    /// [ARP → MOD]: MOD is note-transparent — the arp still plays AND MOD emits its CC.
+    func testArpThenModKeepsArpNotesAndEmitsCC() {
+        let cs = arpColours()
+        let arp = ProcessorSlot(type: .arp)
+        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 71; mod.params.rate = .r1_4
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, mod]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.count, 0, "the ARP still plays (MOD is note-transparent as a post-driver stage)")
+        XCTAssertGreaterThan(e.events.filter { $0.status == 0xB0 && $0.note == 71 }.count, 0, "AND MOD emits its CC")
+        assertNothingLeftSounding(e)
+    }
+    /// [MOD → ARP]: MOD passes the chord through (composeChainSet identity) so the arp arps it — AND MOD emits CC.
+    func testModThenArpArpsAndEmitsCC() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 74; mod.params.rate = .r1_4
+        let arp = ProcessorSlot(type: .arp)
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod, arp]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThanOrEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }).count, 2, "the ARP arps the chord through the transparent MOD")
+        XCTAssertGreaterThan(modCC74Events(e).count, 0, "MOD emits its CC")
+        assertNothingLeftSounding(e)
+    }
+    /// The LEAVE-DISPOSITION: RESET sends an extra CC 0 each time the playhead exits the MOD's column; LEAVE does not.
+    /// Same shape/timing in both runs, so the difference in CC-0 count is exactly the resets.
+    func testModResetDispositionEmitsExtraZeroOnLeave() {
+        func zeros(reset: Bool) -> Int {
+            let cs = arpColours()
+            var mod = ProcessorSlot(type: .mod)
+            mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modDepth = 1; mod.params.modReset = reset; mod.params.rate = .r1_4
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+            return modCC74Events(e).filter { $0.vel == 0 }.count
+        }
+        XCTAssertGreaterThan(zeros(reset: true), zeros(reset: false), "RESET sends an extra CC 0 on each column exit; LEAVE holds the last value")
+    }
+    /// Beat-derived + replay-safe: the same beats produce a byte-identical CC stream (incl. seeded S&H).
+    func testModCCStreamIsReplaySafe() {
+        func ccStream() -> [RecordingEmitter.Ev] {
+            let cs = arpColours()
+            var mod = ProcessorSlot(type: .mod); mod.params.modShape = .sampleHold; mod.params.modCC = 74; mod.params.rate = .r1_4
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+            return e.events.filter { $0.status == 0xB0 }
+        }
+        XCTAssertEqual(ccStream(), ccStream(), "the MOD CC stream is replay-safe (same beats → identical)")
+    }
+
     // MODE ROW: the driver-not-tail fold also covers RATCHET. [ratchet → closed passgate] gates every re-strike →
     // silence; [ratchet → open passgate] re-strikes as a plain ratchet (the gate is transparent).
     func testRatchetThenClosedPassgateIsSilent() {

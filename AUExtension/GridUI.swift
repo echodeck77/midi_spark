@@ -1369,6 +1369,7 @@ struct ProcessorBox: View {
         case .drone:     return "a flat sustained pad, held to the boundary"
         case .shift:     return "nudge the chord late — behind the beat"
         case .humanize:  return "seeded per-note timing + velocity jitter"
+        case .mod:       return "a shaped CC on the emitters (sounds no notes)"
         }
     }
 
@@ -1481,6 +1482,15 @@ struct ProcessorBox: View {
         case .humanize: // GENERATOR — seeded jitter (spread = amount)
             field("AMOUNT  \(Int((p.spread ?? 0.5) * 100))%") {
                 Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+        case .mod:      // CC GENERATOR — a beat-derived shaped CC on the emitters (sounds no notes)
+            let cc = p.modCC ?? 74
+            field("CC #  \(cc)") {
+                Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            field("SHAPE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
+            field("DEPTH  \(Int((p.modDepth ?? 1) * 100))%") {
+                Slider(value: bind(p.modDepth ?? 1) { v in setParam { $0.modDepth = v } }, in: 0...1).tint(accent) }
+            field("RATE  (LFO period)") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_16).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
+            field("ON LEAVE") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
