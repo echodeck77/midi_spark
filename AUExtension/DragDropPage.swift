@@ -34,13 +34,14 @@ extension DiagView {
         Group {
             if landscape {
                 VStack(spacing: 10) {
-                    HStack(alignment: .top, spacing: 16) {            // TOP band, LEFT-aligned: identity · palette+DELETE · grid
-                        ddColourIdentity().frame(width: 156, alignment: .topLeading)
+                    HStack(alignment: .top, spacing: 16) {            // TOP band: identity · palette+DELETE · grid · PLAY
+                        ddColourIdentity(showPlay: false).frame(width: 130, alignment: .topLeading)
                         ddPalette(swatch: swatch, litterHeight: swatch).frame(width: paletteW, alignment: .top)
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
                         }
+                        ddPlayCellButton()                            // PLAY: THIS CELL — right of the grid, top-aligned
                         Spacer(minLength: 0)
                     }
                     ddMachinery(width: pageW, showIdentity: false).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // buttons + flow, no identity/line
@@ -143,7 +144,7 @@ extension DiagView {
     }
     // THE COLOUR IDENTITY (landscape) — the swatch + colour name, with the cell count beneath; sits top-left, lined
     // up with the tops of the palette + grid (user 2026-08-09).
-    @ViewBuilder private func ddColourIdentity() -> some View {
+    @ViewBuilder private func ddColourIdentity(showPlay: Bool = true) -> some View {
         if editArmed, let cell = editingCell {
             let hue = colourColor(cell.colourID) ?? .white
             VStack(alignment: .leading, spacing: 6) {
@@ -154,7 +155,7 @@ extension DiagView {
                 }
                 Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                ddPlayCellButton()   // PLAY: THIS CELL — below the name + cell count (user 2026-08-09)
+                if showPlay { ddPlayCellButton() }   // PORTRAIT: PLAY under the labels · LANDSCAPE: PLAY sits right of the grid
             }
         }
     }
