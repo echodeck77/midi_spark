@@ -439,7 +439,8 @@ extension DiagView {
         }
     }
     @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell,
-                              plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil) -> some View {
+                              plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil,
+                              onRemoved: (() -> Void)? = nil) -> some View {
         let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
         let cid = cell.colourID, targets = editSelTargets
         ProcessorBox(
@@ -457,7 +458,8 @@ extension DiagView {
             accentOverride: mainDestHue,               // same blue as the emitters
             passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
             onBypass: { au?.toggleSlotBypassCells(targets, slot: i); refreshFromDocument() },
-            onRemove: i == 0 ? nil : { au?.removeSlotCells(targets, slot: i); refreshFromDocument() },
+            // user 2026-08-09: EVERY slot is deletable, incl. the head — deleting the last one leaves an empty passthrough.
+            onRemove: { au?.removeSlotCells(targets, slot: i); refreshFromDocument(); onRemoved?() },
             onMacro: showMacro ? { openMacroAuthoring(slot: i, slotData: slot) } : nil, plainTitle: plainTitle)
     }
 
@@ -634,7 +636,8 @@ extension DiagView {
                         VStack(alignment: .leading, spacing: 16) {
                             slotBox(procEditSlot, chain[procEditSlot], cell: cell,
                                     plainTitle: true, showMacro: false,
-                                    onEdited: { if let c = editingCell, procEditSlot < cellChain(c).count { macroAuthorBase = processorValues(cellChain(c)[procEditSlot]) } })
+                                    onEdited: { if let c = editingCell, procEditSlot < cellChain(c).count { macroAuthorBase = processorValues(cellChain(c)[procEditSlot]) } },
+                                    onRemoved: { closeProcEdit(apply: true) })   // deleting the shown slot closes the pop-up
                             if let g = macroAuthorGroup {                 // the MACROS section — folded in at the FOOT (user 2026-08-08)
                                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
                                 MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting,

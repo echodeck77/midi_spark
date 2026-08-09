@@ -118,7 +118,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setSlotTypeCells(_ targets: [(col: Int, row: Int)], slot: Int, _ type: ProcessorType) { editSlotCells(targets, slot: slot) { $0.type = type } }
     func toggleSlotBypassCells(_ targets: [(col: Int, row: Int)], slot: Int) { editSlotCells(targets, slot: slot) { $0.bypassed.toggle() } }
     func addSlotCells(_ targets: [(col: Int, row: Int)], type: ProcessorType = .passgate) { withChainCells(targets) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
-    func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count, $0.count > 1 { $0.remove(at: slot) } } }
+    /// Remove a chain slot — ANY slot, incl. the head and the LAST one (user 2026-08-09: all processors are deletable).
+    /// Deleting the final slot leaves an EMPTY chain `[]` = the born-audible passthrough (the source flows untreated).
+    func removeSlotCells(_ targets: [(col: Int, row: Int)], slot: Int) { withChainCells(targets) { if slot < $0.count { $0.remove(at: slot) } } }
     /// The pointed cell's twin positions (incl. itself) for the grid highlight.
     func twinPositions(col: Int, row: Int) -> [(col: Int, row: Int)] {
         twinTargets(col: col, row: row).map { (col: $0 / 8, row: $0 % 8) }
