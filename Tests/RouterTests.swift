@@ -3653,6 +3653,27 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(muted.ons.count, 0, "MUTE still emits the echoes")
         assertNothingLeftSounding(muted)
     }
+    /// [ARP → ECHO → HARMONIZE] (user 2026-08-09 bug): the stage AFTER echo must still run. THRU keeps the dry tick
+    /// flowing, so harmonize adds a voice to it — the +12 harmony is heard and the chain emits more than [ARP→ECHO].
+    func testArpEchoHarmonizeHarmonizesTheDryThroughNote() {
+        func mk(harm: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var e = ProcessorSlot(type: .echo); e.params.echoDelayDiv = 2; e.params.echoRepeats = 2; e.params.echoThru = true
+                var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = [12, 0, 0]
+                c.processors = harm ? [arp, e, h] : [arp, e]
+                $0.cells[0][0] = c
+            }
+        }
+        let noH = RecordingEmitter(); run(mk(harm: false), chord([60]), beats: 4, into: noH)
+        let withH = RecordingEmitter(); run(mk(harm: true), chord([60]), beats: 4, into: withH)
+        XCTAssertGreaterThan(withH.ons.filter { $0.cable == 1 }.count, noH.ons.filter { $0.cable == 1 }.count,
+                             "harmonize after echo adds voices to the dry — no longer skipped")
+        XCTAssertTrue(withH.ons.contains { $0.cable == 1 && $0.note == 72 }, "the +12 harmony voice (72) is heard")
+        XCTAssertFalse(noH.ons.contains { $0.cable == 1 && $0.note == 72 }, "without harmonize, no +12")
+        assertNothingLeftSounding(noH); assertNothingLeftSounding(withH)
+    }
     func testEchoTailRingsOutAfterSourceReleasesThenStopClearsIt() {
         let b = box(colours: echoColours(div: 1, repeats: 6, feedDelay: 0.7, decay: 0.7)) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let e = RecordingEmitter()

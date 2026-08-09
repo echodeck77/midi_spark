@@ -1892,13 +1892,17 @@ final class Router {
                     for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
                         pushEchoForNote(Int(cur.srcAscending(k, filter: 0, cableMask: 0b1111)), vel: velocity, bm: bm, p: ep, onset: m, S: S)
                     }
-                    if !ep.echoThru { cur.reset() }   // MUTE → drop the dry tick (echoes only)
-                    break                             // echo is the terminal stage of the fold
+                    // THRU keeps the dry tick flowing to the REMAINING stages (e.g. a downstream HARMONIZE);
+                    // MUTE drops it (echoes only). No break — the fold continues (user 2026-08-09: [ARP→ECHO→HARM]
+                    // now harmonises the dry). The echo REPEATS themselves are of the pre-downstream note — feeding
+                    // the tails through the later stages is the deferred "hand the tails" work.
+                    if !ep.echoThru { cur.reset(); cur.rebuildSorted() }
+                } else {
+                    let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                    nxt.reset()
+                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
+                    swap(&cur, &nxt)
                 }
-                let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
-                nxt.reset()
-                applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
-                swap(&cur, &nxt)
             }
             j += 1
         }
