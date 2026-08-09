@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PER-COLOUR MACHINE — step 1 FOUNDATION (2026-08-09, on `main`, PUSHED `fb576e5`; macOS 551 green, iOS builds).
+  The GLOBAL storage move WITHOUT the ~330-test field-move: the engine has a dormant per-colour mechanism —
+  SnapshotBuilder resolves a chain as per-cell OVERRIDE → colour TEMPLATE (`Colour.templateChain`) → legacy; colours
+  are document-global + nil-override cells inherit, so a colour-owned chain is GLOBAL by construction. Landed: (a)
+  `cellChain` now reads the template tier (was skipping it — latent bug); (b) the colour-owned chain edit API
+  (`withChainColour`/addSlot/removeSlot/editSlot/setType/toggleBypass Colour — writes `templateChain`, clears the
+  colour's per-cell overrides across ALL scenes; empty → a bypassed slot = passthrough); (c) test
+  `testColourTemplateChainDrivesAllItsCells`. ⏸ NOT YET WIRED: the DRAG&DROP machinery + FORK/PLACE still write
+  per-cell overrides. Wiring them (flag on `editChainToColour` → route `withChainCells`→`withChainColour`; FORK
+  populates the new colour's template + nil-override cells) is UNTESTABLE in the pure suite (AU methods) and changes
+  the confirmed-working FORK → wants DEVICE eyes before flipping. Also: only the CHAIN is colour-owned so far;
+  buses/receiver/chop remain per-cell (a follow-up).**
 - **▶ DRAG&DROP dynamic palette + drag rebuild + FORK (2026-08-09, on `main`, PUSHED …→`96cb114`; macOS 550 green, iOS
   builds; Paul confirms drag works on device). System `.onDrag/.onDrop` doesn't survive the AU host → rebuilt as a
   CUSTOM finger-tracking drag (onTapGesture + simultaneousGesture(DragGesture) in a shared "dd" space, measured drop
