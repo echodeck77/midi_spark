@@ -13,6 +13,10 @@ private enum DDTarget { case grid(Int, Int), palette(Int), litter }
 // the WHOLE row (only if the row is now mixed, else it reverts like press 3); press 3 reverts to the original row.
 struct DDRowCycle { var row: Int; var colour: Int; var phase: Int; var original: [Cell?] }
 
+// DELETE MODE (user 2026-08-10): while the DELETE box is HELD, a tap deletes a cell/colour; a second tap reverts it.
+// A stashed (col,row,cell) so a re-tap can put it back exactly.
+struct DDCellAt: Equatable { let col: Int; let row: Int; let cell: Cell }
+
 // Drop-zone frames for the CUSTOM finger-tracking drag (SwiftUI's .onDrag/.onDrop don't survive the AU host).
 struct DDZonePref: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
@@ -28,15 +32,17 @@ extension DiagView {
         let H = min(size.height * (landscape ? 0.52 : 0.46), landscape ? 480 : 400)
         let gridCell = max(16, min(48, (H - 50) / 8))
         let matchedH = gridCell * 8 + 50                             // the actual grid height after clamping
-        let swatch = landscape ? max(24, (matchedH - 28) / 5)        // landscape: palette + DELETE matches the grid height
+        let swatch = landscape ? max(20, (matchedH - 64) / 5)        // landscape: HEADER (GOLD·cell·count) + 4 palette rows + DELETE match the grid height (user 2026-08-10)
                                : max(22, (matchedH - 128) / 5)       // portrait: palette + DELETE + identity (name·count·PLAY) matches it
         let paletteW = swatch * 4 + 18
         Group {
             if landscape {
                 VStack(spacing: 10) {
-                    HStack(alignment: .top, spacing: 16) {            // TOP band: identity · palette+DELETE · grid · PLAY
-                        ddColourIdentity(showPlay: false).frame(width: 130, alignment: .topLeading)
-                        ddPalette(swatch: swatch, litterHeight: swatch).frame(width: paletteW, alignment: .top)
+                    HStack(alignment: .top, spacing: 16) {            // TOP band: [header→palette→DELETE] · grid · PLAY
+                        VStack(spacing: 8) {                          // header ABOVE the palette; the whole column == grid height (user 2026-08-10)
+                            ddColourHeader().frame(height: 28)
+                            ddPalette(swatch: swatch, litterHeight: swatch)
+                        }.frame(width: paletteW, height: matchedH, alignment: .top)
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
@@ -174,6 +180,21 @@ extension DiagView {
         if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
         return editingCell?.colourID
     }
+    // LANDSCAPE header (user 2026-08-10): the colour's EXAMPLE CELL (swatch) + its name GOLD, with the cell COUNT to
+    // the right — sits ABOVE the palette grid, lined up with the top of the grid.
+    @ViewBuilder private func ddColourHeader() -> some View {
+        if editArmed, let cid = ddSelectedColourID {
+            let hue = colourColor(cid) ?? .white
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6).fill(hue).frame(width: 26, height: 26)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.55), lineWidth: 1.2))
+                Text(cid.uppercased()).font(.system(size: 16, weight: .black, design: .monospaced)).foregroundColor(hue).lineLimit(1).minimumScaleFactor(0.6)
+                Spacer(minLength: 4)
+                Text("\(editSelTargets.count) cell\(editSelTargets.count == 1 ? "" : "s")")
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        } else { Color.clear }
+    }
     @ViewBuilder private func ddColourIdentity(showPlay: Bool = true) -> some View {
         if editArmed, let cid = ddSelectedColourID {
             let hue = colourColor(cid) ?? .white
@@ -197,9 +218,10 @@ extension DiagView {
         let defined = ddColourShown(i)
         let hover = ddDropHover == "palette:\(i)"
         let dragging = ddActivePayload != nil                        // a source is touched/dragged → light the drop zones in its colour
-        let brdr: Color = hover ? (dragging ? ddDragHue : Self.editHue)
-                                : (dragging ? ddDragHue.opacity(0.65) : (selected ? .white : .white.opacity(0.12)))
-        let brdrW: CGFloat = hover ? 3 : (dragging ? 2 : (selected ? 3 : 1))
+        let brdr: Color = (ddDeleteMode && defined) ? Verb.delete.hue
+                        : hover ? (dragging ? ddDragHue : Self.editHue)
+                        : (dragging ? ddDragHue.opacity(0.65) : (selected ? .white : .white.opacity(0.12)))
+        let brdrW: CGFloat = (ddDeleteMode && defined) ? 2.5 : (hover ? 3 : (dragging ? 2 : (selected ? 3 : 1)))
         Group {
             if defined {
                 RoundedRectangle(cornerRadius: 8).fill(colourColor(id) ?? .gray)
@@ -216,7 +238,10 @@ extension DiagView {
         .frame(width: side, height: side)
         .background(ddZone("palette:\(i)"))                                             // drop-zone frame (cell → FORK/ADOPT)
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { if defined { ddSelectColour(i) } else { ddCreateColour(i) } }   // tap "+" → create a new colour
+        .onTapGesture {
+            if ddDeleteMode { if defined { ddToggleDeleteColour(i) } }   // DELETE MODE: tap a defined colour deletes it + its cells / re-tap reverts
+            else if defined { ddSelectColour(i) } else { ddCreateColour(i) }   // tap "+" → create a new colour
+        }
         .simultaneousGesture(ddTouchGesture("colour:\(id)"), including: defined ? .all : .subviews)  // touch → highlight targets
         .simultaneousGesture(ddDragGesture("colour:\(id)"), including: defined ? .all : .subviews)   // only defined colours drag
     }
@@ -242,10 +267,11 @@ extension DiagView {
         let hover = ddDropHover == "litter"
         let flashing = ddLitterFlash != nil
         let dragging = ddActivePayload != nil                        // a source is touched/dragged → the delete zone is a live target
-        let lit = hover || flashing || dragging
-        // The DELETE icon/label appears ONLY while a drag is live (this is the delete target) or the delete-FLASH is up
-        // ("−1 cell" etc.); otherwise the box carries a prominent drag-and-drop instruction (user 2026-08-09).
-        let showDelete = dragging || flashing
+        let lit = hover || flashing || dragging || ddDeleteMode
+        // DELETE MODE (user 2026-08-10): LONG-PRESS the box to arm delete — the box shows "DELETE", both grids go red,
+        // and a tap on any cell/colour deletes it (a 2nd tap reverts); it stays armed until this box is RELEASED.
+        // Otherwise: a drag makes it the drop target (trash + flash), and idle it carries the two-line instruction.
+        let showDelete = dragging || flashing || ddDeleteMode
         return Group {
             if showDelete {
                 VStack(spacing: 4) {
@@ -254,17 +280,25 @@ extension DiagView {
                 }
                 .foregroundColor(Verb.delete.hue)
             } else {
-                Text("Drag and Drop to place and copy cells")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.6)
-                    .foregroundColor(.white.opacity(0.55)).padding(.horizontal, 6)
+                VStack(spacing: 1) {                                 // two lines: DRAG AND DROP big, the rest small (user 2026-08-10)
+                    Text("Drag and Drop").font(.system(size: 14, weight: .heavy, design: .monospaced))
+                    Text("to place and copy cells").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                }
+                .multilineTextAlignment(.center).lineLimit(1).minimumScaleFactor(0.6)
+                .foregroundColor(.white.opacity(0.55)).padding(.horizontal, 6)
             }
         }
         .frame(maxWidth: .infinity).frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover || flashing ? Verb.delete.hue.opacity(0.18) : (dragging ? Verb.delete.hue.opacity(0.10) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(lit ? Verb.delete.hue.opacity(ddDeleteMode || hover || flashing ? 0.18 : 0.10) : .clear)
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lit ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: lit ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
         .background(ddZone("litter"))                                                  // drop-zone frame (a drop target only)
+        // HOLD-TO-DELETE: long-press arms delete mode; keep it armed while the finger is down; release disarms + commits.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.35).sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { v in if case .second(true, _) = v, !ddDeleteMode { ddEnterDeleteMode() } }
+                .onEnded { _ in ddExitDeleteMode() }
+        )
         .animation(.easeOut(duration: 0.15), value: flashing)
     }
 
@@ -316,9 +350,10 @@ extension DiagView {
         let dragging = ddActivePayload != nil                                        // a source is touched/dragged → light the drop zones
         // NO grid cell is ever shown as SELECTED (user 2026-08-09) — only the hover/drag drop highlights. The selection
         // lives in the palette + machinery, never on the grid.
-        let stroke: Color = hover ? (dragging ? ddDragHue : Self.editHue)
-                                  : (dragging ? ddDragHue.opacity(0.65) : .white.opacity(0.12))
-        let strokeW: CGFloat = hover ? 3 : (dragging ? 2 : 1)
+        let stroke: Color = ddDeleteMode ? Verb.delete.hue
+                          : hover ? (dragging ? ddDragHue : Self.editHue)
+                          : (dragging ? ddDragHue.opacity(0.65) : .white.opacity(0.12))
+        let strokeW: CGFloat = ddDeleteMode ? 2.5 : (hover ? 3 : (dragging ? 2 : 1))
         let fill: Color = cell.flatMap { colourColor($0.colourID) } ?? Color.white.opacity(0.05)
         RoundedRectangle(cornerRadius: 5)
             .fill(fill.opacity(cell?.muted == true || dormant ? 0.28 : 1))
@@ -331,8 +366,9 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(stroke, lineWidth: strokeW))
             .opacity(ddDragPayload == "cell:\(c):\(r)" ? 0.35 : 1)                         // lift the source while dragging
             .background(ddZone("grid:\(c):\(r)"))                                          // drop-zone frame (colour → PLACE · cell → MOVE)
+            .overlay { if ddDeleteMode { RoundedRectangle(cornerRadius: 5).fill(Verb.delete.hue.opacity(0.14)) } }   // DELETE MODE red wash
             .contentShape(RoundedRectangle(cornerRadius: 5))
-            .onTapGesture { ddGridTap(c, r) }
+            .onTapGesture { if ddDeleteMode { ddToggleDeleteCell(c, r) } else { ddGridTap(c, r) } }   // DELETE MODE: tap deletes / re-tap reverts
             .simultaneousGesture(ddTouchGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)  // touch → highlight targets
             .simultaneousGesture(ddDragGesture("cell:\(c):\(r)"), including: cell != nil ? .all : .subviews)   // only occupied cells drag
     }
@@ -667,6 +703,53 @@ extension DiagView {
     private func ddFlashLitter(_ msg: String) {
         ddLitterFlash = msg
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { if ddLitterFlash == msg { ddLitterFlash = nil } }
+    }
+
+    // MARK: - DELETE MODE (user 2026-08-10) — hold the DELETE box, tap cells/colours to delete (toggle-revert)
+
+    /// Arm delete mode (the DELETE box was long-pressed). Cancels any in-flight drag so the red highlight reads cleanly.
+    func ddEnterDeleteMode() {
+        ddResetDrag()
+        ddDeleteStashCells = [:]; ddDeleteStashColours = [:]
+        ddDeleteMode = true
+    }
+    /// Disarm delete mode (the DELETE box was released) — the deletions stand; the stash is dropped (no more reverting).
+    func ddExitDeleteMode() {
+        ddDeleteMode = false
+        ddDeleteStashCells = [:]; ddDeleteStashColours = [:]
+    }
+    /// DELETE MODE tap on a grid cell: delete it (stash the cell), or — if already deleted this hold — put it back.
+    func ddToggleDeleteCell(_ c: Int, _ r: Int) {
+        let key = "\(c):\(r)"
+        if let stashed = ddDeleteStashCells[key] {                 // was deleted → RESTORE
+            au?.editScene { s in if s.inBounds(c, r) { s.cells[c][r] = stashed } }
+            ddDeleteStashCells[key] = nil
+            refreshFromDocument()
+        } else if let cell = scene.cellAt(c, r) {                  // present → DELETE
+            ddDeleteStashCells[key] = cell
+            au?.editScene { s in if s.inBounds(c, r) { s.cells[c][r] = nil } }
+            refreshFromDocument()
+            if selCol == c && selRow == r { selCol = -1; selRow = -1; sel.reset() }
+        }
+    }
+    /// DELETE MODE tap on a palette colour: delete it + all its cells (stash them), or — if already deleted — restore.
+    func ddToggleDeleteColour(_ i: Int) {
+        guard i >= 0 && i < colourIDs.count else { return }
+        let id = colourIDs[i]
+        if let stashed = ddDeleteStashColours[id] {                // was deleted → RESTORE the colour + its cells
+            au?.editScene { s in for x in stashed where s.inBounds(x.col, x.row) { s.cells[x.col][x.row] = x.cell } }
+            au?.editDocument { doc in if let ci = doc.colours.firstIndex(where: { $0.colourID == id }) { doc.colours[ci].defined = true } }
+            ddDeleteStashColours[id] = nil
+            refreshFromDocument()
+        } else if ddColourShown(i) {                               // present → DELETE (stash every placed cell first)
+            var stash: [DDCellAt] = []
+            for c in 0..<8 { for r in 0..<8 { if let cell = scene.cellAt(c, r), cell.colourID == id { stash.append(DDCellAt(col: c, row: r, cell: cell)) } } }
+            ddDeleteStashColours[id] = stash
+            au?.editScene { s in for x in stash where s.inBounds(x.col, x.row) { s.cells[x.col][x.row] = nil } }
+            au?.editDocument { doc in if let ci = doc.colours.firstIndex(where: { $0.colourID == id }) { doc.colours[ci].defined = false } }
+            refreshFromDocument()
+            if ddColourSel == i { ddColourSel = -1; selCol = -1; selRow = -1; sel.reset() }
+        }
     }
 
     // MARK: - RANDOMIZE (reroll the selected colour's chain)

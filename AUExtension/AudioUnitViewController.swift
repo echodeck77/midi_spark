@@ -99,6 +99,9 @@ struct DiagView: View {
     @State var ddBeatAnchorAt: Date = Date()
     @State var ddRowCycle: DDRowCycle? = nil   // DRAG&DROP row selector: the 3-press paint cycle (fill empties → fill row → revert)
     @State var ddSolo = false                  // DRAG&DROP PLAY: THIS CELL — isolate + freeze on the selected cell's column
+    @State var ddDeleteMode = false            // DRAG&DROP: the DELETE box is HELD → tap a cell/colour to delete it (2nd tap reverts); red-highlights both grids
+    @State var ddDeleteStashCells: [String: Cell] = [:]     // …grid cells deleted this hold (key "c:r" → the removed cell), for toggle-revert
+    @State var ddDeleteStashColours: [String: [DDCellAt]] = [:]  // …colours deleted this hold (id → its removed cells), for toggle-revert
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
@@ -901,6 +904,7 @@ struct DiagView: View {
             editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
             if tab != .grid { heldVerb = nil }
             if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
+            if tab != .dragDrop && ddDeleteMode { ddDeleteMode = false; ddDeleteStashCells = [:]; ddDeleteStashColours = [:] }   // don't leave delete mode armed
             ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
             if tab == .dragDrop { ddEnsureSelection() }            // open the page with a colour selected (GOLD by default, user 2026-08-09)
         }
