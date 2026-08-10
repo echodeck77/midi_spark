@@ -95,18 +95,18 @@ extension DiagView {
                 }
             } else {
                 VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT: palette + DELETE + identity LEFT · grid RIGHT — CENTRED (align reverted, user 2026-08-09)
-                        Spacer(minLength: 0)
-                        VStack(alignment: .leading, spacing: 10) {   // palette · DELETE · colour swatch+label · "N cells" · PLAY: THIS CELL
-                            ddPalette(swatch: swatch, litterHeight: swatch)
-                            ddColourIdentity()
-                        }.frame(width: paletteW, alignment: .top)
+                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT (user 2026-08-10): LEFT column · grid RIGHT-aligned
+                        VStack(alignment: .leading, spacing: 10) {   // order: swatch+GOLD · "N cells" · palette · DELETE · PLAY: THIS CELL
+                            ddColourIdentity(showPlay: false)         // the preview cell + GOLD, then "N cells" below
+                            ddPalette(swatch: swatch, litterHeight: swatch)   // palette + DELETE
+                            ddPlayCellButton()                        // PLAY: THIS CELL (bottom)
+                        }.frame(width: paletteW, alignment: .leading)
+                        Spacer(minLength: 0)                          // push the grid to the RIGHT
                         HStack(alignment: .top, spacing: 5) {
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
                             ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
                         }
-                        Spacer(minLength: 0)
                     }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
                     ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
