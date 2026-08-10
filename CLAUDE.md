@@ -157,6 +157,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DRONE = a true SUSTAINED PAD + delete-empty-chain shows the add invitation + 1-octave piano (2026-08-10, on
+  `main`, PUSHED next; macOS 585 green incl. fuzz, iOS builds; DEVICE ear owed). Paul: a DRONE played only one STEP
+  (a column's duration) then stopped — in normal play AND PLAY: THIS CELL. ROOT CAUSE: the DRONE generator struck the
+  chord ONCE at column entry with a one-step gate + `if inWindow(colStart)`, so it never re-fired (a single cell
+  covered only its own column; a frozen column fired once). Paul chose: a drone is a SUSTAINED PAD (one cell holds the
+  chord continuously across the whole loop until release). Built `reconcileDrones` — modeled on `reconcileBypass`:
+  PLAYHEAD-INDEPENDENT IMMORTAL voices tagged `Voice.droneCell`, reconciled EVERY render (while playing) against each
+  single-slot `.drone` cell's filtered + transposed + per-emitter-shaped (oct/key/FENCE) source, own cable + All;
+  velScale = GATE. Grid boundary flushes skip drone voices (excluded from `holdCandidate`/`anyLegatoHold`; kept by
+  `closeExceptLegatoHolds`); `allNotesOff` closes them (so transport-stop/scene/panic silence the pad — no leak). The
+  single-slot drone is SKIPPED in the tick loop (`mode == .drone && procs.count <= 1`); a drone inside a multi-slot
+  chain keeps the old generator path (v1). Test `testDroneSustainsAcrossColumnsAndReleasesCleanly` (one cell sustains
+  across two passes · releases on empty pool · quiescent on stop) + the fuzz's `.drone` cells stay green (no stuck
+  notes). ⚠ v1: single-slot drones only; tracks the held chord (adds/removes notes), not a frozen entry snapshot.
+  ALSO: (a) delete a colour's only arp no longer shows a stray passgate — `cellChain` unwraps the stored passthrough
+  placeholder (a lone bypassed passgate) to EMPTY so the flow diagram invites "+ ADD PROCESSOR"; (b) the receivers
+  PIANO keyboard is now ONE octave (C3–B3). Term of record: a column's duration = a STEP (`S`/stepBeats).**
 - **▶ CRASH FIX — render↔main feed arrays flattened (device SIGTRAP, libmalloc free-block corruption) (2026-08-10,
   on `main`, PUSHED next; macOS 584 green, iOS builds). Paul's `.ips` (15:23): faulting render thread heap-corrupted
   in `Kernel.computeRoutedPath` while the MAIN thread crashed in `Router.drainEmitterSounding` (Array out-of-bounds

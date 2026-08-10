@@ -229,6 +229,28 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // DRONE = sustained pad (user 2026-08-10): a single-slot drone cell holds the chord CONTINUOUSLY across the whole
+    // loop (playhead-independent) from ONE placement until the source releases — not one step then silence.
+    func testDroneSustainsAcrossColumnsAndReleasesCleanly() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .drone
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // ONE drone cell, column 0
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 32.0 {   // two full passes — the playhead visits columns 1..7 (no cell there); the drone must persist
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let stillOn = e.ons.filter { $0.cable == 1 }.count - e.offs.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(stillOn, 0, "the drone sustains across the whole loop from one cell (not one step then silence)")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "sounds the held chord")
+        router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        beat += wb; ts += Double(frames)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, e.offs.filter { $0.cable == 1 }.count, "releasing the chord closes the drone (tracks the source, no stuck note)")
+        router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e); XCTAssertTrue(router.quiescent)
+    }
     // Render→main SOUNDING feed buckets by emitter (device crash 2026-08-10: the nested [[…]] feed arrays raced the
     // 4 Hz poll → libmalloc corruption; flattened to 4×W). This locks the flat re-indexing: a note on emitter A and
     // one on emitter C land in buckets 0 and 2, B/D empty — no smear across the flat buffer.

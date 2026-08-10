@@ -55,6 +55,8 @@ final class Router {
                                      // SOUNDING gate — the spark travels for exactly as long as the note is held.
         var bypassRecv: Int8 = -1    // BYPASS: ≥0 = a direct-injection voice for that receiver (IMMORTAL, managed by
                                      // reconcileBypass) — the grid's continuity + transport flushes leave it alone.
+        var droneCell: Int8 = -1     // DRONE: ≥0 = a sustained-pad voice for that grid cell (IMMORTAL, managed by
+                                     // reconcileDrones, playhead-independent) — the grid boundary reconcile skips it.
     }
     private var voices = [Voice](repeating: Voice(), count: 128)
 
@@ -431,6 +433,85 @@ final class Router {
         for i in voices.indices where voices[i].active && voices[i].bypassRecv == Int8(recv) && voices[i].note == note && voices[i].bus == bus { return true }
         return false
     }
+
+    // DRONE — sustained pad (user 2026-08-10). A single-slot `.drone` cell holds its source chord CONTINUOUSLY,
+    // PLAYHEAD-INDEPENDENT, until the source releases (or transport stop / mute). Modeled on reconcileBypass: IMMORTAL
+    // voices tagged by the drone's grid cell, reconciled every render against the cell's filtered + transposed +
+    // per-emitter-shaped source (own cable + All, like a grid hold). Runs only while PLAYING. v1: single-slot drones
+    // (a drone inside a multi-slot chain keeps the old generator path); emitters = the cell's lit buses; velScale = GATE.
+    private var droneLive = [Bool](repeating: false, count: 64)          // scratch: cells that are live sustained drones this render
+    private var droneDesiredVel = [UInt8](repeating: 0, count: 128)      // scratch: desired WIRE note → velocity for the current cell/bus (0 = not desired)
+    private func anyDroneVoiceActive() -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].droneCell >= 0 { return true }
+        return false
+    }
+    private func droneVoiceExists(cell: Int, wire: UInt8, bus: UInt8) -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].droneCell == Int8(cell) && voices[i].note == wire && voices[i].bus == bus && voices[i].cable == bus + 1 { return true }
+        return false
+    }
+    private func reconcileDrones(box: SnapshotBox, livePool: NotePool, playing: Bool, atSample sample: Int64, out: MIDIEmitter?) {
+        let anyDrone = anyDroneVoiceActive()
+        // Silence: not playing / master-muted / preview owns the output → close every drone voice. (masterKill zeros
+        // busEnabledMask, so the not-live sweep below already closes them — no explicit masterKill check needed here.)
+        if !playing || (masterMute && !previewMode) || previewMode {
+            if anyDrone { for i in voices.indices where voices[i].active && voices[i].droneCell >= 0 { closeVoice(i, atSample: sample, out: out) } }
+            return
+        }
+        // Which cells are LIVE sustained drones this render (single-slot .drone, audible)?
+        for i in 0..<64 { droneLive[i] = false }
+        var anyLive = false
+        for idx in 0..<(Snap.cols * Snap.rows) {
+            let cell = box.cells[idx]
+            guard cell.colourIndex >= 0, cell.procs.count <= 1, (cell.busMask & busEnabledMask) != 0 else { continue }
+            let colour = box.colours[Int(cell.colourIndex)]
+            var treat = colour; treat.a = cell.proc
+            guard cellMode(type: effectiveType(treat, t: 0), bypassed: cell.bypassed, passMask: effectivePassMask(treat, t: 0), pass: 0) == .drone else { continue }   // drone mode is pass-independent
+            let col = idx / Snap.rows, row = idx % Snap.rows
+            if cellSoloedOut(col, row) || soloSilenced(cell) { continue }
+            if !cellSoloForced(col, row) && (cell.muted || cell.dormant || tapMuted(col, row)) { continue }
+            droneLive[idx] = true; anyLive = true
+        }
+        if !anyLive && !anyDrone { return }
+        let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
+        defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
+        // Close drone voices whose cell is no longer a live drone (removed / muted / changed / disabled).
+        for i in voices.indices where voices[i].active && voices[i].droneCell >= 0 && !droneLive[Int(voices[i].droneCell)] {
+            closeVoice(i, atSample: sample, out: out)
+        }
+        // Per live drone cell + bus: reconcile immortal voices against the desired (wire note × velocity).
+        for idx in 0..<(Snap.cols * Snap.rows) where droneLive[idx] {
+            let col = idx / Snap.rows, row = idx % Snap.rows
+            let cell = box.cells[idx]
+            let colour = box.colours[Int(cell.colourIndex)]
+            currentColourIndex = cell.colourIndex; currentCellIndex = idx; currentAlt = cell.alt != tapFlipped(col, row)
+            let transpose = colourTranspose(Int(cell.colourIndex), colour) + octaveShift(cell.resolvedReceiver)
+            let velScale = max(0.05, min(1.0, cell.proc.gate))   // GATE = the pad's velocity level (relative to the source)
+            let pool = effectivePool(for: cell, live: livePool)
+            let bm = cell.busMask & busEnabledMask
+            for b in UInt8(0)..<4 where bm & (1 << b) != 0 {
+                for n in 0..<128 { droneDesiredVel[n] = 0 }
+                let cnt = pool.srcCount(for: cell)
+                for k in 0..<cnt {
+                    let base = Int(pool.srcAscending(k, for: cell))
+                    let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
+                    let sw = n + emitterOctaveShift(Int(b)) + masterKey; guard sw >= 0 && sw <= 127 else { continue }
+                    guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }   // DROP → this emitter skips it
+                    let vel = UInt8(max(1, min(127, Int((Double(max(1, Int(pool.velocity(UInt8(base))))) * velScale).rounded()))))
+                    droneDesiredVel[Int(w)] = vel
+                }
+                // CLOSE this cell+bus's voices whose wire note is no longer desired (both the own cable + All copy).
+                for i in voices.indices where voices[i].active && voices[i].droneCell == Int8(idx) && voices[i].bus == b && droneDesiredVel[Int(voices[i].note)] == 0 {
+                    closeVoice(i, atSample: sample, out: out)
+                }
+                // OPEN desired wire notes not already sounding for this cell+bus — own cable + All.
+                let ch = (busChannels[Int(b)] &- 1) & 15
+                for w in 0..<128 where droneDesiredVel[w] != 0 && !droneVoiceExists(cell: idx, wire: UInt8(w), bus: b) {
+                    _ = openVoice(note: UInt8(w), chan: ch, cable: b + 1, bus: b, onSample: sample, offSample: .max, velocity: droneDesiredVel[w], out: out, droneCell: Int8(idx))
+                    _ = openVoice(note: UInt8(w), chan: ch, cable: 0,     bus: b, onSample: sample, offSample: .max, velocity: droneDesiredVel[w], out: out, droneCell: Int8(idx))
+                }
+            }
+        }
+    }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -581,7 +662,7 @@ final class Router {
     private func openVoice(note: UInt8, chan: UInt8, cable: UInt8, bus: UInt8,
                            onSample: Int64, offSample: Int64,
                            velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false,
-                           bypassRecv: Int8 = -1) -> Int {
+                           bypassRecv: Int8 = -1, droneCell: Int8 = -1) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
         // than emit an on we can't schedule an off for — an untrackable note would hang. At 128-voice
@@ -617,6 +698,7 @@ final class Router {
         voices[slot].vel = velocity                     // §strips-done: for the hold-while-sounding feed
         voices[slot].cellIndex = (currentCellIndex >= 0 && currentCellIndex < 64) ? Int8(currentCellIndex) : -1   // SEAL sounding gate
         voices[slot].bypassRecv = bypassRecv   // BYPASS: tag direct-injection voices so grid/transport flushes skip them
+        voices[slot].droneCell = droneCell     // DRONE: tag sustained-pad voices so the grid boundary reconcile skips them
         return slot
     }
 
@@ -800,7 +882,7 @@ final class Router {
     /// Any active IMMORTAL legato GRID hold (a sustained drone) — offSample .max, not a BYPASS voice. Used by the
     /// single-column-lap release fix (audit B2): a pinned effColumn never fires the column-change reconcile.
     private func anyLegatoHold() -> Bool {
-        for v in voices where v.active && v.offSample == .max && v.bypassRecv < 0 { return true }
+        for v in voices where v.active && v.offSample == .max && v.bypassRecv < 0 && v.droneCell < 0 { return true }
         return false
     }
 
@@ -1141,7 +1223,7 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 }   // BYPASS voices are immortal but NOT grid holds — never adopt/close them here
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 && voices[i].droneCell < 0 }   // BYPASS + DRONE voices are immortal but NOT grid holds — never adopt/close them here
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
@@ -1546,6 +1628,9 @@ final class Router {
         // door sounds whether or not the transport rolls. (allNotesOff above skips bypass voices, so the edges don't
         // disturb them; only PANIC flushes them, and the next reconcile re-opens whatever's still held.)
         reconcileBypass(pool: pool, atSample: windowStart, out: out)
+        // DRONE (sustained pad): playhead-independent immortal voices for single-slot .drone cells — reconciled every
+        // render (only while playing) against the held source. Grid boundary flushes skip drone voices (droneCell tag).
+        reconcileDrones(box: box, livePool: pool, playing: playing, atSample: windowStart, out: out)
 
         // ---- PREVIEW / cell audition SOLO (Phase 2): the staged VIRTUAL cell renders ALONE. On the
         //      activation edge, flush every voice (entering = real cells go silent; leaving = they resume).
@@ -1702,6 +1787,10 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
                                 passMask: effectivePassMask(treat, t: t), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
+            // DRONE (sustained pad): a SINGLE-SLOT drone is playhead-independent, managed by reconcileDrones — skip it
+            // here (else it double-emits / gates off after one step). A drone inside a multi-slot CHAIN keeps the
+            // generator path below (v1). (user 2026-08-10)
+            if mode == .drone && cell.procs.count <= 1 { continue }
 
             // CELL MACHINE stage-2: a covered chain (arp/ratchet/strum TAIL) runs the tail over the composed
             // upstream set; only the tail emits, and emitColumnHolds skips it.
