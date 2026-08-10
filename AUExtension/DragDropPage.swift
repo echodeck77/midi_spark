@@ -121,7 +121,7 @@ extension DiagView {
         .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
         // SAFETY NET: a page-level release clears any stuck drag state. The page root survives the cell re-renders that
         // can cancel a source cell's own gesture mid-drop (leaving the ghost/highlights stuck). (user 2026-08-09)
-        .simultaneousGesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("dd")).onEnded { _ in ddResetDrag() })
+        .simultaneousGesture(DragGesture(minimumDistance: 10, coordinateSpace: .named("dd")).onEnded { _ in ddResetDrag() })   // min 10 so a TAP never triggers the reset (was interfering with processor-box taps) (user 2026-08-10)
         .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(x: ddDragLoc.x, y: ddDragLoc.y - 32).allowsHitTesting(false) } }   // the in-hand ghost, above the finger
         .overlay { if landscape { ddActionLine() } }   // the connector: action box → final processor box (both measured in "dd" space)
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation

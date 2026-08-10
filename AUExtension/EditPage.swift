@@ -632,10 +632,13 @@ extension DiagView {
     }
     // A set slot (tap → edit pop-up) or an empty dashed "+" ghost (tap → type picker) — user 2026-08-07.
     @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color, hue: Color) -> some View {
+        // BUTTONS, not onTapGesture (user 2026-08-10): a bare tap-gesture on these positioned boxes competed with the
+        // DRAG&DROP page's ambient drag → taps missed / fired late ("pops open unexpectedly"). A Button's tap recogniser
+        // wins cleanly.
         if i < chain.count {
-            flowSlot(chain[i], bg: bg, hue: hue).contentShape(Rectangle()).onTapGesture { openProcEdit(slot: i) }
+            Button { openProcEdit(slot: i) } label: { flowSlot(chain[i], bg: bg, hue: hue).contentShape(Rectangle()) }.buttonStyle(.plain)
         } else {
-            flowGhost("+", bg: bg, plus: false, hue: hue).contentShape(Rectangle()).onTapGesture { procTypePickerOpen = true }
+            Button { procTypePickerOpen = true } label: { flowGhost("+", bg: bg, plus: false, hue: hue).contentShape(Rectangle()) }.buttonStyle(.plain)
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain

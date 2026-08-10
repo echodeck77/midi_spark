@@ -136,7 +136,9 @@ enum Dice {
         s.params.spread = Double.random(in: 0...0.5, using: &rng)
         s.params.curve = Double.random(in: -0.6...0.6, using: &rng)
         s.params.probability = Double.random(in: 0.5...1, using: &rng)
-        s.params.harmIntervals = [[3, 4, 5, 7, 12, -12].randomElement(using: &rng)!, [0, 4, 7].randomElement(using: &rng)!, 0]
+        // HARMONIZE only as an OCTAVE JUMP / INVERSION (user 2026-08-10): octaves stay in key; thirds/fifths drift out
+        // (no scale-correction yet). Intervals are octave multiples only, so a rolled harmonizer is always in key.
+        s.params.harmIntervals = [[12, -12, 24, -24].randomElement(using: &rng)!, [12, -12, 0].randomElement(using: &rng)!, 0]
         s.params.euclidPulses = Int.random(in: 2...7, using: &rng)
         s.params.euclidSteps = [8, 16].randomElement(using: &rng)!
         s.params.echoRepeats = Int.random(in: 2...6, using: &rng)
