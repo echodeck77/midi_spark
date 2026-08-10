@@ -208,6 +208,27 @@ final class RouterTests: XCTestCase {
         let forced = play(forceColumn: 0)    // …held on column 0 → strikes EVERY column
         XCTAssertGreaterThan(forced, normal * 3, "forcing the column holds the cell playing every column (\(forced) vs \(normal))")
     }
+    // PLAY: THIS CELL for a HOLD cell (user 2026-08-10 bug): a passthrough/identity hold must SUSTAIN under a frozen
+    // column, not gate off after one column. Forcing the column held the cell but emitColumnHolds only fired on the
+    // (never-repeating) transition, so a NON-legato hold sounded one column then went silent — while the palette
+    // still showed its colour "running". The fix re-runs the holds every window (immortal + adopted) under forceColumn.
+    func testForceColumnSustainsAHoldCell() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold (all-open, .retrig = non-legato)
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 32.0 {   // two full passes on a frozen column — a broken hold falls silent after column 0's length
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "the hold cell sounds its chord under a frozen column")
+        let stillOn = e.ons.filter { $0.cable == 1 }.count - e.offs.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(stillOn, 0, "the hold is STILL sounding late in the frozen column (it did not gate off after one column)")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
@@ -2443,6 +2464,30 @@ final class RouterTests: XCTestCase {
         stepWindow(router, b, NotePool(), playing: true, beat: 0.25, out: e)    // release
         XCTAssertTrue(e.offs.contains { $0.note == 60 && $0.cable == 1 }, "release emits the bypass note-off")
         assertNothingLeftSounding(e)
+    }
+
+    // BYPASS + LATCH (PIANO/held): a bypassed door with an ARMED latch injects its FROZEN chord — the live pool is
+    // empty (PIANO has no physical keys), so reading live would inject nothing. Locks the reconcileBypass frozen read.
+    func testBypassInjectsTheFrozenLatchPoolNotLive() {
+        let b = bypassBox(dest: 0b0001)   // bypassed R1 → emitter A (cable 1)
+        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
+        let pools = [frozen, NotePool(), NotePool(), NotePool()]
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        // LIVE pool empty (as with PIANO); the frozen R1 pool holds the picked chord. latchMask 0b0001 arms R1.
+        router.process(box: b, pool: NotePool(), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 0, frameCount: 512, latchMask: 0b0001, latchedPools: pools, out: e, diag: &diag)
+        XCTAssertTrue(e.ons.contains { $0.note == 67 && $0.cable == 1 }, "bypass injects the frozen chord (67)")
+        XCTAssertTrue(e.ons.contains { $0.note == 72 && $0.cable == 1 }, "bypass injects the frozen chord (72)")
+    }
+
+    // Latch on a NON-R1 door (R2): a cell reading R2 arps the frozen chord — proves the per-receiver index is honoured
+    // (the PIANO-latch bug report was on receiver 2). Mirrors testLatchedPoolSubstitutesForLive at bit 1.
+    func testLatchedPoolFeedsCellReadingReceiverTwo() {
+        let b = receiverBox { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 1; return c }() }
+        let frozen = NotePool(); frozen.noteOn(67, velocity: 100, channel: 0); frozen.noteOn(72, velocity: 100, channel: 0); frozen.rebuildSorted()
+        let pools = [NotePool(), frozen, NotePool(), NotePool()]   // R2 (index 1) holds the frozen chord
+        let latched = latchNotes(b, live: NotePool(), latchMask: 0b0010, pools: pools, cable: 1)
+        XCTAssertTrue(latched.contains(67) && latched.contains(72), "R2 armed ⇒ the cell arps R2's frozen chord")
     }
 
     // Bypass admits only in-range notes (the door's RANGE window applies to the injected stream too).

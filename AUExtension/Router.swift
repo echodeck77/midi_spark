@@ -383,11 +383,16 @@ final class Router {
             let soloExcluded = soloReceiverMask != 0 && (soloReceiverMask & (1 << UInt8(r))) == 0
             let bypassed = (receiverBypassMask & (1 << UInt8(r)) != 0) && !soloExcluded
             let destMask = bypassed ? receiverBypassDest[r] : 0
-            let filter = receiverChannels[r], cable = Int(receiverCables[r])
-            let lo = receiverRangeLo[r], hi = receiverRangeHi[r]
-            let cnt = destMask == 0 ? 0 : pool.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
+            // LATCH (incl. self-armed PIANO): a bypassed door with an armed latch injects its FROZEN chord, not the
+            // (for PIANO, empty) live pool. The frozen pool is already receiver-filtered at capture, so read it whole
+            // (OMNI / all-cables / full-range) — mirrors the input meter's `armed ? OMNI` read.
+            let latched = (latchMask & (1 << UInt8(r)) != 0) && r < latchedPools.count
+            let src = latched ? latchedPools[r] : pool
+            let filter: UInt8 = latched ? 0 : receiverChannels[r], cable = latched ? 0b1111 : Int(receiverCables[r])
+            let lo: UInt8 = latched ? 0 : receiverRangeLo[r], hi: UInt8 = latched ? 127 : receiverRangeHi[r]
+            let cnt = destMask == 0 ? 0 : src.srcCount(filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
             for k in 0..<cnt {
-                let n = pool.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
+                let n = src.srcAscending(k, filter: filter, cableMask: cable, velLo: 0, velHi: 127, noteLo: lo, noteHi: hi)
                 bypassScratch[k] = n; bypassDesired[Int(n)] = true
             }
             // CLOSE: this door's bypass voices whose note is released OR whose dest bus is no longer selected.
@@ -400,7 +405,7 @@ final class Router {
             if destMask != 0 {
                 for k in 0..<cnt {
                     let note = bypassScratch[k]
-                    let vel = max(1, pool.heldVelocity(note))
+                    let vel = max(1, src.heldVelocity(note))
                     for d in 0..<4 where (destMask & (1 << UInt8(d))) != 0 && !bypassVoiceExists(recv: r, note: note, bus: UInt8(d)) {
                         let ch = (busChannels[d] &- 1) & 15
                         _ = openVoice(note: note, chan: ch, cable: UInt8(d + 1), bus: UInt8(d), onSample: sample, offSample: .max, velocity: vel, out: out, bypassRecv: Int8(r))
@@ -1096,6 +1101,7 @@ final class Router {
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: Int64,
                                  windowEnd: Int64, out: MIDIEmitter?,
+                                 reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
                                  diag: inout KernelDiag) {
         let colStart = (mNow / S).rounded(.down) * S
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
@@ -1150,7 +1156,14 @@ final class Router {
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
-            let legato = mode == .identity && treat.a.phase == .legato && (bm & altMask) == 0
+            // PLAY: THIS CELL (forceColumnHold) freezes the column, so this can't re-fire on a boundary to sustain a
+            // gated hold — the cell would sound one column then die. Treat identity/chance holds as immortal+adopted
+            // so the machine plays CONTINUOUSLY; the frozen colStart makes the chance dice stable, so the every-window
+            // re-run (reconcileOnly) adopts the identical set (no re-strike). HARMONIZE is the known solo gap (its
+            // emitHarmony path isn't adoptable) — it still plays one column then rests under solo.
+            let soloSustain = forceColumnHold && (mode == .identity || mode == .chance)
+            let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || soloSustain)
+            if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
             // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
             // chop — MAIN adds the cell's own emitters, ALT adds altDest, MUTE silences. `chopMask` returns `bm`
             // unchanged when the cell has no chop, so this is a no-op for ordinary holds. (Tick cells chop per-tick.)
@@ -1193,7 +1206,7 @@ final class Router {
             // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→GATE]): register tails for the FULLY-PROCESSED set —
             // echo's chain position doesn't change the content (v1), it repeats the final (harmonized) output. Without
             // this the echo was silently dropped (composeChainSet folds it as pass-through). (user 2026-08-10 bug.)
-            if holdChain, let ep = chainEchoParams(cell) {
+            if !reconcileOnly, holdChain, let ep = chainEchoParams(cell) {
                 composeChainSet(cell: cell, pool: cellPool, upto: tailIdx, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
                 for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
                     let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
@@ -1603,6 +1616,14 @@ final class Router {
             emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,   // ECHO: strike the dry + register the tail
                            S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+        } else if forceColumnHold {
+            // PLAY: THIS CELL — the column is FROZEN, so the transition reconcile above fires only once (on engage).
+            // Re-run the holds every window to SUSTAIN them: immortal identity/chance holds are adopted (not re-struck),
+            // dropped notes close, and live/latch pool changes track. Without this a hold cell gates off after one
+            // column and never re-strikes — silent, while the palette still shows its colour in the active column.
+            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, diag: &diag)
         } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
             // AUDIT B2: a SINGLE-COLUMN lap pins effColumn, so the column-change reconcile above never fires — a
             // source release then strands the legato drone (immortal) until the ~1s Kernel self-heal (+ a spurious

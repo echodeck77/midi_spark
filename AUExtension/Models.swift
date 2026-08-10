@@ -914,7 +914,10 @@ struct PluginState: Codable, Equatable {
         for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
         // Start with ONE colour on the grid (user 2026-08-09): so the DRAG&DROP palette shows a single colour and
         // there is a piece to drag onto an empty slot (FORK → a new colour). GOLD, plain passthrough, top row.
-        for c in 0..<4 { state.scenes[0].cells[c][0] = Cell(colourID: "gold", buses: [.a]) }
+        // SUBSCRIBE to R1 (inputReceiver 0) so the default cells hear R1's LATCH/PIANO frozen pool, not just live —
+        // a nil receiver reads live OMNI only (resolvedReceiver = −1), so a latched chord never reaches them. R1 is
+        // OMNI here, so live input is identical. (fix 2026-08-10: PIANO latch "nothing plays" on a fresh instance.)
+        for c in 0..<4 { state.scenes[0].cells[c][0] = { var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0; return cell }() }
         state.padScenes()
         state.markDefinedFromUsage()   // one used Colour (GOLD) → palette shows GOLD + fifteen "+" slots
         return state

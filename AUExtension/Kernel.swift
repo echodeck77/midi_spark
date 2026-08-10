@@ -141,16 +141,28 @@ final class Kernel {
     private let latchedPools: [NotePool] = [NotePool(), NotePool(), NotePool(), NotePool()]
     private var latchArmMask: UInt8 = 0
     private var prevLatchArmMask: UInt8 = 0
+    // PIANO LATCH is SELF-ARMING: a door in PIANO mode with picked notes latches WITHOUT the separate LATCH lock —
+    // the on-screen notes ARE the pool (there's no live chord to capture, so nothing to "arm"). `effectiveLatchMask`
+    // = the lock's `latchArmMask` OR'd with every PIANO door that has notes; it is what the Router + metering + the
+    // latched-pool fill all read, so the frozen chord feeds the grid (and BYPASS) the moment notes are chosen.
+    private var effectiveLatchMask: UInt8 = 0
+    private func computeEffectiveLatchMask() -> UInt8 {
+        var m = latchArmMask
+        for i in 0..<4 where (pianoMask & (1 << UInt8(i))) != 0 && i < pianoNotes.count && !pianoNotes[i].isEmpty {
+            m |= UInt8(1 << i)
+        }
+        return m
+    }
     // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
     private var latchAddMask: UInt8 = 0
     private var latchPrevHeld = [[Bool]](repeating: [Bool](repeating: false, count: 128), count: 4)
     func setLatchArm(_ mask: UInt8) { latchArmMask = mask }
     private func updateLatchedPools() {
-        guard latchArmMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed now or before
+        guard effectiveLatchMask != 0 || prevLatchArmMask != 0 else { return }   // fast path: nothing armed (incl. PIANO) now or before
         pool.rebuildSorted()                       // the live pool's ascending view (process rebuilds again; idempotent)
         for i in 0..<4 {
             let bit = UInt8(1 << i)
-            let isArmed = latchArmMask & bit != 0, wasArmed = prevLatchArmMask & bit != 0
+            let isArmed = effectiveLatchMask & bit != 0, wasArmed = prevLatchArmMask & bit != 0
             if isArmed && !wasArmed {
                 latchedPools[i].reset()                                   // fresh arm → start empty (no stale chord)
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
@@ -158,9 +170,12 @@ final class Kernel {
             guard isArmed else { continue }
             if pianoMask & bit != 0 {
                 // PIANO LATCH (2026-08-10): the frozen pool is the on-screen keyboard selection — not live input.
-                // Refresh each render (static + cheap) so edits on the keyboard take effect immediately while armed.
+                // Refresh each render (static + cheap) so edits on the keyboard take effect immediately. Self-arming
+                // via effectiveLatchMask (no lock needed). STAMP the receiver's own wire channel so a non-OMNI cell
+                // reading this door still admits the notes (matches captureFiltered's channel-preserving behaviour).
+                let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
-                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: 0) }
+                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }
                 latchedPools[i].rebuildSorted()
                 continue
             }
@@ -176,7 +191,7 @@ final class Kernel {
                                                 noteLo: rLo, noteHi: rHi)
             }
         }
-        prevLatchArmMask = latchArmMask
+        prevLatchArmMask = effectiveLatchMask
     }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,
@@ -286,7 +301,7 @@ final class Kernel {
             // When a receiver is ARMED, the meter shows the notes the LATCH holds (they keep sounding after the keys
             // lift). The latched pool is already receiver-filtered, so read it OMNI; otherwise read the live pool
             // through this receiver's filter.
-            let armed = latchArmMask & (1 << UInt8(i)) != 0
+            let armed = effectiveLatchMask & (1 << UInt8(i)) != 0   // incl. self-armed PIANO doors
             let src = armed ? latchedPools[i] : pool
             let filter: UInt8 = armed ? 0 : receiverChannels[i]
             let cable = armed ? 0b1111 : Int(receiverCables[i])
@@ -338,7 +353,7 @@ final class Kernel {
             let bit = UInt8(1 << r)
             if box.receiverBypassMask   & bit != 0 { return "recv BYPASS (grid diverted)" }
             if box.receiverDisabledMask & bit != 0 { return "recv DISABLED (not listening)" }
-            if latchArmMask             & bit != 0 { return "recv LATCHED (reads frozen, not live)" }
+            if effectiveLatchMask       & bit != 0 { return "recv LATCHED (reads frozen, not live)" }
         }
         if (c.busMask & box.busEnabledMask) == 0 { return "no enabled emitter" }
         if pool.srcCount(for: c) == 0 { return "admits 0" }
@@ -354,7 +369,7 @@ final class Kernel {
             let bit = UInt8(1 << r); var f = ""
             if box.receiverDisabledMask & bit != 0 { f += " [DISABLED]" }
             if box.receiverBypassMask   & bit != 0 { f += " [BYPASS]" }
-            if latchArmMask             & bit != 0 { f += " [LATCHED]" }
+            if effectiveLatchMask       & bit != 0 { f += " [LATCHED]" }
             return f
         }
         var l = ["--- MIDI CHAIN @ suspicious silence ---",
@@ -416,6 +431,7 @@ final class Kernel {
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
         pianoNotes = box.receiverPianoNotes
+        effectiveLatchMask = computeEffectiveLatchMask()   // PIANO SELF-ARM: fold PIANO-with-notes doors into the latch mask
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
         latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode
@@ -513,7 +529,7 @@ final class Kernel {
                         emitterOctave: emitterOctave, masterVelOverride: masterVelOverride,
                         velKillMask: velKillMask, masterKill: masterKill, panic: panicRequested,
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
-                        latchMask: latchArmMask, latchedPools: latchedPools,
+                        latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
                         out: liveEmitter, diag: &diag)
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
@@ -545,11 +561,11 @@ final class Kernel {
             // grid has no source: after a debounce (kept ≥ a few columns so a note released mid-column still
             // rings to its boundary) any voice left sounding is stuck (e.g. a harmonizer off that went missing).
             // Soft-heal only (log + all-notes-off) — heuristic, so it never hard-traps.
-            let liveEmpty = playing && pool.count == 0 && latchArmMask == 0 && audition < 0
+            let liveEmpty = playing && pool.count == 0 && effectiveLatchMask == 0 && audition < 0
             emptyInputSamples = liveEmpty ? emptyInputSamples &+ Int64(frameCount) : 0
             let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
             let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail
-            if playingSilenceLeak(playing: playing, liveInput: pool.count, latchArmed: latchArmMask != 0,
+            if playingSilenceLeak(playing: playing, liveInput: pool.count, latchArmed: effectiveLatchMask != 0,
                                   auditioning: audition >= 0, emptyInputSamples: emptyInputSamples,
                                   debounceSamples: debounce, activeVoices: diag.activeVoiceCount,
                                   passthroughHeld: diag.passthroughHeld) {

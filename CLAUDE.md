@@ -157,6 +157,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PLAY: THIS CELL — a HOLD cell now SUSTAINS under the frozen column (2026-08-10, on `main`, PUSHED next; macOS
+  581 green, iOS builds; DEVICE ear owed). Paul: a receiver-2 colour "works on the grid but is silent on PLAY: THIS
+  CELL; the palette shows the swatch running with no sound." ROOT CAUSE: PLAY: THIS CELL forces + FREEZES the column
+  (`forceColumnHold`), and `emitColumnHolds` only fires on a column TRANSITION — which never repeats once the column
+  is frozen. So a NON-legato hold (a plain passthrough/identity cell, `.retrig`) emitted once, gated off after one
+  column, and never re-struck → silent, while the palette playhead (which only checks "colour has a cell in
+  effColumn") still showed it running. TICK cells (arp/ratchet/strum) were unaffected (their loop is ungated under
+  forceColumnHold). FIX: under `forceColumnHold`, (a) identity/chance holds are made IMMORTAL+ADOPTED (`soloSustain`
+  — the frozen `colStart` makes the chance dice stable, so re-reconciling yields the identical set, no re-strike);
+  (b) `emitColumnHolds` re-runs EVERY window via a new `reconcileOnly` path (adopt/close only — skips harmonize's
+  non-adoptable emitHarmony emission, the non-legato else-branch, and echo-tail registration), so the hold sustains
+  and tracks live/latch pool changes; releasing the keys (empty pool, no latch) closes them cleanly. Test
+  `testForceColumnSustainsAHoldCell` (a passthrough sustains across two frozen passes + clears on stop). ⚠ KNOWN GAP:
+  a HARMONIZE cell under PLAY: THIS CELL still plays ~one column then rests (emitHarmony isn't adoptable — deferred).**
+- **▶ PIANO LATCH self-arming + BYPASS-reads-frozen + DRAG&DROP unplaced-colour routing (2026-08-10, on `main`,
+  PUSHED next; macOS 580 green, iOS builds; DEVICE ear owed). Batch fixing Paul's PIANO-latch "I hear nothing"
+  reports. **ROOT CAUSE:** PIANO notes only existed in the frozen pool while the SEPARATE latch lock was armed — an
+  undiscoverable coupling — and three paths read wrong. **(1) PIANO SELF-ARMING (Kernel):** a door in PIANO mode
+  with picked notes now latches WITHOUT the lock. New `effectiveLatchMask` = `latchArmMask | (PIANO doors with
+  notes)`, computed in `render()` after the box read, threaded to `updateLatchedPools` (fill condition), the input
+  meter, the routability strings, the playing-silence-leak net (so a self-armed feed isn't flushed as "empty"), and
+  `router.process(latchMask:)` — so effectivePool + the emit guards treat PIANO as latched. **(2) CHANNEL STAMP:**
+  the PIANO frozen notes now carry the receiver's OWN wire channel (was hard-0), so a NON-OMNI cell reading the door
+  still admits them (matches captureFiltered). **(3) BYPASS reads the FROZEN pool (Router):** `reconcileBypass` read
+  only the LIVE pool → a bypassed PIANO/armed door injected nothing; it now reads `latchedPools[r]` (OMNI/all-cables/
+  full-range, already receiver-filtered at capture) when the door is latched. **(4) DRAG&DROP unplaced-colour
+  routing:** a freshly-added colour has no placed cell, so `editCellsOfColour` no-op'd and the receiver/emitter
+  buttons didn't respond; the synthetic `ddMachineryCell` now seeds from the page STICKY, and `editPointedCell`
+  writes the routing intent to the sticky (`ddApplyStickyRoutingMutation`) when the colour has no cells — so the
+  buttons show + stick, and a later placement inherits it. Tests: `testBypassInjectsTheFrozenLatchPoolNotLive` +
+  `testLatchedPoolFeedsCellReadingReceiverTwo` (Router). ⚠ STILL REQUIRED for grid audio (not a bug): a PLACED cell
+  reading that receiver + transport PLAYING; a fresh/blank instance has neither, so BYPASS (works stopped, no cell)
+  is now the quick monitor. Cable was NOT the issue (cable 0 passes every filter path — verified). **(5) THE ACTUAL
+  "nothing plays on a fresh instance" ROOT CAUSE (Models.makeInit):** the default instance places 4 GOLD cells in
+  the top row, but `synthesizeReceiversIfNeeded()` (which points every cell at R1) ran BEFORE the cells were added
+  (line 913 vs 917) — so those cells had `inputReceiver = nil` ⇒ `resolvedReceiver = −1` ⇒ effectivePool returns
+  the LIVE pool and NEVER the frozen/latch pool. They played live MIDI but were structurally blind to LATCH/PIANO.
+  Fixed by seeding the makeInit cells with `inputReceiver = 0` (R1 is OMNI, so live input is identical; now they also
+  hear R1's latch). `defaultArc` was unaffected (it calls synthesize AFTER placing cells). ⚠ NOTE: other factory
+  presets (SceneFactory, the LADDER family) create cells then normalise via synthesize, so they're fine — but any
+  preset that adds cells AFTER synthesize would hit the same trap.**
 - **▶ THE MOD PROCESSOR — the CC GENERATOR (2026-08-10, on `main`, PUSHED next; macOS 561 green, iOS builds; DEVICE
   ear/eye owed). From the v3.0 delta brief "THE MOD PROCESSOR (CC shapes)" — the "OUT OF SCOPE: CC/LFO generators"
   verdict was revised for a BEAT-DERIVED, per-cell, emission-stamped CC (one-clock pure, replay-safe). User forks:

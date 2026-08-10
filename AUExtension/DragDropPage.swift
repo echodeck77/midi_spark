@@ -345,7 +345,14 @@ extension DiagView {
     private var ddMachineryCell: Cell? {
         if let c = editingCell { return c }
         guard let cid = ddSelectedColourID else { return nil }
-        return Cell(colourID: cid)
+        // No placed cell yet: show the machine on a synthetic cell seeded with the page's STICKY routing, so the
+        // receiver / emitter buttons DISPLAY the current default AND visibly respond when tapped (the tap updates the
+        // sticky — see editPointedCell — and a later placement inherits it). Without this the buttons no-op'd because
+        // editCellsOfColour had no cells to write to. (user 2026-08-10)
+        var c = Cell(colourID: cid)
+        c.inputReceiver = ddStickyReceiver
+        c.buses = ddStickyBuses.isEmpty ? [] : ddStickyBuses
+        return c
     }
     @ViewBuilder private func ddMachinery(width: CGFloat) -> some View {
         if editArmed, let cell = ddMachineryCell {
@@ -469,6 +476,18 @@ extension DiagView {
         guard let c = editingCell else { return }
         ddStickyReceiver = c.inputReceiver ?? 0
         ddStickyBuses = c.buses.isEmpty ? [.a] : c.buses
+    }
+    /// The placed cells of a colour — the cross-file-visible read `editPointedCell` uses to detect an unplaced colour.
+    func ddColourCellsPublic(_ id: String) -> [GridView.GridPos] { ddColourCells(id) }
+    /// UNPLACED-colour routing: apply a cell mutation to a synthetic cell carrying the current sticky routing, then
+    /// read the result back into the sticky — so a receiver/emitter tap on a not-yet-placed colour sticks + shows.
+    func ddApplyStickyRoutingMutation(_ id: String, _ mutate: (inout Cell) -> Void) {
+        var c = Cell(colourID: id)
+        c.inputReceiver = ddStickyReceiver
+        c.buses = ddStickyBuses
+        mutate(&c)
+        ddStickyReceiver = c.inputReceiver ?? 0
+        ddStickyBuses = c.buses
     }
     /// A fresh cell of `id` with the STICKY routing (last chosen · else R1/Emitter A) and the colour's machine (nil → template).
     private func ddNewborn(_ id: String) -> Cell {
