@@ -358,10 +358,19 @@ extension DiagView {
     // each 50% of screen width, head first, plus [+ ADD] (≤ 8 slots). Stage 1 renders the HEAD; slots 2…8 are
     // stored + editable but not yet executed (serial run is Phase 2). Reuses ProcessorBox in `slotMode`.
     func cellChain(_ cell: Cell) -> [ProcessorSlot] {         // the cell's effective chain — the engine's 3-tier resolution
-        if let p = cell.processors { return p }                       // per-cell OVERRIDE (incl. an EXPLICIT empty chain = passthrough)
-        let c = docColours.first { $0.colourID == cell.colourID }
-        if let t = c?.templateChain, !t.isEmpty { return t }          // colour TEMPLATE (the per-colour machine — matches the builder)
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
+        let resolved: [ProcessorSlot]
+        if let p = cell.processors { resolved = p }                   // per-cell OVERRIDE (incl. an EXPLICIT empty chain = passthrough)
+        else {
+            let c = docColours.first { $0.colourID == cell.colourID }
+            if let t = c?.templateChain, !t.isEmpty { resolved = t }  // colour TEMPLATE (the per-colour machine — matches the builder)
+            else { return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())] }   // legacy A face (a real slot)
+        }
+        // A DELETED-EMPTY chain is stored as the passthrough representation — a single BYPASSED PASSGATE — because an
+        // empty `templateChain` would be read as "no template" and fall back to the colour's A-face (the arp would
+        // reappear). For DISPLAY/editing, unwrap that placeholder to EMPTY so the flow diagram invites "+ ADD
+        // PROCESSOR" instead of showing a stray passgate. (user 2026-08-10: "delete an arp → replaced with a passgate")
+        if resolved.count == 1, resolved[0].type == .passgate, resolved[0].bypassed { return [] }
+        return resolved
     }
     @ViewBuilder func chainStack(_ cell: Cell, boxWidth: CGFloat) -> some View {
         let chain = cellChain(cell)
