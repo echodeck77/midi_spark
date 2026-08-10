@@ -390,11 +390,16 @@ final class Kernel {
     #endif
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
 
-    func reset() {
+    // reset() arrives on the CONTROL thread (the AU's reset:, e.g. AUM disabling the plugin) and must NOT mutate the
+    // render-shared state (pool / voices / router arrays) there — it races the render thread → a malloc crash (device
+    // 2026-08-10). So it only FLAGS; the flush runs at the top of render() on the render thread (performReset below).
+    private var pendingReset = false
+    func reset() { pendingReset = true }
+    private func performReset() {
         pool.reset()
         liveEmitter.out = midiOut       // pick up the current host block before flushing
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
-        router.reset()
+        router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
     }
 
     // MARK: - render
@@ -404,6 +409,7 @@ final class Kernel {
                 events: UnsafePointer<AURenderEvent>?) {
 
         guard let box = store?.acquire() else { return }
+        if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
         receiverControllerMask = box.receiverControllerMask   // CONTROLLER ROUTING: per-door forward masks

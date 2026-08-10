@@ -475,7 +475,14 @@ final class Router {
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill)
     }
 
-    func reset() {
+    // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
+    // the render thread already inside process()/flushMod, so mutating the render-state arrays here corrupted the
+    // Swift-Array refcounts → a malloc double-free crash (device 2026-08-10). So reset() only RAISES A FLAG; the
+    // actual clear runs at the top of process() on the render thread, where it can't race. If no render follows
+    // (teardown), nothing is left to clear anyway.
+    private var pendingReset = false
+    func reset() { pendingReset = true }
+    private func performReset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max; voices[i].silent = false }
         for i in refcount.indices { refcount[i] = 0 }
         distinctSounding = 0
@@ -1380,6 +1387,7 @@ final class Router {
                  preview: (active: Bool, colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) = (false, -1, 0, 0, -1),
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
+        if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         self.tapAltMask = tapAltMask   // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell alt flips
         self.tapMuteMask = tapMuteMask; self.soloEmitterMask = soloEmitterMask   // §9 item 1 ON TAP actions (4b)
         self.soloCellMask = soloCellMask           // EDIT "play this cell only" — silence every cell outside the set
