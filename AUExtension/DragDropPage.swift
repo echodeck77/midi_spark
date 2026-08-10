@@ -458,8 +458,8 @@ extension DiagView {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.05))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.7), lineWidth: 1.5)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(ddSelHue.opacity(0.08))        // the SELECTED colour (user 2026-08-10)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ddSelHue.opacity(0.8), lineWidth: 2)))
         .background(ddZone("actionBox"))                      // measure for the connector line
     }
     // The dashed connector from the action box to the FINAL processor slot — drawn at the page level in "dd" space
@@ -467,10 +467,10 @@ extension DiagView {
     @ViewBuilder func ddActionLine() -> some View {
         if editArmed, let a = ddZones["actionBox"], let p = ddZones["procLast"] {
             Path { path in
-                path.move(to: CGPoint(x: a.midX, y: a.maxY))   // action box bottom-centre
-                path.addLine(to: CGPoint(x: p.midX, y: p.midY))   // final processor box centre
+                path.move(to: CGPoint(x: p.midX, y: p.minY))     // the FINAL processor box's TOP-CENTRE
+                path.addLine(to: CGPoint(x: p.midX, y: a.maxY))  // straight UP to join the box (vertical) (user 2026-08-10)
             }
-            .stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
+            .stroke(ddSelHue, style: StrokeStyle(lineWidth: 2, lineCap: .round))   // the SELECTED colour
             .allowsHitTesting(false)
         }
     }
