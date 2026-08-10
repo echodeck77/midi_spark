@@ -98,9 +98,9 @@ struct ReceiverConfigView: View {
             if piano { pianoKeyboard(i, r) }
         }
     }
-    // The on-screen keyboard (PIANO latch): a 3-octave piano (C3…B5); tap a key to pick/unpick it into the frozen pool.
+    // The on-screen keyboard (PIANO latch): a 1-octave piano (C3…B3); tap a key to pick/unpick it into the frozen pool.
     private func pianoKeyboard(_ i: Int, _ r: Receiver) -> some View {
-        let startNote = 48, octaves = 3, whiteCount = octaves * 7   // C3
+        let startNote = 48, octaves = 1, whiteCount = octaves * 7   // C3 (user 2026-08-10: one octave)
         let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
         let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]   // white-index-in-octave → the black key's semitone
         let selected = Set(r.pianoNotesResolved)
