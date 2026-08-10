@@ -115,6 +115,21 @@ func ccName(_ n: Int) -> String? {
     }
 }
 
+/// CONTROLLER ROUTING (v1): the union emitter mask (A–D) an incoming controller forwards to — the OR of the
+/// CONTROLLERS masks of every door that HEARS it (channel + cable). Pure/testable.
+func controllerForwardMask(hearing: [Bool], masks: [UInt8]) -> UInt8 {
+    var m: UInt8 = 0
+    for i in 0..<min(hearing.count, masks.count) where hearing[i] { m |= masks[i] }
+    return m & 0b1111
+}
+
+/// True if a status byte is a channel CONTROLLER we re-route (CC · Program Change · Channel Pressure/AT · Pitch Bend).
+/// Poly-pressure (0xA0) is parked with MPE. Pure.
+func isForwardableController(_ status: UInt8) -> Bool {
+    let s = status & 0xF0
+    return s == 0xB0 || s == 0xC0 || s == 0xD0 || s == 0xE0
+}
+
 /// The "standard" resting value of a CC — what a MOD target reverts to when ABANDONED (the CC# swept past it). Volume
 /// / expression / cutoff → full · pan / balance → centre · everything else → off. Pure. (So sweeping the target knob
 /// past CC7 doesn't leave the synth's volume knocked down — user 2026-08-10.)

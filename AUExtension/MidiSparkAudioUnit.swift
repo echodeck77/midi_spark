@@ -338,6 +338,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // BYPASS (§1/§2): the door injects straight to emitters, skipping the grid. Toggle (strip) + destinations (cog).
     func toggleReceiverBypass(_ i: Int)              { editReceiver(i) { $0.bypass = !($0.bypassResolved) } }
     func setReceiverBypassDest(_ i: Int, _ mask: Int) { editReceiver(i) { $0.bypassDest = mask & 0b1111 } }
+    func setReceiverControllerMask(_ i: Int, _ mask: Int) { editReceiver(i) { $0.controllerMask = mask & 0b1111 } }   // CONTROLLER ROUTING
     // §MPE (cog page, 2026-07-xx — supersedes the 2026-07-25 "no UI, silent auto-detect" ruling): the mpeMerge
     // field is now surfaced as an explicit per-receiver toggle, PLUS a live auto-detect indicator (mpeLikely).
     func setReceiverMpeMerge(_ i: Int, _ on: Bool) { editReceiver(i) { $0.mpeMerge = on } }

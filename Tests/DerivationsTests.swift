@@ -1557,6 +1557,20 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modStrikeUnipolar(t: 1.0,  attack: 0.5, release: 1.0), 0.5, accuracy: 1e-9, "falling")
         XCTAssertEqual(modStrikeUnipolar(t: 2.0,  attack: 0.5, release: 1.0), 0,   accuracy: 1e-9, "rests at 0")
     }
+    func testControllerForwardMask() {
+        // Only doors that HEAR the controller contribute; the emitter mask is their union.
+        XCTAssertEqual(controllerForwardMask(hearing: [true, false, false, false], masks: [0b0001, 0b1111, 0b1111, 0b1111]), 0b0001, "one door → emitter A")
+        XCTAssertEqual(controllerForwardMask(hearing: [true, true, false, false], masks: [0b0001, 0b0010, 0b1111, 0b1111]), 0b0011, "two doors OR their masks")
+        XCTAssertEqual(controllerForwardMask(hearing: [false, false, false, false], masks: [0b1111, 0b1111, 0b1111, 0b1111]), 0, "no door hears it → nothing forwards")
+    }
+    func testIsForwardableController() {
+        XCTAssertTrue(isForwardableController(0xB3), "CC")
+        XCTAssertTrue(isForwardableController(0xE0), "pitch bend")
+        XCTAssertTrue(isForwardableController(0xD5), "channel pressure / AT")
+        XCTAssertTrue(isForwardableController(0xC0), "program change")
+        XCTAssertFalse(isForwardableController(0x90), "note-on is not a controller")
+        XCTAssertFalse(isForwardableController(0xA0), "poly pressure is parked (MPE)")
+    }
     func testCCNamedDozen() {
         XCTAssertEqual(ccName(74), "CUTOFF")
         XCTAssertEqual(ccName(1),  "MOD WHEEL")

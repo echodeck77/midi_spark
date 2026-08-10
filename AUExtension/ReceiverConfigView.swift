@@ -50,6 +50,7 @@ struct ReceiverConfigView: View {
             latchSection(i, r)
             transposeRow(i)
             bypassSection(i, r)
+            controllersSection(i, r)
             muteSoloRow(i, r)
         }
         .padding(16)
@@ -165,6 +166,26 @@ struct ReceiverConfigView: View {
     // (MPE toggle + auto-detect RETIRED 2026-08-06 per the design ruling — the UI must not promise what nothing
     //  reads yet [manual-honesty law]. Receiver.mpeMerge stays Codable + setReceiverMpeMerge stays, reserved for
     //  the two-lane expression era; mpeLikely is kept as the future detection heuristic.)
+
+    // CONTROLLERS → [A·B·C·D] (controller-routing v1): incoming CC · PB · AT · PC arriving at this door forward to the
+    // selected emitters, re-stamped to each emitter's channel. Default ALL-LIVE (the mod wheel reaches every synth).
+    private func controllersSection(_ i: Int, _ r: Receiver) -> some View {
+        let mask = Int(r.controllerMaskResolved)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("Controllers to Emitters").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { d in
+                    let sel = mask & (1 << d) != 0
+                    Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? .black : ink.opacity(0.6))
+                        .frame(width: 34, height: 30)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(sel ? cyan : ink.opacity(0.1)))
+                        .contentShape(Rectangle()).onTapGesture { au?.setReceiverControllerMask(i, mask ^ (1 << d)); onChanged() }
+                }
+                Text("CC · bend · AT · PC, re-stamped").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.leading, 6)
+            }
+        }
+    }
 
     // MUTE · SOLO — same behaviour as the grid (onToggleMute / onToggleSolo).
     private func muteSoloRow(_ i: Int, _ r: Receiver) -> some View {

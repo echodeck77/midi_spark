@@ -200,6 +200,7 @@ enum SnapshotBuilder {
         // BYPASS (§1/§2): which doors inject straight to emitters + each door's destination emitter mask (A–D).
         let receiverBypassMask = packMask(doc.receiversResolved.map { $0.bypassResolved })
         let receiverBypassDest = doc.receiversResolved.map { $0.bypassDestResolved }
+        let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -240,6 +241,7 @@ enum SnapshotBuilder {
                            receiverRangeHi: receiverRangeHi,
                            receiverBypassMask: receiverBypassMask,
                            receiverBypassDest: receiverBypassDest,
+                           receiverControllerMask: receiverControllerMask,
                            macroValues: macroVals)
     }
 

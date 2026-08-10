@@ -225,6 +225,8 @@ final class Kernel {
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]                       // RANGE (§2): note window for the latch capture (upstream of latch)
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
+    private var receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // CONTROLLER ROUTING (v1): per-door emitter forward mask
+    private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
@@ -394,6 +396,8 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
+        receiverControllerMask = box.receiverControllerMask   // CONTROLLER ROUTING: per-door forward masks
+        busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
         latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode
@@ -607,9 +611,32 @@ final class Kernel {
             // CC121 = Reset All Controllers → clear the store (§11). Note-agnostic; the note pipeline never sees this.
             if status == 0xB0, length >= 3 {
                 if bytes[1] == 121 { router.clearControllerIn() } else { router.setControllerIn(cc: Int(bytes[1]), value: Int(bytes[2])) }
+                // CC120/123 = ALL-SOUND / ALL-NOTES-OFF (ratified) → FLUSH our held pool + every armed latch, then forward.
+                if bytes[1] == 120 || bytes[1] == 123 { pool.reset(); for p in latchedPools { p.reset() } }
             }
         }
-        // §2.6 (reconciled to §7b): CC/PB/AT + stopped-note passthrough go out on All (0) + Emit A (1).
+        // CONTROLLER ROUTING (v1): CC · PB · AT · PC forward to each door's CONTROLLERS emitters (union), RE-STAMPED to
+        // the emitter's stamp channel + cable. SUPERSEDES the old CC/PB/AT passthrough (All + Emit A). Notes (soundcheck)
+        // + system keep the passthrough below. (Ownership suppression — a BEND/MOD stage owning an address — is the
+        // reserved rule, not v1: for now forward + generate both, last-writer.)
+        if isForwardableController(bytes[0]), let out = midiOut {
+            var hearing = [false, false, false, false]
+            for i in 0..<4 where receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
+                              && receiverHears(filter: receiverChannels[i], channel: channel) { hearing[i] = true }
+            let fwd = controllerForwardMask(hearing: hearing, masks: receiverControllerMask)
+            if fwd != 0 {
+                let n = min(length, 3)
+                for i in 0..<n { passthroughScratch[i] = bytes[i] }
+                var m = fwd
+                while m != 0 {
+                    let bus = Int(m.trailingZeroBitCount); m &= m - 1
+                    passthroughScratch[0] = (bytes[0] & 0xF0) | ((busChannels[bus] &- 1) & 15)   // RE-STAMP the channel
+                    _ = out(sampleTime, UInt8(bus + 1), n, &passthroughScratch)                  // emitter cable (A=1…D=4)
+                }
+            }
+            return   // controller handled by the routing forward — skip the legacy passthrough
+        }
+        // §2.6 (reconciled to §7b): stopped-note passthrough (soundcheck) go out on All (0) + Emit A (1).
         // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.
         let pNote = length >= 2 ? bytes[1] : 0
         let pVel  = length >= 3 ? bytes[2] : 0

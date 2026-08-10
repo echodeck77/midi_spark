@@ -413,6 +413,11 @@ struct Receiver: Codable, Equatable {
     var cable: Int? = nil
     /// The cable bitmask, nil-safe: missing ⇒ ANY (hears every cable). Non-persisting read helper.
     var cableResolved: Int { cable ?? 0b1111 }
+    // CONTROLLER ROUTING (v1, spec AcceptanceCriteria-controller-routing): the emitters (A–D bitmask) this door
+    // forwards incoming CC · PB · AT · PC to, RE-STAMPED to each emitter's channel. Optional so old docs decode
+    // nil ⇒ ALL-LIVE (all four). Persisted rig config.
+    var controllerMask: Int? = nil
+    var controllerMaskResolved: UInt8 { UInt8((controllerMask ?? 0b1111) & 0b1111) }
     // KEYS | CHORD (was "TWO LATCH MODES", ferry 2026-07-27; the toggle moved to the STRIP 2026-08-03): the
     // per-receiver latch update rule, stored in `latchAdd` (name kept for decode-compat). true = KEYS (per-note
     // toggle — each note-on toggles frozen-pool membership); false = CHORD (detect-and-replace — chord clears &
