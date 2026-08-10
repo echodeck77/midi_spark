@@ -32,6 +32,16 @@ enum Dice {
     // PASSGATE is excluded — open = no-op (never contributes), closed = silence (kills the chain); both degenerate.
     static let types: [ProcessorType] = [.arp, .ratchet, .strum, .chance, .harmonize,
                                          .echo, .euclid, .burst, .cascade, .drone, .shift, .humanize]
+    // WEIGHTED pick (user 2026-08-10): lean HARD into the rhythmic / swelling processors (arp · ratchet · euclid ·
+    // burst · cascade · drone), and pull HARMONIZE right down — its fixed intervals drift out of key and there's no
+    // scale-correction yet (raise it once a KEY-LOCK processor lands). Weights = repeats in the pool.
+    static let weightedTypes: [ProcessorType] =
+        Array(repeating: .arp,      count: 4) + Array(repeating: .ratchet, count: 4) +
+        Array(repeating: .euclid,   count: 4) + Array(repeating: .burst,   count: 3) +
+        Array(repeating: .cascade,  count: 3) + Array(repeating: .drone,   count: 3) +
+        Array(repeating: .humanize, count: 2) + Array(repeating: .shift,   count: 2) +
+        Array(repeating: .strum,    count: 2) + Array(repeating: .chance,  count: 2) +
+        Array(repeating: .echo,     count: 2) + Array(repeating: .harmonize, count: 1)   // MUCH LESS harmonizer
 
     /// The continuous (Double, 0…1-ish) params a SLIDER can morph.
     enum DParam: CaseIterable { case gate, probability, spread, curve, ramp }
@@ -117,7 +127,7 @@ enum Dice {
     // MARK: - generation
 
     static func randomSlot(using rng: inout some RandomNumberGenerator) -> ProcessorSlot {
-        var s = ProcessorSlot(type: types.randomElement(using: &rng)!)
+        var s = ProcessorSlot(type: weightedTypes.randomElement(using: &rng)!)   // rhythmic/swelling-weighted (user 2026-08-10)
         s.params.rate = ArpRate.allCases.randomElement(using: &rng)
         s.params.octaves = Int.random(in: 1...3, using: &rng)
         s.params.gate = Double.random(in: 0.3...0.95, using: &rng)
@@ -137,37 +147,40 @@ enum Dice {
     /// A chain of `target` slots (repeated types allowed) where EVERY slot CONTRIBUTES: build up, keeping a slot only if
     /// it changes the output; then PRUNE any slot whose bypass no longer changes the output (a later slot can mask an
     /// earlier one), repeated until stable — so bypassing any surviving slot has a tangible effect.
-    private static func prune(_ c: inout [ProcessorSlot]) {
-        var changed = true
-        while changed {
-            changed = false
-            let full = signature(c)
-            for k in (0..<c.count).reversed() where !contributes(c, slot: k, sigFull: full) {
-                c.remove(at: k); changed = true; break   // one removal, then recompute the full signature
-            }
-        }
+    /// True iff the chain is audible AND EVERY slot contributes — the invariant the build maintains at each step.
+    static func allContribute(_ chain: [ProcessorSlot]) -> Bool {
+        guard !chain.isEmpty else { return false }
+        let full = signature(chain)
+        guard !full.isEmpty else { return false }
+        for k in 0..<chain.count where !contributes(chain, slot: k, sigFull: full) { return false }
+        return true
     }
-    static func rollChain(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
+    /// Grow an ALL-CONTRIBUTING chain toward `target`: add a slot only if the whole chain stays audible AND every slot
+    /// still contributes (a cheap "did it change?" pre-filter guards the expensive all-contributing check). No pruning
+    /// — the invariant holds at every step. A light diversity nudge avoids same-type collapses (arp→arp masks).
+    private static func buildAllContributing(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
         var chain: [ProcessorSlot] = []
-        var sig = signature(chain)                               // the empty chain = passthrough (the held chord)
-        var budget = (target + 4) * 4                            // build HIGH (target+4): keep a slot only if it CHANGES the output and stays AUDIBLE
-        while chain.count < target + 4 && budget > 0 {
+        var sig = signature(chain)
+        var budget = target * 30
+        while chain.count < target && budget > 0 {
             budget -= 1
-            let trial = chain + [randomSlot(using: &rng)]
+            var cand = randomSlot(using: &rng)
+            if cand.type == chain.last?.type { cand = randomSlot(using: &rng) }   // nudge away from immediate repeats
+            let trial = chain + [cand]
             let tsig = signature(trial)
-            if tsig != sig && !tsig.isEmpty { chain = trial; sig = tsig }
-        }
-        prune(&chain)                                            // enforce ALL-CONTRIBUTING (a later slot can mask an earlier one)
-        budget = 16                                              // SAFETY TOP-UP only if pruning cut it below 4 (the expensive per-candidate prune)
-        while chain.count < 4 && budget > 0 {
-            budget -= 1
-            let trial = chain + [randomSlot(using: &rng)]
-            let tsig = signature(trial)
-            guard tsig != signature(chain), !tsig.isEmpty else { continue }
-            var t2 = trial; prune(&t2)
-            if t2.count > chain.count { chain = t2 }
+            guard tsig != sig, !tsig.isEmpty else { continue }                    // cheap: changed + audible
+            if allContribute(trial) { chain = trial; sig = tsig }                 // expensive: full invariant, only on promising candidates
         }
         return chain
+    }
+    static func rollChain(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
+        var best: [ProcessorSlot] = []                          // a few whole-build attempts; keep the LONGEST all-contributing chain
+        for _ in 0..<3 {
+            let c = buildAllContributing(target: target, using: &rng)
+            if c.count > best.count { best = c }
+            if best.count >= target { break }
+        }
+        return best
     }
 
     /// Up to 4 SLIDER macros — each morphs one (slot, Double-param) toward the far end of its range, KEPT only if that
@@ -205,7 +218,7 @@ enum Dice {
                 let m = ButtonMacro(op: .bypass(k), label: "BYP \(k + 1)")
                 if !out.contains(m) { out.append(m) }                       // a contributing slot's bypass always changes output
             } else {
-                let t = types.filter { $0 != base[k].type }.randomElement(using: &rng)!
+                let t = weightedTypes.filter { $0 != base[k].type }.randomElement(using: &rng)!   // weighted switch target (user 2026-08-10)
                 let m = ButtonMacro(op: .switchType(k, t), label: "\(shortName(t))\(k + 1)")
                 if out.contains(where: { if case .switchType(k, _) = $0.op { return true } else { return false } }) { continue }
                 var alt = base; alt[k].type = t
