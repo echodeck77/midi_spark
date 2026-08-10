@@ -287,11 +287,18 @@ enum SnapshotBuilder {
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
         if let v = p.modCC { out.modCC = clamp(v, 0, 127) }
+        if let v = p.modSource { out.modSource = v }
         if let v = p.modShape { out.modShape = v }
         if let v = p.modRate { out.modRate = v }
         if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
         if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
         if let v = p.modReset { out.modReset = v }
+        if let v = p.modFollow { out.modFollow = v }
+        if let v = p.modSteps, !v.isEmpty { out.modSteps = (0..<8).map { clamp(v[$0 % v.count], 0, 127) } }
+        if let v = p.modSmooth { out.modSmooth = v }
+        if let v = p.modAttack { out.modAttack = clamp(v, 0.01, 4) }
+        if let v = p.modRelease { out.modRelease = clamp(v, 0.01, 4) }
+        if let v = p.modExternCC { out.modExternCC = clamp(v, 0, 127) }
         return out
     }
 }

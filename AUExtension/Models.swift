@@ -31,6 +31,11 @@ enum ModRate: String, Codable, CaseIterable {
         switch self { case .r1_8: 0.125; case .r1_4: 0.25; case .r1_2: 0.5; case .r1: 1; case .r2: 2; case .r4: 4; case .r8: 8; case .r16: 16; case .r32: 32 }
     }
 }
+// CC-stage §1 SOURCE — the stage's spine. SHAPE = an LFO · FOLLOW = tracks the sounding material · STEPS = an
+// 8-step pattern · STRIKE = a per-entry AR envelope · EXTERN = re-emits an incoming CC, transformed. §12 append-only.
+enum ModSource: String, Codable, CaseIterable { case shape = "SHAPE", follow = "FOLLOW", steps = "STEPS", strike = "STRIKE", extern = "EXTERN" }
+// FOLLOW — WHICH property of the sounding material drives the CC. §12 append-only.
+enum ModFollow: String, Codable, CaseIterable { case density = "DENSITY", register = "REGISTER", count = "COUNT", vel = "VEL" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 enum StepRate: String, Codable, CaseIterable {
@@ -101,8 +106,15 @@ struct ColourParams: Codable, Equatable {
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
     var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
-    var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H
-    var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle)
+    var modSource: ModSource? = .shape  // the SOURCE spine (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN)
+    var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H  (SHAPE)
+    var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle) — SHAPE · STEPS (steps span one period)
+    var modFollow: ModFollow? = .register   // FOLLOW: which sounding property drives the CC
+    var modSteps: [Int]? = nil          // STEPS: 8 values 0…127 (nil → a rising staircase)
+    var modSmooth: Bool? = true         // STEPS: SMOOTH (interpolate) vs STEP (hold)
+    var modAttack: Double? = 0.15       // STRIKE: attack, beats (rise to MAX on entry)
+    var modRelease: Double? = 0.6       // STRIKE: release, beats (fall back to MIN)
+    var modExternCC: Int? = 1           // EXTERN: the incoming CC# read + transformed (1 = mod wheel)
     // MIN/MAX (CC-stage §1 row 3): the shape maps 0…1 → [min, max]. RANGE is depth AND polarity — MIN > MAX inverts
     // (no invert chip). RESET leaves the CC to MIN on column exit. (Supersedes the interim `depth`.)
     var modMin: Int? = 0                // the shape's floor (0…127)

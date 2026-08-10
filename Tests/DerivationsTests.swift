@@ -1536,6 +1536,33 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modCCValue(.ramp, phase: 0,     min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 100, "inverted: phase 0 → MIN (high)")
         XCTAssertEqual(modCCValue(.ramp, phase: 0.999, min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 20,  "inverted: peak → MAX (low)")
     }
+    func testModFollowUnipolar() {
+        XCTAssertEqual(modFollowUnipolar(.count, count: 0, meanNote: 0, meanVel: 0), 0, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.count, count: 4, meanNote: 60, meanVel: 100), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.count, count: 8, meanNote: 60, meanVel: 100), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.register, count: 1, meanNote: 60, meanVel: 100), (60.0 - 24) / 72, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.register, count: 0, meanNote: 60, meanVel: 100), 0, "no notes → 0")
+        XCTAssertEqual(modFollowUnipolar(.vel, count: 1, meanNote: 60, meanVel: 127), 1.0, accuracy: 1e-9)
+    }
+    func testModStepsPattern() {
+        let steps = [0, 127, 0, 127, 0, 127, 0, 127]
+        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.01,  smooth: false), 0, accuracy: 1e-9, "step 0 low")
+        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.13,  smooth: false), 1, accuracy: 1e-9, "step 1 high")
+        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.0625, smooth: true), 0.5, accuracy: 0.05, "SMOOTH interpolates between steps")
+    }
+    func testModStrikeEnvelope() {
+        XCTAssertEqual(modStrikeUnipolar(t: 0,    attack: 0.5, release: 1.0), 0,   accuracy: 1e-9)
+        XCTAssertEqual(modStrikeUnipolar(t: 0.25, attack: 0.5, release: 1.0), 0.5, accuracy: 1e-9, "rising")
+        XCTAssertEqual(modStrikeUnipolar(t: 0.5,  attack: 0.5, release: 1.0), 1.0, accuracy: 1e-9, "peak")
+        XCTAssertEqual(modStrikeUnipolar(t: 1.0,  attack: 0.5, release: 1.0), 0.5, accuracy: 1e-9, "falling")
+        XCTAssertEqual(modStrikeUnipolar(t: 2.0,  attack: 0.5, release: 1.0), 0,   accuracy: 1e-9, "rests at 0")
+    }
+    func testCCNamedDozen() {
+        XCTAssertEqual(ccName(74), "CUTOFF")
+        XCTAssertEqual(ccName(1),  "MOD WHEEL")
+        XCTAssertEqual(ccName(11), "EXPRESSION")
+        XCTAssertNil(ccName(3), "an unnamed CC → nil")
+    }
     func testModSampleHoldIsHeldAndReplaySafe() {
         let a1 = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 5)
         let a2 = modUnipolar(.sampleHold, phase: 0.9, column: 2, cc: 74, cycleIndex: 5)

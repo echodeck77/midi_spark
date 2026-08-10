@@ -99,11 +99,18 @@ struct SnapParams {
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
+    var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
     var modShape: ModShape = .sine       // WAVE
     var modRate: ModRate = .r2           // LFO period (beats/cycle)
     var modMin: Int = 0                  // shape floor  (MIN)
     var modMax: Int = 127                // shape ceiling (MAX); MIN > MAX inverts
     var modReset: Bool = true            // ON LEAVE: reset to MIN on column exit
+    var modFollow: ModFollow = .register // FOLLOW: which property
+    var modSteps: [Int] = [0, 18, 36, 54, 72, 90, 108, 127]   // STEPS: 8 values 0…127 (default rising staircase)
+    var modSmooth: Bool = true           // STEPS: SMOOTH vs STEP
+    var modAttack: Double = 0.15         // STRIKE attack (beats)
+    var modRelease: Double = 0.6         // STRIKE release (beats)
+    var modExternCC: Int = 1             // EXTERN source CC#
 }
 
 struct SnapColour {

@@ -173,6 +173,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (macro-bindable). **TESTS:** 5 Router (standalone CC+no-notes · [ARP→MOD] · [MOD→ARP] · reset-disposition differential ·
   replay-safe) + 3 Derivations (sine/ramp/S&H) + `.mod` in the fuzz `randomDoc` (no stuck notes across every edge).
   ⚠ v1 LIMITS (tunable follow-ups): ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
+- **▶ MOD CC-STAGE §1 — the SOURCE spine: FOLLOW · STEPS · STRIKE · EXTERN + labelled CCs (2026-08-10, on `main`,
+  PUSHED next; macOS 570 green, iOS builds; DEVICE ear owed). Builds out the CC-stage §1 SOURCE radio on the MOD
+  processor (was SHAPE-only). `ModSource{shape·follow·steps·strike·extern}` + the row-2 reshaping UI; every source
+  produces a unipolar [0,1] mapped through the universal MIN/MAX row (`modMap`). **FOLLOW** (`ModFollow` density·
+  register·count·vel) — the CC tracks the cell's sounding pool (count/8 · mean pitch C1…C7 · mean vel; density = pool
+  fullness v1). **STEPS** — an 8-value pattern (`modSteps`, drag-to-draw bar editor) across one RATE period, SMOOTH|
+  STEP. **STRIKE** — a per-column-ENTRY AR envelope (`modAttack`/`modRelease` beats; the design defers per-NOTE STRIKE
+  to the BEND machinery, so v1 triggers on entry — beat-derived, replay-safe). **EXTERN** — reads an incoming CC
+  (`modExternCC`) from a new controller VALUE STORE (`Router.controllerIn`, cc→value, channel-agnostic v1; the Kernel
+  writes it from `handleIncoming`, CC121 clears it — the §7 side-rail, never through the note pipeline) and re-emits it
+  on the TARGET, re-ranged via MIN/MAX (inversion/re-target free). **Labelled CCs** (`ccName` — the named dozen, "74 ·
+  CUTOFF") on the TARGET + EXTERN-source pickers. Pure fns + tests: modFollowUnipolar·modStepsUnipolar·modStrike-
+  Unipolar·ccName (Derivations) + 4 Router (follow-tracks-count · steps-pattern · strike-envelope · extern-retransmit).
+  Deferred (design shelf): FOLLOW window-averaging + true event-rate density · per-NOTE STRIKE (with BEND) · EXTERN
+  SCALE-mode/curve/per-channel · CC-CHOP · SPAN CELL|PHRASE|FREE · the tactile curve-as-fader · ownership rail · busses.**
 - **▶ MOD → CC-STAGE §1 alignment (2026-08-10, on `main`, PUSHED next; macOS 562 green, iOS builds; DEVICE ear owed).
   Advancing MOD toward the CC-STAGE design ferry (`Docs/design-cc-stage-tactile-2026-08-09.md`, filed from the inbox;
   MOD = its SHAPE source). **WAVE** now SINE·TRI·SQR·RAMP·S&H (added triangle+square). **RATE** is a dedicated

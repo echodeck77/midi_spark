@@ -235,8 +235,12 @@ final class Router {
     // THE MOD PROCESSOR (CC generator): a beat-derived shaped CC on the active column's MOD cells. Emitted at a
     // control grid; deduped per (cable,channel,cc) so a held value doesn't re-send; RESET on column exit.
     private var modLastColumn: Int32 = -1                                     // the column whose MOD cells emitted last (reset when it exits)
+    private var modColumnEntryBeat = 0.0                                      // STRIKE: the beat the active column became active (AR trigger)
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
     private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
+    // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
+    // (side rail, §7 READ-AT-SOURCE); a MOD stage in EXTERN mode reads + transforms it. -1 = never seen.
+    private var controllerIn = [Int16](repeating: -1, count: 128)
     private var prevPreviewActive = false
     private var previewPrevColumn = -1        // the virtual cell's column-transition edge (strum reset / chord-hold re-emit)
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
@@ -471,7 +475,7 @@ final class Router {
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
-        modLastColumn = -1; for i in modLastVal.indices { modLastVal[i] = -1 }   // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
+        modLastColumn = -1; modColumnEntryBeat = 0; for i in modLastVal.indices { modLastVal[i] = -1 }   // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
     }
 
     // MARK: parameter overrides
@@ -1577,8 +1581,8 @@ final class Router {
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
-        // THE MOD PROCESSOR: shaped CC on the active column's MOD cells — BEFORE the pool guard (MOD needs no keys down).
-        emitColumnMod(box: box, column: effColumn, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
+        // THE MOD PROCESSOR: CC on the active column's MOD cells — BEFORE the pool guard (MOD needs no keys down).
+        emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
                       beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
@@ -1678,16 +1682,47 @@ final class Router {
         diag.distinctSounding = distinctSounding
     }
 
+    // EXTERN side-rail (§7 READ AT SOURCE): the Kernel reports an incoming CC value into the store the MOD EXTERN
+    // source reads + transforms. Never threads the note pipeline. CC121 (reset-all-controllers) clears it (Kernel).
+    func setControllerIn(cc: Int, value: Int) {
+        guard cc >= 0 && cc < 128 else { return }
+        controllerIn[cc] = Int16(max(0, min(127, value)))
+    }
+    func clearControllerIn() { for i in controllerIn.indices { controllerIn[i] = -1 } }
+
     // MARK: - THE MOD PROCESSOR (CC generator, delta) — a beat-derived shaped CC on the active column's MOD cells.
+
+    /// The unipolar [0,1] a MOD slot's SOURCE produces at beat `b` — SHAPE (LFO) · FOLLOW (sounding material) ·
+    /// STEPS (8-step pattern) · STRIKE (per-entry AR) · EXTERN (incoming CC). Row-3 MIN/MAX maps it to a CC value.
+    private func modSourceUnipolar(_ p: SnapParams, cell: SnapCell, pool: NotePool, b: Double, period: Double, column: Int) -> Double {
+        switch p.modSource {
+        case .shape:
+            return modUnipolar(p.modShape, phase: b / period, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))
+        case .steps:
+            return modStepsUnipolar(p.modSteps, phase: b / period, smooth: p.modSmooth)
+        case .strike:
+            return modStrikeUnipolar(t: b - modColumnEntryBeat, attack: p.modAttack, release: p.modRelease)
+        case .follow:
+            let src = effectivePool(for: cell, live: pool)
+            let n = src.srcCount(for: cell)
+            var sumN = 0.0, sumV = 0.0
+            for k in 0..<n { let note = src.srcAscending(k, for: cell); sumN += Double(note); sumV += Double(src.velocity(note)) }
+            return modFollowUnipolar(p.modFollow, count: n, meanNote: n > 0 ? sumN / Double(n) : 0, meanVel: n > 0 ? sumV / Double(n) : 0)
+        case .extern:
+            let raw = controllerIn[p.modExternCC & 127]                       // channel-agnostic v1
+            return raw < 0 ? 0 : Double(raw) / 127.0                          // never seen → rest at 0
+        }
+    }
 
     /// Emit each active-column MOD slot's CC over this window at a control grid (block-size invariant, replay-safe),
     /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
     /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
-    private func emitColumnMod(box: SnapshotBox, column: Int, beatPos: Double, windowBeats: Double,
+    private func emitColumnMod(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
                                beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
         if modLastColumn != Int32(column) {                       // LEAVE-DISPOSITION: reset the column we just left
             if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: windowStart, out: out) }
             modLastColumn = Int32(column)
+            modColumnEntryBeat = beatPos                          // STRIKE: the AR envelope re-triggers on column entry
         }
         if masterMute && !previewMode { return }                  // master MUTE kills all output
         guard column >= 0 && column < Snap.cols else { return }
@@ -1698,14 +1733,13 @@ final class Router {
             if soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
-                let period = max(0.03125, p.modRate.periodBeats)     // LFO period, beats/cycle
+                let period = max(0.03125, p.modRate.periodBeats)     // LFO / steps period, beats/cycle
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
-                        let cyc = Int((b / period).rounded(.down))
-                        let value = modCCValue(p.modShape, phase: b / period, min: p.modMin, max: p.modMax,
-                                               column: column, cc: p.modCC, cycleIndex: cyc)
+                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: column)
+                        let value = modMap(s, min: p.modMin, max: p.modMax)
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
                         emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
                     }

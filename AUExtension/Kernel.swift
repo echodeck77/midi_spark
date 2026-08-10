@@ -603,6 +603,11 @@ final class Kernel {
             diag.ccStatus = bytes[0]
             diag.ccData1 = length > 1 ? bytes[1] : 0
             diag.ccData2 = length > 2 ? bytes[2] : 0
+            // EXTERN side-rail (§7): stash incoming CC values so a MOD EXTERN stage can read + transform them.
+            // CC121 = Reset All Controllers → clear the store (§11). Note-agnostic; the note pipeline never sees this.
+            if status == 0xB0, length >= 3 {
+                if bytes[1] == 121 { router.clearControllerIn() } else { router.setControllerIn(cc: Int(bytes[1]), value: Int(bytes[2])) }
+            }
         }
         // §2.6 (reconciled to §7b): CC/PB/AT + stopped-note passthrough go out on All (0) + Emit A (1).
         // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.

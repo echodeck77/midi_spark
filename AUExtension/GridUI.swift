@@ -1482,12 +1482,33 @@ struct ProcessorBox: View {
         case .humanize: // GENERATOR — seeded jitter (spread = amount)
             field("AMOUNT  \(Int((p.spread ?? 0.5) * 100))%") {
                 Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
-        case .mod:      // CC GENERATOR — a beat-derived shaped CC on the emitters (sounds no notes). CC-stage §1 SHAPE.
+        case .mod:      // CC GENERATOR / CC-stage §1 — a SOURCE spine (row 2 reshapes) + a universal TARGET/RANGE (row 3)
+            let src = p.modSource ?? .shape
+            field("SOURCE") { seg(ModSource.allCases.map(\.rawValue), sel: src.rawValue) { i in setParam { $0.modSource = ModSource.allCases[i] } } }
+            switch src {
+            case .shape:
+                field("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
+                field("RATE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
+            case .follow:
+                field("FOLLOW") { seg(ModFollow.allCases.map(\.rawValue), sel: (p.modFollow ?? .register).rawValue) { i in setParam { $0.modFollow = ModFollow.allCases[i] } } }
+            case .steps:
+                field("STEPS  (drag to draw)") { modStepBars(p.modSteps ?? [0, 18, 36, 54, 72, 90, 108, 127]) { i, v in
+                    setParam { var s = $0.modSteps ?? [0, 18, 36, 54, 72, 90, 108, 127]; while s.count < 8 { s.append(0) }; s[i] = v; $0.modSteps = s } } }
+                field("RATE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
+                field("GLIDE") { seg(["SMOOTH", "STEP"], sel: (p.modSmooth ?? true) ? "SMOOTH" : "STEP") { i in setParam { $0.modSmooth = (i == 0) } } }
+            case .strike:
+                field("ATTACK  \(String(format: "%.2f", p.modAttack ?? 0.15)) beats") {
+                    Slider(value: bind(p.modAttack ?? 0.15) { v in setParam { $0.modAttack = v } }, in: 0.01...4).tint(accent) }
+                field("RELEASE  \(String(format: "%.2f", p.modRelease ?? 0.6)) beats") {
+                    Slider(value: bind(p.modRelease ?? 0.6) { v in setParam { $0.modRelease = v } }, in: 0.01...4).tint(accent) }
+            case .extern:
+                let ec = p.modExternCC ?? 1
+                field("SOURCE CC  \(ccLabelText(ec))") {
+                    Slider(value: bind(Double(ec)) { v in setParam { $0.modExternCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            }
             let cc = p.modCC ?? 74
-            field("CC #  \(cc)") {
+            field("TARGET CC  \(ccLabelText(cc))") {
                 Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
-            field("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
-            field("RATE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
             let lo = p.modMin ?? 0, hi = p.modMax ?? 127
             field("MIN  \(lo)") {
                 Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) }
@@ -1511,6 +1532,28 @@ struct ProcessorBox: View {
                             .contentShape(Rectangle()).onTapGesture { set(val) }
                     }
                 }
+            }
+        }
+    }
+
+    // CC-stage §1: a labelled CC number ("74 · CUTOFF" for the named dozen, else the bare number).
+    private func ccLabelText(_ n: Int) -> String { ccName(n).map { "\(n) · \($0)" } ?? "\(n)" }
+    // STEPS "drag to draw": eight vertical bars; drag a column to set its 0…127 value.
+    private func modStepBars(_ steps: [Int], _ set: @escaping (Int, Int) -> Void) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<8, id: \.self) { i in
+                let v = i < steps.count ? steps[i] : 0
+                GeometryReader { g in
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
+                        RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: max(2, g.size.height * CGFloat(v) / 127))
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { val in
+                        set(i, Int((1 - min(1, max(0, val.location.y / max(1, g.size.height)))) * 127))
+                    })
+                }
+                .frame(maxWidth: .infinity).frame(height: 84)
             }
         }
     }

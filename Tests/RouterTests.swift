@@ -1580,6 +1580,56 @@ final class RouterTests: XCTestCase {
         }
         XCTAssertGreaterThan(zeros(reset: true), zeros(reset: false), "RESET sends an extra CC 0 on each column exit; LEAVE holds the last value")
     }
+    /// FOLLOW COUNT: the CC tracks the held-note count — more notes → a higher value.
+    func testModFollowCountTracksHeldNotes() {
+        func maxCC(_ notes: [UInt8]) -> Int {
+            let cs = arpColours()
+            var mod = ProcessorSlot(type: .mod); mod.params.modSource = .follow; mod.params.modFollow = .count; mod.params.modCC = 74
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+            let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e)
+            return modCC74Events(e).map { Int($0.vel) }.max() ?? 0
+        }
+        XCTAssertGreaterThan(maxCC([48, 50, 52, 55, 57, 60]), maxCC([60]), "FOLLOW COUNT rises with the held-note count")
+    }
+    /// STEPS: a stepped pattern emits its authored values (the high step 127 comes only from the pattern, not the reset).
+    func testModStepsEmitsThePattern() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod); mod.params.modSource = .steps; mod.params.modSmooth = false
+        mod.params.modSteps = [0, 127, 0, 127, 0, 127, 0, 127]; mod.params.modRate = .r1; mod.params.modCC = 74
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        XCTAssertTrue(Set(modCC74Events(e).map { Int($0.vel) }).contains(127), "the STEP pattern emits its high step")
+    }
+    /// STRIKE: on column entry an AR envelope rises toward MAX then falls back — the CC spans a range.
+    func testModStrikeEnvelopeRisesAndFalls() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod); mod.params.modSource = .strike; mod.params.modAttack = 0.1; mod.params.modRelease = 0.3
+        mod.params.modCC = 74; mod.params.modMin = 0; mod.params.modMax = 127
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+        let vals = modCC74Events(e).map { Int($0.vel) }
+        XCTAssertGreaterThan(vals.max() ?? 0, 60, "the STRIKE envelope rises well above MIN")
+        XCTAssertGreaterThan((vals.max() ?? 0) - (vals.min() ?? 0), 40, "…and spans a range (rise + fall)")
+    }
+    /// EXTERN: reads an incoming CC (the mod wheel, CC1) and re-emits it on the TARGET (CC74). Driven directly so the
+    /// controller store can be fed (the `run` helper owns its router).
+    func testModExternRetransmitsIncomingCC() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod); mod.params.modSource = .extern; mod.params.modExternCC = 1; mod.params.modCC = 74; mod.params.modMin = 0; mod.params.modMax = 127
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        router.setControllerIn(cc: 1, value: 100)   // the "mod wheel" at 100
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<24 {
+            router.process(box: b, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertTrue(Set(e.events.filter { $0.status == 0xB0 && $0.note == 74 }.map { Int($0.vel) }).contains(100),
+                      "EXTERN re-emits the incoming CC1 value (100) on the TARGET CC74")
+    }
     /// Beat-derived + replay-safe: the same beats produce a byte-identical CC stream (incl. seeded S&H).
     func testModCCStreamIsReplaySafe() {
         func ccStream() -> [RecordingEmitter.Ev] {

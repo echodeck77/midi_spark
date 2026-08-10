@@ -58,8 +58,72 @@ func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIn
 @inline(__always)
 func modCCValue(_ shape: ModShape, phase: Double, min lo: Int, max hi: Int, column: Int, cc: Int, cycleIndex: Int) -> Int {
     let s = modUnipolar(shape, phase: phase, column: column, cc: cc, cycleIndex: cycleIndex)
-    let v = Double(lo) + s * Double(hi - lo)
-    return max(0, min(127, Int(v.rounded())))
+    return modMap(s, min: lo, max: hi)
+}
+
+/// Map a unipolar [0,1] onto [min,max] as a CC value (0…127). MIN > MAX inverts. The universal row-3 mapping every
+/// MOD source runs through (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN). Pure.
+@inline(__always)
+func modMap(_ s: Double, min lo: Int, max hi: Int) -> Int {
+    max(0, min(127, Int((Double(lo) + max(0, min(1, s)) * Double(hi - lo)).rounded())))
+}
+
+/// FOLLOW (CC-stage §1) — the unipolar [0,1] the CC tracks from the sounding material. COUNT = held-note count /8 ·
+/// REGISTER = mean pitch mapped C1…C7 · VEL = mean velocity /127 · DENSITY = a busyness proxy (pool fullness, v1). Pure.
+@inline(__always)
+func modFollowUnipolar(_ what: ModFollow, count: Int, meanNote: Double, meanVel: Double) -> Double {
+    switch what {
+    case .count:    return Swift.min(1, Double(count) / 8.0)
+    case .register: return count == 0 ? 0 : Swift.max(0, Swift.min(1, (meanNote - 24) / 72.0))   // C1(24)…C7(96)
+    case .vel:      return count == 0 ? 0 : Swift.max(0, Swift.min(1, meanVel / 127.0))
+    case .density:  return Swift.min(1, Double(count) / 8.0)   // v1 proxy = pool fullness (true event-rate density = a follow-up)
+    }
+}
+
+/// STEPS (CC-stage §1) — the unipolar value at `phase` (0…1) across the 8-step pattern. STEP holds each step; SMOOTH
+/// interpolates to the next (wrapping). Pure.
+@inline(__always)
+func modStepsUnipolar(_ steps: [Int], phase: Double, smooth: Bool) -> Double {
+    guard steps.count >= 8 else { return 0 }
+    let p = positiveFract(phase) * 8
+    let i = Swift.min(7, Int(p)); let frac = p - Double(i)
+    let a = Double(steps[i]) / 127.0
+    if !smooth { return a }
+    let b = Double(steps[(i + 1) % 8]) / 127.0
+    return a + (b - a) * frac
+}
+
+/// The common name of a CC number (the CC-stage §1 "named dozen"), or nil for an unnamed controller. Pure/testable;
+/// drives the labelled CC picker ("74 · CUTOFF").
+func ccName(_ n: Int) -> String? {
+    switch n {
+    case 1:  return "MOD WHEEL"
+    case 2:  return "BREATH"
+    case 5:  return "PORTA TIME"
+    case 7:  return "VOLUME"
+    case 10: return "PAN"
+    case 11: return "EXPRESSION"
+    case 64: return "SUSTAIN"
+    case 65: return "PORTAMENTO"
+    case 71: return "RESONANCE"
+    case 72: return "RELEASE"
+    case 73: return "ATTACK"
+    case 74: return "CUTOFF"
+    case 91: return "REVERB"
+    case 93: return "CHORUS"
+    default: return nil
+    }
+}
+
+/// STRIKE (CC-stage §1, v1 per-ENTRY) — an ATTACK→RELEASE envelope, `t` beats since the trigger (column entry).
+/// Rises 0→1 over `attack`, falls 1→0 over `release`, then rests at 0. Pure.
+@inline(__always)
+func modStrikeUnipolar(t: Double, attack: Double, release: Double) -> Double {
+    guard t >= 0 else { return 0 }
+    let a = Swift.max(0.001, attack), r = Swift.max(0.001, release)
+    if t < a { return t / a }
+    let d = t - a
+    return d < r ? 1 - d / r : 0
 }
 
 /// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).
