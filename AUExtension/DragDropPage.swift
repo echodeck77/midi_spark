@@ -441,6 +441,8 @@ extension DiagView {
         ddScopeToColour(colourIDs[i], anchor: nil)
     }
     private func ddColourInActiveColumn(_ id: String) -> Bool {
+        // PLAY: THIS CELL — only the SOLOED colour is sounding (regardless of mute/dormant), so only it sweeps.
+        if ddSolo { return id == ddSelectedColourID }
         let col = d.effColumn
         guard col >= 0 && col < 8 else { return false }
         // SINGLE (ladder): a DORMANT rung isn't firing, so its colour must NOT sweep — only the active rung's colour does.

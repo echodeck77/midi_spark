@@ -157,6 +157,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PLAY: THIS CELL overrides MUTE/DORMANT + palette follows the soloed colour (2026-08-10, on `main`, PUSHED next;
+  macOS 583 green, iOS builds; DEVICE ear owed). Paul found the real repro: an orange cell at (col 0, row 1) was
+  MUTED; PLAY: THIS CELL on it played NOTHING and the palette animated GOLD (the unmuted cell above). PLAY: THIS CELL
+  is an explicit isolate-and-preview, so it must play its target REGARDLESS of grid mute/dormant/tap. FIX: a new
+  `cellSoloForced(col,row)` (soloCellMask bit SET = the target) gates OUT `cell.muted || cell.dormant || tapMuted`
+  in all five emission guards (holds · echo · tick · MOD · GLIDE) — the soloed target plays; non-targets stay
+  `cellSoloedOut`; colourIndex<0 / busMask==0 / soloSilenced (receiver-solo) still hard-skip. PALETTE: `ddColour-
+  InActiveColumn` now returns `id == ddSelectedColourID` while `ddSolo` (the soloed colour sweeps regardless of mute,
+  nothing else does). Test `testForceColumnPlaysAMutedSoloedCell`. ⚠ STILL OPEN (Paul also asked): PLAY: THIS CELL for
+  an UNPLACED colour (no grid cell) — the forceColumn/soloCellMask path is grid-cell-based, so an unplaced colour
+  can't be soloed yet; needs a synthetic-cell preview path (the audition/previewPlaying machinery) — deferred.**
 - **▶ PLAY: THIS CELL — a HOLD cell now SUSTAINS under the frozen column (2026-08-10, on `main`, PUSHED next; macOS
   581 green, iOS builds; DEVICE ear owed). Paul: a receiver-2 colour "works on the grid but is silent on PLAY: THIS
   CELL; the palette shows the swatch running with no sound." ROOT CAUSE: PLAY: THIS CELL forces + FREEZES the column

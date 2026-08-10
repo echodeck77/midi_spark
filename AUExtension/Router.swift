@@ -304,6 +304,9 @@ final class Router {
     // every cell whose bit is UNSET falls silent (like muted/dormant) — so only the edited cell(s) sound. 0 = off.
     private var soloCellMask: UInt64 = 0
     private func cellSoloedOut(_ col: Int, _ row: Int) -> Bool { soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 0 }
+    /// PLAY: THIS CELL — is THIS cell an explicit solo target? A target plays REGARDLESS of mute / dormant / tap-mute
+    /// (the feature isolates and previews one cell's machine, so grid state must not silence it). (user 2026-08-10)
+    private func cellSoloForced(_ col: Int, _ row: Int) -> Bool { soloCellMask != 0 && (soloCellMask >> UInt64(col * 8 + row)) & 1 == 1 }
     // receiver strip: the additive input SOLO set (bits R1–R4). While non-empty, a cell whose receiver is
     // NOT a member falls silent — `audible = ¬muted ∧ (soloSet=∅ ∨ member)`. Row-fed cells (recv −1) reach
     // this through their root MIDI-IN cell in parentSoundingNote. Ephemeral (cleared on stop / EDIT).
@@ -1139,7 +1142,7 @@ final class Router {
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || cellSoloedOut(column, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
+            if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
@@ -1249,7 +1252,7 @@ final class Router {
                                 windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 || tapMuted(column, r) || cellSoloedOut(column, r) { continue }
+            if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
             if soloSilenced(cell) { continue }
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
@@ -1673,7 +1676,7 @@ final class Router {
 
         for r in 0..<Snap.rows {
             let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || tapMuted(effColumn, r) || cellSoloedOut(effColumn, r) { continue }   // §9 ON TAP = MUTE · LADDER dormant
+            if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
@@ -1805,8 +1808,8 @@ final class Router {
         let bEnd = beatPos + windowBeats
         for r in 0..<Snap.rows {
             let cell = box.cells[column * Snap.rows + r]
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0 { continue }
-            if soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) { continue }
+            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r) { continue }
+            if !cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)) { continue }   // PLAY: THIS CELL overrides mute/dormant/tap
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
                 // TARGET CHANGED (the CC# knob swept): revert the ABANDONED cc to its STANDARD value so sweeping past
@@ -1918,8 +1921,8 @@ final class Router {
             let cell = box.cells[cellIdx]
             // v1: SINGLE-SLOT GLIDE only ([ARP→GLIDE] is v2 — a chain with a note driver plays the driver, GLIDE ignored).
             guard cell.procs.count == 1, cell.procs[0].type == .glide, !cell.slotBypass[0] else { continue }
-            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0
-               || soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) {
+            if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r)
+               || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) {   // PLAY: THIS CELL overrides mute/dormant/tap
                 glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue
             }
             let p = cell.procs[0]

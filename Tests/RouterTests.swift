@@ -229,6 +229,28 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // PLAY: THIS CELL overrides MUTE (user 2026-08-10): a MUTED cell that is the solo target must still play — the
+    // feature isolates and previews the cell's machine regardless of grid mute/dormant. (The muted orange cell that
+    // "PLAY: THIS CELL did nothing on".) A non-target muted cell stays silent (mute enforced when not soloed).
+    func testForceColumnPlaysAMutedSoloedCell() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold
+        let b = box(colours: cs) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])                                   // unmuted cell above
+            $0.cells[0][1] = { var c = Cell(colourID: "gold", buses: [.a]); c.muted = true; return c }()   // MUTED cell (the solo target)
+        }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        let soloMask = UInt64(1) << UInt64(0 * 8 + 1)   // solo the MUTED cell at (0,1)
+        while beat < 16.0 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, soloCellMask: soloMask, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "the MUTED soloed cell still plays its chord under PLAY: THIS CELL")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     // PLAY: THIS CELL for a HARMONIZE cell (user 2026-08-10: "works on gold, not on orange"): harmonize is a HOLD
     // mode whose emitHarmony path wasn't adoptable, so under the frozen column it played one column then rested.
     // The fix makes each harmony voice immortal + adopted under forceColumn, so it sustains like an identity hold.
