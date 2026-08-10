@@ -173,6 +173,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (macro-bindable). **TESTS:** 5 Router (standalone CC+no-notes · [ARP→MOD] · [MOD→ARP] · reset-disposition differential ·
   replay-safe) + 3 Derivations (sine/ramp/S&H) + `.mod` in the fuzz `randomDoc` (no stuck notes across every edge).
   ⚠ v1 LIMITS (tunable follow-ups): ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
+- **▶ PIANO LATCH — a third latch mode: pick notes from an on-screen keyboard (2026-08-10, on `main`, PUSHED next;
+  macOS 577 green, iOS builds; DEVICE ear owed). A new receiver latch mode (beside KEYS|CHORD): the frozen pool is
+  CHOSEN on a keyboard, not captured from live input. `Receiver.latchPiano: Bool?` + `pianoNotes: [Int]?` →
+  `box.receiverPianoMask` / `receiverPianoNotes` → the Kernel: while a PIANO door is ARMED (the existing LATCH arm),
+  `updateLatchedPools` fills `latchedPools[i]` from the picked notes each render (vel 100; refreshes live as the
+  keyboard changes), so the grid feeds that chord with no keys down. UI (MIDI IN tab): the latch radios are now KEYS ·
+  CHORD · PIANO; PIANO reveals a 3-octave keyboard (C3…B5, white+black keys, tap to pick/unpick) + a CLEAR. AU
+  `setReceiverLatchPiano`/`toggleReceiverPianoNote`/`clearReceiverPianoNotes`. Builder test (mask + notes flow to the
+  box, out-of-range dropped); the feed is Kernel-side (device). v1: fixed 3-octave range (no octave shift), fixed vel.**
 - **▶ GLIDE — the notes→PITCH-BEND translator (2026-08-10, on `main`, PUSHED next; macOS 576 green incl. fuzz, iOS
   builds; DEVICE ear owed). Spec `AcceptanceCriteria-glide-processor`. `ProcessorType.glide` — one MONO SLIDING VOICE:
   the first note ANCHORS (note-on + centred bend), an in-range next note BENDS (no note-on, a ramp over TIME), a LEAP

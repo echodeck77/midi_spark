@@ -435,6 +435,13 @@ struct Receiver: Codable, Equatable {
     var latchAdd: Bool? = nil
     /// The latch mode, nil-safe: missing ⇒ KEYS (true — the redesign default). Non-persisting read helper.
     var latchAddResolved: Bool { latchAdd ?? true }
+    // PIANO latch (2026-08-10): a third latch mode — the frozen pool is CHOSEN from an on-screen keyboard, not captured
+    // from live input. When on (+ the latch armed), `pianoNotes` feed the grid as the frozen chord. Optional so old
+    // docs decode nil ⇒ off. Persisted rig config. `latchPiano` overrides KEYS|CHORD when true.
+    var latchPiano: Bool? = nil
+    var pianoNotes: [Int]? = nil
+    var latchPianoResolved: Bool { latchPiano ?? false }
+    var pianoNotesResolved: [Int] { (pianoNotes ?? []).filter { $0 >= 0 && $0 <= 127 } }
 }
 
 // MARK: - Scene & document — §9

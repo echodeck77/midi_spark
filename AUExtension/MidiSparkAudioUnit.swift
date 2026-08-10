@@ -330,6 +330,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
+    func setReceiverLatchPiano(_ i: Int, _ on: Bool) { editReceiver(i) { $0.latchPiano = on } }   // PIANO latch mode
+    func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
+        editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
+    }
+    func clearReceiverPianoNotes(_ i: Int) { editReceiver(i) { $0.pianoNotes = [] } }
     // RANGE (§2): the door's note window. Clamps to 0…127 and keeps lo ≤ hi so the window is never inverted.
     func setReceiverRange(_ i: Int, lo: Int, hi: Int) {
         let l = max(0, min(127, lo)), h = max(0, min(127, hi))

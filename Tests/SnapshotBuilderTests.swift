@@ -28,6 +28,16 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.colours[0].on, OnConfig(), "an unassigned colour resolves to an empty OnConfig")
     }
 
+    func testPianoLatchFlowsToSnapshot() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![1].latchPiano = true
+        st.receivers![1].pianoNotes = [60, 64, 67, 200, -3]   // out-of-range values are filtered
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box.receiverPianoMask, 0b0010, "receiver 2 is in PIANO latch mode")
+        XCTAssertEqual(box.receiverPianoNotes[1], [60, 64, 67], "the picked notes reach the box (out-of-range dropped)")
+        XCTAssertEqual(box.receiverPianoMask & 1, 0, "R1 (default) is not PIANO")
+    }
     func testThruReceiverFlowsToSnapshot() {
         func thru(_ v: Int?) -> Int8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

@@ -156,6 +156,14 @@ final class Kernel {
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
             }
             guard isArmed else { continue }
+            if pianoMask & bit != 0 {
+                // PIANO LATCH (2026-08-10): the frozen pool is the on-screen keyboard selection — not live input.
+                // Refresh each render (static + cheap) so edits on the keyboard take effect immediately while armed.
+                latchedPools[i].reset()
+                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: 0) }
+                latchedPools[i].rebuildSorted()
+                continue
+            }
             let rLo = receiverRangeLo[i], rHi = receiverRangeHi[i]   // RANGE (§2): the latch admits only in-window notes
             if latchAddMask & bit != 0 {
                 // KEYS (was ADD): note-toggle accumulation — each new note-on flips its membership in the frozen pool.
@@ -227,6 +235,8 @@ final class Kernel {
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
     private var receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // CONTROLLER ROUTING (v1): per-door emitter forward mask
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
+    private var pianoMask: UInt8 = 0                                          // PIANO LATCH: doors whose frozen pool is the on-screen keyboard
+    private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
@@ -398,6 +408,8 @@ final class Kernel {
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
         receiverControllerMask = box.receiverControllerMask   // CONTROLLER ROUTING: per-door forward masks
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
+        pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
+        pianoNotes = box.receiverPianoNotes
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
         latchAddMask = box.latchAddMask                 // TWO LATCH MODES: which receivers latch in ADD (toggle) mode

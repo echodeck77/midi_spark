@@ -201,6 +201,8 @@ enum SnapshotBuilder {
         let receiverBypassMask = packMask(doc.receiversResolved.map { $0.bypassResolved })
         let receiverBypassDest = doc.receiversResolved.map { $0.bypassDestResolved }
         let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
+        let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
+        let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -242,6 +244,8 @@ enum SnapshotBuilder {
                            receiverBypassMask: receiverBypassMask,
                            receiverBypassDest: receiverBypassDest,
                            receiverControllerMask: receiverControllerMask,
+                           receiverPianoMask: receiverPianoMask,
+                           receiverPianoNotes: receiverPianoNotes,
                            macroValues: macroVals)
     }
 

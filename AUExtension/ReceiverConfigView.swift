@@ -77,22 +77,68 @@ struct ReceiverConfigView: View {
         }
     }
 
-    // LATCH: the arm (left, spans both radios) + two mode radios stacked.
+    // LATCH: the arm (left) + THREE mode radios (KEYS · CHORD · PIANO). PIANO reveals the on-screen keyboard below.
     private func latchSection(_ i: Int, _ r: Receiver) -> some View {
-        let armed = bit(latchMask, i), keys = r.latchAddResolved
-        return HStack(spacing: 12) {
-            Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 20, weight: .heavy))
-                .foregroundColor(armed ? .black : amber.opacity(0.95))
-                .frame(width: 54).frame(maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 7).fill(armed ? amber : amber.opacity(0.14)))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(amber.opacity(armed ? 0 : 0.5), lineWidth: 1))
-                .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
-            VStack(spacing: 8) {
-                radio("LATCH: Add new notes to pool", on: keys) { onSetLatchKeys(i, true) }
-                radio("LATCH: Replace pool with new notes", on: !keys) { onSetLatchKeys(i, false) }
+        let armed = bit(latchMask, i), keys = r.latchAddResolved, piano = r.latchPianoResolved
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 20, weight: .heavy))
+                    .foregroundColor(armed ? .black : amber.opacity(0.95))
+                    .frame(width: 54).frame(maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(armed ? amber : amber.opacity(0.14)))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(amber.opacity(armed ? 0 : 0.5), lineWidth: 1))
+                    .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
+                VStack(spacing: 8) {
+                    radio("LATCH: Add new notes to pool (KEYS)", on: !piano && keys) { au?.setReceiverLatchPiano(i, false); onSetLatchKeys(i, true) }
+                    radio("LATCH: Replace pool with new notes (CHORD)", on: !piano && !keys) { au?.setReceiverLatchPiano(i, false); onSetLatchKeys(i, false) }
+                    radio("LATCH: Pick notes on the keyboard (PIANO)", on: piano) { au?.setReceiverLatchPiano(i, true); onChanged() }
+                }
             }
+            .frame(height: 82)
+            if piano { pianoKeyboard(i, r) }
         }
-        .frame(height: 68)
+    }
+    // The on-screen keyboard (PIANO latch): a 3-octave piano (C3…B5); tap a key to pick/unpick it into the frozen pool.
+    private func pianoKeyboard(_ i: Int, _ r: Receiver) -> some View {
+        let startNote = 48, octaves = 3, whiteCount = octaves * 7   // C3
+        let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
+        let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]   // white-index-in-octave → the black key's semitone
+        let selected = Set(r.pianoNotesResolved)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("KEYBOARD  (\(selected.count) note\(selected.count == 1 ? "" : "s"))").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.6))
+                Spacer(minLength: 0)
+                Text("CLEAR").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(amber)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(amber.opacity(0.14)))
+                    .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); onChanged() }
+            }
+            GeometryReader { g in
+                let ww = g.size.width / CGFloat(whiteCount)
+                ZStack(alignment: .topLeading) {
+                    HStack(spacing: 0) {
+                        ForEach(0..<whiteCount, id: \.self) { wi in
+                            let note = startNote + (wi / 7) * 12 + whiteOffsets[wi % 7]
+                            let on = selected.contains(note)
+                            Rectangle().fill(on ? amber : Color.white.opacity(0.92))
+                                .overlay(Rectangle().stroke(Color.black.opacity(0.35), lineWidth: 0.5))
+                                .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); onChanged() }
+                        }
+                    }
+                    ForEach(0..<whiteCount, id: \.self) { wi in
+                        if let bOff = blackAfter[wi % 7] {
+                            let note = startNote + (wi / 7) * 12 + bOff
+                            let on = selected.contains(note)
+                            Rectangle().fill(on ? amber : Color.black)
+                                .frame(width: ww * 0.6, height: g.size.height * 0.62)
+                                .position(x: CGFloat(wi + 1) * ww, y: g.size.height * 0.31)
+                                .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); onChanged() }
+                        }
+                    }
+                }
+            }
+            .frame(height: 88)
+        }
     }
     private func radio(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
