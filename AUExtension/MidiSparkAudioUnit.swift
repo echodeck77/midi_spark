@@ -134,8 +134,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// Mutate the colour's chain and clear the per-cell overrides of every cell of that colour (all scenes) so they
     /// inherit it. An empty result stores a single bypassed slot = the born-audible passthrough (an empty template
     /// would fall through to the legacy face). ONE undoable document edit.
+    /// The chain as DISPLAYED for a colour — a representative placed cell's RESOLVED chain (per-cell override →
+    /// template → legacy), so a colour-scoped edit is based on what the user sees, never the bare template. Without
+    /// this, adding/editing a slot re-read the template + cleared overrides → a per-cell arp config reverted (user
+    /// 2026-08-10). Falls back to the template/legacy face when the colour has no placed cell.
+    private func resolvedColourChain(_ colourID: String) -> [ProcessorSlot] {
+        for s in document.scenes {
+            for col in s.cells {
+                for cell in col where cell?.colourID == colourID { if let cell { return materializedChain(cell) } }
+            }
+        }
+        return colourTemplateChain(colourID)
+    }
     func withChainColour(_ colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        var chain = colourTemplateChain(colourID)
+        var chain = resolvedColourChain(colourID)
         mutate(&chain)
         let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
         editDocument { doc in

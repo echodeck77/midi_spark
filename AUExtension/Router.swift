@@ -236,6 +236,7 @@ final class Router {
     // control grid; deduped per (cable,channel,cc) so a held value doesn't re-send; RESET on column exit.
     private var modLastColumn: Int32 = -1                                     // the column whose MOD cells emitted last (reset when it exits)
     private var modColumnEntryBeat = 0.0                                      // STRIKE: the beat the active column became active (AR trigger)
+    private var modPrevTarget = [Int16](repeating: -1, count: 64 * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
     private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
     // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
@@ -475,7 +476,9 @@ final class Router {
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
-        modLastColumn = -1; modColumnEntryBeat = 0; for i in modLastVal.indices { modLastVal[i] = -1 }   // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
+        modLastColumn = -1; modColumnEntryBeat = 0                              // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
+        for i in modLastVal.indices { modLastVal[i] = -1 }
+        for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
     }
 
     // MARK: parameter overrides
@@ -1454,6 +1457,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
+            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -1733,6 +1737,14 @@ final class Router {
             if soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
+                // TARGET CHANGED (the CC# knob swept): revert the ABANDONED cc to its STANDARD value so sweeping past
+                // e.g. VOLUME (CC7) doesn't leave it knocked down. (user 2026-08-10.)
+                let tkey = (column * Snap.rows + r) * 8 + si
+                if tkey >= 0 && tkey < modPrevTarget.count {
+                    let prev = Int(modPrevTarget[tkey])
+                    if prev >= 0 && prev != p.modCC { emitModCC(cc: prev, value: ccDefault(prev), busMask: cell.busMask, atSample: windowStart, out: out) }
+                    modPrevTarget[tkey] = Int16(p.modCC)
+                }
                 let period = max(0.03125, p.modRate.periodBeats)     // LFO / steps period, beats/cycle
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
@@ -1764,6 +1776,7 @@ final class Router {
         if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: atSample, out: out) }
         modLastColumn = -1
         for i in modLastVal.indices { modLastVal[i] = -1 }
+        for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
     }
     /// Emit a CC on every ENABLED bus in `busMask` — the per-bus cable (bus+1) + All(0), on the bus's stamp channel.
     /// Deduped per (cable,ch,cc): a repeat of the same value is dropped so a held shape doesn't flood the wire.

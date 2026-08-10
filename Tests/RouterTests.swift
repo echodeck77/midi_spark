@@ -1630,6 +1630,25 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(Set(e.events.filter { $0.status == 0xB0 && $0.note == 74 }.map { Int($0.vel) }).contains(100),
                       "EXTERN re-emits the incoming CC1 value (100) on the TARGET CC74")
     }
+    /// Sweeping the TARGET CC# past a control (VOLUME/CC7) must REVERT it to its standard (127), not leave it knocked
+    /// down — the abandoned-target guard (user 2026-08-10).
+    func testModTargetChangeRevertsAbandonedCC() {
+        func modBox(_ cc: Int) -> SnapshotBox {
+            let cs = arpColours()
+            var mod = ProcessorSlot(type: .mod); mod.params.modSource = .shape; mod.params.modShape = .ramp
+            mod.params.modMin = 0; mod.params.modMax = 100; mod.params.modCC = cc
+            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ b: SnapshotBox) { router.process(box: b, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        for _ in 0..<3 { render(modBox(7)) }    // target = VOLUME (emits low CC7)
+        for _ in 0..<3 { render(modBox(74)) }   // target sweeps to CUTOFF — CC7 must be reverted
+        let cc7 = e.events.filter { $0.status == 0xB0 && $0.note == 7 }
+        XCTAssertEqual(cc7.last?.vel, 127, "leaving CC7 as the target reverts VOLUME to its standard (127)")
+    }
     /// Beat-derived + replay-safe: the same beats produce a byte-identical CC stream (incl. seeded S&H).
     func testModCCStreamIsReplaySafe() {
         func ccStream() -> [RecordingEmitter.Ev] {

@@ -115,6 +115,18 @@ func ccName(_ n: Int) -> String? {
     }
 }
 
+/// The "standard" resting value of a CC — what a MOD target reverts to when ABANDONED (the CC# swept past it). Volume
+/// / expression / cutoff → full · pan / balance → centre · everything else → off. Pure. (So sweeping the target knob
+/// past CC7 doesn't leave the synth's volume knocked down — user 2026-08-10.)
+func ccDefault(_ cc: Int) -> Int {
+    switch cc {
+    case 7, 11: return 127   // volume · expression
+    case 74:    return 127   // cutoff / brightness — full = filter effectively off
+    case 8, 10: return 64    // balance · pan — centre
+    default:    return 0
+    }
+}
+
 /// STRIKE (CC-stage §1, v1 per-ENTRY) — an ATTACK→RELEASE envelope, `t` beats since the trigger (column entry).
 /// Rises 0→1 over `attack`, falls 1→0 over `release`, then rests at 0. Pure.
 @inline(__always)
