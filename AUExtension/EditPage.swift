@@ -597,20 +597,27 @@ extension DiagView {
             let recvW = min(max(300, W - 2 * idW - 40), 660)     // receiver/emitter boxes ~doubled, centred, clear of the ID cell
             let gap: CGFloat = 6
             let sw = max(40, (W - 7 * gap) / 8)                  // 8 processor slots span the width (user 2026-08-09: restored from 4)
-            let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 236   // OUTPUT FILTER removed → emitters pulled up (user 2026-08-09)
+            let yRecv: CGFloat = 32, yProc: CGFloat = 130, yEm: CGFloat = 214   // emitters pulled CLOSER to the processor row (user 2026-08-10)
             ZStack(alignment: .topLeading) {
-                Path { p in                                      // ONE continuous dotted thread that traces the FLOW (user 2026-08-09)
+                Path { p in                                      // the dotted thread that traces the FLOW (user 2026-08-09/10)
                     let firstX = sw / 2                          // centre of the first processor
                     let lastX = 7 * (sw + gap) + sw / 2          // centre of the last (8th) processor
-                    let yTop: CGFloat = 82                       // the turn between the receivers and the processor row
-                    let yBot: CGFloat = 192                      // the turn between the processor row and the emitters
-                    // DOWN from the receivers' centre-bottom → LEFT → DOWN into the TOP of the first processor.
-                    p.move(to: CGPoint(x: W / 2, y: 55)); p.addLine(to: CGPoint(x: W / 2, y: yTop))
-                    p.addLine(to: CGPoint(x: firstX, y: yTop)); p.addLine(to: CGPoint(x: firstX, y: yProc))
-                    // THROUGH each processor (occluded by the boxes, showing in the gaps) to the last.
-                    p.addLine(to: CGPoint(x: lastX, y: yProc))
-                    // Emerge at the BOTTOM CENTRE of the last processor → DOWN → LEFT → DOWN to the emitters' TOP CENTRE.
-                    p.addLine(to: CGPoint(x: lastX, y: yBot)); p.addLine(to: CGPoint(x: W / 2, y: yBot)); p.addLine(to: CGPoint(x: W / 2, y: 213))
+                    let yTop: CGFloat = 82                       // the shared horizontal, between the receivers and the processor row
+                    let yBot: CGFloat = 172                      // the turn between the processor row and the emitters
+                    let recvBottom = yRecv + 22.5               // the receivers box bottom edge
+                    let emTop = yEm - 22.5                       // the emitters box top edge
+                    // FOUR lines — one from the bottom of EACH receiver — DOWN to the shared horizontal (user 2026-08-10).
+                    // Receiver-cell geometry: box padding 6 + DIN mark 26 + spacing 8 → the 4 cells (gaps 8) fill the rest.
+                    let boxLeft = W / 2 - recvW / 2
+                    let rw = (recvW - 70) / 4                    // 70 = padding 12 + DIN 26 + 4 gaps × 8
+                    let rStart = boxLeft + 40                    // padding 6 + DIN 26 + spacing 8
+                    func rcx(_ i: Int) -> CGFloat { rStart + CGFloat(i) * (rw + 8) + rw / 2 }
+                    for i in 0..<4 { p.move(to: CGPoint(x: rcx(i), y: recvBottom)); p.addLine(to: CGPoint(x: rcx(i), y: yTop)) }
+                    // the SHARED horizontal (spanning the 4 drop points) → LEFT to the first processor → DOWN into it →
+                    // THROUGH the row to the last slot → DOWN → LEFT → DOWN to the emitters' TOP CENTRE.
+                    p.move(to: CGPoint(x: rcx(3), y: yTop)); p.addLine(to: CGPoint(x: firstX, y: yTop))
+                    p.addLine(to: CGPoint(x: firstX, y: yProc)); p.addLine(to: CGPoint(x: lastX, y: yProc))
+                    p.addLine(to: CGPoint(x: lastX, y: yBot)); p.addLine(to: CGPoint(x: W / 2, y: yBot)); p.addLine(to: CGPoint(x: W / 2, y: emTop))
                 }.stroke(hue.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))
                 // (SELECTED-CELL indicator + INPUT/OUTPUT FILTER removed — user 2026-08-07/09; the flow is RECEIVERS → PROCESSORS → EMITTERS.)
                 receiverBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yRecv)            // RECEIVERS (centred, −25% height)
