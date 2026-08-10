@@ -1,4 +1,42 @@
 import SwiftUI
+import UIKit   // DDHoldTracker: a reliable press/release tracker for the DELETE box (SwiftUI gestures get cancelled by the second-finger cell taps)
+
+// DELETE-BOX HOLD TRACKER (user 2026-08-10): SwiftUI sequenced long-press/drag gestures get CANCELLED by the
+// second-finger cell taps during the hold, so their `onEnded` never fires and delete mode sticks after release. A
+// bare UIView tracks touches DIRECTLY (immune to SwiftUI's gesture arena): it ARMS once a touch has been held on the
+// box for `minDuration`, and RELEASES when the LAST touch on the box lifts/cancels. Cell taps land outside the box,
+// so they never reach this view and never disturb the arm/release bookkeeping.
+struct DDHoldTracker: UIViewRepresentable {
+    var minDuration: TimeInterval = 0.35
+    var onArm: () -> Void
+    var onRelease: () -> Void
+    func makeUIView(context: Context) -> HoldView { let v = HoldView(); v.backgroundColor = .clear; v.isMultipleTouchEnabled = true; return v }
+    func updateUIView(_ v: HoldView, context: Context) { v.minDuration = minDuration; v.onArm = onArm; v.onRelease = onRelease }
+    final class HoldView: UIView {
+        var minDuration: TimeInterval = 0.35
+        var onArm: () -> Void = {}
+        var onRelease: () -> Void = {}
+        private var armed = false
+        private var armTimer: Timer?
+        private var touchCount = 0
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            touchCount += touches.count
+            guard armTimer == nil, !armed else { return }
+            armTimer = Timer.scheduledTimer(withTimeInterval: minDuration, repeats: false) { [weak self] _ in
+                guard let self, self.touchCount > 0 else { return }
+                self.armed = true; self.onArm()
+            }
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { end(touches) }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { end(touches) }
+        private func end(_ touches: Set<UITouch>) {
+            touchCount = max(0, touchCount - touches.count)
+            guard touchCount == 0 else { return }
+            armTimer?.invalidate(); armTimer = nil
+            if armed { armed = false; onRelease() }
+        }
+    }
+}
 
 // THE DRAG&DROP PAGE (design stage, user 2026-08-09) — a NEW first tab. Per DESIGN-dragdrop-page.md: a colour is a
 // machine; you edit colours, placed as cells. LANDSCAPE-first, ONE non-scrolling panel:
@@ -293,12 +331,9 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(lit ? Verb.delete.hue : .white.opacity(0.15), style: StrokeStyle(lineWidth: lit ? 2 : 1.2, dash: [4, 3]))))
         .contentShape(Rectangle())
         .background(ddZone("litter"))                                                  // drop-zone frame (a drop target only)
-        // HOLD-TO-DELETE: long-press arms delete mode; keep it armed while the finger is down; release disarms + commits.
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.35).sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { v in if case .second(true, _) = v, !ddDeleteMode { ddEnterDeleteMode() } }
-                .onEnded { _ in ddExitDeleteMode() }
-        )
+        // HOLD-TO-DELETE: a UIKit tracker ARMS delete mode after a hold + RELEASES it reliably when the box finger
+        // lifts (SwiftUI gestures were cancelled by the second-finger cell taps → delete mode stuck). (user 2026-08-10)
+        .overlay(DDHoldTracker(onArm: { ddEnterDeleteMode() }, onRelease: { ddExitDeleteMode() }))
         .animation(.easeOut(duration: 0.15), value: flashing)
     }
 
