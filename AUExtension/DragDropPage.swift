@@ -461,6 +461,22 @@ extension DiagView {
         else if let first = cells.first { selCol = first.col; selRow = first.row }
         else { selCol = -1; selRow = -1 }
         if ddSolo { if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow) } else { au?.clearColourSolo() } }   // PLAY: THIS CELL follows the selection
+        ddCaptureStickyRouting()   // remember the last-chosen receiver + emitters (the default for the next fresh cell)
+    }
+    /// STICKY ROUTING (user 2026-08-10): a fresh cell inherits the LAST receiver + emitters chosen on the page (else
+    /// the model default R1 + Emitter A). Captured from the anchor cell on select + after a routing edit.
+    func ddCaptureStickyRouting() {
+        guard let c = editingCell else { return }
+        ddStickyReceiver = c.inputReceiver ?? 0
+        ddStickyBuses = c.buses.isEmpty ? [.a] : c.buses
+    }
+    /// A fresh cell of `id` with the STICKY routing (last chosen · else R1/Emitter A) and the colour's machine (nil → template).
+    private func ddNewborn(_ id: String) -> Cell {
+        var c = newbornCell()
+        c.colourID = id; c.processors = nil
+        c.inputReceiver = ddStickyReceiver
+        c.buses = ddStickyBuses.isEmpty ? [.a] : ddStickyBuses
+        return c
     }
     private func ddSelect(_ c: Int, _ r: Int) {
         guard let cell = scene.cellAt(c, r) else { return }
@@ -532,7 +548,7 @@ extension DiagView {
         refreshFromDocument()
     }
     private func ddCellOfColour(_ id: String) -> Cell {
-        var cell = ddRepresentativeCell(id) ?? newbornCell()
+        var cell = ddRepresentativeCell(id) ?? ddNewborn(id)           // a colour with cells copies its routing; a fresh one takes the STICKY default
         cell.colourID = id; cell.muted = false; cell.processors = nil   // inherit the colour's machine (per-colour model)
         return cell
     }
@@ -577,9 +593,9 @@ extension DiagView {
         }
     }
     private func ddPlace(_ id: String, at c: Int, _ r: Int) {
-        let template = ddRepresentativeCell(id)
+        let template = ddRepresentativeCell(id) ?? ddNewborn(id)       // fresh colour → the STICKY routing (last chosen · else R1/Emitter A)
         au?.editScene { s in
-            var cell = template ?? newbornCell()
+            var cell = template
             cell.colourID = id; cell.muted = false
             s.cells[c][r] = cell
         }

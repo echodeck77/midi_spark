@@ -91,6 +91,8 @@ struct DiagView: View {
     @State var ddDragPayload: String? = nil   // DRAG&DROP custom drag: what's in hand ("colour:<id>" / "cell:<c>:<r>"); nil = idle
     @State var ddTouchSource: String? = nil   // DRAG&DROP: a draggable source is being TOUCHED (pre-drag) → highlight targets; cleared on release
     @State var ddPaintColour: String? = nil   // DRAG&DROP: a palette colour is HELD DOWN → tapping grid cells PAINTS them that colour; cleared on release
+    @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
+    @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     @State var ddDragLoc: CGPoint = .zero      // …the finger's location in the page ("dd") coordinate space
     @State var ddZones: [String: CGRect] = [:] // …measured drop-zone frames (grid cells · palette swatches · litter)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe

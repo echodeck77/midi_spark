@@ -998,7 +998,7 @@ extension DiagView {
         guard let au else { return }
         // On the DRAG&DROP page a colour IS a machine — the per-cell ROUTING edit (receiver / emitters / chop) pushes
         // to EVERY cell of the selected colour, in every scene (not just the captured selection). (user 2026-08-09)
-        if editColourScoped, let cid = editScopeColourID { au.editCellsOfColour(cid, mutate); refreshFromDocument(); return }
+        if editColourScoped, let cid = editScopeColourID { au.editCellsOfColour(cid, mutate); refreshFromDocument(); ddCaptureStickyRouting(); return }
         guard !sel.isEmpty else { return }
         au.editCells(editSelTargets, mutate); refreshFromDocument()
     }
