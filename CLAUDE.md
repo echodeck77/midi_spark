@@ -157,6 +157,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CRASH FIX — render↔main feed arrays flattened (device SIGTRAP, libmalloc free-block corruption) (2026-08-10,
+  on `main`, PUSHED next; macOS 584 green, iOS builds). Paul's `.ips` (15:23): faulting render thread heap-corrupted
+  in `Kernel.computeRoutedPath` while the MAIN thread crashed in `Router.drainEmitterSounding` (Array out-of-bounds
+  assert) — the tell of a render↔main data race. ROOT CAUSE: the three §strips-done UI-poll feeds (`soundVel/Col`,
+  `markVel/Col`, `withheldVel/Col`) were NESTED `[[UInt8]]`/`[[Int8]]`; the render thread's `arr[bus][k] = v` churns
+  the INNER arrays' refcounts while the 4 Hz main-thread drain reads `arr[bus]` → an ARC refcount data race →
+  freelist corruption (same family as the reset()/recvLiveHeld crashes — see memory). FIX: FLATTENED all three to
+  single 4×W value arrays (index `bus*W+i`; W=12 sound, 8 mark/withheld) — no inner-array ARC, so the only residual
+  race is a torn value read (benign, a stale meter mark); the drains CLAMP a possibly-torn count to ≤W so the flat
+  index is always in bounds. `meterPeakVel/Events` + `cellStrike` were already flat. Test `testEmitterSoundingFeed-
+  BucketsByBus` (flat re-indexing buckets by emitter, no smear). The `computeRoutedPath` site was just the unlucky
+  next allocator to trip the corrupted freelist — a DEBUG-only oracle; not the cause.**
 - **▶ PLAY: THIS CELL overrides MUTE/DORMANT + palette follows the soloed colour (2026-08-10, on `main`, PUSHED next;
   macOS 583 green, iOS builds; DEVICE ear owed). Paul found the real repro: an orange cell at (col 0, row 1) was
   MUTED; PLAY: THIS CELL on it played NOTHING and the palette animated GOLD (the unmuted cell above). PLAY: THIS CELL

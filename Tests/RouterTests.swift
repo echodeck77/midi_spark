@@ -229,6 +229,27 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // Render→main SOUNDING feed buckets by emitter (device crash 2026-08-10: the nested [[…]] feed arrays raced the
+    // 4 Hz poll → libmalloc corruption; flattened to 4×W). This locks the flat re-indexing: a note on emitter A and
+    // one on emitter C land in buckets 0 and 2, B/D empty — no smear across the flat buffer.
+    func testEmitterSoundingFeedBucketsByBus() {
+        var cs = arpColours()
+        cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity holds → sustained voices to snapshot
+        cs[colourIDs.firstIndex(of: "cyan")!].type = .passgate
+        let b = box(colours: cs) {
+            $0.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            $0.cells[0][1] = Cell(colourID: "cyan", buses: [.c])
+        }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        router.process(box: b, pool: chord([60, 64]), playing: true, beatPos: 0, tempo: 120, sampleRate: 48_000,
+                       timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
+        router.snapshotEmitterSounding()
+        let snap = router.drainEmitterSounding()
+        XCTAssertEqual(snap.count, 4)
+        XCTAssertFalse(snap[0].isEmpty, "emitter A (bucket 0) is sounding")
+        XCTAssertFalse(snap[2].isEmpty, "emitter C (bucket 2) is sounding")
+        XCTAssertTrue(snap[1].isEmpty && snap[3].isEmpty, "B and D are silent (no cross-bucket smear)")
+    }
     // PLAY: THIS CELL overrides MUTE (user 2026-08-10): a MUTED cell that is the solo target must still play — the
     // feature isolates and previews the cell's machine regardless of grid mute/dormant. (The muted orange cell that
     // "PLAY: THIS CELL did nothing on".) A non-target muted cell stays silent (mute enforced when not soloed).

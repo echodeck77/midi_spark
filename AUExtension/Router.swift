@@ -182,22 +182,26 @@ final class Router {
     // item 4 VELOCITY MARKS: per emitter, a bounded buffer of recent note-on (velocity, source colourIndex)
     // since the last drain — the UI holds+fades each as a floating mark tinted by the source Colour. Fixed
     // scratch (no render alloc); fills to 8 per poll cycle then drops (drained ~4 Hz, so 8 is ample).
-    private var markVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
-    private var markCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
+    // FLAT 4×8 (index bus*8+i). These render→main feeds MUST NOT be nested `[[…]]`: the render thread's nested-array
+    // element write churns the INNER arrays' refcounts while the 4 Hz main-thread drain reads them → an ARC data race
+    // → libmalloc free-block corruption (device crash 2026-08-10 in drainEmitterSounding). A FLAT value array has no
+    // inner-array ARC, so the only residual race is a torn value read (benign — a stale meter mark). (see memory)
+    private var markVel = [UInt8](repeating: 0, count: 32)
+    private var markCol = [Int8](repeating: -1, count: 32)
     private var markCount = [Int](repeating: 0, count: 4)
     // §6a THE WITHHELD TELL: a parallel bounded buffer of note-ons SUPPRESSED by CLAIM (leak 0) since the last
     // drain — same (velocity, source colourIndex) shape. The UI renders these HOLLOW + a claim-hue tick so a
     // suppressed note reads as "withheld here", not a silent bug. Only full CLAIM suppression records (a LEAK
     // shadow already sounds as a dimmer mark; solo/mute/disabled are intentional silences, not withholdings).
-    private var withheldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 8), count: 4)
-    private var withheldCol = [[Int8]](repeating: [Int8](repeating: -1, count: 8), count: 4)
+    private var withheldVel = [UInt8](repeating: 0, count: 32)   // FLAT 4×8 (index bus*8+i) — see markVel note (render↔main ARC-safe)
+    private var withheldCol = [Int8](repeating: -1, count: 32)
     private var withheldCount = [Int](repeating: 0, count: 4)
     // §strips-done (the emitter twin of the receiver's recvHeld): the notes CURRENTLY SOUNDING per emitter — a
     // live snapshot of the voice table sliced by bus, each carrying (velocity, source colourIndex) so the UI
     // draws a hold-while-sounding tick in the SOURCE Colour (cargo tint) and fades it on release. Snapshotted on
     // the render thread each window; read-and-copied by the UI poll (benign staleness race, like the meters).
-    private var soundVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
-    private var soundCol = [[Int8]](repeating: [Int8](repeating: -1, count: 12), count: 4)
+    private var soundVel = [UInt8](repeating: 0, count: 48)   // FLAT 4×12 (index bus*12+i) — see markVel note (render↔main ARC-safe)
+    private var soundCol = [Int8](repeating: -1, count: 48)
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colourIndex (for the SEAL comet feed)
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
@@ -640,8 +644,9 @@ final class Router {
     func drainMarks() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for bus in 0..<4 {
-            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(markCount[bus])
-            for i in 0..<markCount[bus] { m.append((markVel[bus][i], markCol[bus][i])) }
+            let cnt = min(8, max(0, markCount[bus]))   // clamp a possibly-torn count so the flat index stays in bounds
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(cnt)
+            for i in 0..<cnt { m.append((markVel[bus * 8 + i], markCol[bus * 8 + i])) }
             markCount[bus] = 0
             out.append(m)
         }
@@ -656,8 +661,8 @@ final class Router {
         for v in voices where v.active && !v.silent {
             let b = Int(v.bus)
             guard b >= 0, b < 4, soundCount[b] < 12 else { continue }
-            soundVel[b][soundCount[b]] = v.vel
-            soundCol[b][soundCount[b]] = v.colourIndex
+            soundVel[b * 12 + soundCount[b]] = v.vel
+            soundCol[b * 12 + soundCount[b]] = v.colourIndex
             soundCount[b] += 1
         }
     }
@@ -680,8 +685,9 @@ final class Router {
     func drainEmitterSounding() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for b in 0..<4 {
-            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(soundCount[b])
-            for i in 0..<soundCount[b] { m.append((soundVel[b][i], soundCol[b][i])) }
+            let cnt = min(12, max(0, soundCount[b]))   // clamp a possibly-torn count so the flat index stays in bounds
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(cnt)
+            for i in 0..<cnt { m.append((soundVel[b * 12 + i], soundCol[b * 12 + i])) }
             out.append(m)
         }
         return out
@@ -692,8 +698,9 @@ final class Router {
     func drainWithheld() -> [[(vel: UInt8, col: Int8)]] {
         var out = [[(vel: UInt8, col: Int8)]]()
         for bus in 0..<4 {
-            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(withheldCount[bus])
-            for i in 0..<withheldCount[bus] { m.append((withheldVel[bus][i], withheldCol[bus][i])) }
+            let cnt = min(8, max(0, withheldCount[bus]))   // clamp a possibly-torn count so the flat index stays in bounds
+            var m = [(vel: UInt8, col: Int8)](); m.reserveCapacity(cnt)
+            for i in 0..<cnt { m.append((withheldVel[bus * 8 + i], withheldCol[bus * 8 + i])) }
             withheldCount[bus] = 0
             out.append(m)
         }
@@ -968,7 +975,7 @@ final class Router {
                 if leak == 0 {
                     // THE WITHHELD TELL: record the fully-suppressed note-on so the strip can render it hollow.
                     if withheldCount[bus] < 8 {
-                        withheldVel[bus][withheldCount[bus]] = velocity; withheldCol[bus][withheldCount[bus]] = currentColourIndex
+                        withheldVel[bus * 8 + withheldCount[bus]] = velocity; withheldCol[bus * 8 + withheldCount[bus]] = currentColourIndex
                         withheldCount[bus] += 1
                     }
                     return -1
@@ -1052,7 +1059,7 @@ final class Router {
         if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
-            markVel[bus][markCount[bus]] = v; markCol[bus][markCount[bus]] = currentColourIndex
+            markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = currentColourIndex
             markCount[bus] += 1
         }
         let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
