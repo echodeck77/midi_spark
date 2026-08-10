@@ -229,25 +229,22 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
-    // DRONE = sustained pad (user 2026-08-10): a single-slot drone cell holds the chord CONTINUOUSLY across the whole
-    // loop (playhead-independent) from ONE placement until the source releases — not one step then silence.
-    func testDroneSustainsAcrossColumnsAndReleasesCleanly() {
+    // DRONE = a LEGATO chord-hold (user 2026-08-10): placed across columns it HOLDS continuously (NO re-strike per
+    // step) and is SILENT where no drone cell is (playhead-dependent). gold=drone in cols 0..3; hold a chord one pass.
+    func testDroneIsALegatoHoldAcrossItsColumns() {
         var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .drone
-        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // ONE drone cell, column 0
+        let b = box(colours: cs) { for c in 0..<4 { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) } }   // drone cols 0-3, row 0
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        while beat < 32.0 {   // two full passes — the playhead visits columns 1..7 (no cell there); the drone must persist
+        while beat < 16.0 {   // ONE pass: cols 0-3 hold the drone (legato), cols 4-7 have no drone → it releases at col 4
             router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
                            timestampSample: ts, frameCount: frames, out: e, diag: &diag)
             beat += wb; ts += Double(frames)
         }
-        let stillOn = e.ons.filter { $0.cable == 1 }.count - e.offs.filter { $0.cable == 1 }.count
-        XCTAssertGreaterThan(stillOn, 0, "the drone sustains across the whole loop from one cell (not one step then silence)")
-        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 64, 67], "sounds the held chord")
-        router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        beat += wb; ts += Double(frames)
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, e.offs.filter { $0.cable == 1 }.count, "releasing the chord closes the drone (tracks the source, no stuck note)")
+        let onCounts = Dictionary(grouping: e.ons.filter { $0.cable == 1 }, by: { $0.note }).mapValues { $0.count }
+        XCTAssertEqual(Set(onCounts.keys), [60, 64, 67], "the drone sounds the held chord")
+        for n: UInt8 in [60, 64, 67] { XCTAssertEqual(onCounts[n], 1, "note \(n) strikes ONCE across the legato drone span (cols 0-3) — no per-step re-strike") }
         router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e); XCTAssertTrue(router.quiescent)
     }
