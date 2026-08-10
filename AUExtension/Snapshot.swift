@@ -97,11 +97,13 @@ struct SnapParams {
     var euclidSteps: Int = 8
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
-    // THE MOD PROCESSOR (CC generator, delta). Reuses rateIndex as the LFO period.
+    // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
-    var modShape: ModShape = .sine
-    var modDepth: Double = 1.0
-    var modReset: Bool = true            // ON LEAVE: reset-to-default on column exit
+    var modShape: ModShape = .sine       // WAVE
+    var modRate: ModRate = .r2           // LFO period (beats/cycle)
+    var modMin: Int = 0                  // shape floor  (MIN)
+    var modMax: Int = 127                // shape ceiling (MAX); MIN > MAX inverts
+    var modReset: Bool = true            // ON LEAVE: reset to MIN on column exit
 }
 
 struct SnapColour {
@@ -218,7 +220,7 @@ final class SnapshotBox {
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
 
 /// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
-enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modDepth }
+enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax }
 
 /// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
 /// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
@@ -229,7 +231,7 @@ struct MacroMod { let macro: Int; let param: MacroParam; let delta: Double }
 /// seals — which read the document, not this — stay stable, and value 0 ⇒ home (no offset). Clamps match `resolve`.
 func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapParams {
     guard !mods.isEmpty else { return p }
-    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dDepth = 0.0
+    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dMin = 0.0, dMax = 0.0
     for m in mods {
         let v = (m.macro >= 0 && m.macro < values.count) ? values[m.macro] : 0
         let off = v * m.delta
@@ -242,7 +244,8 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
         case .velTilt:      dTilt += off
         case .probability:  dProb += off
         case .harmVelScale: dHarm += off
-        case .modDepth:     dDepth += off
+        case .modMin:       dMin += off
+        case .modMax:       dMax += off
         }
     }
     var r = p
@@ -253,7 +256,8 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
     if dTilt != 0 { r.velTilt = clamp(r.velTilt + dTilt, -1, 1) }
     if dProb != 0 { r.probability = clamp(r.probability + dProb, 0, 1) }
     if dHarm != 0 { r.harmVelScale = clamp(r.harmVelScale + dHarm, 0.1, 1) }
-    if dDepth != 0 { r.modDepth = clamp(r.modDepth + dDepth, 0, 1) }
+    if dMin != 0 { r.modMin = clamp(r.modMin + Int(dMin.rounded()), 0, 127) }
+    if dMax != 0 { r.modMax = clamp(r.modMax + Int(dMax.rounded()), 0, 127) }
     return r
 }
 

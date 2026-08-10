@@ -168,9 +168,10 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     case .mod:
         return [bypass,
                 MacroControlParam(key: "modCC", label: "CC#", kind: .stepper(lo: 0, hi: 127)),
-                MacroControlParam(key: "modShape", label: "SHAPE", kind: .option(ModShape.allCases.map(\.rawValue))),
-                MacroControlParam(key: "modDepth", label: "DEPTH", kind: .continuous(lo: 0, hi: 1)),
-                MacroControlParam(key: "rate", label: "RATE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "modShape", label: "WAVE", kind: .option(ModShape.allCases.map(\.rawValue))),
+                MacroControlParam(key: "modMin", label: "MIN", kind: .continuous(lo: 0, hi: 127)),   // range IS depth+polarity; macro-able (stabs)
+                MacroControlParam(key: "modMax", label: "MAX", kind: .continuous(lo: 0, hi: 127)),
+                MacroControlParam(key: "modRate", label: "RATE", kind: .option(ModRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "modReset", label: "ON LEAVE", kind: .toggle)]
     }
 }
@@ -215,7 +216,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
                                                      .reduce(0) { $0 | ($1.element ? (1 << $1.offset) : 0) })
         case "modCC":        v[param.key] = Double(p.modCC ?? 74)
         case "modShape":     v[param.key] = optionIndex(p.modShape)
-        case "modDepth":     v[param.key] = p.modDepth ?? 1
+        case "modRate":      v[param.key] = optionIndex(p.modRate)
+        case "modMin":       v[param.key] = Double(p.modMin ?? 0)
+        case "modMax":       v[param.key] = Double(p.modMax ?? 127)
         case "modReset":     v[param.key] = (p.modReset ?? true) ? 1 : 0
         default: break
         }
@@ -252,7 +255,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
             let m = clamp(Int(val.rounded()), 0, 15); s.params.passes = (0..<4).map { (m >> $0) & 1 == 1 }
         case "modCC":        s.params.modCC = clamp(Int(val.rounded()), 0, 127)
         case "modShape":     s.params.modShape = caseAt(val, ModShape.self)
-        case "modDepth":     s.params.modDepth = clamp(val, 0, 1)
+        case "modRate":      s.params.modRate = caseAt(val, ModRate.self)
+        case "modMin":       s.params.modMin = clamp(Int(val.rounded()), 0, 127)
+        case "modMax":       s.params.modMax = clamp(Int(val.rounded()), 0, 127)
         case "modReset":     s.params.modReset = val >= 0.5
         default: break
         }

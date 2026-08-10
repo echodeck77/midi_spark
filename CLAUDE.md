@@ -172,8 +172,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (CC#·SHAPE·DEPTH·RATE·ON-LEAVE), emblem `dial.medium`, typeDescription; `modDepth` is a foldable `MacroParam`
   (macro-bindable). **TESTS:** 5 Router (standalone CC+no-notes · [ARP→MOD] · [MOD→ARP] · reset-disposition differential ·
   replay-safe) + 3 Derivations (sine/ramp/S&H) + `.mod` in the fuzz `randomDoc` (no stuck notes across every edge).
-  ⚠ v1 LIMITS (tunable follow-ups): LFO period ≤ 1 beat (reuses ArpRate, max r1_4) so it's a FAST wobble; UNIPOLAR
-  shape [0…depth·127] (no bipolar/centre); ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
+  ⚠ v1 LIMITS (tunable follow-ups): ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
+- **▶ MOD → CC-STAGE §1 alignment (2026-08-10, on `main`, PUSHED next; macOS 562 green, iOS builds; DEVICE ear owed).
+  Advancing MOD toward the CC-STAGE design ferry (`Docs/design-cc-stage-tactile-2026-08-09.md`, filed from the inbox;
+  MOD = its SHAPE source). **WAVE** now SINE·TRI·SQR·RAMP·S&H (added triangle+square). **RATE** is a dedicated
+  musical `ModRate` (period in beats/cycle, 1/8…32) — replaces the interim ArpRate reuse (which capped at ≤1 beat, too
+  fast for sweeps). **MIN/MAX** (§1 row 3) REPLACES the interim `depth`: the shape maps 0…1 → [min,max]; RANGE is depth
+  AND polarity — MIN > MAX inverts (no invert flag); RESET leaves to MIN. Both MIN+MAX are foldable `MacroParam`s (the
+  §2③ stabs). Tests updated + testModTriangleAndSquare / testModRampAndInversion. STILL DEFERRED to the design shelf
+  (their sequencing): FOLLOW·STEPS·STRIKE·EXTERN sources · the tactile curve-as-fader · SPAN CELL|PHRASE|FREE (the
+  LFO cell) · ownership rail · KILL targets · CC-CHOP · companion table. Reply `_dear_claude/REPLY-2026-08-10-…`.**
+- **▶ DRAG&DROP sticky routing defaults (2026-08-10, on `main`, PUSHED; iOS builds). Paul's routing ruling: a fresh
+  cell inherits the LAST receiver + emitters chosen on the DRAG&DROP page (`ddStickyReceiver`/`ddStickyBuses`,
+  captured on select + after a routing edit), else R1 + Emitter A. Applied in ddPlace/ddCellOfColour (place/paint/
+  fill) when a colour has no cell yet. (Routing stays per-cell storage; this is the sticky-default answer to "an
+  unplaced colour can't store routing".)**
 - **▶ DRAG&DROP page — colour-GLOBAL edit model + machinery restyle + drag robustness (2026-08-09, on `main`, PUSHED
   `fbd6fc4`→`5892801`; macOS 553 green, iOS builds; DEVICE eye owed on layout/colours). A long polish/bug batch on
   the DRAG&DROP page. **THE COLOUR-GLOBAL EDIT LAW (the recurring bug: "settings not applied uniformly across a

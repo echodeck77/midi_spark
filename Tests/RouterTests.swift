@@ -1535,7 +1535,7 @@ final class RouterTests: XCTestCase {
     func testModCellEmitsShapedCCAndNoNotes() {
         let cs = arpColours()
         var mod = ProcessorSlot(type: .mod)
-        mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modDepth = 1; mod.params.rate = .r1_4
+        mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modRate = .r1
         let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
         let ccs = modCC74Events(e)
@@ -1549,7 +1549,7 @@ final class RouterTests: XCTestCase {
     func testArpThenModKeepsArpNotesAndEmitsCC() {
         let cs = arpColours()
         let arp = ProcessorSlot(type: .arp)
-        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 71; mod.params.rate = .r1_4
+        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 71; mod.params.modRate = .r1
         let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [arp, mod]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
         XCTAssertGreaterThan(e.ons.count, 0, "the ARP still plays (MOD is note-transparent as a post-driver stage)")
@@ -1559,7 +1559,7 @@ final class RouterTests: XCTestCase {
     /// [MOD → ARP]: MOD passes the chord through (composeChainSet identity) so the arp arps it — AND MOD emits CC.
     func testModThenArpArpsAndEmitsCC() {
         let cs = arpColours()
-        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 74; mod.params.rate = .r1_4
+        var mod = ProcessorSlot(type: .mod); mod.params.modCC = 74; mod.params.modRate = .r1
         let arp = ProcessorSlot(type: .arp)
         let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod, arp]; return c }() }
         let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)
@@ -1573,7 +1573,7 @@ final class RouterTests: XCTestCase {
         func zeros(reset: Bool) -> Int {
             let cs = arpColours()
             var mod = ProcessorSlot(type: .mod)
-            mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modDepth = 1; mod.params.modReset = reset; mod.params.rate = .r1_4
+            mod.params.modCC = 74; mod.params.modShape = .sine; mod.params.modReset = reset; mod.params.modRate = .r1
             let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return modCC74Events(e).filter { $0.vel == 0 }.count
@@ -1584,7 +1584,7 @@ final class RouterTests: XCTestCase {
     func testModCCStreamIsReplaySafe() {
         func ccStream() -> [RecordingEmitter.Ev] {
             let cs = arpColours()
-            var mod = ProcessorSlot(type: .mod); mod.params.modShape = .sampleHold; mod.params.modCC = 74; mod.params.rate = .r1_4
+            var mod = ProcessorSlot(type: .mod); mod.params.modShape = .sampleHold; mod.params.modCC = 74; mod.params.modRate = .r1
             let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
             let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
             return e.events.filter { $0.status == 0xB0 }

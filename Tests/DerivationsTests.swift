@@ -1514,17 +1514,27 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modUnipolar(.sine, phase: 0.25, column: 0, cc: 74, cycleIndex: 0), 1.0, accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.sine, phase: 0.5,  column: 0, cc: 74, cycleIndex: 0), 0.5, accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.sine, phase: 0.75, column: 0, cc: 74, cycleIndex: 0), 0.0, accuracy: 1e-9)
-        XCTAssertEqual(modCCValue(.sine, phase: 0.25, depth: 1,   column: 0, cc: 74, cycleIndex: 0), 127, "depth 1 at the peak = full")
-        XCTAssertEqual(modCCValue(.sine, phase: 0.25, depth: 0.5, column: 0, cc: 74, cycleIndex: 0), 64,  "depth scales the amplitude")
+        XCTAssertEqual(modCCValue(.sine, phase: 0.25, min: 0, max: 127, column: 0, cc: 74, cycleIndex: 0), 127, "peak maps to MAX")
+        XCTAssertEqual(modCCValue(.sine, phase: 0.25, min: 0, max: 64,  column: 0, cc: 74, cycleIndex: 0), 64,  "the MAX chip sets the ceiling")
         for ph in stride(from: 0.0, to: 1.0, by: 0.05) {
-            let v = modCCValue(.sine, phase: ph, depth: 1, column: 0, cc: 74, cycleIndex: 0)
+            let v = modCCValue(.sine, phase: ph, min: 0, max: 127, column: 0, cc: 74, cycleIndex: 0)
             XCTAssertTrue(v >= 0 && v <= 127, "value in 0…127")
         }
     }
-    func testModRampIsLinear() {
+    func testModTriangleAndSquare() {
+        XCTAssertEqual(modUnipolar(.triangle, phase: 0,    column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.triangle, phase: 0.5,  column: 0, cc: 1, cycleIndex: 0), 1,   accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.triangle, phase: 0.25, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modUnipolar(.square, phase: 0.1, column: 0, cc: 1, cycleIndex: 0), 1, "first half HIGH")
+        XCTAssertEqual(modUnipolar(.square, phase: 0.9, column: 0, cc: 1, cycleIndex: 0), 0, "second half LOW")
+    }
+    func testModRampAndInversion() {
         XCTAssertEqual(modUnipolar(.ramp, phase: 0,   column: 0, cc: 1, cycleIndex: 0), 0,   accuracy: 1e-9)
         XCTAssertEqual(modUnipolar(.ramp, phase: 0.5, column: 0, cc: 1, cycleIndex: 0), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, depth: 1, column: 0, cc: 1, cycleIndex: 0), 127, "the ramp rises to full")
+        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, min: 0, max: 127, column: 0, cc: 1, cycleIndex: 0), 127, "the ramp rises to MAX")
+        // MIN > MAX INVERTS (no invert flag): the ramp peak now maps to the LOW end.
+        XCTAssertEqual(modCCValue(.ramp, phase: 0,     min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 100, "inverted: phase 0 → MIN (high)")
+        XCTAssertEqual(modCCValue(.ramp, phase: 0.999, min: 100, max: 20, column: 0, cc: 1, cycleIndex: 0), 20,  "inverted: peak → MAX (low)")
     }
     func testModSampleHoldIsHeldAndReplaySafe() {
         let a1 = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 5)

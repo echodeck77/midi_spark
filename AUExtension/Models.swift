@@ -20,9 +20,17 @@ enum ProcessorType: String, Codable, CaseIterable {
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
-// THE MOD PROCESSOR (delta): the shape of the generated CC. SINE = smooth wobble · RAMP = rising saw · S&H =
-// stepped, seeded-per-cycle random (replay-safe). §12: append-only.
-enum ModShape: String, Codable, CaseIterable { case sine = "SINE", ramp = "RAMP", sampleHold = "S&H" }
+// THE MOD PROCESSOR (delta · CC-stage §1 WAVE): the shape of the generated CC. SINE smooth · TRI symmetric ramp ·
+// SQR on/off · RAMP rising saw · S&H stepped seeded-per-cycle random (replay-safe). §12: append-only (never reorder).
+enum ModShape: String, Codable, CaseIterable { case sine = "SINE", triangle = "TRI", square = "SQR", ramp = "RAMP", sampleHold = "S&H" }
+// CC-stage §1 RATE — the LFO PERIOD in BEATS per cycle (musical, slow↔fast). Its own type (the arp rate capped at
+// ≤1 beat, too fast for sweeps). §12: append-only.
+enum ModRate: String, Codable, CaseIterable {
+    case r1_8 = "1/8", r1_4 = "1/4", r1_2 = "1/2", r1 = "1", r2 = "2", r4 = "4", r8 = "8", r16 = "16", r32 = "32"
+    var periodBeats: Double {
+        switch self { case .r1_8: 0.125; case .r1_4: 0.25; case .r1_2: 0.5; case .r1: 1; case .r2: 2; case .r4: 4; case .r8: 8; case .r16: 16; case .r32: 32 }
+    }
+}
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 enum StepRate: String, Codable, CaseIterable {
@@ -93,9 +101,13 @@ struct ColourParams: Codable, Equatable {
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
     var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
-    var modShape: ModShape? = .sine     // SINE · RAMP · S&H
-    var modDepth: Double? = 1.0         // 0…1 — scales the shape's amplitude (value = depth·shape·127)
-    var modReset: Bool? = true          // ON LEAVE: reset-to-default (0) on column exit · OFF = leave-as-landed
+    var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H
+    var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle)
+    // MIN/MAX (CC-stage §1 row 3): the shape maps 0…1 → [min, max]. RANGE is depth AND polarity — MIN > MAX inverts
+    // (no invert chip). RESET leaves the CC to MIN on column exit. (Supersedes the interim `depth`.)
+    var modMin: Int? = 0                // the shape's floor (0…127)
+    var modMax: Int? = 127              // the shape's ceiling (0…127)
+    var modReset: Bool? = true          // ON LEAVE: reset to MIN on column exit · OFF = leave-as-landed
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

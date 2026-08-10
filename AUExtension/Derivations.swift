@@ -40,9 +40,12 @@ import Foundation
 /// REPLAY-SAFE (same beat → same value; no free-running state). Pure.
 @inline(__always)
 func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIndex: Int) -> Double {
+    let p = positiveFract(phase)
     switch shape {
-    case .sine: return (1 + sin(2 * Double.pi * phase)) / 2
-    case .ramp: return positiveFract(phase)
+    case .sine:     return (1 + sin(2 * Double.pi * p)) / 2
+    case .triangle: return 1 - abs(2 * p - 1)                 // 0 → 1 → 0 (peak at mid-cycle)
+    case .square:   return p < 0.5 ? 1 : 0
+    case .ramp:     return p
     case .sampleHold:
         let seed = (UInt64(bitPattern: Int64(cycleIndex)) &* 0x9E3779B97F4A7C15)
                  ^ (UInt64(column & 0xFF) &<< 8) ^ UInt64(cc & 0x7F)
@@ -50,12 +53,13 @@ func modUnipolar(_ shape: ModShape, phase: Double, column: Int, cc: Int, cycleIn
     }
 }
 
-/// The generated CC VALUE (0…127) at `phase`: the unipolar shape scaled by depth (0…1). Pure, replay-safe.
+/// The generated CC VALUE (0…127) at `phase`: the unipolar shape mapped onto [min, max]. The RANGE is depth AND
+/// polarity — `min > max` INVERTS (no invert flag). Pure, replay-safe. (CC-stage §1 row 3.)
 @inline(__always)
-func modCCValue(_ shape: ModShape, phase: Double, depth: Double, column: Int, cc: Int, cycleIndex: Int) -> Int {
-    let d = max(0, min(1, depth))
+func modCCValue(_ shape: ModShape, phase: Double, min lo: Int, max hi: Int, column: Int, cc: Int, cycleIndex: Int) -> Int {
     let s = modUnipolar(shape, phase: phase, column: column, cc: cc, cycleIndex: cycleIndex)
-    return max(0, min(127, Int((127.0 * d * s).rounded())))
+    let v = Double(lo) + s * Double(hi - lo)
+    return max(0, min(127, Int(v.rounded())))
 }
 
 /// TIMELINE MACRO LANE — the value the playhead drives at musical position `absoluteBeat` (overlay-rule-macro-lanes).

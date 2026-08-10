@@ -1482,14 +1482,17 @@ struct ProcessorBox: View {
         case .humanize: // GENERATOR — seeded jitter (spread = amount)
             field("AMOUNT  \(Int((p.spread ?? 0.5) * 100))%") {
                 Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
-        case .mod:      // CC GENERATOR — a beat-derived shaped CC on the emitters (sounds no notes)
+        case .mod:      // CC GENERATOR — a beat-derived shaped CC on the emitters (sounds no notes). CC-stage §1 SHAPE.
             let cc = p.modCC ?? 74
             field("CC #  \(cc)") {
                 Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
-            field("SHAPE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
-            field("DEPTH  \(Int((p.modDepth ?? 1) * 100))%") {
-                Slider(value: bind(p.modDepth ?? 1) { v in setParam { $0.modDepth = v } }, in: 0...1).tint(accent) }
-            field("RATE  (LFO period)") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_16).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
+            field("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
+            field("RATE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
+            let lo = p.modMin ?? 0, hi = p.modMax ?? 127
+            field("MIN  \(lo)") {
+                Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            field("MAX  \(hi)\(lo > hi ? "   (inverted)" : "")") {
+                Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) }
             field("ON LEAVE") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
         }
     }

@@ -1698,14 +1698,13 @@ final class Router {
             if soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod {
                 let p = cell.procs[si]
-                var period = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
-                if period <= 0 { period = 1 }
+                let period = max(0.03125, p.modRate.periodBeats)     // LFO period, beats/cycle
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
                         let cyc = Int((b / period).rounded(.down))
-                        let value = modCCValue(p.modShape, phase: positiveFract(b / period), depth: p.modDepth,
+                        let value = modCCValue(p.modShape, phase: b / period, min: p.modMin, max: p.modMax,
                                                column: column, cc: p.modCC, cycleIndex: cyc)
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
                         emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
@@ -1722,7 +1721,7 @@ final class Router {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset {
-                emitModCC(cc: cell.procs[si].modCC, value: 0, busMask: cell.busMask, atSample: atSample, out: out)
+                emitModCC(cc: cell.procs[si].modCC, value: cell.procs[si].modMin, busMask: cell.busMask, atSample: atSample, out: out)   // RESET → MIN
             }
         }
     }
