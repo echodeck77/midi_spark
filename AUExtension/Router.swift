@@ -1080,7 +1080,7 @@ final class Router {
     private func emitHarmony(base: Int, colour: SnapColour, t: Double, baseVel: UInt8, row: Int,
                              storeArtics: Bool, busMask: UInt8,
                              on: Int64, off: Int64, beat: Double,
-                             windowEnd: Int64, out: MIDIEmitter?,
+                             windowEnd: Int64, sustain: Bool = false, out: MIDIEmitter?,
                              diag: inout KernelDiag) {
         let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
                   Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
@@ -1090,7 +1090,23 @@ final class Router {
                                   vel: baseVel, velScale: scale, vels: &harmVels)
         for i in 0..<cnt {
             if storeArtics { storeArtic(row: row, on: on, off: off, note: UInt8(harmNotes[i]), beat: beat) }
-            if busMask != 0 {
+            guard busMask != 0 else { continue }
+            if sustain {
+                // PLAY: THIS CELL — under a frozen column each harmony voice is IMMORTAL + ADOPTED (per-bus, mirrors
+                // the identity legato branch), so the every-window re-run reconciles the same harmonized set instead
+                // of re-striking. Voices carry currentColourIndex/currentAlt so adoptLegatoBus matches on re-run.
+                var emitMask: UInt8 = 0
+                for b in UInt8(0)..<4 where busMask & (1 << b) != 0 {
+                    let sw = Int(harmNotes[i]) + emitterOctaveShift(Int(b)) + masterKey
+                    guard sw >= 0 && sw <= 127 else { continue }
+                    guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
+                    if !adoptLegatoBus(wire: w, bus: b, ci: Int8(currentColourIndex), alt: currentAlt) { emitMask |= (1 << b) }
+                }
+                if emitMask != 0 {
+                    emitArtic(note: UInt8(harmNotes[i]), busMask: emitMask, onSample: on, offSample: .max,
+                              windowEnd: windowEnd, velocity: harmVels[i], out: out, diag: &diag)
+                }
+            } else {
                 emitArtic(note: UInt8(harmNotes[i]), busMask: busMask, onSample: on, offSample: off,
                           windowEnd: windowEnd, velocity: harmVels[i], out: out, diag: &diag)
             }
@@ -1157,11 +1173,10 @@ final class Router {
             // boundaries. RETRIG (and .free) re-strike as before; CHANCE/HARMONIZE re-speak (per-column
             // dice / expansion); the ALT turn-group is excluded (a rotating emitter is a fresh strike).
             // PLAY: THIS CELL (forceColumnHold) freezes the column, so this can't re-fire on a boundary to sustain a
-            // gated hold — the cell would sound one column then die. Treat identity/chance holds as immortal+adopted
-            // so the machine plays CONTINUOUSLY; the frozen colStart makes the chance dice stable, so the every-window
-            // re-run (reconcileOnly) adopts the identical set (no re-strike). HARMONIZE is the known solo gap (its
-            // emitHarmony path isn't adoptable) — it still plays one column then rests under solo.
-            let soloSustain = forceColumnHold && (mode == .identity || mode == .chance)
+            // gated hold — the cell would sound one column then die. Treat EVERY hold mode (identity / chance /
+            // harmonize) as immortal+adopted so the machine plays CONTINUOUSLY; the frozen colStart makes the chance
+            // dice + harmony stable, so the every-window re-run (reconcileOnly) adopts the identical set (no re-strike).
+            let soloSustain = forceColumnHold && (bm & altMask) == 0
             let legato = (bm & altMask) == 0 && ((mode == .identity && treat.a.phase == .legato) || soloSustain)
             if reconcileOnly && !legato { continue }   // frozen-column re-run: only the immortal holds reconcile
             // §cell-edit F CHOP: a hold is ONE articulation (at colStart = slice 0), so route it by that slice's
@@ -1180,7 +1195,7 @@ final class Router {
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, t: t, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
-                                windowEnd: windowEnd, out: out, diag: &diag)
+                                windowEnd: windowEnd, sustain: soloSustain, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
                 } else if legato {
                     // §2 per-bus reconcile: ADOPT the buses a matching drone already sounds (no off/on);
                     // STRIKE only the buses that are new — each opened IMMORTAL (offSample .max) so drainDue

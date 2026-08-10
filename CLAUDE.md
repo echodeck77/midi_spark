@@ -168,9 +168,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   — the frozen `colStart` makes the chance dice stable, so re-reconciling yields the identical set, no re-strike);
   (b) `emitColumnHolds` re-runs EVERY window via a new `reconcileOnly` path (adopt/close only — skips harmonize's
   non-adoptable emitHarmony emission, the non-legato else-branch, and echo-tail registration), so the hold sustains
-  and tracks live/latch pool changes; releasing the keys (empty pool, no latch) closes them cleanly. Test
-  `testForceColumnSustainsAHoldCell` (a passthrough sustains across two frozen passes + clears on stop). ⚠ KNOWN GAP:
-  a HARMONIZE cell under PLAY: THIS CELL still plays ~one column then rests (emitHarmony isn't adoptable — deferred).**
+  and tracks live/latch pool changes; releasing the keys (empty pool, no latch) closes them cleanly. Tests
+  `testForceColumnSustainsAHoldCell` + `testForceColumnSustainsAHarmonizeCell` (passthrough + harmonize sustain across
+  two frozen passes + clear on stop). HARMONIZE was later folded in too (`emitHarmony(sustain:)` makes each harmony
+  voice immortal+adopted under forceColumn) — so ALL hold modes (identity/chance/harmonize) + ticks now sustain under
+  PLAY: THIS CELL; this closed Paul's "works on gold, not on orange" (orange was the harmonize/second colour).**
 - **▶ PIANO LATCH self-arming + BYPASS-reads-frozen + DRAG&DROP unplaced-colour routing (2026-08-10, on `main`,
   PUSHED next; macOS 580 green, iOS builds; DEVICE ear owed). Batch fixing Paul's PIANO-latch "I hear nothing"
   reports. **ROOT CAUSE:** PIANO notes only existed in the frozen pool while the SEPARATE latch lock was armed — an
