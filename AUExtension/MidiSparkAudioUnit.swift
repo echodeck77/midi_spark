@@ -161,6 +161,26 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             }
         }
     }
+    /// Set a colour's chain to EXACTLY `chain` (empty → a bypassed-passgate passthrough) + clear every cell's override.
+    /// The UI computes `chain` from what's DISPLAYED (cellChain(editingCell)), so an edit never operates on a stale
+    /// representative cell → deleting the first of two slots leaves the other, not a passgate. (user 2026-08-10 bug.)
+    func setColourChain(_ colourID: String, _ chain: [ProcessorSlot]) {
+        let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
+        editDocument { doc in
+            if let ci = doc.colours.firstIndex(where: { $0.colourID == colourID }) { doc.colours[ci].templateChain = stored }
+            for si in doc.scenes.indices {
+                for c in doc.scenes[si].cells.indices {
+                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
+                        doc.scenes[si].cells[c][r]?.processors = nil
+                    }
+                }
+            }
+        }
+    }
+    /// Set the per-cell chain of `targets` to EXACTLY `chain` (empty allowed = explicit passthrough). PROCESSORS tab.
+    func setCellsChain(_ targets: [(col: Int, row: Int)], _ chain: [ProcessorSlot]) {
+        editScene { s in for t in targets where s.inBounds(t.col, t.row) { s.cells[t.col][t.row]?.processors = chain } }
+    }
     func addSlotColour(_ id: String, type: ProcessorType = .passgate) { withChainColour(id) { if $0.count < 8 { $0.append(ProcessorSlot(type: type)) } } }
     func removeSlotColour(_ id: String, slot: Int) { withChainColour(id) { if slot < $0.count { $0.remove(at: slot) } } }
     func editSlotColour(_ id: String, slot: Int, _ mutate: (inout ProcessorSlot) -> Void) { withChainColour(id) { if slot < $0.count { mutate(&$0[slot]) } } }

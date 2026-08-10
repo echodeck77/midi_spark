@@ -1183,6 +1183,17 @@ final class Router {
                               velocity: vel, out: out, diag: &diag)
                 }
             }
+            // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→GATE]): register tails for the FULLY-PROCESSED set —
+            // echo's chain position doesn't change the content (v1), it repeats the final (harmonized) output. Without
+            // this the echo was silently dropped (composeChainSet folds it as pass-through). (user 2026-08-10 bug.)
+            if holdChain, let ep = chainEchoParams(cell) {
+                composeChainSet(cell: cell, pool: cellPool, upto: tailIdx, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
+                for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
+                    let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
+                    let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
+                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S)
+                }
+            }
         }
         }
         // §2 CONTINUITY: close the drones this column did NOT re-hold (dropped notes / empty column), at the
@@ -2067,6 +2078,12 @@ final class Router {
     private func isEchoTail(_ cell: SnapCell) -> Bool {
         guard !isCoveredChain(cell), let last = cell.procs.last, !(cell.slotBypass.last ?? false) else { return false }
         return last.type == .echo
+    }
+    /// The first non-bypassed ECHO slot's params in a chain, or nil — for registering echo tails when echo is an
+    /// EARLIER slot of a hold-tail chain (e.g. [ECHO→HARMONIZE]), which the tail/driver echo paths don't cover.
+    private func chainEchoParams(_ cell: SnapCell) -> SnapParams? {
+        for i in 0..<cell.procs.count where !cell.slotBypass[i] && cell.procs[i].type == .echo { return cell.procs[i] }
+        return nil
     }
 
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent

@@ -401,18 +401,15 @@ extension DiagView {
             processorTypeRow(boxWidth: boxWidth)
         }
     }
-    // The big, bold processor TYPE selector — one emblem per type; tapping appends that type to the selection's
-    // chain(s). Shared by the empty-cell invitation AND the "add another processor" control (not a default passgate).
+    // The processor TYPE selector — a wrapping list of NAMES (no icons, user 2026-08-10); tapping appends that type to
+    // the selection's chain(s). Shared by the empty-cell invitation AND the "add another processor" control.
     @ViewBuilder func processorTypeRow(boxWidth: CGFloat) -> some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)], spacing: 6) {
             ForEach(ProcessorType.allCases, id: \.self) { t in
                 Button { chainAddSlot(type: t) } label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: emblemSymbol(t)).font(.system(size: 22, weight: .black))
-                        Text(t.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                    }
-                    .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 62)
-                    .background(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.45), lineWidth: 1.5))
+                    Text(t.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                        .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 7).stroke(mainDestHue.opacity(0.45), lineWidth: 1.5))
                 }.buttonStyle(.plain)
             }
         }.frame(width: boxWidth)
@@ -436,30 +433,30 @@ extension DiagView {
     // On the DRAG&DROP page use the SELECTED palette colour (works even before the colour has a placed cell — its
     // machinery is always shown on a synthetic cell); elsewhere fall back to the anchor cell's colour.
     private var editScopeColourID: String? { (activeTab == .dragDrop ? ddSelectedColourID : nil) ?? editingCell?.colourID }
-    func chainAddSlot(type: ProcessorType) {
-        if editColourScoped, let cid = editScopeColourID { au?.addSlotColour(cid, type: type) } else { au?.addSlotCells(editSelTargets, type: type) }
+    // Every chain edit is based on the DISPLAYED chain (cellChain(editingCell)) and written whole — so a colour-scoped
+    // edit can't operate on a stale representative cell (which reverted the arp / emptied the chain to a passgate on
+    // delete — user 2026-08-09/10). `applyChain` writes it colour-wide (DRAG&DROP) or per-cell (PROCESSORS).
+    private func applyChain(_ chain: [ProcessorSlot]) {
+        if editColourScoped, let cid = editScopeColourID { au?.setColourChain(cid, chain) } else { au?.setCellsChain(editSelTargets, chain) }
         refreshFromDocument()
+    }
+    private var displayedChain: [ProcessorSlot]? { editingCell.map { cellChain($0) } }
+    func chainAddSlot(type: ProcessorType) {
+        guard var c = displayedChain else { return }; if c.count < 8 { c.append(ProcessorSlot(type: type)) }; applyChain(c)
     }
     func chainSetType(slot i: Int, _ type: ProcessorType) {
-        if editColourScoped, let cid = editScopeColourID { au?.setSlotTypeColour(cid, slot: i, type) } else { au?.setSlotTypeCells(editSelTargets, slot: i, type) }
-        refreshFromDocument()
+        guard var c = displayedChain, i < c.count else { return }; c[i].type = type; applyChain(c)
     }
     func chainToggleBypass(slot i: Int) {
-        if editColourScoped, let cid = editScopeColourID { au?.toggleSlotBypassColour(cid, slot: i) } else { au?.toggleSlotBypassCells(editSelTargets, slot: i) }
-        refreshFromDocument()
+        guard var c = displayedChain, i < c.count else { return }; c[i].bypassed.toggle(); applyChain(c)
     }
     func chainRemoveSlot(slot i: Int) {
-        if editColourScoped, let cid = editScopeColourID { au?.removeSlotColour(cid, slot: i) } else { au?.removeSlotCells(editSelTargets, slot: i) }
-        refreshFromDocument()
+        guard var c = displayedChain, i < c.count else { return }; c.remove(at: i); applyChain(c)
     }
     func chainEditSlot(slot i: Int, _ mutate: @escaping (inout ProcessorSlot) -> Void) {
-        if editColourScoped, let cid = editScopeColourID { au?.editSlotColour(cid, slot: i, mutate) } else { au?.editSlotCells(editSelTargets, slot: i, mutate) }
-        refreshFromDocument()
+        guard var c = displayedChain, i < c.count else { return }; mutate(&c[i]); applyChain(c)
     }
-    func chainReplace(_ chain: [ProcessorSlot]) {
-        if editColourScoped, let cid = editScopeColourID { au?.withChainColour(cid) { $0 = chain } } else { au?.editCells(editSelTargets) { $0.processors = chain } }
-        refreshFromDocument()
-    }
+    func chainReplace(_ chain: [ProcessorSlot]) { applyChain(chain) }
 
     @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell,
                               plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil,
@@ -696,7 +693,7 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("ADD A PROCESSOR").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
                 Text("Pick a processor to shape the signal.").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                HStack(spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], spacing: 8) {   // NAMES only (no icons, user 2026-08-10)
                     ForEach(ProcessorType.allCases, id: \.self) { t in
                         Button {
                             let newIdx = editingCell.map { cellChain($0).count } ?? 0   // the slot the append will create
@@ -704,13 +701,10 @@ extension DiagView {
                             procTypePickerOpen = false
                             openProcEdit(slot: newIdx)                                   // straight into the edit form (user 2026-08-08)
                         } label: {
-                            VStack(spacing: 6) {
-                                Image(systemName: emblemSymbol(t)).font(.system(size: 26, weight: .black))
-                                Text(t.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                            }
-                            .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 84)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(mainDestHue.opacity(0.10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(mainDestHue.opacity(0.5), lineWidth: 1.5)))
+                            Text(t.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
+                                .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 40)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(mainDestHue.opacity(0.10))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.5), lineWidth: 1.5)))
                         }.buttonStyle(.plain)
                     }
                 }

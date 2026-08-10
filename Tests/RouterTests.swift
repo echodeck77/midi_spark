@@ -3960,6 +3960,21 @@ final class RouterTests: XCTestCase {
     }
     /// ECHO as a chain TAIL (user 2026-08-08 bug): `[PASSGATE(bypassed) → ECHO]` must echo the upstream hold set, not
     /// fall through to a silent passthrough (emitEchoColumn read the HEAD, so echo-as-tail did nothing).
+    func testEchoThenHarmonizeEchoesTheHarmonizedSet() {
+        // [ECHO → HARMONIZE]: echo in the FIRST slot of a HOLD-tail chain. Bug (user 2026-08-10): the echo was dropped
+        // (composeChainSet folded it as pass-through); it now registers tails for the fully-processed (harmonized) set.
+        var s0 = ProcessorSlot(type: .echo); s0.params.echoDelayDiv = 1; s0.params.echoRepeats = 4; s0.params.echoFeedDelay = 0.6; s0.params.echoDecay = 0.5
+        var s1 = ProcessorSlot(type: .harmonize); s1.params.harmIntervals = [7, 0, 0]
+        let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
+            var c = Cell(colourID: "gold", buses: [.a]); c.processors = [s0, s1]; $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 1.5, into: e)
+        let root = e.ons.filter { $0.note == 60 && $0.cable == 1 }
+        let harm = e.ons.filter { $0.note == 67 && $0.cable == 1 }   // the +7 harmony
+        XCTAssertGreaterThanOrEqual(root.count, 3, "the echo repeats the root over time (not just the one held chord)")
+        XCTAssertGreaterThanOrEqual(harm.count, 3, "…and the echoes are HARMONIZED (the +7 voice repeats too)")
+        assertNothingLeftSounding(e)
+    }
     func testEchoAsChainTailEchoesUpstreamSet() {
         let b = box(colours: [Colour(colourID: "gold", type: .passgate)]) {
             var c = Cell(colourID: "gold", buses: [.a])
