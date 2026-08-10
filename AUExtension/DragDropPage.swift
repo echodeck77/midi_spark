@@ -376,7 +376,7 @@ extension DiagView {
         let on = ddSolo
         return Button {
             ddSolo.toggle()
-            if ddSolo, selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow) } else { ddSolo = false; au?.clearColourSolo() }
+            if ddSolo { ddEngageSolo() } else { au?.clearColourSolo() }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: on ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 11, weight: .heavy))
@@ -469,11 +469,19 @@ extension DiagView {
         if let a = anchor { selCol = a.0; selRow = a.1 }
         else if let first = cells.first { selCol = first.col; selRow = first.row }
         else { selCol = -1; selRow = -1 }
-        if ddSolo { if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow) } else { au?.clearColourSolo() } }   // PLAY: THIS CELL follows the selection
+        if ddSolo { ddEngageSolo() }   // PLAY: THIS CELL follows the selection
         ddCaptureStickyRouting()   // remember the last-chosen receiver + emitters (the default for the next fresh cell)
     }
     /// STICKY ROUTING (user 2026-08-10): a fresh cell inherits the LAST receiver + emitters chosen on the page (else
     /// the model default R1 + Emitter A). Captured from the anchor cell on select + after a routing edit.
+    /// Engage PLAY: THIS CELL for the current selection. A PLACED cell freezes on its grid slot; an UNPLACED colour
+    /// (no cell yet) plays via a SYNTHETIC preview cell at an empty slot (its sticky receiver + emitters + machine).
+    /// If neither is possible (no colour selected, or the grid is full for a preview) the toggle springs back off.
+    func ddEngageSolo() {
+        if selCol >= 0, selRow >= 0 { au?.setColourSolo(col: selCol, row: selRow); return }
+        if let cid = ddSelectedColourID, au?.setColourSoloPreview(colourID: cid, inputReceiver: ddStickyReceiver, buses: Array(ddStickyBuses)) == true { return }
+        ddSolo = false; au?.clearColourSolo()
+    }
     func ddCaptureStickyRouting() {
         guard let c = editingCell else { return }
         ddStickyReceiver = c.inputReceiver ?? 0

@@ -296,10 +296,46 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// chain renders (normal render path, just held on this column). `clearColourSolo` restores normal play.
     func setColourSolo(col: Int, row: Int) {
         guard col >= 0, col < 8, row >= 0, row < 8 else { clearColourSolo(); return }
+        if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // switching from an unplaced preview to a real placed cell
         kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
         kernel.setSoloColumn(col)
     }
-    func clearColourSolo() { kernel.setSoloCellMask(0); kernel.setSoloColumn(-1) }
+    func clearColourSolo() {
+        kernel.setSoloCellMask(0); kernel.setSoloColumn(-1)
+        if previewSolo != nil { previewSolo = nil; scheduleRebuild() }   // drop the synthetic preview cell (republish the real document)
+    }
+
+    /// PLAY: THIS CELL for an UNPLACED colour (user 2026-08-10) — there's no grid cell to freeze on, so drop a
+    /// SYNTHETIC cell of the colour at an empty slot of the active scene into an EPHEMERAL snapshot (never the
+    /// document — encode/persist read `document`) and solo it. The REAL render path then plays the colour's full
+    /// machine (templateChain via `processors = nil`, its latch/live input, sustained under the frozen column).
+    /// Returns false if the grid is full. `clearColourSolo` drops the synthetic cell. `inputReceiver`/`buses` are the
+    /// page STICKY (what a placed cell would inherit).
+    private var previewSolo: (col: Int, row: Int, cell: Cell)? = nil
+    @discardableResult
+    func setColourSoloPreview(colourID: String, inputReceiver: Int, buses: [Bus]) -> Bool {
+        let scene = document.activeSceneState
+        var slot: (col: Int, row: Int)? = nil
+        search: for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r) == nil { slot = (c, r); break search } }
+        guard let (col, row) = slot else { return false }   // grid full → no room for the preview
+        var cell = Cell(colourID: colourID, buses: buses.isEmpty ? [.a] : Set(buses))
+        cell.inputReceiver = max(0, min(3, inputReceiver))
+        cell.processors = nil                                // inherit the colour's templateChain (its machine)
+        previewSolo = (col, row, cell)
+        scheduleRebuild()                                    // publishes the snapshot WITH the synthetic cell (renderDoc)
+        kernel.setSoloCellMask(UInt64(1) << UInt64(col * 8 + row))
+        kernel.setSoloColumn(col)
+        return true
+    }
+    /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
+    /// (unplaced-colour audition) injected at its empty slot. Never used by encode/persist (those read `document`).
+    private func renderDoc() -> PluginState {
+        guard let p = previewSolo else { return document }
+        var temp = document
+        let si = temp.activeSceneResolved
+        if temp.scenes.indices.contains(si) { temp.scenes[si].setCell(p.col, p.row, p.cell) }
+        return temp
+    }
 
     /// §9 item 1 ON HOLD: the grid cell (col*8+row, −1 = none) currently press-held in PERFORM — its ON HOLD
     /// treatment overlays while held. Ephemeral, never persisted; the UI clears it (−1) on release / stop / EDIT.
@@ -781,14 +817,14 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if suppressRebuild { return }
         if Thread.isMainThread {
             snapshotGeneration &+= 1
-            store.publish(SnapshotBuilder.build(from: document, generation: snapshotGeneration))
+            store.publish(SnapshotBuilder.build(from: renderDoc(), generation: snapshotGeneration))
         } else if !rebuildPending {
             rebuildPending = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.rebuildPending = false
                 self.snapshotGeneration &+= 1
-                self.store.publish(SnapshotBuilder.build(from: self.document, generation: self.snapshotGeneration))
+                self.store.publish(SnapshotBuilder.build(from: self.renderDoc(), generation: self.snapshotGeneration))
             }
         }
     }

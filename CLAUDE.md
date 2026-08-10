@@ -165,9 +165,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   in all five emission guards (holds · echo · tick · MOD · GLIDE) — the soloed target plays; non-targets stay
   `cellSoloedOut`; colourIndex<0 / busMask==0 / soloSilenced (receiver-solo) still hard-skip. PALETTE: `ddColour-
   InActiveColumn` now returns `id == ddSelectedColourID` while `ddSolo` (the soloed colour sweeps regardless of mute,
-  nothing else does). Test `testForceColumnPlaysAMutedSoloedCell`. ⚠ STILL OPEN (Paul also asked): PLAY: THIS CELL for
-  an UNPLACED colour (no grid cell) — the forceColumn/soloCellMask path is grid-cell-based, so an unplaced colour
-  can't be soloed yet; needs a synthetic-cell preview path (the audition/previewPlaying machinery) — deferred.**
+  nothing else does). Test `testForceColumnPlaysAMutedSoloedCell`.**
+- **▶ PLAY: THIS CELL for an UNPLACED colour — synthetic-cell preview (2026-08-10, on `main`, PUSHED next; iOS builds;
+  DEVICE ear owed). Paul: PLAY: THIS CELL should play a colour "even if it's not placed on the grid yet." The
+  forceColumn/soloCellMask path is grid-cell-based, so instead of reviving the limited `previewPlaying` (A-face only,
+  live-pool only) I inject a SYNTHETIC cell of the colour at an empty slot of the active scene into an EPHEMERAL
+  snapshot (never the document — encode/persist read `document`) and solo THAT slot — so the REAL render path plays
+  the colour's full machine (templateChain via `processors = nil`, its latch/PIANO or live input, sustained under the
+  frozen column via the fixes above). AU `setColourSoloPreview(colourID:inputReceiver:buses:)` (finds an empty slot,
+  sets `previewSolo`, `scheduleRebuild` now builds from `renderDoc()` = document + the injected cell) + `clearColour-
+  Solo`/`setColourSolo` drop it; DragDrop `ddEngageSolo` routes a placed selection to `setColourSolo`, an unplaced one
+  to `setColourSoloPreview` (sticky receiver + emitters). Returns false / springs the toggle back if the grid is full.
+  The engine is covered by the existing forceColumn solo tests (a soloed cell at any slot sustains); the ephemeral
+  injection is AU-level (device). v1 uses the FIRST empty slot; a document edit mid-preview re-injects (renderDoc).**
 - **▶ PLAY: THIS CELL — a HOLD cell now SUSTAINS under the frozen column (2026-08-10, on `main`, PUSHED next; macOS
   581 green, iOS builds; DEVICE ear owed). Paul: a receiver-2 colour "works on the grid but is silent on PLAY: THIS
   CELL; the palette shows the swatch running with no sound." ROOT CAUSE: PLAY: THIS CELL forces + FREEZES the column
