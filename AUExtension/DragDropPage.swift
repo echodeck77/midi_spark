@@ -459,7 +459,7 @@ extension DiagView {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 10).fill(ddSelHue.opacity(0.08))        // the SELECTED colour (user 2026-08-10)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ddSelHue.opacity(0.8), lineWidth: 2)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ddSelHue.opacity(0.8), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2.5, 3.5]))))   // DOTTED like the flow thread
         .background(ddZone("actionBox"))                      // measure for the connector line
     }
     // The dashed connector from the action box to the FINAL processor slot — drawn at the page level in "dd" space
@@ -470,7 +470,7 @@ extension DiagView {
                 path.move(to: CGPoint(x: p.midX, y: p.minY))     // the FINAL processor box's TOP-CENTRE
                 path.addLine(to: CGPoint(x: p.midX, y: a.maxY))  // straight UP to join the box (vertical) (user 2026-08-10)
             }
-            .stroke(ddSelHue, style: StrokeStyle(lineWidth: 2, lineCap: .round))   // the SELECTED colour
+            .stroke(ddSelHue, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2.5, 3.5]))   // the SELECTED colour, DOTTED like the flow thread
             .allowsHitTesting(false)
         }
     }
