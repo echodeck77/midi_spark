@@ -157,6 +157,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE DICE (step 1) — long all-contributing chains + 4 evaluated slider macros + 4 button macros (2026-08-10, on
+  `main`, PUSHED next; macOS 589 green, iOS builds; DEVICE ear/eye owed). Paul's start on `AcceptanceCriteria-dice-
+  authoring.md`: chains LONGER than 3, repeated types OK, but EVERY processor must CONTRIBUTE (bypassing it tangibly
+  changes the output); 4 SPRING sliders + 4 binary BUTTONS, each driving a GENERATED + EVALUATED macro. NEW Foundation
+  file `AUExtension/Dice.swift` (added to the test target): an OFFLINE evaluator — `signature(chain)` builds a 1-cell
+  PluginState, runs the REAL Router (forceColumn, held chord, 3 beats, big windows for speed) and returns the emitter-A
+  note-ons (note + 1/16-beat bucket); deterministic, so two chains with the same signature are audibly identical.
+  `rollChain(target:)` builds HIGH keeping a slot only if it changes+stays-audible, then PRUNES any slot whose bypass
+  no longer changes the output (all-contributing), safety top-up if <4. `rollSliders`/`rollButtons` generate ≤4 each,
+  KEPT only if the perturbation (a continuous param morph / a bypass or type-switch) changes the signature. PASSGATE
+  excluded (open=no-op, closed=silence); MOD/GLIDE excluded (CC/bend, not notes). `Dice.Result.chain(sliderVals:
+  buttonOn:)` composes the effective chain: base + Σ slider×(alt−base) + active toggles. UI: `ddRandomize` now rolls
+  via Dice (system RNG) + writes the base colour-globally (`withChainColour`); 4 spring sliders (`ddMacroSlider`, drag
+  0…1 → morph live, revert to 0 on release) + 4 binary buttons (`ddMacroButton`) in the landscape ACTION BOX and below
+  the machinery in PORTRAIT; inert until the selected colour has a live roll (`ddDiceActive`). Tests `DiceTests` (chain
+  >3 + all-contributing across seeds · every macro changes output · deterministic per seed · effective-chain compose).
+  ⚠ v1: no seed shown yet (Paul's call), MUTATE still a placeholder, no per-group pins, target length 5 (all-contributing
+  caps it), the roll is a ~0.2–0.8s offline compute (a brief pause on tap).**
 - **▶ DRONE = a LEGATO chord-hold + delete-empty-chain shows the add invitation + 1-octave piano (2026-08-10, on
   `main`, PUSHED next; macOS 585 green incl. fuzz, iOS builds; DEVICE ear owed). Paul: a DRONE played only one STEP
   (a column's duration) then stopped. First tried a playhead-INDEPENDENT sustained pad (`reconcileDrones`) — Paul

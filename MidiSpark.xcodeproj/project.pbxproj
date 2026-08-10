@@ -17,6 +17,7 @@
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
+		324E17FEE1D0032E38B664AA /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		4269BB4C2A37F0896A7E4AF9 /* MacroAuthoringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C5D0AE6038961A9DC8537B /* MacroAuthoringView.swift */; };
@@ -42,12 +43,14 @@
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
+		A71376B370E076CCB3B3A89E /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B6CE33CA239BE671207C2E10 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		C95B6625D3731B37A7544BE9 /* MacroPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E45476DD423F0A8E3C364 /* MacroPanel.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
+		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */; };
 		D561647D508BA5A188B6D44B /* MacroAuthoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */; };
@@ -103,7 +106,9 @@
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
 		3EDCE8A830228B93BE51322A /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
+		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		52D6A2BAD52CA71E5145C36A /* FlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowView.swift; sourceTree = "<group>"; };
+		61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiceTests.swift; sourceTree = "<group>"; };
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
@@ -163,6 +168,7 @@
 			children = (
 				DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */,
 				98149EBE4B9E76352A457113 /* DerivationsTests.swift */,
+				61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */,
 				0902196516FA4394CF6004EF /* EffectiveParamsTests.swift */,
 				99D181AD808BD18E8D2F085F /* FuzzTests.swift */,
 				EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */,
@@ -214,6 +220,7 @@
 				D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
 				88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */,
+				4C3D05D84CB3BB7FF47E7851 /* Dice.swift */,
 				D9CFDBBF6EDAEF5051E4DD83 /* DragDropPage.swift */,
 				AF2C4528E7A184FABB7EF270 /* EditPage.swift */,
 				2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */,
@@ -388,6 +395,7 @@
 				E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
 				8CC40A50AE903C00870E629A /* Diag.swift in Sources */,
+				A71376B370E076CCB3B3A89E /* Dice.swift in Sources */,
 				D65F68826CE914624ED051EF /* DragDropPage.swift in Sources */,
 				85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */,
 				5C648CAB6448DD80453069B0 /* Emission.swift in Sources */,
@@ -431,6 +439,8 @@
 				2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */,
 				78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */,
 				86DBDA072FBE5381278BC901 /* Diag.swift in Sources */,
+				324E17FEE1D0032E38B664AA /* Dice.swift in Sources */,
+				D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */,
 				D4C9E744E29980DE63C9C68A /* EffectiveParamsTests.swift in Sources */,
 				11389DE07A052AF31C5B1535 /* Emission.swift in Sources */,
 				5ACCA79432567E9F8AC578D1 /* FuzzTests.swift in Sources */,

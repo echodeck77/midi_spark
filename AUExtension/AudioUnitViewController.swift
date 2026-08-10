@@ -102,6 +102,10 @@ struct DiagView: View {
     @State var ddDeleteMode = false            // DRAG&DROP: the DELETE box is HELD → tap a cell/colour to delete it (2nd tap reverts); red-highlights both grids
     @State var ddDeleteStashCells: [String: Cell] = [:]     // …grid cells deleted this hold (key "c:r" → the removed cell), for toggle-revert
     @State var ddDeleteStashColours: [String: [DDCellAt]] = [:]  // …colours deleted this hold (id → its removed cells), for toggle-revert
+    @State var ddDice: Dice.Result? = nil       // THE DICE (user 2026-08-10): the last roll (base chain + evaluated slider/button macros)
+    @State var ddDiceColour: String? = nil      // …which colour ddDice was rolled for (the macros apply to it)
+    @State var ddDiceSliders: [Double] = [0, 0, 0, 0]   // …the 4 spring-slider positions (0…1; spring back to 0 on release)
+    @State var ddDiceButtons: [Bool] = [false, false, false, false]   // …the 4 binary-macro toggles
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)

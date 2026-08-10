@@ -109,7 +109,8 @@ extension DiagView {
                         }
                     }.frame(height: matchedH, alignment: .top)
                     Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-                    ddMachinery(width: pageW).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    ddMachinery(width: pageW).frame(maxWidth: .infinity, alignment: .top)
+                    ddMacroControls().frame(maxWidth: 460).padding(.horizontal, 12)   // THE DICE: sliders + buttons BELOW the machinery (portrait) (user 2026-08-10)
                 }
             }
         }
@@ -454,6 +455,8 @@ extension DiagView {
             ddRandomizeButton().frame(maxWidth: .infinity)
             ddMutateButton().frame(maxWidth: .infinity)
             ddLibraryButton().frame(maxWidth: .infinity)     // LIBRARY at the bottom (user 2026-08-10)
+            Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, 2)
+            ddMacroControls()                                // THE DICE: 4 spring sliders + 4 binary buttons (user 2026-08-10)
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -461,6 +464,51 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.04))      // FAINT GREY (user 2026-08-10)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 3.5]))))   // faint dotted, like the other lines
         .background(ddZone("actionBox"))                      // measure for the connector line
+    }
+    // THE DICE macro controls (user 2026-08-10): 4 SPRING sliders (each morphs a generated + evaluated continuous macro,
+    // reverting to 0 on release) + 4 BINARY buttons (each toggles an evaluated bypass/type-switch macro). Inert until
+    // the selected colour has a live roll (RANDOMIZE). Placed in the action box (landscape) / below the machinery (portrait).
+    @ViewBuilder func ddMacroControls() -> some View {
+        let active = ddDiceActive
+        VStack(spacing: 7) {
+            ForEach(0..<4, id: \.self) { i in ddMacroSlider(i, enabled: active && i < (ddDice?.sliders.count ?? 0)) }
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { i in
+                    ddMacroButton(i, macro: (active && i < (ddDice?.buttons.count ?? 0)) ? ddDice?.buttons[i] : nil)
+                }
+            }
+        }
+    }
+    private func ddMacroSlider(_ i: Int, enabled: Bool) -> some View {
+        let hue = ddSelHue
+        return GeometryReader { g in
+            let w = g.size.width
+            let v = ddDiceSliders[i]
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.12)).frame(height: 5)
+                Capsule().fill(enabled ? hue : .white.opacity(0.15)).frame(width: max(5, w * v), height: 5)
+                Circle().fill(enabled ? Color.white : .white.opacity(0.4)).frame(width: 13, height: 13)
+                    .offset(x: min(w - 13, max(0, w * v - 6.5)))
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g2 in guard enabled else { return }; ddDiceSliders[i] = max(0, min(1, g2.location.x / max(1, w))); ddApplyDice() }
+                .onEnded { _ in guard enabled else { return }; ddDiceSliders[i] = 0; ddApplyDice() })   // SPRING back to 0
+        }.frame(height: 15)
+    }
+    private func ddMacroButton(_ i: Int, macro: Dice.ButtonMacro?) -> some View {
+        let on = ddDiceButtons[i], enabled = macro != nil
+        return Button {
+            guard enabled else { return }
+            ddDiceButtons[i].toggle(); ddApplyDice()
+        } label: {
+            Text(macro?.label ?? "—").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+                .foregroundColor(on ? .black : (enabled ? ddSelHue : .white.opacity(0.3)))
+                .frame(maxWidth: .infinity).frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? ddSelHue : ddSelHue.opacity(enabled ? 0.12 : 0.04))
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(ddSelHue.opacity(enabled ? 0.5 : 0.15), lineWidth: 1)))
+        }.buttonStyle(.plain).disabled(!enabled)
     }
     // The dashed connector from the action box to the FINAL processor slot — drawn at the page level in "dd" space
     // (both endpoints are measured frames), so it spans the top band → the machinery below. (user 2026-08-10)
@@ -826,34 +874,28 @@ extension DiagView {
     // MARK: - RANDOMIZE (reroll the selected colour's chain)
 
     func ddRandomize() {
-        // Reroll the COLOUR'S machine, not per-cell overrides. A colour IS a machine (GLOBAL by construction), so
-        // `withChainColour` writes the templateChain AND clears every cell's per-cell override across all scenes —
-        // so ALL cells of the colour (placed now or later) render the one rerolled chain. Writing per-cell overrides
-        // to only editSelTargets left un-selected / later-placed cells on the OLD chain → the grid split into two
-        // sequences (user 2026-08-09: "identical gold cells identified as different").
+        // THE DICE (user 2026-08-10): roll a LONG chain where every slot CONTRIBUTES (evaluated offline through the
+        // Router), plus 4 continuous + 4 binary MACROS whose impact is evaluated — bound to the spring sliders + the
+        // buttons. Reroll the COLOUR'S machine (GLOBAL): `withChainColour` writes the templateChain + clears per-cell
+        // overrides, so every cell of the colour renders the one rerolled chain.
         guard editArmed else { return }
         let cid = editingCell?.colourID ?? (ddColourSel >= 0 && ddColourSel < colourIDs.count ? colourIDs[ddColourSel] : nil)
         guard let colourID = cid else { return }
-        let n = Int.random(in: 1...3)
-        let chain = (0..<n).map { _ in ddRandomProcessor() }
-        au?.withChainColour(colourID) { $0 = chain }
+        var rng = SystemRandomNumberGenerator()
+        let result = Dice.roll(target: 5, using: &rng)
+        guard !result.base.isEmpty else { return }
+        ddDice = result; ddDiceColour = colourID
+        ddDiceSliders = [0, 0, 0, 0]; ddDiceButtons = [false, false, false, false]
+        au?.withChainColour(colourID) { $0 = result.base }
         refreshFromDocument()
     }
-    private func ddRandomProcessor() -> ProcessorSlot {
-        var s = ProcessorSlot(type: ProcessorType.allCases.randomElement() ?? .arp)
-        s.params.rate = ArpRate.allCases.randomElement()
-        s.params.octaves = Int.random(in: 1...3)
-        s.params.gate = Double.random(in: 0.3...0.95)
-        s.params.count = Int.random(in: 2...6)
-        s.params.ramp = Double.random(in: 0...1)
-        s.params.spread = Double.random(in: 0...0.5)
-        s.params.curve = Double.random(in: -0.6...0.6)
-        s.params.probability = Double.random(in: 0.45...1)
-        s.params.harmIntervals = [[0, 3, 4, 5, 7, 12, -12].randomElement() ?? 0, [0, 4, 7].randomElement() ?? 0, 0]
-        s.params.euclidPulses = Int.random(in: 2...7)
-        s.params.euclidSteps = [8, 16].randomElement() ?? 8
-        s.params.echoRepeats = Int.random(in: 2...6)
-        s.params.echoDelayDiv = [2, 3, 4, 6].randomElement() ?? 4
-        return s
+    /// Apply the live macro controls (spring sliders + binary buttons) onto the rolled colour's chain.
+    func ddApplyDice() {
+        guard let r = ddDice, let cid = ddDiceColour else { return }
+        let chain = r.chain(sliderVals: ddDiceSliders, buttonOn: ddDiceButtons)
+        au?.withChainColour(cid) { $0 = chain }
+        refreshFromDocument()
     }
+    /// The dice macros drive the CURRENTLY-SELECTED colour only when its last roll is live (else the controls are inert).
+    var ddDiceActive: Bool { ddDice != nil && ddDiceColour != nil && ddDiceColour == ddSelectedColourID }
 }

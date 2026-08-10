@@ -88,6 +88,7 @@ targets:
       - path: AUExtension/Diag.swift        # KernelDiag (moved out of Kernel so Router is pure)
       - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
       - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
+      - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
