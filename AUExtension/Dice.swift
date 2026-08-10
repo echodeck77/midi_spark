@@ -53,6 +53,21 @@ enum Dice {
         Array(repeating: .strum,    count: 2) + Array(repeating: .chance,  count: 2) +
         Array(repeating: .echo,     count: 2) + Array(repeating: .harmonize, count: 1)   // MUCH LESS harmonizer
 
+    // ROLE-BASED COMPOSITION (user 2026-08-11): the engine's LAST tick-generator is the DRIVER; slots BEFORE it shape
+    // the source chord, non-driver HOLDS after it fold onto each tick, echo is a TAIL. So compose to a plan —
+    // [slow shapers] · DRIVER · [post-fold holds] · [echo] — rather than a flat random stack. Upstream rhythm runs
+    // SLOWER than the driver (a moving root under a faster figure — Paul's slow→fast insight).
+    static let driverSet: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize]
+    static let driverTypes: [ProcessorType] =                       // the rhythm engine (fast)
+        Array(repeating: .arp, count: 3) + Array(repeating: .ratchet, count: 3) + Array(repeating: .euclid, count: 3) +
+        Array(repeating: .burst, count: 2) + Array(repeating: .cascade, count: 2) + Array(repeating: .strum, count: 1) + [.drone]
+    static let shaperTypes: [ProcessorType] =                       // upstream: a MOVING root / voicing (slow) — must
+        Array(repeating: .arp, count: 3) + Array(repeating: .euclid, count: 2) +   // change the source, so NO drone (it just
+        Array(repeating: .chance, count: 2) + [.harmonize]                          // re-sustains the held chord → doesn't contribute upstream)
+    static let postFoldTypes: [ProcessorType] = [.chance, .chance, .harmonize]   // per-tick HOLD transforms only (a driver here would BECOME the driver)
+    static let slowRates: [ArpRate] = [.r1_4, .r1_8, .r1_8t]
+    static let fastRates: [ArpRate] = [.r1_16, .r1_16t, .r1_32]
+
     /// The continuous (Double, 0…1-ish) params a SLIDER can morph.
     enum DParam: CaseIterable { case gate, probability, spread, curve, ramp }
 
@@ -162,9 +177,6 @@ enum Dice {
         return s
     }
 
-    /// A chain of `target` slots (repeated types allowed) where EVERY slot CONTRIBUTES: build up, keeping a slot only if
-    /// it changes the output; then PRUNE any slot whose bypass no longer changes the output (a later slot can mask an
-    /// earlier one), repeated until stable — so bypassing any surviving slot has a tangible effect.
     /// True iff the chain is audible AND EVERY slot contributes — the invariant the build maintains at each step.
     static func allContribute(_ chain: [ProcessorSlot]) -> Bool {
         guard !chain.isEmpty else { return false }
@@ -173,30 +185,60 @@ enum Dice {
         for k in 0..<chain.count where !contributes(chain, slot: k, sigFull: full) { return false }
         return true
     }
-    /// Grow an ALL-CONTRIBUTING chain toward `target`: add a slot only if the whole chain stays audible AND every slot
-    /// still contributes (a cheap "did it change?" pre-filter guards the expensive all-contributing check). No pruning
-    /// — the invariant holds at every step. A light diversity nudge avoids same-type collapses (arp→arp masks).
-    private static func buildAllContributing(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
+    /// A role slot: rolled params with the TYPE forced, and RATE-COHERENT for rhythm-gens — SLOW upstream (shaper),
+    /// FAST as the driver — so a slow-moving root sits under a faster figure. euclid/ratchet density scales the same way.
+    private static func roleSlot(type: ProcessorType, slow: Bool, using rng: inout some RandomNumberGenerator) -> ProcessorSlot {
+        var s = randomSlot(using: &rng)          // reuse the param roll
+        s.type = type
+        if type == .arp || type == .euclid || type == .cascade {
+            s.params.rate = (slow ? slowRates : fastRates).randomElement(using: &rng)
+        }
+        if type == .euclid {
+            s.params.euclidSteps = slow ? [8, 16].randomElement(using: &rng)! : 16
+            s.params.euclidPulses = slow ? Int.random(in: 2...4, using: &rng) : Int.random(in: 4...9, using: &rng)
+        }
+        if type == .ratchet { s.params.count = slow ? Int.random(in: 2...3, using: &rng) : Int.random(in: 3...6, using: &rng) }
+        return s
+    }
+    /// Build to a musical PLAN — [1–2 slow shapers] · DRIVER (fast) · [post-fold hold] · [echo] — each stage added only
+    /// if it stays audible + all-contributing + under the density cap (else skipped). Position = role, by construction.
+    private static func buildByRole(using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
         var chain: [ProcessorSlot] = []
         var sig = signature(chain)
-        var budget = target * 30
-        while chain.count < target && budget > 0 {
-            budget -= 1
-            var cand = randomSlot(using: &rng)
-            if cand.type == chain.last?.type { cand = randomSlot(using: &rng) }   // nudge away from immediate repeats
-            let trial = chain + [cand]
+        func tryAdd(_ slot: ProcessorSlot) -> Bool {
+            let trial = chain + [slot]
             let (tsig, tpeak) = evalRun(trial)
-            guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }   // changed + audible + NOT a flood (density cap)
-            if allContribute(trial) { chain = trial; sig = tsig }                 // expensive: full invariant, only on promising candidates
+            guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { return false }
+            if allContribute(trial) { chain = trial; sig = tsig; return true }
+            return false
+        }
+        /// Try up to `n` candidates for a role until one lands (each stage otherwise often fails the gates → short chains).
+        func fillRole(_ n: Int, _ make: () -> ProcessorSlot) { for _ in 0..<n where !tryAdd(make()) {} }
+        for _ in 0..<2 {                                                        // upstream SHAPERS (slow) — two attempts
+            fillRole(4) { roleSlot(type: shaperTypes.randomElement(using: &rng)!, slow: true, using: &rng) }
+        }
+        fillRole(8) { roleSlot(type: driverTypes.randomElement(using: &rng)!, slow: false, using: &rng) }   // THE DRIVER (fast)
+        fillRole(5) { roleSlot(type: postFoldTypes.randomElement(using: &rng)!, slow: false, using: &rng) }  // POST-FOLD hold (thins/doubles each tick)
+        if Int.random(in: 0...2, using: &rng) == 0 {                            // ~1/3 ECHO tail
+            fillRole(3) { roleSlot(type: .echo, slow: false, using: &rng) }
+        }
+        // TOP-UP: if the plan came up short, append any all-contributing + capped slot (weighted pool) to reach ≥4.
+        var budget = 24
+        while chain.count < 4 && budget > 0 {
+            budget -= 1
+            let trial = chain + [randomSlot(using: &rng)]
+            let (tsig, tpeak) = evalRun(trial)
+            guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }
+            if allContribute(trial) { chain = trial; sig = tsig }
         }
         return chain
     }
     static func rollChain(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
-        var best: [ProcessorSlot] = []                          // a few whole-build attempts; keep the LONGEST all-contributing chain
+        var best: [ProcessorSlot] = []                          // a few plan attempts; keep the LONGEST all-contributing chain (`target` = the ambition, not a hard length)
         for _ in 0..<3 {
-            let c = buildAllContributing(target: target, using: &rng)
+            let c = buildByRole(using: &rng)
             if c.count > best.count { best = c }
-            if best.count >= target { break }
+            if best.count >= max(4, target - 1) { break }
         }
         return best
     }
@@ -213,9 +255,11 @@ enum Dice {
             let p = DParam.allCases.randomElement(using: &rng)!
             if out.contains(where: { $0.slot == k && $0.param == p }) { continue }
             let b = getD(base[k], p)
+            // A MODERATE move toward the roomier side, not the far extreme (user 2026-08-11: full range isn't needed).
+            // The eval below still drops it if the move changes nothing / floods.
             let alt: Double = {
-                if p == .curve { return b < 0 ? Double.random(in: 0.3...0.8, using: &rng) : Double.random(in: -0.8...(-0.3), using: &rng) }
-                return b < 0.5 ? Double.random(in: 0.7...1.0, using: &rng) : Double.random(in: 0.0...0.3, using: &rng)
+                if p == .curve { let step = Double.random(in: 0.4...0.9, using: &rng); return max(-1, min(1, b + (b < 0 ? step : -step))) }
+                let step = Double.random(in: 0.3...0.5, using: &rng); return max(0, min(1, b + (b < 0.5 ? step : -step)))
             }()
             var alt2 = base; setD(&alt2[k], p, alt)
             let e = evalRun(alt2)   // KEEP only if the full-slider morph changes the output AND doesn't flood (e.g. long gates overlapping)

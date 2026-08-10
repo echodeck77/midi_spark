@@ -470,44 +470,46 @@ extension DiagView {
     // the selected colour has a live roll (RANDOMIZE). Placed in the action box (landscape) / below the machinery (portrait).
     @ViewBuilder func ddMacroControls() -> some View {
         let active = ddDiceActive
-        VStack(spacing: 7) {
-            ForEach(0..<4, id: \.self) { i in ddMacroSlider(i, enabled: active && i < (ddDice?.sliders.count ?? 0)) }
-            HStack(spacing: 5) {
-                ForEach(0..<4, id: \.self) { i in
-                    ddMacroButton(i, macro: (active && i < (ddDice?.buttons.count ?? 0)) ? ddDice?.buttons[i] : nil)
-                }
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {                                    // 4 VERTICAL sliders in a row, smaller (user 2026-08-11)
+                ForEach(0..<4, id: \.self) { i in ddMacroSlider(i, enabled: active && i < (ddDice?.sliders.count ?? 0)) }
+            }.frame(height: 52)
+            VStack(spacing: 6) {                                    // 4 LARGER buttons, 2×2 (user 2026-08-11)
+                HStack(spacing: 6) { ddMacroButton(0, active: active); ddMacroButton(1, active: active) }
+                HStack(spacing: 6) { ddMacroButton(2, active: active); ddMacroButton(3, active: active) }
             }
         }
     }
-    private func ddMacroSlider(_ i: Int, enabled: Bool) -> some View {
+    private func ddMacroSlider(_ i: Int, enabled: Bool) -> some View {   // VERTICAL, small (up = 1; spring to 0)
         let hue = ddSelHue
         return GeometryReader { g in
-            let w = g.size.width
+            let h = g.size.height
             let v = ddDiceSliders[i]
-            ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.12)).frame(height: 5)
-                Capsule().fill(enabled ? hue : .white.opacity(0.15)).frame(width: max(5, w * v), height: 5)
-                Circle().fill(enabled ? Color.white : .white.opacity(0.4)).frame(width: 13, height: 13)
-                    .offset(x: min(w - 13, max(0, w * v - 6.5)))
+            ZStack(alignment: .bottom) {
+                Capsule().fill(.white.opacity(0.12)).frame(width: 5)
+                Capsule().fill(enabled ? hue : .white.opacity(0.15)).frame(width: 5, height: max(5, h * v))
+                Circle().fill(enabled ? Color.white : .white.opacity(0.4)).frame(width: 12, height: 12)
+                    .offset(y: -min(h - 12, max(0, h * v - 6)))
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { g2 in guard enabled else { return }; ddDiceSliders[i] = max(0, min(1, g2.location.x / max(1, w))); ddApplyDice() }
+                .onChanged { g2 in guard enabled else { return }; ddDiceSliders[i] = max(0, min(1, 1 - g2.location.y / max(1, h))); ddApplyDice() }
                 .onEnded { _ in guard enabled else { return }; ddDiceSliders[i] = 0; ddApplyDice() })   // SPRING back to 0
-        }.frame(height: 15)
+        }.frame(width: 26)
     }
-    private func ddMacroButton(_ i: Int, macro: Dice.ButtonMacro?) -> some View {
+    private func ddMacroButton(_ i: Int, active: Bool) -> some View {
+        let macro = (active && i < (ddDice?.buttons.count ?? 0)) ? ddDice?.buttons[i] : nil
         let on = ddDiceButtons[i], enabled = macro != nil
         return Button {
             guard enabled else { return }
             ddDiceButtons[i].toggle(); ddApplyDice()
         } label: {
-            Text(macro?.label ?? "—").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
+            Text(macro?.label ?? "—").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
                 .foregroundColor(on ? .black : (enabled ? ddSelHue : .white.opacity(0.3)))
-                .frame(maxWidth: .infinity).frame(height: 22)
-                .background(RoundedRectangle(cornerRadius: 5).fill(on ? ddSelHue : ddSelHue.opacity(enabled ? 0.12 : 0.04))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(ddSelHue.opacity(enabled ? 0.5 : 0.15), lineWidth: 1)))
+                .frame(maxWidth: .infinity).frame(height: 34)      // LARGER (user 2026-08-11)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? ddSelHue : ddSelHue.opacity(enabled ? 0.12 : 0.04))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(ddSelHue.opacity(enabled ? 0.5 : 0.15), lineWidth: 1)))
         }.buttonStyle(.plain).disabled(!enabled)
     }
     // The dashed connector from the action box to the FINAL processor slot — drawn at the page level in "dd" space
