@@ -129,10 +129,12 @@ struct ReceiverConfigView: View {
                         if let bOff = blackAfter[wi % 7] {
                             let note = startNote + (wi / 7) * 12 + bOff
                             let on = selected.contains(note)
+                            // contentShape + tap MUST be applied to the SIZED frame BEFORE .position() — otherwise the
+                            // positioned view fills the parent and every tap lands on the topmost black key (user 2026-08-10).
                             Rectangle().fill(on ? amber : Color.black)
                                 .frame(width: ww * 0.6, height: g.size.height * 0.62)
-                                .position(x: CGFloat(wi + 1) * ww, y: g.size.height * 0.31)
                                 .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); onChanged() }
+                                .position(x: CGFloat(wi + 1) * ww, y: g.size.height * 0.31)
                         }
                     }
                 }
