@@ -76,21 +76,21 @@ extension DiagView {
         Group {
             if landscape {
                 VStack(spacing: 10) {
-                    HStack(alignment: .center, spacing: 16) {         // TOP band, CENTRED (user 2026-08-10): [header→palette→DELETE] · grid
-                        Spacer(minLength: 0)
-                        VStack(spacing: 8) {                          // header ABOVE the palette; the whole column == grid height (user 2026-08-10)
+                    HStack(alignment: .top, spacing: 16) {            // TOP band (user 2026-08-10): LEFT palette column · CENTRED grid · RIGHT action box
+                        VStack(spacing: 8) {                          // LEFT column, LEFT-aligned: header ABOVE the palette; whole column == grid height
                             ddColourHeader().frame(height: 28)
                             ddPalette(swatch: swatch, litterHeight: swatch)
                         }.frame(width: paletteW, height: matchedH, alignment: .top)
-                        HStack(alignment: .top, spacing: 5) {
+                        Spacer(minLength: 0)
+                        HStack(alignment: .top, spacing: 5) {         // CENTRED grid (Spacers either side)
                             ddRowSelectors(cell: gridCell, topInset: 18)
                             VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
                             ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
                         }
                         Spacer(minLength: 0)
+                        ddActionBox().frame(width: paletteW, height: matchedH)   // RIGHT box — EQUAL size to the left column; RANDOMIZE·MUTATE·LIBRARY, wired to the last slot
                     }
-                    // MACHINERY (landscape): PLAY: THIS CELL sits top-left (where LIBRARY was); RANDOMIZE·MUTATE·LIBRARY
-                    // move into a WHITE BOX at the right, wired to the last processor slot. (user 2026-08-10)
+                    // MACHINERY (landscape): PLAY: THIS CELL sits top-left (where LIBRARY was). (user 2026-08-10)
                     ddMachinery(width: pageW, landscape: true).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             } else {
@@ -122,10 +122,11 @@ extension DiagView {
         // can cancel a source cell's own gesture mid-drop (leaving the ghost/highlights stuck). (user 2026-08-09)
         .simultaneousGesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("dd")).onEnded { _ in ddResetDrag() })
         .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(x: ddDragLoc.x, y: ddDragLoc.y - 32).allowsHitTesting(false) } }   // the in-hand ghost, above the finger
+        .overlay { if landscape { ddActionLine() } }   // the connector: action box → final processor box (both measured in "dd" space)
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
     }
     // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
-    private func ddZone(_ key: String) -> some View {
+    func ddZone(_ key: String) -> some View {   // internal so flowDiagram (EditPage.swift) can measure the last processor slot for the action-box line
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
     }
     // The custom drag (user 2026-08-09): a LONG PRESS (0.25s) ARMS the drag — the ghost appears + the actual move/copy
@@ -432,7 +433,6 @@ extension DiagView {
             if landscape {
                 flowDiagram(cell, width: width)
                     .overlay(alignment: .topLeading) { ddPlayCellButton().padding(.leading, 10).padding(.top, 14) }   // PLAY: THIS CELL — where LIBRARY was (user 2026-08-10)
-                    .overlay { ddActionCluster() }                                                                    // RANDOMIZE·MUTATE·LIBRARY in a white box, wired to the last slot
             } else {
                 flowDiagram(cell, width: width)
                     .overlay(alignment: .topLeading) { ddLibraryButton().padding(.leading, 10).padding(.top, 14) }
@@ -446,35 +446,32 @@ extension DiagView {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-    // LANDSCAPE (user 2026-08-10): RANDOMIZE · MUTATE · LIBRARY (library at the bottom) grouped in a WHITE BOX at the
-    // top-right of the machinery, with a dashed line from the box to the CENTRE of the 8th (final) processor slot —
-    // signalling that these act on the machine. The flow-diagram geometry (sw, yProc) is mirrored to place the line.
-    @ViewBuilder private func ddActionCluster() -> some View {
-        GeometryReader { g in
-            let W = g.size.width
-            let gap: CGFloat = 6
-            let sw = max(40, (W - 7 * gap) / 8)          // matches flowDiagram's slot width
-            let lastX = 7 * (sw + gap) + sw / 2          // centre-x of the 8th processor slot
-            let yProc: CGFloat = 130                     // the processor row's y (matches flowDiagram)
-            let boxW: CGFloat = 148
-            let boxH: CGFloat = 3 * 30 + 2 * 6 + 16      // 3 buttons (h30) + 2 gaps + padding
-            let boxCX = W - 10 - boxW / 2                // top-right, 10pt inset
-            let boxCY: CGFloat = 8 + boxH / 2
-            ZStack(alignment: .topLeading) {
-                Path { p in                              // box bottom-centre → the 8th slot centre
-                    p.move(to: CGPoint(x: boxCX, y: boxCY + boxH / 2))
-                    p.addLine(to: CGPoint(x: lastX, y: yProc))
-                }.stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
-                VStack(spacing: 6) {
-                    ddRandomizeButton().frame(maxWidth: .infinity)
-                    ddMutateButton().frame(maxWidth: .infinity)
-                    ddLibraryButton().frame(maxWidth: .infinity)     // LIBRARY at the bottom (user 2026-08-10)
-                }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.28))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.85), lineWidth: 1.5)))
-                .frame(width: boxW).position(x: boxCX, y: boxCY)
+    // LANDSCAPE ACTION BOX (user 2026-08-10): a box EQUAL in size to the left palette column, on the RIGHT of the top
+    // band, holding RANDOMIZE · MUTATE · LIBRARY (library at the bottom). Measured (ddZone "actionBox") so `ddActionLine`
+    // can draw a connector from it to the FINAL processor box (measured as "procLast" in flowDiagram).
+    @ViewBuilder private func ddActionBox() -> some View {
+        VStack(spacing: 10) {
+            ddRandomizeButton().frame(maxWidth: .infinity)
+            ddMutateButton().frame(maxWidth: .infinity)
+            ddLibraryButton().frame(maxWidth: .infinity)     // LIBRARY at the bottom (user 2026-08-10)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.05))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.7), lineWidth: 1.5)))
+        .background(ddZone("actionBox"))                      // measure for the connector line
+    }
+    // The dashed connector from the action box to the FINAL processor slot — drawn at the page level in "dd" space
+    // (both endpoints are measured frames), so it spans the top band → the machinery below. (user 2026-08-10)
+    @ViewBuilder func ddActionLine() -> some View {
+        if editArmed, let a = ddZones["actionBox"], let p = ddZones["procLast"] {
+            Path { path in
+                path.move(to: CGPoint(x: a.midX, y: a.maxY))   // action box bottom-centre
+                path.addLine(to: CGPoint(x: p.midX, y: p.midY))   // final processor box centre
             }
+            .stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
+            .allowsHitTesting(false)
         }
     }
     /// The SELECTED colour's hue — tints the DD action buttons (PLAY · LIBRARY · RANDOMIZE · MUTATE); falls back to the

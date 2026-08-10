@@ -617,6 +617,7 @@ extension DiagView {
                 ForEach(0..<8, id: \.self) { i in                                                                // PROCESSORS (8 slots)
                     slotOrGhost(i, chain, bg: bg, hue: hue).frame(width: sw, height: 38).position(x: CGFloat(i) * (sw + gap) + sw / 2, y: yProc)   // −25% then −20% height (user 2026-08-09)
                 }
+                ddZone("procLast").frame(width: sw, height: 38).position(x: 7 * (sw + gap) + sw / 2, y: yProc)     // measure the FINAL slot in "dd" space → the DRAG&DROP action-box connector line (user 2026-08-10)
                 emitterBox(cell, bg: bg).frame(width: recvW, height: 45).position(x: W / 2, y: yEm)               // EMITTERS (centred, −25% height)
             }
         }
