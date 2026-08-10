@@ -37,6 +37,20 @@ final class DiceTests: XCTestCase {
         }
     }
 
+    // Rolls are DENSITY-CAPPED (user 2026-08-10: "70 voices from two rows") — the chain, and each slider at full,
+    // never exceed the peak-concurrency cap.
+    func testRollsAreDensityCapped() {
+        for seed: UInt64 in [0xD1CE, 0x5A3F, 7, 99, 0xBEEF] {
+            var rng = DiceRNG(seed: seed)
+            let r = Dice.roll(target: 5, using: &rng)
+            XCTAssertLessThanOrEqual(Dice.evalRun(r.base).peak, Dice.maxConcurrency, "seed \(seed): the rolled chain isn't a flood")
+            for m in r.sliders {
+                var alt = r.base; Dice.setD(&alt[m.slot], m.param, m.alt)
+                XCTAssertLessThanOrEqual(Dice.evalRun(alt).peak, Dice.maxConcurrency, "seed \(seed): slider at full stays capped")
+            }
+        }
+    }
+
     // A seed reproduces the same roll (deterministic — no Date/Math.random on the path).
     func testRollIsDeterministicForASeed() {
         var a = DiceRNG(seed: 42), b = DiceRNG(seed: 42)

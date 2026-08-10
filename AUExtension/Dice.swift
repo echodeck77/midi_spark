@@ -5,11 +5,21 @@ import Foundation
 // OFFLINE through the real Router against a held chord and comparing the emitted notes. Foundation-only (no audio):
 // reuses the same Router / SnapshotBuilder the live engine uses. Seedable for tests; the app rolls with the system RNG.
 
-/// Records note-ONs for offline chain evaluation (a chain's output "signature").
+/// Records note ON/OFF events for offline chain evaluation — the output "signature" AND peak concurrent-voice count.
 final class DiceRecorder: MIDIEmitter {
     private(set) var ons: [(note: UInt8, cable: UInt8, sample: Int64)] = []
+    private(set) var events: [(on: Bool, cable: UInt8, sample: Int64)] = []   // for peak concurrency (density cap)
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
-        if (b0 & 0xF0) == 0x90 && b2 > 0 { ons.append((b1, cable, sampleTime)) }
+        let st = b0 & 0xF0
+        if st == 0x90 && b2 > 0 { ons.append((b1, cable, sampleTime)); events.append((true, cable, sampleTime)) }
+        else if st == 0x80 || (st == 0x90 && b2 == 0) { events.append((false, cable, sampleTime)) }
+    }
+    /// Peak simultaneous SOUNDING voices on emitter A (cable 1) — off-before-on at a tie so a restrike doesn't spike.
+    var peakConcurrency: Int {
+        let evs = events.filter { $0.cable == 1 }.sorted { $0.sample != $1.sample ? $0.sample < $1.sample : (!$0.on && $1.on) }
+        var running = 0, peak = 0
+        for e in evs { running += e.on ? 1 : -1; peak = max(peak, running) }
+        return peak
     }
 }
 
@@ -89,10 +99,14 @@ enum Dice {
 
     // MARK: - offline evaluation
 
-    /// A chain's OUTPUT SIGNATURE: emitter-A note-ONs (note + 1/32-beat onset bucket) over a fixed run against a held
-    /// chord, playhead frozen on the cell's column. Deterministic (the engine derives everything from the beat), so two
-    /// chains with the same signature are audibly identical here — the basis for "does this slot / macro matter?".
-    static func signature(_ chain: [ProcessorSlot]) -> [Int] {
+    /// The most concurrent SOUNDING voices a chain may reach in the eval before it's rejected as a FLOOD (user
+    /// 2026-08-10: "70 voices from two rows"). The spec's "density-capped" bound. Dev-tunable.
+    static let maxConcurrency = 12
+
+    /// One offline run of `chain` against a held chord (playhead frozen on the cell's column): returns the OUTPUT
+    /// SIGNATURE (emitter-A note-ons: note + onset bucket) AND the PEAK concurrent voices. Deterministic (the engine
+    /// derives everything from the beat), so two chains with the same signature are audibly identical here.
+    static func evalRun(_ chain: [ProcessorSlot]) -> (sig: [Int], peak: Int) {
         var st = PluginState(colours: [Colour(colourID: "gold", type: .passgate)], scenes: [SceneState.empty()])
         st.colours[0].templateChain = chain.isEmpty
             ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
@@ -112,10 +126,12 @@ enum Dice {
                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += wb; ts += Double(frames)
         }
-        return e.ons.filter { $0.cable == 1 }
+        let sig = e.ons.filter { $0.cable == 1 }
             .map { Int($0.note) * 100_000 + Int((Double($0.sample) / perBucket).rounded()) }
             .sorted()
+        return (sig, e.peakConcurrency)
     }
+    static func signature(_ chain: [ProcessorSlot]) -> [Int] { evalRun(chain).sig }
 
     /// True iff bypassing slot `k` changes the output (i.e. the slot CONTRIBUTES). `sigFull` may be supplied to save a run.
     static func contributes(_ chain: [ProcessorSlot], slot k: Int, sigFull: [Int]? = nil) -> Bool {
@@ -169,8 +185,8 @@ enum Dice {
             var cand = randomSlot(using: &rng)
             if cand.type == chain.last?.type { cand = randomSlot(using: &rng) }   // nudge away from immediate repeats
             let trial = chain + [cand]
-            let tsig = signature(trial)
-            guard tsig != sig, !tsig.isEmpty else { continue }                    // cheap: changed + audible
+            let (tsig, tpeak) = evalRun(trial)
+            guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }   // changed + audible + NOT a flood (density cap)
             if allContribute(trial) { chain = trial; sig = tsig }                 // expensive: full invariant, only on promising candidates
         }
         return chain
@@ -202,7 +218,8 @@ enum Dice {
                 return b < 0.5 ? Double.random(in: 0.7...1.0, using: &rng) : Double.random(in: 0.0...0.3, using: &rng)
             }()
             var alt2 = base; setD(&alt2[k], p, alt)
-            if signature(alt2) != sigBase { out.append(SliderMacro(slot: k, param: p, base: b, alt: alt)) }
+            let e = evalRun(alt2)   // KEEP only if the full-slider morph changes the output AND doesn't flood (e.g. long gates overlapping)
+            if e.sig != sigBase && e.peak <= maxConcurrency { out.append(SliderMacro(slot: k, param: p, base: b, alt: alt)) }
         }
         return out
     }
@@ -224,7 +241,8 @@ enum Dice {
                 let m = ButtonMacro(op: .switchType(k, t), label: "\(shortName(t))\(k + 1)")
                 if out.contains(where: { if case .switchType(k, _) = $0.op { return true } else { return false } }) { continue }
                 var alt = base; alt[k].type = t
-                if signature(alt) != sigBase { out.append(m) }
+                let e = evalRun(alt)   // KEEP only if the switch changes the output AND doesn't flood (density cap)
+                if e.sig != sigBase && e.peak <= maxConcurrency { out.append(m) }
             }
         }
         return out
