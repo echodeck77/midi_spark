@@ -54,7 +54,8 @@ final class FuzzTests: XCTestCase {
     private func randomDoc(_ r: inout FuzzRNG) -> PluginState {
         let types: [ProcessorType] = [.arp, .ratchet, .passgate, .strum, .chance, .harmonize, .echo,   // echo exercises the tail ring across edges
                                       .euclid, .burst, .cascade, .drone, .shift, .humanize,   // the generators — hammered for no-stuck-notes across every edge
-                                      .mod]   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
+                                      .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
+                                      .glide]   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
         let ids = (0..<6).map { "c\($0)" }
         let colours = ids.map { Colour(colourID: $0, type: types[r.int(types.count)]) }
         var scene = SceneState.empty()

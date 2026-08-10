@@ -173,6 +173,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (macro-bindable). **TESTS:** 5 Router (standalone CC+no-notes · [ARP→MOD] · [MOD→ARP] · reset-disposition differential ·
   replay-safe) + 3 Derivations (sine/ramp/S&H) + `.mod` in the fuzz `randomDoc` (no stuck notes across every edge).
   ⚠ v1 LIMITS (tunable follow-ups): ON SCENE doesn't gate MOD; MOD-through-MOD (CC chains via ⇐Rn) deferred.**
+- **▶ GLIDE — the notes→PITCH-BEND translator (2026-08-10, on `main`, PUSHED next; macOS 576 green incl. fuzz, iOS
+  builds; DEVICE ear owed). Spec `AcceptanceCriteria-glide-processor`. `ProcessorType.glide` — one MONO SLIDING VOICE:
+  the first note ANCHORS (note-on + centred bend), an in-range next note BENDS (no note-on, a ramp over TIME), a LEAP
+  (beyond ±RANGE) RE-ANCHORS (fresh note-on) or CLAMPS; PHRASE END on rest/column-exit → note-off + bend centre. Params
+  `glideTime`(beats,0=instant)·`glideRange`(±1…48 st)·`glidePriority`(LAST|LOW|HIGH)·`glideReanchor`(RE-ANCHOR|CLAMP).
+  Engine (Router): `emitColumnGlide` before the pool guard; a per-cell `GlideVoice[64]` (anchor note via an IMMORTAL
+  `openVoice`, bend ramp emitted at the 1/16-beat grid, deduped); `flushGlide` on transport/scene/panic (allNotesOff
+  closes the immortal voice). Pitch-bend via `emitBend` (0xE0). cellMode(.glide)=.silent + note-transparent in the
+  chain folds. Pure fns `glideBend14`/`glideNeedsReanchor` (tested) + Router test (anchor→bend→re-anchor, no stuck
+  notes) + `.glide` in the fuzz. ⚠ v1 LIMITS: SINGLE-SLOT only — **[ARP→GLIDE] is v2** (a chain with a note driver
+  plays the driver, GLIDE ignored); emits on ONE emitter (the cell's lowest bus, no All fan-out); linear ramp only
+  (curves later); the RANGE must match the synth (the future RPN handshake auto-sets it).**
+- **▶ CONTROLLER ROUTING v1 — per-door CONTROLLERS→[A·B·C·D], re-stamped (2026-08-10, on `main`, PUSHED `…`; macOS
+  green, iOS builds; DEVICE ear owed). Spec `AcceptanceCriteria-controller-routing`. Incoming CC·PB·AT·PC at a receiver
+  door forward to that door's selected emitters, RE-STAMPED to each emitter's stamp channel + cable (the synth on C
+  gets the wheel on C's channel). SUPERSEDES the hardwired CC/PB/AT passthrough (All+Emit A). Default ALL-LIVE (zero
+  setup). `Receiver.controllerMask`(nil⇒0b1111) → `box.receiverControllerMask` → Kernel `handleIncoming` forwards per
+  the union of hearing doors' masks (`controllerForwardMask`), re-stamped, then returns (notes/system keep the
+  passthrough). CC120/123 now FLUSH our pool + every armed latch AND forward (ratified). UI: a CONTROLLERS→[A B C D]
+  row per door in the MIDI IN tab. Pure tests `controllerForwardMask`/`isForwardableController` (the forward itself is
+  Kernel-side → device). ⚠ OWNERSHIP suppression (a MOD-EXTERN/BEND stage owning an address) is RESERVED, not v1 —
+  forward + generate both, last-writer. The MOD-EXTERN store is a separate reader of the same incoming CC.**
 - **▶ MOD CC-STAGE §1 — the SOURCE spine: FOLLOW · STEPS · STRIKE · EXTERN + labelled CCs (2026-08-10, on `main`,
   PUSHED next; macOS 570 green, iOS builds; DEVICE ear owed). Builds out the CC-stage §1 SOURCE radio on the MOD
   processor (was SHAPE-only). `ModSource{shape·follow·steps·strike·extern}` + the row-2 reshaping UI; every source

@@ -111,6 +111,11 @@ struct SnapParams {
     var modAttack: Double = 0.15         // STRIKE attack (beats)
     var modRelease: Double = 0.6         // STRIKE release (beats)
     var modExternCC: Int = 1             // EXTERN source CC#
+    // GLIDE (notes→pitch-bend translator).
+    var glideTime: Double = 0.25         // slide duration, beats (0 = instant)
+    var glideRange: Int = 2              // ± bend range, semitones
+    var glidePriority: GlidePriority = .last
+    var glideReanchor: Bool = true       // out-of-range → re-anchor (else clamp)
 }
 
 struct SnapColour {

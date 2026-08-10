@@ -1557,6 +1557,16 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modStrikeUnipolar(t: 1.0,  attack: 0.5, release: 1.0), 0.5, accuracy: 1e-9, "falling")
         XCTAssertEqual(modStrikeUnipolar(t: 2.0,  attack: 0.5, release: 1.0), 0,   accuracy: 1e-9, "rests at 0")
     }
+    func testGlideBend14() {
+        XCTAssertEqual(glideBend14(semitones: 0, range: 2), 8192, "0 st = centre")
+        XCTAssertEqual(glideBend14(semitones: 2, range: 2), 16383, "+range = full up")
+        XCTAssertEqual(glideBend14(semitones: -2, range: 2), 1, "−range = full down")
+        XCTAssertEqual(glideBend14(semitones: 4, range: 2), 16383, "beyond range clamps to full")
+    }
+    func testGlideNeedsReanchor() {
+        XCTAssertFalse(glideNeedsReanchor(target: 62, anchor: 60, range: 2), "2 st within ±2 → glide")
+        XCTAssertTrue(glideNeedsReanchor(target: 65, anchor: 60, range: 2), "5 st beyond ±2 → re-anchor")
+    }
     func testControllerForwardMask() {
         // Only doors that HEAR the controller contribute; the emitter mask is their union.
         XCTAssertEqual(controllerForwardMask(hearing: [true, false, false, false], masks: [0b0001, 0b1111, 0b1111, 0b1111]), 0b0001, "one door → emitter A")

@@ -301,6 +301,11 @@ enum SnapshotBuilder {
         if let v = p.modAttack { out.modAttack = clamp(v, 0.01, 4) }
         if let v = p.modRelease { out.modRelease = clamp(v, 0.01, 4) }
         if let v = p.modExternCC { out.modExternCC = clamp(v, 0, 127) }
+        // GLIDE
+        if let v = p.glideTime { out.glideTime = clamp(v, 0, 4) }
+        if let v = p.glideRange { out.glideRange = clamp(v, 1, 48) }
+        if let v = p.glidePriority { out.glidePriority = v }
+        if let v = p.glideReanchor { out.glideReanchor = v }
         return out
     }
 }

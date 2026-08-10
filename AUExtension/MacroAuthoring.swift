@@ -173,6 +173,11 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "modMax", label: "MAX", kind: .continuous(lo: 0, hi: 127)),
                 MacroControlParam(key: "modRate", label: "RATE", kind: .option(ModRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "modReset", label: "ON LEAVE", kind: .toggle)]
+    case .glide:
+        return [bypass,
+                MacroControlParam(key: "glideRange", label: "RANGE", kind: .stepper(lo: 1, hi: 48)),
+                MacroControlParam(key: "glidePriority", label: "PRIORITY", kind: .option(GlidePriority.allCases.map(\.rawValue))),
+                MacroControlParam(key: "glideReanchor", label: "OUT OF RANGE", kind: .toggle)]
     }
 }
 
@@ -220,6 +225,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "modMin":       v[param.key] = Double(p.modMin ?? 0)
         case "modMax":       v[param.key] = Double(p.modMax ?? 127)
         case "modReset":     v[param.key] = (p.modReset ?? true) ? 1 : 0
+        case "glideRange":    v[param.key] = Double(p.glideRange ?? 2)
+        case "glidePriority": v[param.key] = optionIndex(p.glidePriority)
+        case "glideReanchor": v[param.key] = (p.glideReanchor ?? true) ? 1 : 0
         default: break
         }
     }
@@ -259,6 +267,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "modMin":       s.params.modMin = clamp(Int(val.rounded()), 0, 127)
         case "modMax":       s.params.modMax = clamp(Int(val.rounded()), 0, 127)
         case "modReset":     s.params.modReset = val >= 0.5
+        case "glideRange":    s.params.glideRange = clamp(Int(val.rounded()), 1, 48)
+        case "glidePriority": s.params.glidePriority = caseAt(val, GlidePriority.self)
+        case "glideReanchor": s.params.glideReanchor = val >= 0.5
         default: break
         }
     }

@@ -130,6 +130,21 @@ func isForwardableController(_ status: UInt8) -> Bool {
     return s == 0xB0 || s == 0xC0 || s == 0xD0 || s == 0xE0
 }
 
+// MARK: - GLIDE (notes→pitch-bend translator) — pure math.
+
+/// The 14-bit pitch-bend value (0…16383, 8192 = centre) for `semitones` of bend within a ±`range`-semitone span.
+/// Clamped to the wheel's limits. Pure. (GLIDE / the future BEND stage.)
+@inline(__always)
+func glideBend14(semitones: Double, range: Int) -> Int {
+    let r = Double(max(1, range))
+    let frac = max(-1, min(1, semitones / r))
+    return max(0, min(16383, Int((8192.0 + frac * 8191.0).rounded())))
+}
+
+/// TRUE when a glide target is beyond the bend RANGE from the anchor → the note must RE-ANCHOR (or clamp). Pure.
+@inline(__always)
+func glideNeedsReanchor(target: Int, anchor: Int, range: Int) -> Bool { abs(target - anchor) > range }
+
 /// The "standard" resting value of a CC — what a MOD target reverts to when ABANDONED (the CC# swept past it). Volume
 /// / expression / cutoff → full · pan / balance → centre · everything else → off. Pure. (So sweeping the target knob
 /// past CC7 doesn't leave the synth's volume knocked down — user 2026-08-10.)
@@ -882,6 +897,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .shift:     return .shift                          // GENERATOR — groove nudge
     case .humanize:  return .humanize                       // GENERATOR — seeded jitter
     case .mod:       return .silent                          // CC GENERATOR — sounds NO notes (its CC is emitted separately)
+    case .glide:     return .silent                          // notes→pitch-bend — its ONE mono voice is emitted separately (emitColumnGlide)
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1022,6 +1038,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .shift:     return "arrow.right.to.line"         // the nudge
     case .humanize:  return "hand.draw"                   // the human hand
     case .mod:       return "dial.medium"                 // the CC generator (a control dial)
+    case .glide:     return "point.topleft.down.to.point.bottomright.curvepath"   // the slide
     }
 }
 

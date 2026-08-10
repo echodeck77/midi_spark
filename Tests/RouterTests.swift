@@ -1630,6 +1630,26 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(Set(e.events.filter { $0.status == 0xB0 && $0.note == 74 }.map { Int($0.vel) }).contains(100),
                       "EXTERN re-emits the incoming CC1 value (100) on the TARGET CC74")
     }
+    /// GLIDE: the first note ANCHORS (note-on); an in-range next note BENDS (no note-on); a leap RE-ANCHORS (note-on);
+    /// stop leaves nothing sounding.
+    func testGlideAnchorsBendsAndReAnchors() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool, playing: Bool = true) { router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))    // ANCHOR 60
+        render(chord([62]))    // +2 st, in range → BEND (no note-on)
+        render(chord([67]))    // +7 st from the anchor → RE-ANCHOR (new note-on)
+        let ons = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        XCTAssertEqual(ons, [60, 67], "anchor 60, then re-anchor 67 (leap); the in-range 62 was a bend, not a note-on")
+        XCTAssertTrue(e.events.contains { $0.status == 0xE0 && $0.vel != 64 }, "a non-centre pitch-bend was emitted (the glide to 62)")
+        render(NotePool(), playing: false)   // stop → flush
+        assertNothingLeftSounding(e)
+    }
     /// Sweeping the TARGET CC# past a control (VOLUME/CC7) must REVERT it to its standard (127), not leave it knocked
     /// down — the abandoned-target guard (user 2026-08-10).
     func testModTargetChangeRevertsAbandonedCC() {

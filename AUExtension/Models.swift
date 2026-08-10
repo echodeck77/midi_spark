@@ -17,6 +17,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case shift = "SHIFT"       // GENERATOR — a groove NUDGE: push the chord's onset late (reuses spread = push amount)
     case humanize = "HUMANIZE" // GENERATOR — seeded per-note timing + velocity jitter, replay-safe (reuses spread = amount)
     case mod = "MOD"           // CC GENERATOR (delta "THE MOD PROCESSOR") — a beat-derived shaped CC on the cell's emitters; sounds NO notes
+    case glide = "GLIDE"       // notes→PITCH-BEND translator — one mono sliding voice; steps GLIDE, leaps ARTICULATE
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -36,6 +37,8 @@ enum ModRate: String, Codable, CaseIterable {
 enum ModSource: String, Codable, CaseIterable { case shape = "SHAPE", follow = "FOLLOW", steps = "STEPS", strike = "STRIKE", extern = "EXTERN" }
 // FOLLOW — WHICH property of the sounding material drives the CC. §12 append-only.
 enum ModFollow: String, Codable, CaseIterable { case density = "DENSITY", register = "REGISTER", count = "COUNT", vel = "VEL" }
+// GLIDE — which held note the mono voice tracks when several sound at once. §12 append-only.
+enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "LOW", high = "HIGH" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 enum StepRate: String, Codable, CaseIterable {
@@ -120,6 +123,11 @@ struct ColourParams: Codable, Equatable {
     var modMin: Int? = 0                // the shape's floor (0…127)
     var modMax: Int? = 127              // the shape's ceiling (0…127)
     var modReset: Bool? = true          // ON LEAVE: reset to MIN on column exit · OFF = leave-as-landed
+    // GLIDE (notes→pitch-bend translator). Append-only Optional.
+    var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
+    var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth
+    var glidePriority: GlidePriority? = .last   // which held note the mono voice tracks
+    var glideReanchor: Bool? = true     // out-of-range target → RE-ANCHOR (fresh note-on) · false = CLAMP to the range
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

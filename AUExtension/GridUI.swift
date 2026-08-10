@@ -1370,6 +1370,7 @@ struct ProcessorBox: View {
         case .shift:     return "nudge the chord late — behind the beat"
         case .humanize:  return "seeded per-note timing + velocity jitter"
         case .mod:       return "a shaped CC on the emitters (sounds no notes)"
+        case .glide:     return "one sliding voice — steps glide, leaps re-strike"
         }
     }
 
@@ -1515,6 +1516,13 @@ struct ProcessorBox: View {
             field("MAX  \(hi)\(lo > hi ? "   (inverted)" : "")") {
                 Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) }
             field("ON LEAVE") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
+        case .glide:    // notes→pitch-bend — one mono sliding voice
+            field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
+                Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
+            field("RANGE  ±\(p.glideRange ?? 2) st  (match the synth)") {
+                Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) }
+            field("PRIORITY") { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
+            field("OUT OF RANGE") { seg(["RE-ANCHOR", "CLAMP"], sel: (p.glideReanchor ?? true) ? "RE-ANCHOR" : "CLAMP") { i in setParam { $0.glideReanchor = (i == 0) } } }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

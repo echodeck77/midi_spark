@@ -237,6 +237,19 @@ final class Router {
     private var modLastColumn: Int32 = -1                                     // the column whose MOD cells emitted last (reset when it exits)
     private var modColumnEntryBeat = 0.0                                      // STRIKE: the beat the active column became active (AR trigger)
     private var modPrevTarget = [Int16](repeating: -1, count: 64 * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
+    // GLIDE (notes→pitch-bend): one mono sliding voice per GLIDE cell. Beat-derived ramps + a sustained anchor note.
+    private struct GlideVoice {
+        var anchor: Int16 = -1     // the sounding note-on pitch (-1 = no voice)
+        var bus: Int8 = -1         // the emitter it sounds on
+        var slot: Int16 = -1       // the openVoice slot (to close on re-anchor / phrase-end)
+        var bendFrom = 0.0         // semitones-from-anchor at the ramp start
+        var bendTo = 0.0           // …at the ramp end
+        var rampStart = 0.0        // beat the current ramp began
+        var lastInput: Int16 = -1  // the last input note (to detect a new target)
+        var lastBend14: Int16 = -1 // dedup the emitted bend
+    }
+    private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: 64)
+    private var glideLastColumn: Int32 = -1
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
     private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
     // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
@@ -479,6 +492,7 @@ final class Router {
         modLastColumn = -1; modColumnEntryBeat = 0                              // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
         for i in modLastVal.indices { modLastVal[i] = -1 }
         for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
+        for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; glideLastColumn = -1
     }
 
     // MARK: parameter overrides
@@ -1440,7 +1454,7 @@ final class Router {
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
             wasPlaying = playing
             clearEchoTails()                             // ECHO: transport start/stop kills tails (spec v1)
-            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on transport edges
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: reset the CC on transport edges
         }
         // master panel PANIC: the one hard flush — close every voice + reset the column state, hang-kit-logged.
         if panic {
@@ -1449,7 +1463,7 @@ final class Router {
             prevEffColumn = -1
             diag.panics &+= 1
             clearEchoTails()                             // ECHO: panic drops every pending tail
-            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: reset the CC on panic
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: reset the CC on panic
         }
         // MULTI-SCENE scene SWITCH flush: close the OLD scene's sounding notes so the new scene (this render's
         // new snapshot generation) starts clean — a generation change alone doesn't flush. NOT hang-logged.
@@ -1457,7 +1471,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
-            flushMod(box: box, atSample: renderSampleImmediate, out: out)   // MOD: the old scene's CC state resets on the switch
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // MOD: the old scene's CC state resets on the switch
         }
         // receiver strip LATCH edge: arming/disarming a receiver swaps the pool its subscribers read, so
         // close every voice and re-emit holds from the new effective pool (no stuck notes; on-edge re-strike).
@@ -1588,6 +1602,9 @@ final class Router {
         // THE MOD PROCESSOR: CC on the active column's MOD cells — BEFORE the pool guard (MOD needs no keys down).
         emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
                       beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+        // GLIDE: the mono sliding voices — before the pool guard (phrase-ends on an empty pool).
+        emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
+                        beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -1796,6 +1813,107 @@ final class Router {
         out.emit(sampleTime: atSample, cable: cable, 0xB0 | ch, UInt8(cc), UInt8(value))
     }
 
+    // MARK: - GLIDE (notes→pitch-bend translator) — one mono sliding voice per single-slot GLIDE cell (v1).
+
+    private func emitBend(cable: UInt8, ch: UInt8, value: Int, atSample: Int64, out: MIDIEmitter?) {
+        guard let out else { return }
+        let v = max(0, min(16383, value))
+        out.emit(sampleTime: atSample, cable: cable, 0xE0 | ch, UInt8(v & 0x7F), UInt8((v >> 7) & 0x7F))
+    }
+    /// End a GLIDE cell's phrase: close its anchor voice + centre the bend, and forget the voice.
+    private func glidePhraseEnd(_ cellIdx: Int, atSample: Int64, out: MIDIEmitter?) {
+        let gv = glideVoices[cellIdx]
+        if gv.anchor >= 0 {
+            if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: atSample, out: out) }
+            if gv.bus >= 0 { emitBend(cable: UInt8(gv.bus + 1), ch: (busChannels[Int(gv.bus)] &- 1) & 15, value: 8192, atSample: atSample, out: out) }
+        }
+        glideVoices[cellIdx] = GlideVoice()
+    }
+    private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?) {
+        guard column >= 0 && column < Snap.cols else { return }
+        for r in 0..<Snap.rows { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
+    }
+    /// Transport/scene/panic flush: the immortal glide notes are closed by allNotesOff — just forget the state.
+    private func flushGlide() { for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; glideLastColumn = -1 }
+    /// The mono input note (+velocity) a GLIDE cell tracks — by PRIORITY over its filtered source pool.
+    private func glidePickPool(_ pool: NotePool, cell: SnapCell, priority: GlidePriority) -> (note: Int, vel: UInt8) {
+        let n = pool.srcCount(for: cell)
+        guard n > 0 else { return (-1, 0) }
+        let note: UInt8
+        switch priority {
+        case .low:  note = pool.srcAscending(0, for: cell)
+        case .high: note = pool.srcAscending(n - 1, for: cell)
+        case .last: note = pool.srcPlayed(n - 1, filter: cell.inputChannel, cableMask: 0b1111)
+        }
+        return (Int(note), max(1, pool.velocity(note)))
+    }
+    /// Drive the mono glide voices for the active column's single-slot GLIDE cells: anchor on the first note, bend-ramp
+    /// to each in-range target (else RE-ANCHOR / CLAMP), phrase-end on rest or column exit. Runs before the pool guard.
+    private func emitColumnGlide(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
+                                 beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        if glideLastColumn != Int32(column) {                       // PHRASE END on column exit (spec)
+            if glideLastColumn >= 0 { glidePhraseEndColumn(Int(glideLastColumn), atSample: windowStart, out: out) }
+            glideLastColumn = Int32(column)
+        }
+        if masterMute && !previewMode { return }
+        guard column >= 0 && column < Snap.cols else { return }
+        let bEnd = beatPos + windowBeats
+        for r in 0..<Snap.rows {
+            let cellIdx = column * Snap.rows + r
+            let cell = box.cells[cellIdx]
+            // v1: SINGLE-SLOT GLIDE only ([ARP→GLIDE] is v2 — a chain with a note driver plays the driver, GLIDE ignored).
+            guard cell.procs.count == 1, cell.procs[0].type == .glide, !cell.slotBypass[0] else { continue }
+            if cell.colourIndex < 0 || cell.muted || cell.dormant || cell.busMask == 0
+               || soloSilenced(cell) || cellSoloedOut(column, r) || tapMuted(column, r) {
+                glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue
+            }
+            let p = cell.procs[0]
+            let ci = Int(cell.colourIndex); let colour = box.colours[ci]
+            let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
+            let pick = glidePickPool(effectivePool(for: cell, live: pool), cell: cell, priority: p.glidePriority)
+            guard pick.note >= 0 else { glidePhraseEnd(cellIdx, atSample: windowStart, out: out); continue }   // rest → phrase end
+            let inNote = pick.note + transpose
+            guard inNote >= 0 && inNote <= 127 else { continue }
+            let bus = Int(cell.busMask.trailingZeroBitCount)
+            let ch = (busChannels[bus] &- 1) & 15
+            var gv = glideVoices[cellIdx]
+            if gv.anchor < 0 {                                      // ANCHOR: first note = note-on + centred bend
+                let slot = openVoice(note: UInt8(inNote), chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out)
+                gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = beatPos
+                emitBend(cable: UInt8(bus + 1), ch: ch, value: 8192, atSample: windowStart, out: out); gv.lastBend14 = 8192
+            } else if Int(gv.lastInput) != inNote {                 // NEW TARGET
+                let semis = inNote - Int(gv.anchor)
+                if p.glideReanchor && glideNeedsReanchor(target: inNote, anchor: Int(gv.anchor), range: p.glideRange) {
+                    if gv.slot >= 0 && Int(gv.slot) < voices.count && voices[Int(gv.slot)].active { closeVoice(Int(gv.slot), atSample: windowStart, out: out) }
+                    emitBend(cable: UInt8(bus + 1), ch: ch, value: 8192, atSample: windowStart, out: out)
+                    let slot = openVoice(note: UInt8(inNote), chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus), onSample: windowStart, offSample: .max, velocity: pick.vel, out: out)
+                    gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.bendFrom = 0; gv.bendTo = 0; gv.rampStart = beatPos; gv.lastBend14 = 8192
+                } else {                                            // GLIDE: capture the current bend, ramp to the new target (clamp if not re-anchoring)
+                    let tt = max(0.0001, p.glideTime)
+                    gv.bendFrom = gv.bendFrom + (gv.bendTo - gv.bendFrom) * min(1, p.glideTime > 0 ? (beatPos - gv.rampStart) / tt : 1)
+                    gv.bendTo = p.glideReanchor ? Double(semis) : Double(max(-p.glideRange, min(p.glideRange, semis)))
+                    gv.rampStart = beatPos
+                }
+                gv.lastInput = Int16(inNote)
+            }
+            let tt = max(0.0001, p.glideTime)                       // emit the bend ramp across this window (control grid, deduped)
+            var k = Int((beatPos / modCtrlBeats).rounded(.up))
+            while Double(k) * modCtrlBeats < bEnd {
+                let b = Double(k) * modCtrlBeats
+                if b >= beatPos {
+                    let prog = p.glideTime > 0 ? min(1, (b - gv.rampStart) / tt) : 1
+                    let v14 = glideBend14(semitones: gv.bendFrom + (gv.bendTo - gv.bendFrom) * prog, range: p.glideRange)
+                    if gv.lastBend14 != Int16(v14) {
+                        emitBend(cable: UInt8(gv.bus + 1), ch: ch, value: v14, atSample: windowStart + Int64(((b - beatPos) / beatsPerSample).rounded()), out: out)
+                        gv.lastBend14 = Int16(v14)
+                    }
+                }
+                k += 1
+            }
+            glideVoices[cellIdx] = gv
+        }
+    }
+
     // MARK: - GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE, single-slot tick emitters. Each computes its
     // strike beats for the current column and emits those landing in this window (half-open, so each fires once).
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
@@ -1999,7 +2117,7 @@ final class Router {
         cur.rebuildSorted()
         var j = 0
         while j <= upto {
-            if !cell.slotBypass[j] && cell.procs[j].type != .mod {   // true-bypass + MOD (note-transparent, emits CC separately) pass untouched
+            if !cell.slotBypass[j] && cell.procs[j].type != .mod && cell.procs[j].type != .glide {   // true-bypass + MOD/GLIDE (their output is separate) pass untouched
                 let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                 nxt.reset()
                 applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: m, S: S, cycleBeats: cycleBeats)
@@ -2040,8 +2158,8 @@ final class Router {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
                 if cell.procs[j].type == .echo {
                     echoP = cell.procs[j]   // hold the params; the tails register once the fold completes (below)
-                } else if cell.procs[j].type == .mod {
-                    // MOD is note-transparent — it emits CC separately (emitColumnMod); the note fold passes through it.
+                } else if cell.procs[j].type == .mod || cell.procs[j].type == .glide {
+                    // MOD/GLIDE are note-transparent in the fold — their output is emitted separately (v1: [driver→GLIDE] plays the driver).
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
