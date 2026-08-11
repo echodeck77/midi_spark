@@ -179,6 +179,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — increment 1c: iteration 3 (iteration 2 REVERTED first) (2026-08-11, on `main`, PUSHED next; iOS
+  builds; DEVICE eye owed). Paul rejected iteration 2's bar-absorption ("at the bottom it just looks wrong, and the
+  cast doesn't have enough options") — commit `1cc8e9a` was REVERTED (`db85b2a`), then iteration 3 built to the updated
+  mock (ferry `INSTRUCTIONS-build-page-iteration-3` + refreshed `mockup-three-grids-landscape.html`, both promoted).
+  THE LEFT COLUMN STAYS, reordered top→bottom: `[● PLAY THIS CELL]` (the machine's audition + the focus lamp's handle)
+  → `[PART ▾][+ NEW]` → `1·INPUT` (R1–R4, MIDI ⎓ | PIANO ⌨ per door; a PIANO door reveals its octave keyboard —
+  placeholder) → `2·THE CAST` (the FULL 4×4 palette, 16 slots — the compact bar starved it) → `3·OUTPUT` (A–D) →
+  `[APPLY TO STAGING →]` (pink closing word) → LITTER. CHAIN has NO numbered step — the SNAKE below IS the chain
+  (machinery bar keeps ID · IN box · slots + ghost · OUT box + RANDOMIZE; PLAY THIS CELL LEFT the bar for the column
+  top). STAGING's verbs live UNDER staging: `[APPLY TO PLAY →] · [MUTATE] · [🎲 re-roll]`. KEPT from iteration 2: THE
+  TARGET DECIDES THE VERB (APPLY TO PLAY arms the bands → LANE=flatten · LADDER=copy rows · FREE=takes · long-press
+  ladder=flatten-into-row) + the focus economy + ● PLAYING frame + dual-behaviour staging; the BRIDGE column is GONE
+  (width flows to the two grids). Three columns (palette · staging · play) + the snake below. Focus zones = the LEFT
+  COLUMN (machine, `.palette`) + STAGING; PLAY outside. Still placeholder, no engine.**
 - **▶ THE BUILD PAGE — increment 1b: the FOCUS MODEL form (2026-08-11, on `main`, PUSHED next; iOS builds; DEVICE eye
   owed). Ferry `INSTRUCTIONS-build-page-focus-model` (promoted → `Docs/AcceptanceCriteria/AcceptanceCriteria-build-
   page-focus-model.md`) — "the voice is the cursor", rules the form before placement continues. Applied to the

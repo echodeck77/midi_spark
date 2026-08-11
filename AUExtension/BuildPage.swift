@@ -1,40 +1,43 @@
 import SwiftUI
 
 // THE BUILD PAGE — design: Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-two-grid-flow.md +
-// Docs/mockup-build-three-grids-landscape.html (user 2026-08-11). The new PRIMARY workshop and the default landing
-// tab. The flow is PALETTE → STAGING → PLAY:
-//   • PALETTE (left)  — the current PART's build flow: pick a colour, choose its INPUT (MIDI|PIANO door) · CHAIN ·
-//     OUTPUT (by hand in the machinery or via RANDOMIZE); the PART's cast (a 4×4 of provisional colours) + litter.
-//   • STAGING (centre) — the workshop 8×8: APPLY TO STAGING rolls 8 VARIATIONS of the selected colour, one per row,
-//     SIMPLE at the top → COMPLEX below. Loop columns, tap rungs to pick the groove, MUTATE a rung.
-//   • BRIDGE (thin)   — APPLY TO STAGING · MUTATE · → · FLATTEN · COPY ROWS · → + the BAND TARGET strip.
-//   • PLAY (right)    — the piece, five FIXED bands: 3-LADDER · 2-LADDER · LANE · LANE · FREE. Applies land here.
-//   • MACHINERY (below, full width) — the colour's snake: IN door → chain slots → OUT + the cluster.
+// -build-page-focus-model.md + -build-page-iteration-3.md + Docs/mockup-build-three-grids-landscape.html
+// (user 2026-08-11). The new PRIMARY workshop and default landing tab. Destined to REPLACE the DRAG&DROP + PROCESSORS
+// (cell-edit) pages (both kept live until it supersedes them).
 //
-// This page is DESTINED to REPLACE the DRAG&DROP page and the PROCESSORS (cell-edit) page — both stay live until it
-// supersedes them.
+// THE FORM (iteration 3 — the page reads left→right as BUILD · STAGE · DEPLOY, every verb at its own front door):
+//   • LEFT COLUMN (the build flow, top→bottom): [● PLAY THIS CELL] (the machine's audition + the focus lamp's handle)
+//     → [PART ▾][+ NEW] → 1·INPUT (R1–R4, MIDI ⎓ | PIANO ⌨ per door; a PIANO door reveals its octave keyboard) →
+//     2·THE CAST (the FULL 4×4 palette, 16 slots) → 3·OUTPUT (A–D) → [APPLY TO STAGING →] (pink, the closing word) →
+//     LITTER. CHAIN has NO numbered step — the SNAKE below IS the chain.
+//   • STAGING (centre) — the workshop 8×8 (row rail · loop keys · variation rows) with its OWN verb strip beneath:
+//     [APPLY TO PLAY →] · [MUTATE] · [🎲 re-roll].
+//   • PLAY (right) — the piece, five FIXED bands. THE TARGET DECIDES THE VERB: APPLY TO PLAY arms the bands →
+//     tap a LANE = FLATTEN · tap a LADDER = COPY ROWS · tap FREE = takes land · long-press a ladder = flatten-into-row.
+//   • MACHINERY SNAKE (bottom, full width) — the chain: ID · receiver box · slots + ghost · emitter box + RANDOMIZE.
+//   The bridge column is GONE — its width flows to the two grids.
 //
-// ┌─ BUILD STATUS ────────────────────────────────────────────────────────────────────────────────────────────┐
-// │ INCREMENT 1 (this file): the LAYOUT SKELETON only — the five regions in their mockup proportions with        │
-// │ PLACEHOLDER content and NO engine wiring, so placement can be iterated first (Paul: "lots of placement       │
-// │ changes as we go"). Nothing here reads or writes the document yet. Each region is its own helper so a "move   │
-// │ X to Y" is a local edit, and every dimension is a named constant in `BuildGeom` below.                        │
-// │ NEXT increments (region by region, each device-verifiable): wire the palette I/O steps + cast → the staging  │
-// │ roll (reuse Dice) → rung picking + loop keys → FLATTEN / COPY ROWS onto the play bands → the machinery snake  │
-// │ (reuse the existing flow diagram) → the FREE band tap-to-voice.                                               │
-// └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+// THE FOCUS LAMP (focus-model §1: the voice is the cursor): the two WORKSHOP zones are the LEFT COLUMN (the machine)
+// and STAGING; one owns the voice (lit: full-sat + pink border + ● badge / bright snake thread), the other dims to
+// ~60%. The PLAY grid sits OUTSIDE the economy (always calm). ~150ms crossfade when the lamp changes hands.
+//
+// ┌─ BUILD STATUS ─ INCREMENT 1 (this file): LAYOUT SKELETON — placeholder content, NO engine wiring. Every dimension
+// │ is a named constant in `BuildGeom`; each region is its own helper (placement edits are one-liners). NEXT (region
+// │ by region): left-column I/O + cast → staging roll (reuse Dice) → rung picking + loop keys → APPLY TO PLAY arming +
+// │ the band-decides-verb landings → the real machinery snake (reuse the flow diagram) → the FREE band tap-to-voice.
+// │ Deferred here: the PIANO keyboard is a placeholder, the animated snake pulse, the real voice behind the lamp.  ───┘
 
-// PLACEMENT KNOBS — every geometry number lives here so layout tweaks are one-liners (nothing below hard-codes sizes).
+// PLACEMENT KNOBS — every geometry number lives here so layout tweaks are one-liners.
 private enum BuildGeom {
-    static let paletteW: CGFloat = 200      // LEFT column width (the build flow + cast)
-    static let bridgeW:  CGFloat = 96       // the thin action/bridge column
-    static let colGap:   CGFloat = 12       // gap between the four landscape columns
+    static let paletteW: CGFloat = 200      // LEFT column width (the build flow)
+    static let colGap:   CGFloat = 12       // gap between the three landscape columns
     static let cellMin:  CGFloat = 22       // grid cell clamp (both 8×8 grids share one cell size)
-    static let cellMax:  CGFloat = 46
+    static let cellMax:  CGFloat = 48
     static let loopKeyH: CGFloat = 18       // the staging loop-key row height
-    static let railW:    CGFloat = 26       // the play grid's left band-glyph rail
-    static let machineH: CGFloat = 92       // the machinery snake band height
+    static let rowRailW: CGFloat = 14       // the staging left row-selector rail
+    static let playRailW: CGFloat = 26      // the play grid's left band-glyph rail
     static let seam:     CGFloat = 3        // the gap between play bands
+    static let barH:     CGFloat = 76       // the machinery snake bar height
 }
 
 // Placeholder cast hues (mockup palette). Real colours come from the part's cast when the palette is wired.
@@ -52,21 +55,20 @@ private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 
-// focus-model §1: which WORKSHOP zone owns the single voice (the PLAY grid is outside this economy).
+// focus-model §1: which WORKSHOP zone owns the single voice — the machine (the left column) or staging.
 enum BuildFocus { case palette, staging }
 
 extension DiagView {
     // The lamp: is each workshop zone lit (owns the voice) or dimmed (~60%, touchable)?
     fileprivate var palLit: Bool { buildFocus == .palette }
     fileprivate var stgLit: Bool { buildFocus == .staging }
-    // GRAB the voice onto staging (focus-model §2: column keys + the ● badge are the deliberate grab). ~150ms teach.
+    // GRAB the voice (focus-model §2). ● PLAY THIS CELL / cast-select pull it to the machine; staging column keys +
+    // the ● badge pull it to staging. ~150ms crossfade teaches.
     fileprivate func buildGrabStaging() { withAnimation(.easeInOut(duration: 0.15)) { buildFocus = .staging } }
     fileprivate func buildGrabPalette() { withAnimation(.easeInOut(duration: 0.15)) { buildFocus = .palette } }
-    // The accent border on the lit zone.
     @ViewBuilder fileprivate func buildFocusBorder(_ lit: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 10).stroke(buildPink, lineWidth: 2).opacity(lit ? 1 : 0).padding(-4)
+        RoundedRectangle(cornerRadius: 10).stroke(buildPink, lineWidth: 2).opacity(lit ? 1 : 0).padding(-3)
     }
-    // The ● PLAYING badge for a lit zone's header.
     @ViewBuilder fileprivate func buildPlayingBadge() -> some View {
         HStack(spacing: 3) {
             Circle().fill(buildPink).frame(width: 6, height: 6)
@@ -76,76 +78,82 @@ extension DiagView {
 
     @ViewBuilder func buildPage(_ size: CGSize) -> some View {
         let landscape = size.width > size.height
-        // One cell size fits BOTH 8×8 grids side by side (staging + play) inside the width left after the two side
-        // columns and the play rail. Clamped so it stays tappable and never overflows.
-        let gridsBudget = size.width - BuildGeom.paletteW - BuildGeom.bridgeW - BuildGeom.railW - BuildGeom.colGap * 4 - 20
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, gridsBudget / 16))
-        Group {
-            if landscape { buildLandscape(size, cell: cell) }
-            else         { buildPortrait(size, cell: cell) }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        if landscape { buildLandscape(size) } else { buildPortrait(size) }
     }
 
-    // ── LANDSCAPE: four columns (palette · staging · bridge · play) over the full-width machinery snake ───────────
-    @ViewBuilder private func buildLandscape(_ size: CGSize, cell: CGFloat) -> some View {
+    // ── LANDSCAPE: three columns (palette · staging · play) over the full-width machinery snake ────────────────────
+    @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
+        // one cell size fits BOTH 8×8 grids + the staging row rail + the play glyph rail inside the width left of the
+        // palette column.
+        let budget = size.width - BuildGeom.paletteW - BuildGeom.rowRailW - BuildGeom.playRailW - BuildGeom.colGap * 2 - 34
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, budget / 16))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
-                // PALETTE + STAGING are the two workshop zones — the focus lamp lights one, dims the other (§1).
+                // PALETTE (the machine) + STAGING are the two workshop zones — the lamp lights one, dims the other (§1).
                 buildPaletteColumn().frame(width: BuildGeom.paletteW)
                     .opacity(palLit ? 1 : 0.6).overlay(buildFocusBorder(palLit))
-                    .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }   // building the machine pulls the lamp left
+                    .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }
                     .animation(.easeInOut(duration: 0.15), value: buildFocus)
-                buildStaging(cell: cell)
+                buildStagingColumn(cell: cell)
                     .opacity(stgLit ? 1 : 0.6).overlay(buildFocusBorder(stgLit))
                     .animation(.easeInOut(duration: 0.15), value: buildFocus)
-                buildBridge().frame(width: BuildGeom.bridgeW)
-                buildPlayGrid(cell: cell)                                            // PLAY sits OUTSIDE the focus economy (always sounding, calm)
+                buildPlayColumn(cell: cell)                        // PLAY sits OUTSIDE the focus economy (always calm)
             }
             buildMachinery()
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 6)
+        .padding(.horizontal, 10).padding(.top, 6)
     }
 
-    // ── PORTRAIT: height is abundant → a plain stack (part → palette → staging → play → machinery) ────────────────
-    @ViewBuilder private func buildPortrait(_ size: CGSize, cell: CGFloat) -> some View {
-        let pcell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - 20) / 8))
+    // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
+    @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.rowRailW - 24) / 8))
         VStack(spacing: 12) {
-            buildPartHeader()
             buildPaletteColumn()
                 .opacity(palLit ? 1 : 0.6).overlay(buildFocusBorder(palLit))
                 .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }
                 .animation(.easeInOut(duration: 0.15), value: buildFocus)
-            buildStaging(cell: pcell)
+            buildStagingColumn(cell: cell)
                 .opacity(stgLit ? 1 : 0.6).overlay(buildFocusBorder(stgLit))
                 .animation(.easeInOut(duration: 0.15), value: buildFocus)
-            buildLabel("PLAY — the piece (tap a band to receive)")
-            buildPlayGrid(cell: pcell)
+            buildPlayColumn(cell: cell)
             buildMachinery()
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 6)
+        .padding(.horizontal, 10).padding(.top, 6)
     }
 
-    // ── LEFT COLUMN: the build flow (part header → INPUT → CHAIN → OUTPUT → cast palette → litter) ─────────────────
+    // ── LEFT COLUMN: play-cell · part · input(+keyboard) · cast 4×4 · output · APPLY TO STAGING · litter ───────────
     @ViewBuilder private func buildPaletteColumn() -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            // [● PLAY THIS CELL] — first: the machine's audition AND the focus lamp's handle (pulls the voice left).
+            HStack(spacing: 8) {
+                Circle().fill(buildCyan).frame(width: 8, height: 8)
+                Text("PLAY THIS CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).tracking(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).frame(height: 38)
+            .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }
+
             buildPartHeader()
+
             buildStep("1 · INPUT")
             HStack(spacing: 4) {
                 buildIOChip("R1 ⌨", on: true, keys: true)
                 buildIOChip("R2 ⎓"); buildIOChip("R3 ⎓"); buildIOChip("R4 ⎓")
             }
-            Text("R1 = PIANO door · ⎓ = MIDI · (keyboard reveals here)")
-                .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
-            buildStep("2 · CHAIN")
-            HStack(spacing: 4) { buildIOChip("BUILD ▾", on: true); buildIOChip("🎲 RANDOMIZE") }
+            buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
+
+            buildStep("2 · THE CAST")
+            buildCastPalette()                                     // the FULL 4×4 palette (16 slots)
+
             buildStep("3 · OUTPUT")
             HStack(spacing: 4) { buildIOChip("A", on: true); buildIOChip("B"); buildIOChip("C"); buildIOChip("D") }
-            buildStep("4 · PART CAST → drag to staging")
-            buildCastPalette()
+
+            buildActionBtn("APPLY TO STAGING →", pink: true)       // the column's closing word, pointing at its destination
+
             buildLitter()
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -162,9 +170,28 @@ extension DiagView {
         }
     }
 
+    // The octave keyboard shown under a selected PIANO door (placeholder: one octave, some notes held). Mockup layout.
+    @ViewBuilder private func buildKeyboard() -> some View {
+        let whites: [(x: CGFloat, held: Bool)] = [(0, true), (25, false), (50, true), (75, false), (100, true), (125, false), (150, false)]
+        let blacks: [(x: CGFloat, held: Bool)] = [(17, false), (42, false), (92, false), (117, true), (142, false)]
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(whites.enumerated()), id: \.offset) { _, k in
+                RoundedRectangle(cornerRadius: 3).fill(k.held ? buildCyan : Color(white: 0.9))
+                    .frame(width: 24, height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
+                    .offset(x: k.x)
+            }
+            ForEach(Array(blacks.enumerated()), id: \.offset) { _, k in
+                RoundedRectangle(cornerRadius: 2).fill(k.held ? buildCyan : buildPanel)
+                    .frame(width: 15, height: 31).offset(x: k.x)
+            }
+        }
+        .frame(width: 176, height: 52, alignment: .topLeading)
+        .padding(.vertical, 2)
+    }
+
     @ViewBuilder private func buildCastPalette() -> some View {
         VStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { row in
+            ForEach(0..<4, id: \.self) { row in                    // FULL 4×4 = 16 slots (iteration 3: the compact bar starved it)
                 HStack(spacing: 5) {
                     ForEach(0..<4, id: \.self) { col in
                         let i = row * 4 + col
@@ -187,20 +214,20 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 9).stroke(buildDim, style: StrokeStyle(lineWidth: 1.5, dash: [4])))
     }
 
-    // ── CENTRE: the STAGING 8×8 (loop keys + variations, simple→complex) ──────────────────────────────────────────
-    @ViewBuilder private func buildStaging(cell: CGFloat) -> some View {
+    // ── STAGING column: header+badge · rail+loopkeys+grid · the workshop verb strip · simple→complex label ─────────
+    @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {                                   // header — the ● badge appears when staging owns the voice, and doubles as the GRAB
-                buildLabel("STAGING")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {                                   // header — the ● badge appears when staging owns the voice, and is a GRAB
+                buildLabel("STAGING — the current question")
                 if stgLit { buildPlayingBadge() }
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle()).onTapGesture { buildGrabStaging() }
             HStack(alignment: .top, spacing: 5) {
-                buildRowRail(cell: cell, hue: hue)                 // §3: the row-selector rail on staging's LEFT edge (workbench's primary verb)
+                buildRowRail(cell: cell, hue: hue)                 // the row-selector rail on staging's LEFT edge
                 VStack(spacing: 5) {
-                    HStack(spacing: 5) {                           // the loop-key row — a tap here GRABS the voice onto staging (§2)
+                    HStack(spacing: 5) {                           // the loop-key row — a tap GRABS the voice onto staging (§2)
                         ForEach(0..<8, id: \.self) { c in
                             RoundedRectangle(cornerRadius: 5)
                                 .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
@@ -214,7 +241,7 @@ extension DiagView {
                                 ForEach(0..<8, id: \.self) { c in
                                     let filled = (c + r * 3) % 4 != 0
                                     let active = (c + r) % 5 == 0
-                                    // §2 silence tell: when staging is DIMMED, active picks show as HOLLOW rings; the voice arriving fills them.
+                                    // §2 silence tell: when staging is DIMMED, active picks show as HOLLOW rings; the voice fills them.
                                     let restHollow = active && !stgLit
                                     RoundedRectangle(cornerRadius: 7)
                                         .fill(filled && !restHollow ? hue.opacity(active ? 1 : 0.28) : buildCell)
@@ -227,59 +254,43 @@ extension DiagView {
                     }
                 }
             }
-            Text("SIMPLE ▲ · rows = variations · ▼ COMPLEX")
+            // the workshop's OWN verb strip, under its own grid (iteration 3 §3).
+            HStack(spacing: 6) {
+                buildActionBtn("APPLY TO PLAY →", pink: true)      // arms the play grid; the band decides FLATTEN|COPY ROWS
+                buildActionBtn("MUTATE")
+                buildActionBtn("🎲").frame(width: 48)              // re-roll the staging ladder
+            }
+            Text("SIMPLE ▲ · rows = variations of the selected colour · ▼ COMPLEX")
                 .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
         }
     }
 
-    // §3 the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge. With a cast colour selected, tapping a row
-    // fills it with that colour (the 3-press cycle grammar; exact cycle = Paul's device call). Skeleton: furniture +
-    // the selected hue; the fill wires when staging placement lands.
+    // the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge; tinted the selected hue, chevron into the grid.
     @ViewBuilder private func buildRowRail(cell: CGFloat, hue: Color) -> some View {
         VStack(spacing: 5) {
-            Color.clear.frame(width: 14, height: BuildGeom.loopKeyH)       // align the rail past the loop-key row
+            Color.clear.frame(width: BuildGeom.rowRailW, height: BuildGeom.loopKeyH)   // align the rail past the loop-key row
             ForEach(0..<8, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 4).fill(hue.opacity(0.5))
-                    .frame(width: 14, height: cell)
+                    .frame(width: BuildGeom.rowRailW, height: cell)
                     .overlay(Text("‹").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.7)))
             }
         }
     }
 
-    // ── BRIDGE: the action cluster + the band-target strip ────────────────────────────────────────────────────────
-    @ViewBuilder private func buildBridge() -> some View {
-        VStack(spacing: 8) {
-            buildActionBtn("APPLY TO\nSTAGING", pink: true)
-            buildActionBtn("MUTATE")
-            Text("→").font(.system(size: 15, weight: .bold)).foregroundColor(buildCyan)
-            buildActionBtn("FLATTEN")
-            buildActionBtn("COPY\nROWS")
-            Text("→").font(.system(size: 15, weight: .bold)).foregroundColor(buildCyan)
-            Divider().overlay(buildDim)
-            // BAND TARGET strip (5 chips) — arm FLATTEN/COPY then tap a chip; here as placeholders.
-            ForEach(["3LAD", "2LAD", "LANE", "LANE", "FREE"], id: \.self) { name in
-                Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                    .frame(maxWidth: .infinity).frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
-            }
-        }
-    }
-
-    // ── RIGHT: the PLAY grid with the five fixed bands + the glyph rail ───────────────────────────────────────────
-    @ViewBuilder private func buildPlayGrid(cell: CGFloat) -> some View {
-        // Band shapes: 3-LADDER (3 rows) · 2-LADDER (2) · LANE (1) · LANE (1) · FREE (1).
+    // ── PLAY column: the piece, five fixed bands + glyph rail; the target decides the verb ─────────────────────────
+    @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         let bands: [(rows: Int, glyph: String, free: Bool)] = [
             (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
         ]
-        VStack(alignment: .leading, spacing: 5) {
-            buildLabel("PLAY — tap a band to receive")
+        VStack(alignment: .leading, spacing: 6) {
+            buildLabel("PLAY — the target decides: LANE=flatten · LADDER=copy rows")
             HStack(alignment: .top, spacing: 6) {
                 VStack(spacing: BuildGeom.seam) {                  // the glyph rail
                     ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
                         let h = cell * CGFloat(b.rows) + BuildGeom.seam * CGFloat(b.rows - 1)
                         Text(b.glyph).font(.system(size: 10, weight: .bold))
                             .foregroundColor(b.free ? buildPink : buildCyan)
-                            .frame(width: BuildGeom.railW, height: h)
+                            .frame(width: BuildGeom.playRailW, height: h)
                             .overlay(Rectangle().fill(b.free ? buildPink : buildCyan).frame(width: 3), alignment: .leading)
                     }
                 }
@@ -301,19 +312,19 @@ extension DiagView {
                     }
                 }
             }
-            Text("3-LADDER ⊻ · 2-LADDER ⊻ · LANE · LANE · FREE ▶")
+            Text("3-LADDER ⊻ · 2-LADDER ⊻ · LANE · LANE · FREE ▶ (tap-to-voice)")
                 .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
         }
     }
 
-    // ── BOTTOM: the machinery snake (placeholder — the real flow diagram gets wired in a later increment) ─────────
+    // ── MACHINERY SNAKE (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box + RANDOMIZE ────────
     @ViewBuilder private func buildMachinery() -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
-        // §1: in the MACHINE phase (palette owns the voice) the snake's thread comes alive. Skeleton = the thread
-        // BRIGHTENS to cyan; the animated door→wire PULSE arrives with the real machinery wiring.
+        // §1: in the MACHINE phase (palette owns the voice) the snake's thread comes alive. Skeleton = brighten; the
+        // animated door→wire pulse arrives with the real wiring.
         let thread = palLit ? buildCyan : buildDim
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 44, height: 44)
+            RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(thread).font(.system(size: 10, design: .monospaced))
             buildSlot("ARP"); Text("┈").foregroundColor(thread)
@@ -323,11 +334,10 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(thread).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
             Spacer(minLength: 0)
-            buildActionBtn("PLAY THIS\nCELL").frame(width: 96)
-            buildActionBtn("RANDOMIZE", pink: true).frame(width: 96)
+            buildActionBtn("🎲 RANDOMIZE", pink: true).frame(width: 120)   // PLAY THIS CELL left the bar (now the column top)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: BuildGeom.machineH, alignment: .leading)
+        .padding(.horizontal, 14).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
     }
 

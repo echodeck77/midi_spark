@@ -11,7 +11,7 @@ body{background:var(--bg);color:var(--ink);padding:10px;width:1170px}
 .tab{padding:5px 14px;border-radius:8px;background:var(--panel);color:var(--dim);font-size:11px}
 .tab.on{background:var(--pk);color:#1a0512;font-weight:700}
 .pill{padding:5px 10px;border-radius:8px;background:var(--panel);font-size:11px;color:var(--cy)}
-.main{display:grid;grid-template-columns:186px 384px 92px 420px;gap:10px}
+.main{display:grid;grid-template-columns:196px 400px 440px;gap:10px}
 .colhead{font-size:9px;letter-spacing:2px;color:var(--pk);margin:2px 0 6px}
 /* palette */
 .pal{display:grid;grid-template-columns:repeat(4,40px);gap:5px}
@@ -80,6 +80,17 @@ display:flex;align-items:center;justify-content:center;font-size:8px}
 .bk.held{background:var(--cy)}
 .part{display:flex;gap:6px;align-items:center;margin-bottom:2px}
 .part .pd{padding:5px 10px;border-radius:8px;background:var(--panel);font-size:10px;font-weight:700}
+
+.playcell{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;
+background:var(--cell);border:1px solid var(--cy);margin-bottom:10px}
+.playcell .dot{width:8px;height:8px;border-radius:50%;background:var(--cy)}
+.playcell b{font-size:10px;letter-spacing:1px;color:var(--cy)}
+.applystage{margin-top:10px;padding:11px 8px;border-radius:10px;background:var(--pk);
+color:#1a0512;font-weight:700;font-size:10px;text-align:center;letter-spacing:1px}
+.stverbs{display:flex;gap:8px;margin-top:8px}
+.sv{flex:1;padding:9px 6px;border-radius:9px;background:var(--panel);font-size:9.5px;
+text-align:center;letter-spacing:1px}
+.sv.pk{background:var(--pk);color:#1a0512;font-weight:700}
 </style></head><body>
 <div class="hdr">
   <span class="logo">8×8</span><span class="pill">PRESETS</span>
@@ -92,7 +103,8 @@ display:flex;align-items:center;justify-content:center;font-size:8px}
 <div class="main">
   <!-- PALETTE column -->
   <div>
-    <div class="part"><span class="pd">PART 2 ▾</span><span class="io">+ NEW</span></div>
+    <div class="playcell"><span class="dot"></span><b>PLAY THIS CELL</b></div>
+    <div class="part"><span class="pd">PART 1 ▾</span><span class="io">+ NEW</span></div>
     <div class="step">1 · INPUT</div>
     <div class="row">
       <span class="io keys on">R1 ⌨</span><span class="io">R2 ⎓</span><span class="io">R3 ⎓</span><span class="io">R4 ⎓</span>
@@ -106,18 +118,17 @@ display:flex;align-items:center;justify-content:center;font-size:8px}
       <div class="bk" style="left:92px"></div><div class="bk held" style="left:117px"></div>
       <div class="bk" style="left:142px"></div>
     </div>
-    <div class="note">R1 = PIANO: holds A·C·E·G♯<br>(⎓ = MIDI door) · staging has focus</div>
-    <div class="step">2 · CHAIN</div>
-    <div class="row"><span class="io on">BUILD ▾</span><span class="io">🎲 RANDOMIZE</span></div>
-    <div class="step">3 · OUTPUT</div>
-    <div class="row"><span class="io on">A</span><span class="io">B</span><span class="io">C</span><span class="io">D</span></div>
-    <div class="step">4 · PART 2'S CAST → drag to staging</div>
+    <div class="step">2 · PART 1'S CAST</div>
     <div class="pal">
       <div class="sw c1 sel"></div><div class="sw c2"></div><div class="sw c3"></div><div class="sw c4"></div>
       <div class="sw c5"></div><div class="sw c6"></div><div class="sw"></div><div class="sw"></div>
       <div class="sw"></div><div class="sw"></div><div class="sw"></div><div class="sw"></div>
+      <div class="sw"></div><div class="sw"></div><div class="sw"></div><div class="sw"></div>
     </div>
-    <div class="litter">🗑 LITTER</div>
+    <div class="step">3 · OUTPUT</div>
+    <div class="row"><span class="io on">A</span><span class="io">B</span><span class="io">C</span><span class="io">D</span></div>
+    <div class="applystage">APPLY TO STAGING →</div>
+    <div class="litter" style="margin-top:12px">🗑 LITTER</div>
   </div>
 
   <!-- STAGING -->
@@ -141,19 +152,9 @@ display:flex;align-items:center;justify-content:center;font-size:8px}
     <div class="lbl">SIMPLE ▲ · rows = variations of the selected colour · ▼ COMPLEX</div>
   </div>
 
-  <!-- BRIDGE -->
-  <div class="bridge">
-    <div class="b pk">APPLY TO<br>STAGING</div>
-    <div class="b">MUTATE</div>
-    <div class="b arrow">→</div>
-    <div class="b">FLATTEN</div>
-    <div class="b">COPY<br>ROWS</div>
-    <div class="b arrow">→</div>
-  </div>
-
   <!-- PLAY GRID with bands -->
   <div>
-    <div class="colhead">PLAY — the piece (tap a band to receive)</div>
+    <div class="colhead">PLAY — the target decides: LANE=flatten · LADDER=copy rows</div>
     <div class="play">
       <div class="rails">
         <div class="rail r3">⊻</div>
@@ -208,9 +209,8 @@ display:flex;align-items:center;justify-content:center;font-size:8px}
   <span class="dots">┈┈▶</span>
   <div class="box">A: MIDI OUT<div class="ch">ch1</div></div>
   <div class="cluster">
-    <div class="cl">PLAY THIS CELL</div>
     <div class="cl pk">RANDOMIZE</div>
   </div>
 </div>
-<div class="note" style="margin-top:8px">Non-functional mock · 1170w landscape · palette 4×4 · staging 8×8 (40pt cells) · play 8×8 with the five fixed bands · machinery snake below · left column = the build flow (part → input/keys → chain → output → cast); the bridge column replaces the band-target strip — the play grid is visible, so applies tap the band directly.</div>
+<div class="note" style="margin-top:8px">Non-functional mock · 1170w landscape · palette 4×4 · staging 8×8 (40pt cells) · play 8×8 with the five fixed bands · machinery snake below · iteration 3: left column = play-cell · part · input · cast · output · APPLY-TO-STAGING; staging verbs beneath staging; bridge removed; target decides the verb; left column = the build flow (part → input/keys → chain → output → cast); the bridge column replaces the band-target strip — the play grid is visible, so applies tap the band directly.</div>
 </body></html>
