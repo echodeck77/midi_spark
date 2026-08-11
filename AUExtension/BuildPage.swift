@@ -69,19 +69,20 @@ extension DiagView {
 
     // ── LANDSCAPE: three EQUAL columns (palette · staging · play) over the full-width machinery strip ──────────────
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
-        let colW = max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3)   // clamp ≥ 1: never a negative frame width
-        // one shared cell size fits an 8×8 grid + its rail inside a column; the PLAY rail is the wider → it sets it.
+        let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
+        let leftW = max(1, avail / 3 * 0.8)                        // the MACHINE column is 20% narrower than an equal third
+        let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
         // the PLAY grid is the widest: a cell-sized ROW BUTTON + a ½-cell PART-CELL column + 8 grid cells (+ 9 gaps).
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.cellGap * 9) / 9.5))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 9.5))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
                 // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
                 // demangler's stack (SIGSEGV opening BUILD). AnyView is a nominal type the demangler won't recurse
                 // through — each column's type is instantiated separately + bounded.
-                AnyView(buildPaletteColumn().frame(width: colW, alignment: .leading))
-                AnyView(buildStagingColumn(cell: cell).frame(width: colW, alignment: .leading))
-                AnyView(buildPlayColumn(cell: cell).frame(width: colW, alignment: .leading))
+                AnyView(buildPaletteColumn().frame(width: leftW, alignment: .center))
+                AnyView(buildStagingColumn(cell: cell).frame(width: gridColW, alignment: .center))
+                AnyView(buildPlayColumn(cell: cell).frame(width: gridColW, alignment: .center))
             }
             AnyView(buildMachinery())
         }
@@ -280,6 +281,13 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
     }
 
+    // A part boundary. It occupies exactly ONE inter-cell gap so the grid stays uniformly spaced; the LINE is drawn
+    // only where asked (the row buttons), centred in that gap so nothing shifts and both columns stay row-aligned.
+    @ViewBuilder private func partDivider(line: Bool) -> some View {
+        Color.clear.frame(maxWidth: .infinity).frame(height: BuildGeom.cellGap)
+            .overlay { if line { Rectangle().fill(Color.white.opacity(0.6)).frame(height: 2) } }
+    }
+
     // the COLUMN-SELECTOR (loop-key) row — 8 keys the width of the grid columns; shared by staging + play so they match.
     @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
         HStack(spacing: BuildGeom.cellGap) {
@@ -299,14 +307,12 @@ extension DiagView {
             Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
             VStack(spacing: 0) {
                 ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
-                    if idx > 0 {
-                        Rectangle().fill(Color.white.opacity(0.28)).frame(height: 1).padding(.vertical, 4)   // match the play part dividers
-                    }
+                    if idx > 0 { partDivider(line: true) }         // the DIVIDING LINE lives here, between the row buttons
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { _ in
                             RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
                                 .frame(width: cell, height: cell)
-                                .overlay(Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.85)))
+                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.85)))
                         }
                     }
                 }
@@ -322,9 +328,7 @@ extension DiagView {
             Color.clear.frame(width: cell / 2, height: BuildGeom.loopKeyH)   // align past the loop-key row
             VStack(spacing: 0) {
                 ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
-                    if idx > 0 {
-                        Rectangle().fill(Color.white.opacity(0.28)).frame(height: 1).padding(.vertical, 4)   // match the part dividers
-                    }
+                    if idx > 0 { partDivider(line: false) }        // no line here — just the gap (the line is on the row buttons)
                     let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // the part's full height
                     let free = idx == bands.count - 1
                     RoundedRectangle(cornerRadius: 6).fill((free ? buildPink : buildCyan).opacity(0.5))
@@ -340,7 +344,7 @@ extension DiagView {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
             // The side ROW BUTTONS assign from STAGING → PERFORM when the transport is STOPPED (function wires later).
-            AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
+            AnyView(HStack(alignment: .top, spacing: 0) {          // spacing 0 → the buttons + part cells CONNECT onto the grid
                 AnyView(buildRowButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))   // cell-sized row buttons on the LEFT, part-grouped
                 AnyView(buildPartCells(cell: cell, bands: [3, 2, 1, 1, 1]))                    // ½-cell PART cells (3-high · 2-high · 1 · 1 · 1)
                 VStack(spacing: BuildGeom.cellGap) {
@@ -352,28 +356,17 @@ extension DiagView {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    // the five fixed PLAY bands + glyph rail — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
+    // the PLAY grid rows — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
     @ViewBuilder private func buildPlayBands(cell: CGFloat) -> some View {
-        let bands: [(rows: Int, glyph: String, free: Bool)] = [
-            (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
-        ]
-        VStack(spacing: 0) {                                       // the parts are shown by DIVIDING horizontal lines
-            ForEach(Array(bands.enumerated()), id: \.offset) { idx, b in
-                if idx > 0 {
-                    Rectangle().fill(Color.white.opacity(0.28))     // the dividing line between parts (after rows 3 · 5 · 6 · 7)
-                        .frame(height: 1).padding(.vertical, 4)
-                }
-                VStack(spacing: BuildGeom.cellGap) {
-                    ForEach(0..<b.rows, id: \.self) { r in
-                        HStack(spacing: BuildGeom.cellGap) {
-                            ForEach(0..<8, id: \.self) { c in
-                                let hue = buildHues[(idx + r + c) % buildHues.count]
-                                let filled = (c + r + idx) % 3 != 0
-                                RoundedRectangle(cornerRadius: 7)   // PLAY calms — dimmer fill
-                                    .fill(filled ? hue.opacity(BuildGeom.playCalm) : buildCell)
-                                    .frame(width: cell, height: cell)
-                            }
-                        }
+        VStack(spacing: BuildGeom.cellGap) {                       // UNIFORM 8 rows — no line inside the grid; parts show on the row buttons
+            ForEach(0..<8, id: \.self) { r in
+                let p = r < 3 ? 0 : (r < 5 ? 1 : r - 3)            // this row's PART (parts: 0-2 · 3-4 · 5 · 6 · 7)
+                let base = buildHues[p % buildHues.count]           // one base hue PER PART
+                HStack(spacing: BuildGeom.cellGap) {
+                    ForEach(0..<8, id: \.self) { c in
+                        let shade = 0.35 + 0.5 * Double((r * 3 + c * 2 + p) % 4) / 3.0   // a variety of SIMILAR shades within the part
+                        RoundedRectangle(cornerRadius: 7).fill(base.opacity(shade))
+                            .frame(width: cell, height: cell)
                     }
                 }
             }
