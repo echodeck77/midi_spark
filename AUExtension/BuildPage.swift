@@ -28,7 +28,6 @@ private enum BuildGeom {
     static let cellMax:  CGFloat = 34
     static let cellGap:  CGFloat = 4         // inter-cell gap
     static let loopKeyH: CGFloat = 18       // the staging loop-key row height
-    static let rowRailW: CGFloat = 14       // the staging left row-selector rail
     static let seam:     CGFloat = 2        // the gap between play bands
     static let barH:     CGFloat = 76       // the machinery snake bar height
     static let playCalm: Double = 0.45      // the PLAY grid CALMS — dimmer cells
@@ -72,7 +71,8 @@ extension DiagView {
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
         let colW = max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3)   // clamp ≥ 1: never a negative frame width
         // one shared cell size fits an 8×8 grid + its rail inside a column; the PLAY rail is the wider → it sets it.
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.rowRailW - BuildGeom.cellGap * 8) / 8))
+        // each grid is now 9 cells wide: a cell-sized ROW BUTTON + 8 grid cells (+ the 8 gaps between the 9).
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.cellGap * 8) / 9))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
@@ -90,7 +90,7 @@ extension DiagView {
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.rowRailW - 24) / 8))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 8 - 24) / 9))
         VStack(spacing: 12) {
             AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
             AnyView(buildStagingColumn(cell: cell))
@@ -220,7 +220,7 @@ extension DiagView {
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
-        let gridW = BuildGeom.rowRailW + cell * 8 + BuildGeom.cellGap * 8
+        let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THE STAGING GRID"))
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
@@ -243,7 +243,7 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowRail(cell: cell, hue: hue)                     // the row-selector rail on staging's LEFT edge
+            buildRowButtons(cell: cell, hue: hue, bands: [8])     // cell-sized ROW BUTTONS on the LEFT (staging = one group of 8)
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
                 VStack(spacing: BuildGeom.cellGap) {               // 8 variation rows, one colour, dim/act placeholders
@@ -291,14 +291,25 @@ extension DiagView {
         }
     }
 
-    // the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge; tinted the selected hue, chevron into the grid.
-    @ViewBuilder private func buildRowRail(cell: CGFloat, hue: Color) -> some View {
+    // ROW BUTTONS — a cell-sized selector per grid row on the LEFT edge; shared by both grids. `bands` is the row
+    // grouping (staging = [8]; play = [3,2,1,1,1]) so the buttons carry the SAME part dividers as the grid → they align
+    // row-for-row. A top spacer clears the loop-key row.
+    @ViewBuilder private func buildRowButtons(cell: CGFloat, hue: Color, bands: [Int]) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
-            Color.clear.frame(width: BuildGeom.rowRailW, height: BuildGeom.loopKeyH)   // align the rail past the loop-key row
-            ForEach(0..<8, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 4).fill(hue.opacity(0.5))
-                    .frame(width: BuildGeom.rowRailW, height: cell)
-                    .overlay(Text("‹").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.7)))
+            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            VStack(spacing: 0) {
+                ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
+                    if idx > 0 {
+                        Rectangle().fill(Color.white.opacity(0.28)).frame(height: 1).padding(.vertical, 4)   // match the play part dividers
+                    }
+                    VStack(spacing: BuildGeom.cellGap) {
+                        ForEach(0..<rows, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                                .frame(width: cell, height: cell)
+                                .overlay(Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.85)))
+                        }
+                    }
+                }
             }
         }
     }
@@ -307,8 +318,13 @@ extension DiagView {
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            AnyView(buildLoopKeys(cell: cell))                    // the column-selector row (no left rail now)
-            AnyView(buildPlayBands(cell: cell))                   // AnyView — keeps the deep bands type out of this body
+            AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
+                AnyView(buildRowButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))   // cell-sized row buttons on the LEFT, part-grouped
+                VStack(spacing: BuildGeom.cellGap) {
+                    buildLoopKeys(cell: cell)                     // the column-selector row
+                    AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
+                }
+            })
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
