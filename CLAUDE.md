@@ -173,8 +173,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (placement edits are one-liners) — built deliberately as a rearrange-first scaffold (Paul: "lots of placement
   changes as we go"). NOTHING reads/writes the document yet. NEXT (region by region, each device-verifiable): palette
   I/O + cast → staging roll (reuse Dice) → rung picking + loop keys → FLATTEN/COPY ROWS onto the play bands → the real
-  machinery snake (reuse the flow diagram) → the FREE band tap-to-voice. OPEN (design flagged for Paul): SOLO/FREE-band
-  QUANTIZE default · parts-own-plumbing vs colours-own-chains · hot-drop · un-flatten.**
+  machinery snake (reuse the flow diagram) → the FREE band tap-to-voice. **DESIGN ANSWERED (2026-08-11, ferry
+  `REPLY-build-questions-answered`):** ① THE FORK = PER-PART confirmed (the palette is per-part; global reusable cast
+  is a flagged FUTURE — build per-part, nothing touches colour-owned routing or the seal hash for this); ② FREE-band
+  QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
+  local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
+  cases (device-feel).**
+- **▶ FOUR STEERS OF RECORD (design ferry `REPLY-four-steers-answered`, 2026-08-10; absorbed 2026-08-11 — NOT all
+  built). Standing rulings to build BY, recorded so they aren't re-litigated: **① ROUTING = COLOUR-OWNED** (the big
+  one, NOT yet built): lift buses/receiver/chop off `Cell` onto `Colour` as colour defaults (a machine IS chain +
+  routing — the seal already hashes input+chain+output as one identity); the unplaced colour then stores everything;
+  cell residue finalises as POSITION + MUTE (+ trigger assignments later); migration lifts from the first/majority
+  cell + flags divergent cells to Paul once. This retires the per-cell fan-out-on-edit sync (the twin-divergence bug
+  class). A multi-turn refactor (~330 test sites set cell machine fields) — do it as its own staged effort, folds
+  naturally into the per-part BUILD work. **② SINGLE|MULTI = ONE GLOBAL MODE** (as built — how the grid plays; two
+  pages, one grid, one truth; a per-page mode is refused). **③ MUTATE spec exists** (`AcceptanceCriteria-dice-
+  authoring` §4/§6): a bounded nudge — ~±10–15% continuous · rare single discrete flips · NEVER structure · pins
+  respected · one undo per tap · re-tap walks; target = the selected colour's template chain (+ colour-owned routing);
+  ships as the simple walk now (RANDOMIZE's §7 profile pipeline is later). **④ FREE launcher (DD SINGLE|MULTI|FREE)
+  stays deferred** (§8 capture stands).**
 - **▶ PURE POOL-AWARE IMPROVEMENTS — CHANCE weight/constant-density + ARP FIT, then STRUM spread-normalize (2026-08-11,
   on `main`, PUSHED `4502709` + next; macOS 594 green, iOS builds; DEVICE ear owed). The first pure pool-aware nicities
   from `AcceptanceCriteria-pool-aware-family.md`, all beat-derived + unit-tested, each an append-only ColourParams/
