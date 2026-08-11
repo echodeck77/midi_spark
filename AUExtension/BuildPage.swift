@@ -124,7 +124,11 @@ extension DiagView {
                 buildIOChip("R2 ⎓", fill: true); buildIOChip("R3 ⎓", fill: true); buildIOChip("R4 ⎓", fill: true)
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
-            buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
+            HStack(spacing: 5) {                                   // per-receiver SOURCE toggle: DIN (MIDI in) | in-app piano
+                buildSourceToggle("cable.connector", active: false, width: (BuildGeom.castW - 12) / 8)   // DIN / MIDI in
+                buildKeyboard()                                    // a PIANO door reveals its octave keyboard (placeholder)
+                buildSourceToggle("pianokeys", active: true, width: (BuildGeom.castW - 12) / 8, rotate: true)   // in-app piano (active)
+            }
             HStack(spacing: 6) { buildOctBtn("OCT −"); buildOctBtn("OCT +") }.frame(width: 176)   // octave shift
         }
     }
@@ -177,6 +181,17 @@ extension DiagView {
         }
         .frame(width: 176, height: 52, alignment: .topLeading)
         .padding(.vertical, 2)
+    }
+
+    // The per-receiver SOURCE toggle flanking the piano: a DIN connector (MIDI in) on the left, the in-app piano on
+    // the right — piano-height, half an R1 button wide. The active side is filled cyan.
+    @ViewBuilder private func buildSourceToggle(_ icon: String, active: Bool, width: CGFloat, rotate: Bool = false) -> some View {
+        Image(systemName: icon).font(.system(size: 18, weight: .semibold))
+            .rotationEffect(.degrees(rotate ? 90 : 0))
+            .foregroundColor(active ? .black : buildDim)
+            .frame(width: width, height: 52)
+            .background(RoundedRectangle(cornerRadius: 7).fill(active ? buildCyan : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(active ? 0 : 0.4), lineWidth: 1))
     }
 
     // OCT −/+ buttons under the piano (octave shift for the selected PIANO door).
