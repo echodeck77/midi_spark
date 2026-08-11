@@ -363,8 +363,29 @@ extension DiagView {
                 }
                 AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
             })
+            AnyView(buildEmitters(cell: cell))                   // EMITTERS below the grid — lines up with staging's verb box (same grid height + column rhythm)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // EMITTERS — the four output strips (A–D), in the style of the GRID page's emitter section (placeholder). Sits
+    // directly below the perform grid; since both grids are the same height and both columns share the button + spacing
+    // rhythm, this aligns with the staging verb box.
+    @ViewBuilder private func buildEmitters(cell: CGFloat) -> some View {
+        let w = cell * 10 + BuildGeom.cellGap * 9                 // the perform grid's width → the strips sit under it
+        HStack(spacing: 6) {
+            ForEach(Array(["A", "B", "C", "D"].enumerated()), id: \.offset) { i, e in
+                VStack(spacing: 4) {
+                    Text(e).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                    RoundedRectangle(cornerRadius: 4).fill(buildCell).frame(height: 44)   // a velocity fader placeholder
+                        .overlay(RoundedRectangle(cornerRadius: 4).fill(buildCyan.opacity(0.5)).frame(height: 22), alignment: .bottom)
+                    Text("CH \(i + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+            }
+        }
+        .frame(width: w)
     }
 
     // the PLAY grid rows — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
