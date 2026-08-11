@@ -84,6 +84,7 @@ struct ColourParams: Codable, Equatable {
     var spread: Double? = 0.1      // strum: chord stagger in BEATS (0…1)
     var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
     var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
+    var strumSpreadNorm: Bool? = true  // strum: rake spans a constant `spread` width (true) vs a per-note gap that widens with the pool (false)
     var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
     var chanceTilt: Double? = 0    // chance WEIGHT −1…1 (user 2026-08-11): +favours TOP notes, −favours BOTTOM
     var chanceDensity: Bool? = false // chance CONSTANT-DENSITY: keep ~a constant NUMBER of notes regardless of chord size

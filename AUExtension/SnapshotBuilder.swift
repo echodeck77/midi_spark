@@ -268,6 +268,7 @@ enum SnapshotBuilder {
         if let v = p.spread { out.spread = clamp(v, 0, 1) }
         if let v = p.curve { out.curve = clamp(v, -1, 1) }
         if let v = p.velTilt { out.velTilt = clamp(v, -1, 1) }
+        if let v = p.strumSpreadNorm { out.strumSpreadNorm = v }
         if let v = p.probability { out.probability = clamp(v, 0, 1) }
         if let v = p.chanceTilt { out.chanceTilt = clamp(v, -1, 1) }
         if let v = p.chanceDensity { out.chanceDensity = v }

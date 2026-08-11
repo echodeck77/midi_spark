@@ -157,6 +157,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PURE POOL-AWARE IMPROVEMENTS — CHANCE weight/constant-density + ARP FIT, then STRUM spread-normalize (2026-08-11,
+  on `main`, PUSHED `4502709` + next; macOS 594 green, iOS builds; DEVICE ear owed). The first pure pool-aware nicities
+  from `AcceptanceCriteria-pool-aware-family.md`, all beat-derived + unit-tested, each an append-only ColourParams/
+  SnapParams field + builder copy + a control in its processor box. **CHANCE → WEIGHT** (`chanceTilt` −1…1): biases
+  which notes survive by their RANK in the chord (+ favours the top, − the bottom). **CHANCE → CONSTANT-DENSITY**
+  (`chanceDensity`): per-note p = min(1, prob·8/N) so a roughly constant NUMBER of notes survives regardless of chord
+  size (big chord thins, small passes). Both via a pure `chancePassesPool` (Derivations), wired into the hold-chance
+  path + the chain-fold chance stage. **ARP → FIT** (`arpFit`): the rate derives so ONE pool traversal = one beat, so
+  the arp cycle stays locked to the beat as the chord grows (`arpBeats = max(0.03125, 1/(n·octaves))`). **STRUM →
+  WIDTH EVEN|PER-NOTE** (`strumSpreadNorm`, nil⇒true = today's sound): `strumOffset` currently ALWAYS spans a constant
+  `spread` width (3 notes or 6, same rake) — that's EVEN/normalize. PER-NOTE (off) makes `spread` a reference 4-note
+  rake's TOTAL so the gap between onsets is fixed and the rake WIDENS with the pool (clamped ≤ 1 beat). Threaded to all
+  3 `strumOffset` call sites (direct · chain-driver · audition). Tests: `testChanceConstantDensityHoldsCountVsFixed-
+  Percent` · `testChanceWeightFavoursTopOrBottom` · `testArpFitScalesRateWithChordSize` (RouterTests) + `testStrum-
+  SpreadNormalizeVsPerNoteWidth` (DerivationsTests). These feed THE DICE for free (its rolls draw from these params).
+  Remaining pure follow-up on the list: RATCHET bursts.**
 - **▶ THE DICE (step 1) — long all-contributing chains + 4 evaluated slider macros + 4 button macros (2026-08-10, on
   `main`, PUSHED next; macOS 589 green, iOS builds; DEVICE ear/eye owed). Paul's start on `AcceptanceCriteria-dice-
   authoring.md`: chains LONGER than 3, repeated types OK, but EVERY processor must CONTRIBUTE (bypassing it tangibly

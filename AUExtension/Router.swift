@@ -2424,7 +2424,7 @@ final class Router {
                                  beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         while strumProgress[r] < count {
             let j = strumProgress[r]
-            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
+            let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: colour.a.strumSpreadNorm)
             let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos,
                                        beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             if onsetSample >= windowEnd { break }        // onset lands in a later window
@@ -2559,7 +2559,7 @@ final class Router {
                 let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 while strumProgress[vr] < count {
                     let j = strumProgress[vr]
-                    let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve)
+                    let onsetMusical = colStart + strumOffset(index: j, count: count, spread: spread, curve: curve, normalize: colour.a.strumSpreadNorm)
                     let onsetSample = sampleOf(musical: onsetMusical, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     if onsetSample >= windowEnd { break }
                     strumProgress[vr] += 1
@@ -2733,7 +2733,7 @@ final class Router {
         let spread = effectiveSpread(colour, t: t)
         let count = pool.srcCount(for: cell)
         for j in 0..<count {
-            guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve)
+            guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve, normalize: colour.a.strumSpreadNorm)
             else { continue }                                   // this note's onset hasn't arrived yet
             let sortedIdx = strumSortedIndex(position: j, count: count, direction: colour.a.strumDir, pass: 0)
             let sn = pool.srcAscending(sortedIdx, for: cell)

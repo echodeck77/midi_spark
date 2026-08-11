@@ -961,11 +961,16 @@ func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probabilit
 /// spacing; curve>0 bunches the early notes then opens out; curve<0 the reverse (exp = 2^curve, so
 /// ±1 → ×2 / ÷2 of the linear fraction). ASSUMPTION: this curve shape is a feel choice — tune freely.
 @inline(__always)
-func strumOffset(index j: Int, count: Int, spread: Double, curve: Double) -> Double {
+func strumOffset(index j: Int, count: Int, spread: Double, curve: Double, normalize: Bool = true) -> Double {
     guard count > 1 else { return 0 }
     let frac = Double(j) / Double(count - 1)              // 0 (first) … 1 (last)
     let shaped = pow(frac, pow(2.0, curve))              // curve 0 → linear
-    return spread * shaped
+    // §3 SPREAD NORMALIZE (pool-aware-family, honorable): normalize (default) → the rake spans `spread`
+    // beats regardless of the pool size (three notes or six, the same width). PER-NOTE (off) → `spread`
+    // is a reference 4-note rake's TOTAL, so the gap between adjacent onsets is fixed and the rake WIDENS
+    // with the pool (clamped ≤ 1 beat so a big chord can't overrun its column).
+    let width = normalize ? spread : min(1.0, (spread / 3.0) * Double(count - 1))
+    return width * shaped
 }
 
 /// Velocity for strum position `j`. tilt 0 = flat at base; tilt>0 crescendos across the strum

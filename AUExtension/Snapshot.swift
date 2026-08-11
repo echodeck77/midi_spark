@@ -78,6 +78,7 @@ struct SnapParams {
     var spread: Double = 0.1         // strum stagger, beats
     var curve: Double = 0            // strum timing curve −1…1
     var velTilt: Double = 0          // strum velocity tilt −1…1
+    var strumSpreadNorm: Bool = true // strum: constant-width rake (true) vs per-note gap widening with the pool (false)
     var probability: Double = 1      // chance: pass-through probability 0…1
     var chanceTilt: Double = 0       // chance WEIGHT −1…1 (user 2026-08-11)
     var chanceDensity: Bool = false  // chance CONSTANT-DENSITY (keep ~a constant count regardless of chord size)

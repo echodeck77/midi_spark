@@ -1423,6 +1423,8 @@ struct ProcessorBox: View {
                 setParam { $0.strumDir = StrumDir.allCases[i] } } }
             field("SPREAD \(Int((p.spread ?? 0.1) * 100))") {
                 Slider(value: bind(p.spread ?? 0.1) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
+            field("WIDTH (3 notes or 6)") { seg(["EVEN", "PER-NOTE"], sel: (p.strumSpreadNorm ?? true) ? "EVEN" : "PER-NOTE") { i in
+                setParam { $0.strumSpreadNorm = (i == 0) } } }
             field("TILT \(Int((p.velTilt ?? 0) * 100))") {
                 Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
         case .chance:

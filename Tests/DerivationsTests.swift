@@ -599,6 +599,22 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(strumOffset(index: 0, count: 1, spread: 0.4, curve: 0), 0)   // nothing to spread
     }
 
+    func testStrumSpreadNormalizeVsPerNoteWidth() {
+        let spread = 0.3
+        // NORMALIZE (default): a 3-note and a 6-note rake span the SAME total width (`spread`).
+        let last3n = strumOffset(index: 2, count: 3, spread: spread, curve: 0, normalize: true)
+        let last6n = strumOffset(index: 5, count: 6, spread: spread, curve: 0, normalize: true)
+        XCTAssertEqual(last3n, spread, accuracy: 1e-9)
+        XCTAssertEqual(last6n, spread, accuracy: 1e-9)
+        // PER-NOTE: the gap between onsets is fixed (a 4-note rake matches `spread`), so the width WIDENS
+        // with the pool — the 6-note rake is strictly wider than the 3-note one.
+        let last3p = strumOffset(index: 2, count: 3, spread: spread, curve: 0, normalize: false)
+        let last6p = strumOffset(index: 5, count: 6, spread: spread, curve: 0, normalize: false)
+        XCTAssertGreaterThan(last6p, last3p)
+        XCTAssertEqual(last3p, (spread / 3.0) * 2.0, accuracy: 1e-9)   // 3 notes → 2 gaps
+        XCTAssertEqual(last6p, (spread / 3.0) * 5.0, accuracy: 1e-9)   // 6 notes → 5 gaps (a 4-note rake == spread)
+    }
+
     func testStrumCurveBunchesEnds() {
         // curve>0: early notes bunched (midpoint offset < linear half); curve<0: opposite.
         let mid = { (c: Double) in strumOffset(index: 2, count: 5, spread: 1.0, curve: c) }
