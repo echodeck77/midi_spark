@@ -102,13 +102,7 @@ extension DiagView {
             }
             buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
 
-            HStack(spacing: 6) {                                   // THE CAST + its die (the chain's RANDOMIZE)
-                buildStep("2 · THE CAST")
-                Spacer(minLength: 0)
-                Text("🎲 RANDOMIZE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(0.5)
-                    .padding(.horizontal, 7).frame(height: 20)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
-            }
+            buildStep("2 · THE CAST")
             buildCastPalette()
 
             buildStep("3 · OUTPUT")
