@@ -105,6 +105,8 @@ extension DiagView {
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
             buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
+            HStack(spacing: 6) { buildOctBtn("OCT −"); buildOctBtn("OCT +") }   // octave shift for the piano door
+                .frame(width: 176)                                 // match the piano width
 
             buildStep("2 · THE CAST")
             buildCastPalette()
@@ -115,6 +117,7 @@ extension DiagView {
                 buildIOChip("C", fill: true); buildIOChip("D", fill: true)
             }
             .frame(width: BuildGeom.castW)                         // match the emitters row to the cast palette width
+            buildMidiOutInfo()                                     // clear MIDI OUT channel info, piano-height
 
             Spacer(minLength: 0)
         }
@@ -150,6 +153,24 @@ extension DiagView {
         }
         .frame(width: 176, height: 52, alignment: .topLeading)
         .padding(.vertical, 2)
+    }
+
+    // OCT −/+ buttons under the piano (octave shift for the selected PIANO door).
+    @ViewBuilder private func buildOctBtn(_ s: String) -> some View {
+        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+            .frame(maxWidth: .infinity).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
+    }
+
+    // clear MIDI OUT info below the emitters — piano-height, cast-width.
+    @ViewBuilder private func buildMidiOutInfo() -> some View {
+        VStack(spacing: 3) {
+            Text("MIDI OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
+            Text("A → CH 1").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+        }
+        .frame(width: BuildGeom.castW, height: 52)
+        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
     }
 
     @ViewBuilder private func buildCastPalette() -> some View {
@@ -320,7 +341,7 @@ extension DiagView {
         Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
             .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
             .padding(.horizontal, 7)
-            .frame(maxWidth: fill ? .infinity : nil).frame(height: 24)   // fill → the row spreads evenly to the cast width
+            .frame(maxWidth: fill ? .infinity : nil).frame(height: 48)   // fill → the row spreads evenly to the cast width; height doubled (24→48)
             .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan, lineWidth: keys && !on ? 1 : 0))
     }
