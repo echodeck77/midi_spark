@@ -33,6 +33,9 @@ private enum BuildGeom {
     static let seam:     CGFloat = 2        // the gap between play bands
     static let barH:     CGFloat = 76       // the machinery snake bar height
     static let playCalm: Double = 0.45      // the PLAY grid CALMS — dimmer cells
+    static let castSwatch: CGFloat = 28     // the cast palette swatch (8 across · 4 down)
+    static let castGap:    CGFloat = 4
+    static var castW: CGFloat { castSwatch * 8 + castGap * 7 }   // the cast's total width — INPUT/OUTPUT rows match it
 }
 
 // Placeholder cast hues (mockup palette). Real colours come from the part's cast when the palette is wired.
@@ -97,16 +100,21 @@ extension DiagView {
 
             buildStep("1 · INPUT")
             HStack(spacing: 4) {
-                buildIOChip("R1 ⌨", on: true, keys: true)
-                buildIOChip("R2 ⎓"); buildIOChip("R3 ⎓"); buildIOChip("R4 ⎓")
+                buildIOChip("R1 ⌨", on: true, keys: true, fill: true)
+                buildIOChip("R2 ⎓", fill: true); buildIOChip("R3 ⎓", fill: true); buildIOChip("R4 ⎓", fill: true)
             }
+            .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
             buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
 
             buildStep("2 · THE CAST")
             buildCastPalette()
 
             buildStep("3 · OUTPUT")
-            HStack(spacing: 4) { buildIOChip("A", on: true); buildIOChip("B"); buildIOChip("C"); buildIOChip("D") }
+            HStack(spacing: 4) {
+                buildIOChip("A", on: true, fill: true); buildIOChip("B", fill: true)
+                buildIOChip("C", fill: true); buildIOChip("D", fill: true)
+            }
+            .frame(width: BuildGeom.castW)                         // match the emitters row to the cast palette width
 
             Spacer(minLength: 0)
         }
@@ -145,14 +153,14 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildCastPalette() -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: BuildGeom.castGap) {
             ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
-                HStack(spacing: 4) {
+                HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<8, id: \.self) { col in
                         let i = row * 8 + col
                         let hue = i < buildHues.count ? buildHues[i] : buildCell
                         RoundedRectangle(cornerRadius: 6).fill(hue)
-                            .frame(width: 28, height: 28)
+                            .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
                             .overlay(RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                                 .opacity(i == buildSelColour ? 1 : 0))
@@ -308,10 +316,11 @@ extension DiagView {
     @ViewBuilder private func buildStep(_ s: String) -> some View {
         Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
     }
-    @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false) -> some View {
+    @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false) -> some View {
         Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
             .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
-            .padding(.horizontal, 7).frame(height: 24)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: fill ? .infinity : nil).frame(height: 24)   // fill → the row spreads evenly to the cast width
             .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan, lineWidth: keys && !on ? 1 : 0))
     }
