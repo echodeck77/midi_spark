@@ -145,15 +145,15 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildCastPalette() -> some View {
-        VStack(spacing: 5) {
-            ForEach(0..<4, id: \.self) { row in                    // FULL 4×4 = 16 slots
-                HStack(spacing: 5) {
-                    ForEach(0..<4, id: \.self) { col in
-                        let i = row * 4 + col
+        VStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
+                HStack(spacing: 4) {
+                    ForEach(0..<8, id: \.self) { col in
+                        let i = row * 8 + col
                         let hue = i < buildHues.count ? buildHues[i] : buildCell
-                        RoundedRectangle(cornerRadius: 8).fill(hue)
-                            .frame(width: 36, height: 36)
-                            .overlay(RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 6).fill(hue)
+                            .frame(width: 28, height: 28)
+                            .overlay(RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                                 .opacity(i == buildSelColour ? 1 : 0))
                             .onTapGesture { buildSelColour = i }
