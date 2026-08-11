@@ -27,7 +27,6 @@ private enum BuildGeom {
     static let cellMin:  CGFloat = 18       // grid cell clamp (both 8×8 grids share one cell size)
     static let cellMax:  CGFloat = 34
     static let cellGap:  CGFloat = 4         // inter-cell gap
-    static let loopKeyH: CGFloat = 18       // the staging loop-key row height
     static let seam:     CGFloat = 2        // the gap between play bands
     static let barH:     CGFloat = 76       // the machinery snake bar height
     static let playCalm: Double = 0.45      // the PLAY grid CALMS — dimmer cells
@@ -290,18 +289,16 @@ extension DiagView {
             .overlay { if line { Rectangle().fill(Color.white.opacity(0.6)).frame(height: 2) } }
     }
 
-    // the top-row REPLAY (column) keys — styled as on the GRID page: a ▾ chevron per column, a ↻ repeat glyph when the
-    // column is in the loop/replay set. Shared by staging + play (same cell width + loopKeyH so both grids stay aligned).
+    // the top-row REPLAY (column) keys — SAME STYLE as the row buttons (a filled rounded cell), FULL cell size; a ▾
+    // chevron per column, a ↻ repeat glyph when the column is in the loop/replay set. Shared by staging + play.
     @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
                 let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
-                Image(systemName: held ? "repeat" : "chevron.down")
-                    .font(.system(size: held ? 11 : 13, weight: .heavy))
-                    .foregroundColor(held ? buildCyan : .white.opacity(0.5))
-                    .frame(width: cell, height: BuildGeom.loopKeyH)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(held ? buildCyan.opacity(0.18) : buildPanel))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(held ? buildCyan : .clear, lineWidth: 1.5))
+                RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(held ? 0.6 : 0.4))
+                    .frame(width: cell, height: cell)
+                    .overlay(Image(systemName: held ? "repeat" : "chevron.down")
+                        .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.9)))
             }
         }
     }
@@ -311,7 +308,7 @@ extension DiagView {
     // row-for-row. A top spacer clears the loop-key row.
     @ViewBuilder private func buildRowButtons(cell: CGFloat, hue: Color, bands: [Int]) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
-            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             VStack(spacing: 0) {
                 ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
                     if idx > 0 { partDivider(line: true) }         // the DIVIDING LINE lives here, between the row buttons
@@ -332,7 +329,7 @@ extension DiagView {
     // instead of a chevron. Same rhythm as the grid (top spacer + cellGap spacing) so it aligns row-for-row.
     @ViewBuilder private func buildPartButtons(cell: CGFloat, hue: Color, bands: [Int]) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
-            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
                 let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
@@ -346,7 +343,7 @@ extension DiagView {
     // rows 6–8 (parts 3–5) get no button here since they're already on the left. Identical appearance to the part buttons.
     @ViewBuilder private func buildRightPartButtons(cell: CGFloat, hue: Color) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
-            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             ForEach(0..<5, id: \.self) { r in                            // rows 1–5 only
                 let part = r < 3 ? 1 : 2
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
