@@ -273,7 +273,7 @@ extension DiagView {
         VStack(spacing: 6) {
             HStack(spacing: 6) { buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete) }
             HStack(spacing: 6) {
-                buildActionBtn("APPLY TO PLAY →", pink: true)      // arms the play grid; the band decides FLATTEN|COPY ROWS
+                buildActionBtn("CLEAR ALL")                        // clear the staging grid
                 buildActionBtn("MUTATE")
                 buildActionBtn("🎲 RE-ROLL")                        // re-roll the variation ladder (distinct from the column's 🎲)
             }
