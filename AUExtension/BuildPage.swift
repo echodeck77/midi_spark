@@ -227,17 +227,19 @@ extension DiagView {
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
             Spacer(minLength: 0)
-            AnyView(buildPopulate())                              // bottom of the centre column, above the footer
+            AnyView(buildPopulate(gridW: gridW))                  // bottom of the centre column, above the footer
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    // POPULATE — the call-to-action at the bottom of the centre column: an upward chevron above the text.
-    @ViewBuilder private func buildPopulate() -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: "chevron.up").font(.system(size: 14, weight: .heavy)).foregroundColor(buildPink)
-            Text("POPULATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1)
+    // STAGE THE GRID — the prominent call-to-action at the bottom of the centre column (upward chevron above the text).
+    @ViewBuilder private func buildPopulate(gridW: CGFloat) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: "chevron.up").font(.system(size: 16, weight: .heavy)).foregroundColor(.black)
+            Text("STAGE THE GRID").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black).tracking(1)
         }
+        .frame(width: gridW).frame(minHeight: 54)
+        .background(RoundedRectangle(cornerRadius: 10).fill(buildPink))
     }
 
     // the staging 8×8 (row rail · loop keys · variation rows) — its OWN opaque view so its deep generic type doesn't
@@ -409,6 +411,8 @@ extension DiagView {
     @ViewBuilder private func buildMachinery() -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
         HStack(spacing: 10) {
+            buildFooterBtn("🎲 RANDOMIZE", pink: true)             // left-aligned machine actions
+            buildFooterBtn("MUTATE")
             RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
@@ -419,8 +423,6 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
             Spacer(minLength: 0)
-            buildFooterBtn("🎲 RANDOMIZE", pink: true)             // inviting — the machine's re-roll
-            buildFooterBtn("MUTATE")
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
