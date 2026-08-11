@@ -166,6 +166,8 @@ extension DiagView {
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
+        // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
+        let gridW = BuildGeom.rowRailW + cell * 8 + BuildGeom.cellGap * 8
         VStack(alignment: .center, spacing: 8) {
             buildColumnButton("PLAY THE STAGING GRID")
             HStack(alignment: .top, spacing: BuildGeom.cellGap) {
@@ -205,6 +207,7 @@ extension DiagView {
                 }
             }
             .padding(8)
+            .frame(width: gridW)                                   // match the verb box to the grid above it
             .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
         }
         .frame(maxWidth: .infinity, alignment: .center)
