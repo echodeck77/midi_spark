@@ -85,7 +85,7 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
-    @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); LAYOUT v2 tab model
+    @State var activeTab: AppTab = .grid      // TEMP (debug AUM load crash): landing on GRID (known-good) while BUILD is isolated; restore .build once BUILD renders cleanly
     // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelColour: Int = 0
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
