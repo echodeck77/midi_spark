@@ -173,13 +173,7 @@ extension DiagView {
             HStack(alignment: .top, spacing: BuildGeom.cellGap) {
                 buildRowRail(cell: cell, hue: hue)                 // the row-selector rail on staging's LEFT edge
                 VStack(spacing: BuildGeom.cellGap) {
-                    HStack(spacing: BuildGeom.cellGap) {           // the loop-key row
-                        ForEach(0..<8, id: \.self) { c in
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
-                                .frame(width: cell, height: BuildGeom.loopKeyH)
-                        }
-                    }
+                    buildLoopKeys(cell: cell)                      // the column-selector (loop-key) row
                     VStack(spacing: BuildGeom.cellGap) {           // 8 variation rows, one colour, dim/act placeholders
                         ForEach(0..<8, id: \.self) { r in
                             HStack(spacing: BuildGeom.cellGap) {
@@ -213,6 +207,17 @@ extension DiagView {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    // the COLUMN-SELECTOR (loop-key) row — 8 keys the width of the grid columns; shared by staging + play so they match.
+    @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
+        HStack(spacing: BuildGeom.cellGap) {
+            ForEach(0..<8, id: \.self) { c in
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
+                    .frame(width: cell, height: BuildGeom.loopKeyH)
+            }
+        }
+    }
+
     // the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge; tinted the selected hue, chevron into the grid.
     @ViewBuilder private func buildRowRail(cell: CGFloat, hue: Color) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
@@ -232,6 +237,10 @@ extension DiagView {
         ]
         VStack(alignment: .center, spacing: 8) {
             buildColumnButton("START/STOP THE PLAY GRID")
+            HStack(spacing: 6) {                                   // the column-selector row, aligned over the bands
+                Color.clear.frame(width: BuildGeom.playRailW, height: BuildGeom.loopKeyH)   // clear the glyph rail
+                buildLoopKeys(cell: cell)
+            }
             HStack(alignment: .top, spacing: 6) {
                 VStack(spacing: BuildGeom.seam) {                  // the glyph rail
                     ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
