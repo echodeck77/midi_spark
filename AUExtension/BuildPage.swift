@@ -29,7 +29,7 @@ private enum BuildGeom {
     static let cellGap:  CGFloat = 4         // inter-cell gap
     static let loopKeyH: CGFloat = 18       // the staging loop-key row height
     static let rowRailW: CGFloat = 14       // the staging left row-selector rail
-    static let playRailW: CGFloat = 26      // the play grid's left band-glyph rail (the wider of the two → it sets the shared cell)
+    static let playRailW: CGFloat = 42      // the play grid's left PARTS rail (group lines + row ranges; the wider of the two → it sets the shared cell)
     static let seam:     CGFloat = 2        // the gap between play bands
     static let barH:     CGFloat = 76       // the machinery snake bar height
     static let playCalm: Double = 0.45      // the PLAY grid CALMS — dimmer cells
@@ -323,13 +323,21 @@ extension DiagView {
             (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
         ]
         HStack(alignment: .top, spacing: 6) {
-            VStack(spacing: BuildGeom.seam) {                      // the glyph rail
-                ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
+            VStack(spacing: BuildGeom.seam) {                      // THE PARTS RAIL — a grouping line + the row range per part
+                ForEach(Array(bands.enumerated()), id: \.offset) { idx, b in
                     let h = cell * CGFloat(b.rows) + BuildGeom.cellGap * CGFloat(b.rows - 1)
-                    Text(b.glyph).font(.system(size: 10, weight: .bold))
-                        .foregroundColor(b.free ? buildPink : buildCyan)
-                        .frame(width: BuildGeom.playRailW, height: h)
-                        .overlay(Rectangle().fill(b.free ? buildPink : buildCyan).frame(width: 3), alignment: .leading)
+                    let start = 1 + bands.prefix(idx).reduce(0) { $0 + $1.rows }   // this part's first row (1-based)
+                    let end = start + b.rows - 1
+                    let label = b.rows == 1 ? "\(start)" : "\(start)–\(end)"        // e.g. "1–3" · "4–5" · "6"
+                    let color = b.free ? buildPink : buildCyan
+                    HStack(spacing: 4) {
+                        Rectangle().fill(color).frame(width: 2, height: h)          // the grouping LINE bracketing the part
+                        VStack(spacing: 2) {
+                            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(color)
+                            Text(b.glyph).font(.system(size: 9, weight: .bold)).foregroundColor(color)
+                        }
+                    }
+                    .frame(width: BuildGeom.playRailW, height: h, alignment: .leading)
                 }
             }
             VStack(spacing: BuildGeom.seam) {                      // the bands
