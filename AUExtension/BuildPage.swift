@@ -98,12 +98,23 @@ extension DiagView {
     }
 
     // ── LEFT COLUMN: play-cell · part · input(+keyboard) · cast 4×4 (+🎲) · output · APPLY TO STAGING · litter ──────
+    // IMPORTANT: keep this VStack SHALLOW — the INPUT/CAST/OUTPUT groups are SEPARATE opaque sub-views. A single
+    // deeply-nested SwiftUI view type here makes the Swift runtime's type-metadata demangler recurse until it
+    // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
     @ViewBuilder private func buildPaletteColumn() -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildColumnButton("PLAY THIS MACHINE")                 // identical audition button across all three columns
-
+            buildColumnButton("PLAY THIS MACHINE")
             buildPartHeader()
+            buildInputSection()
+            buildCastSection()
+            buildOutputSection()
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
 
+    @ViewBuilder private func buildInputSection() -> some View {
+        VStack(alignment: .center, spacing: 8) {
             buildStep("1 · INPUT")
             HStack(spacing: 4) {
                 buildIOChip("R1 ⌨", on: true, keys: true, fill: true)
@@ -111,12 +122,19 @@ extension DiagView {
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
             buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
-            HStack(spacing: 6) { buildOctBtn("OCT −"); buildOctBtn("OCT +") }   // octave shift for the piano door
-                .frame(width: 176)                                 // match the piano width
+            HStack(spacing: 6) { buildOctBtn("OCT −"); buildOctBtn("OCT +") }.frame(width: 176)   // octave shift
+        }
+    }
 
+    @ViewBuilder private func buildCastSection() -> some View {
+        VStack(alignment: .center, spacing: 8) {
             buildStep("2 · THE CAST")
             buildCastPalette()
+        }
+    }
 
+    @ViewBuilder private func buildOutputSection() -> some View {
+        VStack(alignment: .center, spacing: 8) {
             buildStep("3 · OUTPUT")
             HStack(spacing: 4) {
                 buildIOChip("A", on: true, fill: true); buildIOChip("B", fill: true)
@@ -124,10 +142,7 @@ extension DiagView {
             }
             .frame(width: BuildGeom.castW)                         // match the emitters row to the cast palette width
             buildMidiOutInfo()                                     // clear MIDI OUT channel info, piano-height
-
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder private func buildPartHeader() -> some View {
@@ -205,41 +220,51 @@ extension DiagView {
         let gridW = BuildGeom.rowRailW + cell * 8 + BuildGeom.cellGap * 8
         VStack(alignment: .center, spacing: 8) {
             buildColumnButton("PLAY THE STAGING GRID")
-            HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-                buildRowRail(cell: cell, hue: hue)                 // the row-selector rail on staging's LEFT edge
-                VStack(spacing: BuildGeom.cellGap) {
-                    buildLoopKeys(cell: cell)                      // the column-selector (loop-key) row
-                    VStack(spacing: BuildGeom.cellGap) {           // 8 variation rows, one colour, dim/act placeholders
-                        ForEach(0..<8, id: \.self) { r in
-                            HStack(spacing: BuildGeom.cellGap) {
-                                ForEach(0..<8, id: \.self) { c in
-                                    let filled = (c + r * 3) % 4 != 0
-                                    let active = (c + r) % 5 == 0
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .fill(filled ? hue.opacity(active ? 1 : 0.28) : buildCell)
-                                        .frame(width: cell, height: cell)
-                                        .overlay(RoundedRectangle(cornerRadius: 7)
-                                            .stroke(Color.white, lineWidth: 2).opacity(active ? 1 : 0))
-                                }
+            buildStagingGrid(cell: cell, hue: hue)                 // opaque sub-view — keeps the deep 8×8 type out of this body
+            buildStagingVerbBox(gridW: gridW)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // the staging 8×8 (row rail · loop keys · variation rows) — its OWN opaque view so its deep generic type doesn't
+    // blow the metadata demangler's stack (see buildPaletteColumn's note).
+    @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
+        HStack(alignment: .top, spacing: BuildGeom.cellGap) {
+            buildRowRail(cell: cell, hue: hue)                     // the row-selector rail on staging's LEFT edge
+            VStack(spacing: BuildGeom.cellGap) {
+                buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
+                VStack(spacing: BuildGeom.cellGap) {               // 8 variation rows, one colour, dim/act placeholders
+                    ForEach(0..<8, id: \.self) { r in
+                        HStack(spacing: BuildGeom.cellGap) {
+                            ForEach(0..<8, id: \.self) { c in
+                                let filled = (c + r * 3) % 4 != 0
+                                let active = (c + r) % 5 == 0
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(filled ? hue.opacity(active ? 1 : 0.28) : buildCell)
+                                    .frame(width: cell, height: cell)
+                                    .overlay(RoundedRectangle(cornerRadius: 7)
+                                        .stroke(Color.white, lineWidth: 2).opacity(active ? 1 : 0))
                             }
                         }
                     }
                 }
             }
-            // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
-            VStack(spacing: 6) {
-                HStack(spacing: 6) { buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete) }
-                HStack(spacing: 6) {
-                    buildActionBtn("APPLY TO PLAY →", pink: true)  // arms the play grid; the band decides FLATTEN|COPY ROWS
-                    buildActionBtn("MUTATE")
-                    buildActionBtn("🎲 RE-ROLL")                    // re-roll the variation ladder (distinct from the column's 🎲)
-                }
-            }
-            .padding(8)
-            .frame(width: gridW)                                   // match the verb box to the grid above it
-            .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
+    @ViewBuilder private func buildStagingVerbBox(gridW: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) { buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete) }
+            HStack(spacing: 6) {
+                buildActionBtn("APPLY TO PLAY →", pink: true)      // arms the play grid; the band decides FLATTEN|COPY ROWS
+                buildActionBtn("MUTATE")
+                buildActionBtn("🎲 RE-ROLL")                        // re-roll the variation ladder (distinct from the column's 🎲)
+            }
+        }
+        .padding(8)
+        .frame(width: gridW)                                       // match the verb box to the grid above it
+        .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
     }
 
     // the COLUMN-SELECTOR (loop-key) row — 8 keys the width of the grid columns; shared by staging + play so they match.
@@ -267,37 +292,43 @@ extension DiagView {
 
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
-        let bands: [(rows: Int, glyph: String, free: Bool)] = [
-            (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
-        ]
         VStack(alignment: .center, spacing: 8) {
             buildColumnButton("START/STOP THE PLAY GRID")
             HStack(spacing: 6) {                                   // the column-selector row, aligned over the bands
                 Color.clear.frame(width: BuildGeom.playRailW, height: BuildGeom.loopKeyH)   // clear the glyph rail
                 buildLoopKeys(cell: cell)
             }
-            HStack(alignment: .top, spacing: 6) {
-                VStack(spacing: BuildGeom.seam) {                  // the glyph rail
-                    ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
-                        let h = cell * CGFloat(b.rows) + BuildGeom.cellGap * CGFloat(b.rows - 1)
-                        Text(b.glyph).font(.system(size: 10, weight: .bold))
-                            .foregroundColor(b.free ? buildPink : buildCyan)
-                            .frame(width: BuildGeom.playRailW, height: h)
-                            .overlay(Rectangle().fill(b.free ? buildPink : buildCyan).frame(width: 3), alignment: .leading)
-                    }
+            buildPlayBands(cell: cell)                             // opaque sub-view — keeps the deep bands type out of this body
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // the five fixed PLAY bands + glyph rail — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
+    @ViewBuilder private func buildPlayBands(cell: CGFloat) -> some View {
+        let bands: [(rows: Int, glyph: String, free: Bool)] = [
+            (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
+        ]
+        HStack(alignment: .top, spacing: 6) {
+            VStack(spacing: BuildGeom.seam) {                      // the glyph rail
+                ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
+                    let h = cell * CGFloat(b.rows) + BuildGeom.cellGap * CGFloat(b.rows - 1)
+                    Text(b.glyph).font(.system(size: 10, weight: .bold))
+                        .foregroundColor(b.free ? buildPink : buildCyan)
+                        .frame(width: BuildGeom.playRailW, height: h)
+                        .overlay(Rectangle().fill(b.free ? buildPink : buildCyan).frame(width: 3), alignment: .leading)
                 }
-                VStack(spacing: BuildGeom.seam) {                  // the bands
-                    ForEach(Array(bands.enumerated()), id: \.offset) { idx, b in
-                        VStack(spacing: BuildGeom.cellGap) {
-                            ForEach(0..<b.rows, id: \.self) { r in
-                                HStack(spacing: BuildGeom.cellGap) {
-                                    ForEach(0..<8, id: \.self) { c in
-                                        let hue = buildHues[(idx + r + c) % buildHues.count]
-                                        let filled = (c + r + idx) % 3 != 0
-                                        RoundedRectangle(cornerRadius: 7)   // PLAY calms — dimmer fill
-                                            .fill(filled ? hue.opacity(BuildGeom.playCalm) : buildCell)
-                                            .frame(width: cell, height: cell)
-                                    }
+            }
+            VStack(spacing: BuildGeom.seam) {                      // the bands
+                ForEach(Array(bands.enumerated()), id: \.offset) { idx, b in
+                    VStack(spacing: BuildGeom.cellGap) {
+                        ForEach(0..<b.rows, id: \.self) { r in
+                            HStack(spacing: BuildGeom.cellGap) {
+                                ForEach(0..<8, id: \.self) { c in
+                                    let hue = buildHues[(idx + r + c) % buildHues.count]
+                                    let filled = (c + r + idx) % 3 != 0
+                                    RoundedRectangle(cornerRadius: 7)   // PLAY calms — dimmer fill
+                                        .fill(filled ? hue.opacity(BuildGeom.playCalm) : buildCell)
+                                        .frame(width: cell, height: cell)
                                 }
                             }
                         }
@@ -305,7 +336,6 @@ extension DiagView {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
