@@ -31,6 +31,7 @@
 		60B13494D15905651204BE24 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
+		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
 		700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8624A489A951D42AFB805E16 /* RackMatrix.swift */; };
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
 		7AD33AA1CDEEF7C6738C5EF3 /* ReceiverConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB91B3A150364793E11406C1 /* ReceiverConfigView.swift */; };
@@ -112,6 +113,7 @@
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildPage.swift; sourceTree = "<group>"; };
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
 		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
 		7D364D224C3D245B4D5AE548 /* SceneFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactory.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 			children = (
 				84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */,
 				B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */,
+				7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */,
 				948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */,
 				D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
@@ -391,6 +394,7 @@
 			files = (
 				4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */,
 				C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */,
+				67A54484318BE306142EB54F /* BuildPage.swift in Sources */,
 				1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */,
 				E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,

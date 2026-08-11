@@ -67,8 +67,9 @@ enum EditPageMode { case addEdit, move, mute, clear }
 /// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
 enum AppTab: String, CaseIterable {
-    case dragDrop = "DRAG&DROP"   // design-stage: the new first tab (palette · grid · machinery), user 2026-08-09
+    case build = "BUILD"          // THE BUILD PAGE (design: two-grid-flow, user 2026-08-11) — the new primary workshop; DESTINED to replace dragDrop + processors
     case grid = "GRID", processors = "PROCESSORS", receivers = "MIDI IN", emitters = "MIDI OUT"
+    case dragDrop = "DRAG&DROP"   // design-stage predecessor of BUILD (palette · grid · machinery, user 2026-08-09) — kept until BUILD supersedes it
     case macros = "MACROS", automation = "AUTOMATION"
     var live: Bool { self != .macros && self != .automation }
 }
@@ -84,7 +85,9 @@ struct DiagView: View {
     @State var activeSceneIdx = 0             // MULTI-SCENE: the playing scene
     // (the arrangement bar's own interactive state — pending/recue/blink/drag/sweep-anchor/shake — lives in ArrangementBar)
     @State var showSettings = false           // AB: the ⚙ cog page (settings overlay — engine never stops)
-    @State var activeTab: AppTab = .grid      // LAYOUT v2: the selected tab (replaces the PERFORM/EDIT toggle)
+    @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); LAYOUT v2 tab model
+    // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
+    @State var buildSelColour: Int = 0
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
     @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")
@@ -905,7 +908,7 @@ struct DiagView: View {
             // LAYOUT v2: the PROCESSORS tab IS the old EDIT mode — `editArmed` still drives the begin/apply session
             // logic below, so entering/leaving PROCESSORS opens/commits it. Any tab switch clears transient GRID
             // gestures (a held verb, MUTE arm) so state can't leak across tabs.
-            editArmed = (tab == .processors || tab == .dragDrop)   // DRAG&DROP reuses the per-cell flow diagram (scaffold)
+            editArmed = (tab == .processors || tab == .dragDrop || tab == .build)   // DRAG&DROP + BUILD reuse the per-cell flow-diagram machinery
             if tab != .grid { heldVerb = nil }
             if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
             if tab != .dragDrop && ddDeleteMode { ddDeleteMode = false; ddDeleteStashCells = [:]; ddDeleteStashColours = [:] }   // don't leave delete mode armed
@@ -1131,6 +1134,8 @@ struct DiagView: View {
 
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
         switch activeTab {
+        case .build:
+            buildPage(geo.size)               // THE BUILD PAGE (user 2026-08-11): palette → staging → play + machinery
         case .dragDrop:
             dragDropPage(geo.size)            // design-stage: palette · grid · machinery (user 2026-08-09)
         case .grid:

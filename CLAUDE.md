@@ -157,6 +157,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE BUILD PAGE — increment 1: the tab + default + layout skeleton (2026-08-11, on `main`, PUSHED next; iOS
+  builds; DEVICE eye owed). New design ferried in: `Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-two-grid-
+  flow.md` + `Docs/mockup-build-three-grids-landscape.html` (promoted from the inbox, now canon). A NEW primary
+  workshop page — the PALETTE → STAGING → PLAY flow — DESTINED to REPLACE the DRAG&DROP + PROCESSORS(cell-edit) pages
+  (both kept live until it supersedes them). `AppTab.build` added (leftmost) + `activeTab` defaults to `.build` (the
+  landing page, user 2026-08-11); tab-bar hue = orchid (mockup's pink-active BUILD); the `.onChange(of: activeTab)`
+  bridge arms `editArmed` on `.build` too (so the machinery flow-diagram will work when wired). NEW file
+  `AUExtension/BuildPage.swift` (`extension DiagView`, added via xcodegen) = INCREMENT 1 = the LAYOUT SKELETON ONLY:
+  the five regions in mockup proportions with PLACEHOLDER content + NO engine wiring — LEFT palette column (part
+  header · INPUT R1–R4 MIDI|PIANO · CHAIN · OUTPUT · 4×4 cast · litter), CENTRE staging 8×8 (loop keys + simple→
+  complex variation rows), thin BRIDGE (APPLY TO STAGING · MUTATE · FLATTEN · COPY ROWS + the 5-chip BAND TARGET
+  strip), RIGHT play grid (five FIXED bands 3-LADDER · 2-LADDER · LANE · LANE · FREE with a glyph rail), and the
+  full-width MACHINERY snake below. Every dimension is a named constant in `BuildGeom` + each region is its own helper
+  (placement edits are one-liners) — built deliberately as a rearrange-first scaffold (Paul: "lots of placement
+  changes as we go"). NOTHING reads/writes the document yet. NEXT (region by region, each device-verifiable): palette
+  I/O + cast → staging roll (reuse Dice) → rung picking + loop keys → FLATTEN/COPY ROWS onto the play bands → the real
+  machinery snake (reuse the flow diagram) → the FREE band tap-to-voice. OPEN (design flagged for Paul): SOLO/FREE-band
+  QUANTIZE default · parts-own-plumbing vs colours-own-chains · hot-drop · un-flatten.**
 - **▶ PURE POOL-AWARE IMPROVEMENTS — CHANCE weight/constant-density + ARP FIT, then STRUM spread-normalize (2026-08-11,
   on `main`, PUSHED `4502709` + next; macOS 594 green, iOS builds; DEVICE ear owed). The first pure pool-aware nicities
   from `AcceptanceCriteria-pool-aware-family.md`, all beat-derived + unit-tested, each an append-only ColourParams/
