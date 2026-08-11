@@ -91,6 +91,8 @@ struct DiagView: View {
     // BUILD focus model (focus-model §1: the voice is the cursor): which WORKSHOP zone owns the single voice — lit;
     // the other dims. The PLAY grid sits OUTSIDE this economy (always sounding). Skeleton: taps move the lamp.
     @State var buildFocus: BuildFocus = .staging
+    // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
+    @State var buildVerb: BuildVerb? = nil
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
     @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")

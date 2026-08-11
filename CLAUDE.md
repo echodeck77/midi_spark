@@ -179,6 +179,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — increment 1d: iteration 4 (smaller/calmer grids · verbs replace drag) (2026-08-11, on `main`,
+  PUSHED next; iOS builds; DEVICE eye owed). Paul on device: grids too big/busy, RANDOMIZE misplaced, drop drag→verb
+  buttons. Ferry `INSTRUCTIONS-build-page-iteration-4` (+ refreshed mock, both promoted). (1) GRIDS SMALLER + CALMER:
+  cell max 48→34, inter-cell gap 5→4, band seam 3→2; the PLAY grid dims its cells (fill opacity 0.6→0.45, `playCalm`).
+  (2) RANDOMIZE RELOCATES — it's the CHAIN's verb: left the machinery bar's right end, joined the LEFT COLUMN at the
+  cast/chain step (🎲 RANDOMIZE beside the CAST header). TWO dice now, each at its source: column 🎲 = roll the selected
+  colour's MACHINE · under-staging 🎲 RE-ROLL = re-roll the variation LADDER (labelled distinctly). (3) ★ VERBS RETURN,
+  DRAG RETIRES: PLACE · MOVE · DELETE spring-held verb buttons (the house law) replace the custom drag on BUILD —
+  `BuildVerb{place,move,delete}` + `buildVerb` @State + `buildVerbBtn` (skeleton: tap arms/disarms; the real gesture is
+  hold→act→release, one-undo-per-action, all workbench-silent). FORK/ADOPT park (no drag vehicle; likely return as
+  cast-side gestures). ⚠ the DRAG&DROP tab RETIRES when these verbs actually land (engine-wired) — NOT removed yet
+  (still a skeleton). (4) The verb strip sits UNDER STAGING, ABOVE the apply row: `[PLACE · MOVE · DELETE]` then
+  `[APPLY TO PLAY → · MUTATE · 🎲 RE-ROLL]`. Still placeholder, no engine.**
 - **▶ THE BUILD PAGE — increment 1c: iteration 3 (iteration 2 REVERTED first) (2026-08-11, on `main`, PUSHED next; iOS
   builds; DEVICE eye owed). Paul rejected iteration 2's bar-absorption ("at the bottom it just looks wrong, and the
   cast doesn't have enough options") — commit `1cc8e9a` was REVERTED (`db85b2a`), then iteration 3 built to the updated

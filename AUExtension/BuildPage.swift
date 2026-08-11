@@ -29,15 +29,17 @@ import SwiftUI
 
 // PLACEMENT KNOBS — every geometry number lives here so layout tweaks are one-liners.
 private enum BuildGeom {
-    static let paletteW: CGFloat = 200      // LEFT column width (the build flow)
-    static let colGap:   CGFloat = 12       // gap between the three landscape columns
-    static let cellMin:  CGFloat = 22       // grid cell clamp (both 8×8 grids share one cell size)
-    static let cellMax:  CGFloat = 48
+    static let paletteW: CGFloat = 196      // LEFT column width (the build flow)
+    static let colGap:   CGFloat = 10       // gap between the three landscape columns
+    static let cellMin:  CGFloat = 20       // grid cell clamp (both 8×8 grids share one cell size)
+    static let cellMax:  CGFloat = 34       // iteration 4: grids SMALLER + calmer (was 48)
+    static let cellGap:  CGFloat = 4        // iteration 4: tighter inter-cell gaps (was 5)
     static let loopKeyH: CGFloat = 18       // the staging loop-key row height
     static let rowRailW: CGFloat = 14       // the staging left row-selector rail
     static let playRailW: CGFloat = 26      // the play grid's left band-glyph rail
-    static let seam:     CGFloat = 3        // the gap between play bands
+    static let seam:     CGFloat = 2        // the gap between play bands
     static let barH:     CGFloat = 76       // the machinery snake bar height
+    static let playCalm: Double = 0.45      // iteration 4: the PLAY grid CALMS — dim its cells (was 0.6)
 }
 
 // Placeholder cast hues (mockup palette). Real colours come from the part's cast when the palette is wired.
@@ -57,6 +59,9 @@ private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 
 // focus-model §1: which WORKSHOP zone owns the single voice — the machine (the left column) or staging.
 enum BuildFocus { case palette, staging }
+
+// iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
+enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
 
 extension DiagView {
     // The lamp: is each workshop zone lit (owns the voice) or dimmed (~60%, touchable)?
@@ -144,7 +149,13 @@ extension DiagView {
             }
             buildKeyboard()                                        // a PIANO door reveals its octave keyboard (placeholder)
 
-            buildStep("2 · THE CAST")
+            HStack(spacing: 6) {                                   // iteration 4: RANDOMIZE is the CHAIN's verb → it joins the cast/chain step
+                buildStep("2 · THE CAST")
+                Spacer(minLength: 0)
+                Text("🎲 RANDOMIZE").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(0.5)
+                    .padding(.horizontal, 7).frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
+            }
             buildCastPalette()                                     // the FULL 4×4 palette (16 slots)
 
             buildStep("3 · OUTPUT")
@@ -224,10 +235,10 @@ extension DiagView {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle()).onTapGesture { buildGrabStaging() }
-            HStack(alignment: .top, spacing: 5) {
+            HStack(alignment: .top, spacing: BuildGeom.cellGap) {
                 buildRowRail(cell: cell, hue: hue)                 // the row-selector rail on staging's LEFT edge
-                VStack(spacing: 5) {
-                    HStack(spacing: 5) {                           // the loop-key row — a tap GRABS the voice onto staging (§2)
+                VStack(spacing: BuildGeom.cellGap) {
+                    HStack(spacing: BuildGeom.cellGap) {           // the loop-key row — a tap GRABS the voice onto staging (§2)
                         ForEach(0..<8, id: \.self) { c in
                             RoundedRectangle(cornerRadius: 5)
                                 .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
@@ -235,9 +246,9 @@ extension DiagView {
                         }
                     }
                     .contentShape(Rectangle()).onTapGesture { buildGrabStaging() }
-                    VStack(spacing: 5) {                           // 8 variation rows, one colour, dim/act placeholders
+                    VStack(spacing: BuildGeom.cellGap) {           // 8 variation rows, one colour, dim/act placeholders
                         ForEach(0..<8, id: \.self) { r in
-                            HStack(spacing: 5) {
+                            HStack(spacing: BuildGeom.cellGap) {
                                 ForEach(0..<8, id: \.self) { c in
                                     let filled = (c + r * 3) % 4 != 0
                                     let active = (c + r) % 5 == 0
@@ -254,11 +265,15 @@ extension DiagView {
                     }
                 }
             }
-            // the workshop's OWN verb strip, under its own grid (iteration 3 §3).
+            // iteration 4 §4: the WORKBENCH verbs (PLACE · MOVE · DELETE — spring-held, replacing the drag), then the
+            // workshop's OUTCOMES (apply · mutate · re-roll). Two rows under staging.
+            HStack(spacing: 6) {
+                buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete)
+            }
             HStack(spacing: 6) {
                 buildActionBtn("APPLY TO PLAY →", pink: true)      // arms the play grid; the band decides FLATTEN|COPY ROWS
                 buildActionBtn("MUTATE")
-                buildActionBtn("🎲").frame(width: 48)              // re-roll the staging ladder
+                buildActionBtn("🎲 RE-ROLL").frame(width: 96)      // re-roll the variation ladder (distinct from the column's 🎲 = roll the machine)
             }
             Text("SIMPLE ▲ · rows = variations of the selected colour · ▼ COMPLEX")
                 .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
@@ -296,14 +311,14 @@ extension DiagView {
                 }
                 VStack(spacing: BuildGeom.seam) {                  // the bands
                     ForEach(Array(bands.enumerated()), id: \.offset) { idx, b in
-                        VStack(spacing: 5) {
+                        VStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<b.rows, id: \.self) { r in
-                                HStack(spacing: 5) {
+                                HStack(spacing: BuildGeom.cellGap) {
                                     ForEach(0..<8, id: \.self) { c in
                                         let hue = buildHues[(idx + r + c) % buildHues.count]
                                         let filled = (c + r + idx) % 3 != 0
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(filled ? hue.opacity(0.6) : buildCell)
+                                        RoundedRectangle(cornerRadius: 7)   // iteration 4: PLAY calms — dimmer fill
+                                            .fill(filled ? hue.opacity(BuildGeom.playCalm) : buildCell)
                                             .frame(width: cell, height: cell)
                                     }
                                 }
@@ -333,8 +348,7 @@ extension DiagView {
             buildSlot("+", dashed: true)
             Text("┈┈▶").foregroundColor(thread).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
-            Spacer(minLength: 0)
-            buildActionBtn("🎲 RANDOMIZE", pink: true).frame(width: 120)   // PLAY THIS CELL left the bar (now the column top)
+            Spacer(minLength: 0)                                   // iteration 4: RANDOMIZE left the bar (now the cast step); PLAY THIS CELL is the column top
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
@@ -360,6 +374,17 @@ extension DiagView {
             .foregroundColor(pink ? Color.black : Color.white).tracking(0.5)
             .frame(maxWidth: .infinity).frame(minHeight: 40)
             .background(RoundedRectangle(cornerRadius: 9).fill(pink ? buildPink : buildCell))
+    }
+    // the spring-held workbench verb (iteration 4). Skeleton: a tap arms/disarms it (the real gesture is hold→release).
+    @ViewBuilder private func buildVerbBtn(_ v: BuildVerb) -> some View {
+        let armed = buildVerb == v
+        Text(v.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(armed ? Color.black : Color.white)
+            .frame(maxWidth: .infinity).frame(minHeight: 38)
+            .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildCyan, lineWidth: armed ? 0 : 1).opacity(0.5))
+            .contentShape(Rectangle())
+            .onTapGesture { buildVerb = armed ? nil : v }
     }
     @ViewBuilder private func buildBox(_ title: String, _ ch: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
