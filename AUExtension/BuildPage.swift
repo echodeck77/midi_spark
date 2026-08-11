@@ -226,8 +226,18 @@ extension DiagView {
             AnyView(buildColumnButton("PLAY THE STAGING GRID"))
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
+            Spacer(minLength: 0)
+            AnyView(buildPopulate())                              // bottom of the centre column, above the footer
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // POPULATE — the call-to-action at the bottom of the centre column: an upward chevron above the text.
+    @ViewBuilder private func buildPopulate() -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: "chevron.up").font(.system(size: 14, weight: .heavy)).foregroundColor(buildPink)
+            Text("POPULATE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1)
+        }
     }
 
     // the staging 8×8 (row rail · loop keys · variation rows) — its OWN opaque view so its deep generic type doesn't
@@ -356,10 +366,21 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
             Spacer(minLength: 0)
+            buildFooterBtn("🎲 RANDOMIZE", pink: true)             // inviting — the machine's re-roll
+            buildFooterBtn("MUTATE")
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+    }
+
+    // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like buildActionBtn).
+    @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false) -> some View {
+        Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(pink ? Color.black : Color.white)
+            .padding(.horizontal, 16).frame(height: 46)
+            .background(RoundedRectangle(cornerRadius: 11).fill(pink ? buildPink : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(buildCyan.opacity(pink ? 0 : 0.35), lineWidth: 1))
     }
 
     // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
