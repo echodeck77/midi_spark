@@ -59,13 +59,19 @@ enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" 
 extension DiagView {
 
     @ViewBuilder func buildPage(_ size: CGSize) -> some View {
-        let landscape = size.width > size.height
-        if landscape { buildLandscape(size) } else { buildPortrait(size) }
+        // AUv3 views get an initial ZERO / degenerate layout pass; laying the grids out then would compute a NEGATIVE
+        // column width → SwiftUI's fatal "Invalid frame dimension" (the plugin fails to load in AUM). Draw nothing
+        // until a real, finite size arrives.
+        if size.width.isFinite, size.height.isFinite, size.width > 80, size.height > 80 {
+            if size.width > size.height { buildLandscape(size) } else { buildPortrait(size) }
+        } else {
+            Color.clear
+        }
     }
 
     // ── LANDSCAPE: three EQUAL columns (palette · staging · play) over the full-width machinery strip ──────────────
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
-        let colW = (size.width - BuildGeom.colGap * 2 - 20) / 3
+        let colW = max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3)   // clamp ≥ 1: never a negative frame width
         // one shared cell size fits an 8×8 grid + its rail inside a column; the PLAY rail is the wider → it sets it.
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.playRailW - BuildGeom.cellGap * 7) / 8))
         VStack(spacing: 10) {
