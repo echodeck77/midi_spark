@@ -179,6 +179,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — increment 1e: three EQUAL columns · focus highlight REMOVED · verbs in a box (2026-08-11, on
+  `main`, PUSHED next; iOS builds; DEVICE eye owed). Paul's layout call (direct, not a ferry): (1) REMOVED the focus
+  economy entirely — the lit/dim zone treatment + pink accent border + ● PLAYING badge + the grab-to-focus taps + the
+  snake-thread brightening are all GONE (dropped `BuildFocus`/`buildFocus` + palLit/stgLit/buildGrab*/buildFocusBorder/
+  buildPlayingBadge). Nothing highlights "which section we're looking at" now. (2) THREE EQUAL COLUMNS — `colW =
+  (width − 2·gap − pad)/3`; the shared cell derives from the wider (PLAY) rail so both 8×8 grids fit their third. (3)
+  The machinery snake stays the STRIP along the bottom. (4) LEFT column as-is (build flow); MIDDLE = STAGING with the
+  VERBS in their OWN BOX below (a panel: `[PLACE · MOVE · DELETE]` then `[APPLY TO PLAY → · MUTATE · 🎲 RE-ROLL]`);
+  RIGHT = the play grid. Staging cells now always show active picks white-ringed (the hollow-at-rest tell went with the
+  focus model). Still placeholder, no engine.**
 - **▶ THE BUILD PAGE — increment 1d: iteration 4 (smaller/calmer grids · verbs replace drag) (2026-08-11, on `main`,
   PUSHED next; iOS builds; DEVICE eye owed). Paul on device: grids too big/busy, RANDOMIZE misplaced, drop drag→verb
   buttons. Ferry `INSTRUCTIONS-build-page-iteration-4` (+ refreshed mock, both promoted). (1) GRIDS SMALLER + CALMER:
