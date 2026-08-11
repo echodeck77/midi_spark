@@ -179,6 +179,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — increment 1c: iteration-2 layout (verbs at their sources · target decides the verb) (2026-08-11,
+  on `main`, PUSHED next; iOS builds; DEVICE eye owed). Ferry `INSTRUCTIONS-build-page-iteration-2` (→ `Docs/Acceptance
+  Criteria/AcceptanceCriteria-build-page-iteration-2.md`) — a big reorg of the skeleton. THE PRINCIPLE: a verb lives at
+  its SOURCE pointing at its destination. So the LEFT palette column + the BRIDGE column DISSOLVE; BuildPage is now
+  THREE zones: (1) TWO GRIDS on top — STAGING beside PLAY, both now wider; (2) under staging, the workshop verb strip
+  `[APPLY TO PLAY] · [MUTATE] · [🎲 re-roll]`; (3) the full-width BUILD-SENTENCE BAR at the bottom, reading L→R as the
+  signal flows and absorbing the old left column: `[● PLAY CELL] · [PART ▾] · [IN R1⌨ R2 R3 R4] · [THE CAST] · [chain
+  slots + ghost] · [OUT A B C D] · [APPLY TO STAGING →]`. ★ THE TARGET DECIDES THE VERB (§2): FLATTEN/COPY-ROWS stop
+  being buttons — APPLY TO PLAY arms the play grid, then tap a LANE=flatten · LADDER=copy rows · FREE=takes (long-press
+  a ladder = flatten-into-one-row); so the bridge's FLATTEN/COPY + band-target strip are GONE. FOCUS LAMP re-homed: the
+  two workshop zones are now the SENTENCE BAR (the machine) + STAGING (`BuildFocus{machine,staging}`); ● PLAY CELL /
+  cast-select grab the machine, staging column keys + ● badge grab staging; PLAY stays outside the economy; ~150ms
+  crossfade. The sentence bar is horizontally scrollable (never overflows). Still placeholder, no engine. LITTER parks
+  for later placement; the animated snake pulse + real voice come with wiring.**
 - **▶ THE BUILD PAGE — increment 1b: the FOCUS MODEL form (2026-08-11, on `main`, PUSHED next; iOS builds; DEVICE eye
   owed). Ferry `INSTRUCTIONS-build-page-focus-model` (promoted → `Docs/AcceptanceCriteria/AcceptanceCriteria-build-
   page-focus-model.md`) — "the voice is the cursor", rules the form before placement continues. Applied to the
