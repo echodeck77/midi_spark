@@ -71,8 +71,8 @@ extension DiagView {
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
         let colW = max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3)   // clamp ≥ 1: never a negative frame width
         // one shared cell size fits an 8×8 grid + its rail inside a column; the PLAY rail is the wider → it sets it.
-        // each grid is now 9 cells wide: a cell-sized ROW BUTTON + 8 grid cells (+ the 8 gaps between the 9).
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.cellGap * 8) / 9))
+        // the PLAY grid is the widest: a cell-sized ROW BUTTON + a ½-cell PART-CELL column + 8 grid cells (+ 9 gaps).
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.cellGap * 9) / 9.5))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
@@ -90,7 +90,7 @@ extension DiagView {
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 8 - 24) / 9))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 9.5))
         VStack(spacing: 12) {
             AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
             AnyView(buildStagingColumn(cell: cell))
@@ -314,12 +314,35 @@ extension DiagView {
         }
     }
 
+    // PART CELLS — a ½-cell-wide cell PER PART on the play grid's left, each spanning its part's full height (part 1 =
+    // 3 cells high, part 2 = 2, parts 3–5 = 1). They connect the per-row buttons into the grid and carry the same part
+    // dividers so everything aligns. The last part (row 8) is the FREE band (pink).
+    @ViewBuilder private func buildPartCells(cell: CGFloat, bands: [Int]) -> some View {
+        VStack(spacing: BuildGeom.cellGap) {
+            Color.clear.frame(width: cell / 2, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            VStack(spacing: 0) {
+                ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
+                    if idx > 0 {
+                        Rectangle().fill(Color.white.opacity(0.28)).frame(height: 1).padding(.vertical, 4)   // match the part dividers
+                    }
+                    let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // the part's full height
+                    let free = idx == bands.count - 1
+                    RoundedRectangle(cornerRadius: 6).fill((free ? buildPink : buildCyan).opacity(0.5))
+                        .frame(width: cell / 2, height: h)
+                        .overlay(Text("\(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+                }
+            }
+        }
+    }
+
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
+            // The side ROW BUTTONS assign from STAGING → PERFORM when the transport is STOPPED (function wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
                 AnyView(buildRowButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))   // cell-sized row buttons on the LEFT, part-grouped
+                AnyView(buildPartCells(cell: cell, bands: [3, 2, 1, 1, 1]))                    // ½-cell PART cells (3-high · 2-high · 1 · 1 · 1)
                 VStack(spacing: BuildGeom.cellGap) {
                     buildLoopKeys(cell: cell)                     // the column-selector row
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
