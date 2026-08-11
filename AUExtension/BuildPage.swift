@@ -76,11 +76,15 @@ extension DiagView {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (colW - BuildGeom.playRailW - BuildGeom.cellGap * 7) / 8))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
-                buildPaletteColumn().frame(width: colW, alignment: .leading)
-                buildStagingColumn(cell: cell).frame(width: colW, alignment: .leading)
-                buildPlayColumn(cell: cell).frame(width: colW, alignment: .leading)
+                // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
+                // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
+                // demangler's stack (SIGSEGV opening BUILD). AnyView is a nominal type the demangler won't recurse
+                // through — each column's type is instantiated separately + bounded.
+                AnyView(buildPaletteColumn().frame(width: colW, alignment: .leading))
+                AnyView(buildStagingColumn(cell: cell).frame(width: colW, alignment: .leading))
+                AnyView(buildPlayColumn(cell: cell).frame(width: colW, alignment: .leading))
             }
-            buildMachinery()
+            AnyView(buildMachinery())
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -89,10 +93,10 @@ extension DiagView {
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.rowRailW - 24) / 8))
         VStack(spacing: 12) {
-            buildPaletteColumn()
-            buildStagingColumn(cell: cell)
-            buildPlayColumn(cell: cell)
-            buildMachinery()
+            AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
+            AnyView(buildStagingColumn(cell: cell))
+            AnyView(buildPlayColumn(cell: cell))
+            AnyView(buildMachinery())
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -103,11 +107,11 @@ extension DiagView {
     // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
     @ViewBuilder private func buildPaletteColumn() -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildColumnButton("PLAY THIS MACHINE")
-            buildPartHeader()
-            buildInputSection()
-            buildCastSection()
-            buildOutputSection()
+            AnyView(buildColumnButton("PLAY THIS MACHINE"))
+            AnyView(buildPartHeader())
+            AnyView(buildInputSection())
+            AnyView(buildCastSection())
+            AnyView(buildOutputSection())
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -219,9 +223,9 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = BuildGeom.rowRailW + cell * 8 + BuildGeom.cellGap * 8
         VStack(alignment: .center, spacing: 8) {
-            buildColumnButton("PLAY THE STAGING GRID")
-            buildStagingGrid(cell: cell, hue: hue)                 // opaque sub-view — keeps the deep 8×8 type out of this body
-            buildStagingVerbBox(gridW: gridW)
+            AnyView(buildColumnButton("PLAY THE STAGING GRID"))
+            AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
+            AnyView(buildStagingVerbBox(gridW: gridW))
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -293,12 +297,12 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildColumnButton("START/STOP THE PLAY GRID")
-            HStack(spacing: 6) {                                   // the column-selector row, aligned over the bands
+            AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
+            AnyView(HStack(spacing: 6) {                           // the column-selector row, aligned over the bands
                 Color.clear.frame(width: BuildGeom.playRailW, height: BuildGeom.loopKeyH)   // clear the glyph rail
                 buildLoopKeys(cell: cell)
-            }
-            buildPlayBands(cell: cell)                             // opaque sub-view — keeps the deep bands type out of this body
+            })
+            AnyView(buildPlayBands(cell: cell))                   // AnyView — keeps the deep bands type out of this body
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
