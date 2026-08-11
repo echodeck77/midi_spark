@@ -72,8 +72,8 @@ extension DiagView {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
         let leftW = max(1, avail / 3 * 0.8)                        // the MACHINE column is 20% narrower than an equal third
         let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
-        // the PLAY grid is the widest: a cell-sized ROW BUTTON + a ½-cell PART-CELL column + 8 grid cells (+ 9 gaps).
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 9.5))
+        // both grids are 9 cells wide: a cell-sized selector column (row buttons / part buttons) + 8 grid cells.
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 8) / 9))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
@@ -91,7 +91,7 @@ extension DiagView {
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 9.5))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 8 - 24) / 9))
         VStack(spacing: 12) {
             AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
             AnyView(buildStagingColumn(cell: cell))
@@ -320,21 +320,17 @@ extension DiagView {
         }
     }
 
-    // PART CELLS — a ½-cell-wide cell PER PART on the play grid's left, each spanning its part's full height (part 1 =
-    // 3 cells high, part 2 = 2, parts 3–5 = 1). They connect the per-row buttons into the grid and carry the same part
-    // dividers so everything aligns. The last part (row 8) is the FREE band (pink).
-    @ViewBuilder private func buildPartCells(cell: CGFloat, bands: [Int]) -> some View {
+    // PART BUTTONS — the PERFORM grid's left selector: ONE button PER PART, MERGED across its rows (part 1 = rows 1–3,
+    // part 2 = rows 4–5, then 6, 7, 8), styled identically to the staging row buttons but labelled with the part NUMBER
+    // instead of a chevron. Same rhythm as the grid (top spacer + cellGap spacing) so it aligns row-for-row.
+    @ViewBuilder private func buildPartButtons(cell: CGFloat, hue: Color, bands: [Int]) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
-            Color.clear.frame(width: cell / 2, height: BuildGeom.loopKeyH)   // align past the loop-key row
-            VStack(spacing: 0) {
-                ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
-                    if idx > 0 { partDivider(line: false) }        // no line here — just the gap (the line is on the row buttons)
-                    let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // the part's full height
-                    let free = idx == bands.count - 1
-                    RoundedRectangle(cornerRadius: 6).fill((free ? buildPink : buildCyan).opacity(0.5))
-                        .frame(width: cell / 2, height: h)
-                        .overlay(Text("\(idx + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
-                }
+            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
+                let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
+                RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                    .frame(width: cell, height: h)
+                    .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
             }
         }
     }
@@ -343,10 +339,9 @@ extension DiagView {
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            // The side ROW BUTTONS assign from STAGING → PERFORM when the transport is STOPPED (function wires later).
-            AnyView(HStack(alignment: .top, spacing: 0) {          // spacing 0 → the buttons + part cells CONNECT onto the grid
-                AnyView(buildRowButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))   // cell-sized row buttons on the LEFT, part-grouped
-                AnyView(buildPartCells(cell: cell, bands: [3, 2, 1, 1, 1]))                    // ½-cell PART cells (3-high · 2-high · 1 · 1 · 1)
+            // The PART BUTTONS (merged per part, labelled 1–5) assign STAGING → PERFORM when stopped (function wires later).
+            AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
+                AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))
                 VStack(spacing: BuildGeom.cellGap) {
                     buildLoopKeys(cell: cell)                     // the column-selector row
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
