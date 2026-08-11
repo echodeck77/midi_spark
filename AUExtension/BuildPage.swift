@@ -290,13 +290,18 @@ extension DiagView {
             .overlay { if line { Rectangle().fill(Color.white.opacity(0.6)).frame(height: 2) } }
     }
 
-    // the COLUMN-SELECTOR (loop-key) row — 8 keys the width of the grid columns; shared by staging + play so they match.
+    // the top-row REPLAY (column) keys — styled as on the GRID page: a ▾ chevron per column, a ↻ repeat glyph when the
+    // column is in the loop/replay set. Shared by staging + play (same cell width + loopKeyH so both grids stay aligned).
     @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
+                let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
+                Image(systemName: held ? "repeat" : "chevron.down")
+                    .font(.system(size: held ? 11 : 13, weight: .heavy))
+                    .foregroundColor(held ? buildCyan : .white.opacity(0.5))
                     .frame(width: cell, height: BuildGeom.loopKeyH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(held ? buildCyan.opacity(0.18) : buildPanel))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(held ? buildCyan : .clear, lineWidth: 1.5))
             }
         }
     }
@@ -410,10 +415,8 @@ extension DiagView {
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
-        HStack(spacing: 10) {
-            buildFooterBtn("🎲 RANDOMIZE", pink: true)             // left-aligned machine actions
-            buildFooterBtn("MUTATE")
-            RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID
+        HStack(spacing: 10) {                                      // THE CHAIN — select-cell box → MIDI OUT box (centred)
+            RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID / select-cell box
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildSlot("ARP"); Text("┈").foregroundColor(buildDim)
@@ -422,7 +425,13 @@ extension DiagView {
             buildSlot("+", dashed: true)
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
-            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)                               // centre the chain in the footer
+        .overlay(alignment: .leading) {                          // RANDOMIZE + MUTATE pinned to the LEFT
+            HStack(spacing: 10) {
+                buildFooterBtn("🎲 RANDOMIZE", pink: true)
+                buildFooterBtn("MUTATE")
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
