@@ -383,6 +383,8 @@ extension DiagView {
                 AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
             })
             AnyView(buildEmitters(cell: cell))                   // EMITTERS below the grid — lines up with staging's verb box (same grid height + column rhythm)
+            Spacer(minLength: 0)
+            AnyView(buildEmitterMuteSolo(cell: cell))            // per-emitter MUTE/SOLO at the bottom — lines up with STAGE THE GRID
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -405,6 +407,29 @@ extension DiagView {
             }
         }
         .frame(width: w)
+    }
+
+    // per-emitter MUTE / SOLO — a row of four A–D groups, each with an M and an S button. Spans the emitter width so
+    // it sits under the strips; placed at the bottom of the perform column to line up with STAGE THE GRID.
+    @ViewBuilder private func buildEmitterMuteSolo(cell: CGFloat) -> some View {
+        let w = cell * 10 + BuildGeom.cellGap * 9
+        HStack(spacing: 6) {
+            ForEach(Array(["A", "B", "C", "D"].enumerated()), id: \.offset) { _, _ in
+                HStack(spacing: 4) {
+                    buildMSBtn("M", tint: buildHues[3])          // mute (red)
+                    buildMSBtn("S", tint: buildHues[0])          // solo (amber)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(width: w)
+    }
+
+    @ViewBuilder private func buildMSBtn(_ label: String, tint: Color) -> some View {
+        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(tint)
+            .frame(maxWidth: .infinity).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.5), lineWidth: 1.5))
     }
 
     // the PLAY grid rows — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
