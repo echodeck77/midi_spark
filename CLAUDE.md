@@ -188,7 +188,10 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   The machinery snake stays the STRIP along the bottom. (4) LEFT column as-is (build flow); MIDDLE = STAGING with the
   VERBS in their OWN BOX below (a panel: `[PLACE · MOVE · DELETE]` then `[APPLY TO PLAY → · MUTATE · 🎲 RE-ROLL]`);
   RIGHT = the play grid. Staging cells now always show active picks white-ringed (the hollow-at-rest tell went with the
-  focus model). Still placeholder, no engine.**
+  focus model). Still placeholder, no engine. FOLLOW-UP (same day): removed the STAGING/PLAY headers + the small grey
+  caption texts; each column now starts with an IDENTICAL cyan audition button (`buildColumnButton`) — "PLAY THIS
+  MACHINE" · "PLAY THE STAGING GRID" · "START/STOP THE PLAY GRID"; every column's contents are centre-aligned; the
+  LITTER box + the APPLY TO STAGING button were removed from the left column.**
 - **▶ THE BUILD PAGE — increment 1d: iteration 4 (smaller/calmer grids · verbs replace drag) (2026-08-11, on `main`,
   PUSHED next; iOS builds; DEVICE eye owed). Paul on device: grids too big/busy, RANDOMIZE misplaced, drop drag→verb
   buttons. Ferry `INSTRUCTIONS-build-page-iteration-4` (+ refreshed mock, both promoted). (1) GRIDS SMALLER + CALMER:

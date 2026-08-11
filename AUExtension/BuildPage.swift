@@ -90,15 +90,8 @@ extension DiagView {
 
     // ── LEFT COLUMN: play-cell · part · input(+keyboard) · cast 4×4 (+🎲) · output · APPLY TO STAGING · litter ──────
     @ViewBuilder private func buildPaletteColumn() -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {                                   // [● PLAY THIS CELL] — the machine's audition
-                Circle().fill(buildCyan).frame(width: 8, height: 8)
-                Text("PLAY THIS CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).tracking(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12).frame(height: 38)
-            .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
+        VStack(alignment: .center, spacing: 8) {
+            buildColumnButton("PLAY THIS MACHINE")                 // identical audition button across all three columns
 
             buildPartHeader()
 
@@ -121,12 +114,9 @@ extension DiagView {
             buildStep("3 · OUTPUT")
             HStack(spacing: 4) { buildIOChip("A", on: true); buildIOChip("B"); buildIOChip("C"); buildIOChip("D") }
 
-            buildActionBtn("APPLY TO STAGING →", pink: true)
-
-            buildLitter()
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder private func buildPartHeader() -> some View {
@@ -179,17 +169,11 @@ extension DiagView {
         }
     }
 
-    @ViewBuilder private func buildLitter() -> some View {
-        Text("🗑 LITTER").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim)
-            .frame(maxWidth: .infinity).frame(height: 32)
-            .background(RoundedRectangle(cornerRadius: 9).stroke(buildDim, style: StrokeStyle(lineWidth: 1.5, dash: [4])))
-    }
-
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
-        VStack(alignment: .leading, spacing: 8) {
-            buildLabel("STAGING — the current question")
+        VStack(alignment: .center, spacing: 8) {
+            buildColumnButton("PLAY THE STAGING GRID")
             HStack(alignment: .top, spacing: BuildGeom.cellGap) {
                 buildRowRail(cell: cell, hue: hue)                 // the row-selector rail on staging's LEFT edge
                 VStack(spacing: BuildGeom.cellGap) {
@@ -217,8 +201,6 @@ extension DiagView {
                     }
                 }
             }
-            Text("SIMPLE ▲ · rows = variations of the selected colour · ▼ COMPLEX")
-                .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
             // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
             VStack(spacing: 6) {
                 HStack(spacing: 6) { buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete) }
@@ -231,7 +213,7 @@ extension DiagView {
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge; tinted the selected hue, chevron into the grid.
@@ -251,8 +233,8 @@ extension DiagView {
         let bands: [(rows: Int, glyph: String, free: Bool)] = [
             (3, "⊻", false), (2, "⊻", false), (1, "≡", false), (1, "≡", false), (1, "▶", true),
         ]
-        VStack(alignment: .leading, spacing: 8) {
-            buildLabel("PLAY — the target decides: LANE=flatten · LADDER=copy rows")
+        VStack(alignment: .center, spacing: 8) {
+            buildColumnButton("START/STOP THE PLAY GRID")
             HStack(alignment: .top, spacing: 6) {
                 VStack(spacing: BuildGeom.seam) {                  // the glyph rail
                     ForEach(Array(bands.enumerated()), id: \.offset) { _, b in
@@ -281,9 +263,8 @@ extension DiagView {
                     }
                 }
             }
-            Text("3-LADDER ⊻ · 2-LADDER ⊻ · LANE · LANE · FREE ▶ (tap-to-voice)")
-                .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
@@ -307,9 +288,16 @@ extension DiagView {
     }
 
     // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
-    @ViewBuilder private func buildLabel(_ s: String) -> some View {
-        Text(s).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(buildPink).tracking(1)
-            .lineLimit(1).minimumScaleFactor(0.7)
+    // The identical audition button at the top of each column (dot + label, cyan-bordered).
+    @ViewBuilder private func buildColumnButton(_ label: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(buildCyan).frame(width: 8, height: 8)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).tracking(1)
+                .lineLimit(1).minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity).frame(height: 38)
+        .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
     }
     @ViewBuilder private func buildStep(_ s: String) -> some View {
         Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
