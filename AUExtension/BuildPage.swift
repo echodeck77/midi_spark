@@ -52,7 +52,27 @@ private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 
+// focus-model §1: which WORKSHOP zone owns the single voice (the PLAY grid is outside this economy).
+enum BuildFocus { case palette, staging }
+
 extension DiagView {
+    // The lamp: is each workshop zone lit (owns the voice) or dimmed (~60%, touchable)?
+    fileprivate var palLit: Bool { buildFocus == .palette }
+    fileprivate var stgLit: Bool { buildFocus == .staging }
+    // GRAB the voice onto staging (focus-model §2: column keys + the ● badge are the deliberate grab). ~150ms teach.
+    fileprivate func buildGrabStaging() { withAnimation(.easeInOut(duration: 0.15)) { buildFocus = .staging } }
+    fileprivate func buildGrabPalette() { withAnimation(.easeInOut(duration: 0.15)) { buildFocus = .palette } }
+    // The accent border on the lit zone.
+    @ViewBuilder fileprivate func buildFocusBorder(_ lit: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 10).stroke(buildPink, lineWidth: 2).opacity(lit ? 1 : 0).padding(-4)
+    }
+    // The ● PLAYING badge for a lit zone's header.
+    @ViewBuilder fileprivate func buildPlayingBadge() -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(buildPink).frame(width: 6, height: 6)
+            Text("PLAYING").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1)
+        }
+    }
 
     @ViewBuilder func buildPage(_ size: CGSize) -> some View {
         let landscape = size.width > size.height
@@ -71,10 +91,16 @@ extension DiagView {
     @ViewBuilder private func buildLandscape(_ size: CGSize, cell: CGFloat) -> some View {
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
+                // PALETTE + STAGING are the two workshop zones — the focus lamp lights one, dims the other (§1).
                 buildPaletteColumn().frame(width: BuildGeom.paletteW)
+                    .opacity(palLit ? 1 : 0.6).overlay(buildFocusBorder(palLit))
+                    .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }   // building the machine pulls the lamp left
+                    .animation(.easeInOut(duration: 0.15), value: buildFocus)
                 buildStaging(cell: cell)
+                    .opacity(stgLit ? 1 : 0.6).overlay(buildFocusBorder(stgLit))
+                    .animation(.easeInOut(duration: 0.15), value: buildFocus)
                 buildBridge().frame(width: BuildGeom.bridgeW)
-                buildPlayGrid(cell: cell)
+                buildPlayGrid(cell: cell)                                            // PLAY sits OUTSIDE the focus economy (always sounding, calm)
             }
             buildMachinery()
         }
@@ -88,8 +114,12 @@ extension DiagView {
         VStack(spacing: 12) {
             buildPartHeader()
             buildPaletteColumn()
-            buildLabel("STAGING — the current question")
+                .opacity(palLit ? 1 : 0.6).overlay(buildFocusBorder(palLit))
+                .contentShape(Rectangle()).onTapGesture { buildGrabPalette() }
+                .animation(.easeInOut(duration: 0.15), value: buildFocus)
             buildStaging(cell: pcell)
+                .opacity(stgLit ? 1 : 0.6).overlay(buildFocusBorder(stgLit))
+                .animation(.easeInOut(duration: 0.15), value: buildFocus)
             buildLabel("PLAY — the piece (tap a band to receive)")
             buildPlayGrid(cell: pcell)
             buildMachinery()
@@ -144,7 +174,7 @@ extension DiagView {
                             .overlay(RoundedRectangle(cornerRadius: 8)
                                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                                 .opacity(i == buildSelColour ? 1 : 0))
-                            .onTapGesture { buildSelColour = i }
+                            .onTapGesture { buildSelColour = i; buildGrabPalette() }   // selecting a cast colour is a workbench act — lamp left
                     }
                 }
             }
@@ -161,31 +191,58 @@ extension DiagView {
     @ViewBuilder private func buildStaging(cell: CGFloat) -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
         VStack(alignment: .leading, spacing: 5) {
-            buildLabel("STAGING · ● LIVE")
-            HStack(spacing: 5) {                                   // the loop-key row
-                ForEach(0..<8, id: \.self) { c in
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
-                        .frame(width: cell, height: BuildGeom.loopKeyH)
-                }
+            HStack(spacing: 6) {                                   // header — the ● badge appears when staging owns the voice, and doubles as the GRAB
+                buildLabel("STAGING")
+                if stgLit { buildPlayingBadge() }
+                Spacer(minLength: 0)
             }
-            VStack(spacing: 5) {                                   // 8 variation rows, one colour, dim/act placeholders
-                ForEach(0..<8, id: \.self) { r in
-                    HStack(spacing: 5) {
+            .contentShape(Rectangle()).onTapGesture { buildGrabStaging() }
+            HStack(alignment: .top, spacing: 5) {
+                buildRowRail(cell: cell, hue: hue)                 // §3: the row-selector rail on staging's LEFT edge (workbench's primary verb)
+                VStack(spacing: 5) {
+                    HStack(spacing: 5) {                           // the loop-key row — a tap here GRABS the voice onto staging (§2)
                         ForEach(0..<8, id: \.self) { c in
-                            let filled = (c + r * 3) % 4 != 0
-                            let active = (c + r) % 5 == 0
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(filled ? hue.opacity(active ? 1 : 0.28) : buildCell)
-                                .frame(width: cell, height: cell)
-                                .overlay(RoundedRectangle(cornerRadius: 7)
-                                    .stroke(Color.white, lineWidth: 2).opacity(active ? 1 : 0))
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(c == 1 || c == 2 ? buildCyan : buildPanel)
+                                .frame(width: cell, height: BuildGeom.loopKeyH)
+                        }
+                    }
+                    .contentShape(Rectangle()).onTapGesture { buildGrabStaging() }
+                    VStack(spacing: 5) {                           // 8 variation rows, one colour, dim/act placeholders
+                        ForEach(0..<8, id: \.self) { r in
+                            HStack(spacing: 5) {
+                                ForEach(0..<8, id: \.self) { c in
+                                    let filled = (c + r * 3) % 4 != 0
+                                    let active = (c + r) % 5 == 0
+                                    // §2 silence tell: when staging is DIMMED, active picks show as HOLLOW rings; the voice arriving fills them.
+                                    let restHollow = active && !stgLit
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(filled && !restHollow ? hue.opacity(active ? 1 : 0.28) : buildCell)
+                                        .frame(width: cell, height: cell)
+                                        .overlay(RoundedRectangle(cornerRadius: 7)
+                                            .stroke(stgLit ? Color.white : hue, lineWidth: 2).opacity(active ? 1 : 0))
+                                }
+                            }
                         }
                     }
                 }
             }
             Text("SIMPLE ▲ · rows = variations · ▼ COMPLEX")
                 .font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)
+        }
+    }
+
+    // §3 the ROW-SELECTOR RAIL — one bar per staging row on the LEFT edge. With a cast colour selected, tapping a row
+    // fills it with that colour (the 3-press cycle grammar; exact cycle = Paul's device call). Skeleton: furniture +
+    // the selected hue; the fill wires when staging placement lands.
+    @ViewBuilder private func buildRowRail(cell: CGFloat, hue: Color) -> some View {
+        VStack(spacing: 5) {
+            Color.clear.frame(width: 14, height: BuildGeom.loopKeyH)       // align the rail past the loop-key row
+            ForEach(0..<8, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 4).fill(hue.opacity(0.5))
+                    .frame(width: 14, height: cell)
+                    .overlay(Text("‹").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.7)))
+            }
         }
     }
 
@@ -252,15 +309,18 @@ extension DiagView {
     // ── BOTTOM: the machinery snake (placeholder — the real flow diagram gets wired in a later increment) ─────────
     @ViewBuilder private func buildMachinery() -> some View {
         let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
+        // §1: in the MACHINE phase (palette owns the voice) the snake's thread comes alive. Skeleton = the thread
+        // BRIGHTENS to cyan; the animated door→wire PULSE arrives with the real machinery wiring.
+        let thread = palLit ? buildCyan : buildDim
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 44, height: 44)
             buildBox("R1: MIDI IN", "OMNI")
-            Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
-            buildSlot("ARP"); Text("┈").foregroundColor(buildDim)
-            buildSlot("MASK"); Text("┈").foregroundColor(buildDim)
-            buildSlot("MOD"); Text("┈").foregroundColor(buildDim)
+            Text("┈┈▶").foregroundColor(thread).font(.system(size: 10, design: .monospaced))
+            buildSlot("ARP"); Text("┈").foregroundColor(thread)
+            buildSlot("MASK"); Text("┈").foregroundColor(thread)
+            buildSlot("MOD"); Text("┈").foregroundColor(thread)
             buildSlot("+", dashed: true)
-            Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
+            Text("┈┈▶").foregroundColor(thread).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
             Spacer(minLength: 0)
             buildActionBtn("PLAY THIS\nCELL").frame(width: 96)

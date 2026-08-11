@@ -88,6 +88,9 @@ struct DiagView: View {
     @State var activeTab: AppTab = .build     // BUILD is the default landing page (user 2026-08-11); LAYOUT v2 tab model
     // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelColour: Int = 0
+    // BUILD focus model (focus-model §1: the voice is the cursor): which WORKSHOP zone owns the single voice — lit;
+    // the other dims. The PLAY grid sits OUTSIDE this economy (always sounding). Skeleton: taps move the lamp.
+    @State var buildFocus: BuildFocus = .staging
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
     @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")

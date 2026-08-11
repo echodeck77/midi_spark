@@ -65,7 +65,7 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
-                singleMultiSeg                                                     // GRID mode SINGLE|MULTI — moved to the title bar (user 2026-08-05)
+                if activeTab != .build { singleMultiSeg }                          // GRID mode SINGLE|MULTI — hidden on BUILD (focus-model §4: no jurisdiction there; staging is always SINGLE-natured, bands own their own behaviour)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate + SWING (was the grid's CONTROLS panel)
                 if d.playing {

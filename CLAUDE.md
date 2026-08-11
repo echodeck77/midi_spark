@@ -179,6 +179,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — increment 1b: the FOCUS MODEL form (2026-08-11, on `main`, PUSHED next; iOS builds; DEVICE eye
+  owed). Ferry `INSTRUCTIONS-build-page-focus-model` (promoted → `Docs/AcceptanceCriteria/AcceptanceCriteria-build-
+  page-focus-model.md`) — "the voice is the cursor", rules the form before placement continues. Applied to the
+  skeleton (still placeholder, no engine): (§1) THE FOCUS LAMP — the two WORKSHOP zones (palette · staging) share ONE
+  voice: the lit one is full-saturation + a pink accent border + a ● PLAYING badge in its header; the other dims to
+  ~60% (touchable); the PLAY grid sits OUTSIDE the economy (always calm). `BuildFocus{palette,staging}` @State + a
+  ~150ms crossfade (`.animation(value: buildFocus)`) so the lamp changing hands teaches. (§2) THE GRAB — palette taps
+  / cast-swatch selects pull the lamp LEFT (machine phase); the staging COLUMN KEYS + the ● badge are the deliberate
+  grab RIGHT ("staging, sing"); staging cell taps don't grab (they'll be edit-selects vs picks by focus). Silence
+  tell: when staging is dimmed, active picks render as HOLLOW rings (in the colour); lit fills them white-ringed.
+  (§3) THE ROW-SELECTOR RAIL returned on staging's LEFT edge (was missing) — one bar/row, tinted the selected hue,
+  chevron-into-grid; the fill-row (3-press cycle) wires with staging placement. (§4) ONE REMOVAL — the global
+  SINGLE|MULTI title-bar toggle is now HIDDEN on BUILD (`activeTab != .build` gate in ArrangementBar; staging is
+  always SINGLE-natured, the bands own their own behaviour). DEFERRED to the wiring increments: the animated snake
+  door→wire PULSE (skeleton just brightens the thread to cyan in the machine phase) + the real audible voice behind
+  the lamp.**
 - **▶ FOUR STEERS OF RECORD (design ferry `REPLY-four-steers-answered`, 2026-08-10; absorbed 2026-08-11 — NOT all
   built). Standing rulings to build BY, recorded so they aren't re-litigated: **① ROUTING = COLOUR-OWNED** (the big
   one, NOT yet built): lift buses/receiver/chop off `Cell` onto `Colour` as colour defaults (a machine IS chain +
