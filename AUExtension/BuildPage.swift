@@ -72,8 +72,8 @@ extension DiagView {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
         let leftW = max(1, avail / 3 * 0.8)                        // the MACHINE column is 20% narrower than an equal third
         let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
-        // both grids are 9 cells wide: a cell-sized selector column (row buttons / part buttons) + 8 grid cells.
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 8) / 9))
+        // the PERFORM grid is widest: LEFT part buttons + 8 grid cells + RIGHT per-row buttons = 10 cells (+ 9 gaps).
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 10))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
@@ -91,7 +91,7 @@ extension DiagView {
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 8 - 24) / 9))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 10))
         VStack(spacing: 12) {
             AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
             AnyView(buildStagingColumn(cell: cell))
@@ -335,17 +335,33 @@ extension DiagView {
         }
     }
 
+    // RIGHT-side per-row buttons on the PERFORM grid — one per row for parts 1 & 2 ONLY (rows 1–3 = "1", rows 4–5 = "2");
+    // rows 6–8 (parts 3–5) get no button here since they're already on the left. Identical appearance to the part buttons.
+    @ViewBuilder private func buildRightPartButtons(cell: CGFloat, hue: Color) -> some View {
+        VStack(spacing: BuildGeom.cellGap) {
+            Color.clear.frame(width: cell, height: BuildGeom.loopKeyH)   // align past the loop-key row
+            ForEach(0..<5, id: \.self) { r in                            // rows 1–5 only
+                let part = r < 3 ? 1 : 2
+                RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                    .frame(width: cell, height: cell)
+                    .overlay(Text("\(part)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+            }
+        }
+    }
+
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            // The PART BUTTONS (merged per part, labelled 1–5) assign STAGING → PERFORM when stopped (function wires later).
+            // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
+            // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
-                AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1, 1]))
+                AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))
                 VStack(spacing: BuildGeom.cellGap) {
                     buildLoopKeys(cell: cell)                     // the column-selector row
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
+                AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
             })
         }
         .frame(maxWidth: .infinity, alignment: .center)
