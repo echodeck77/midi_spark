@@ -229,6 +229,34 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // CHANCE → CONSTANT-DENSITY (user 2026-08-11): keep ~a constant NUMBER of notes regardless of chord size — a small
+    // chord keeps MORE than fixed-% (p rises to the target), a big chord keeps FEWER (thinned to the target).
+    func testChanceConstantDensityHoldsCountVsFixedPercent() {
+        func avg(_ count: Int, _ prob: Double, dens: Bool) -> Double {
+            var total = 0; let trials = 300
+            for t in 0..<trials { for k in 0..<count where chancePassesPool(beat: Double(t) * 0.25, note: 48 + k, rank: k, count: count, probability: prob, tilt: 0, constantDensity: dens) { total += 1 } }
+            return Double(total) / Double(trials)
+        }
+        XCTAssertGreaterThan(avg(3, 0.4, dens: true), avg(3, 0.4, dens: false) + 0.3, "a 3-chord keeps MORE under constant-density")
+        XCTAssertLessThan(avg(12, 0.4, dens: true), avg(12, 0.4, dens: false), "a 12-chord keeps FEWER (thinned to the target)")
+    }
+    // CHANCE → WEIGHT/tilt (user 2026-08-11): +tilt favours the TOP notes, −tilt the BOTTOM.
+    func testChanceWeightFavoursTopOrBottom() {
+        func passRate(_ rank: Int, _ count: Int, _ tilt: Double) -> Double {
+            var passed = 0; let trials = 400
+            for t in 0..<trials where chancePassesPool(beat: Double(t) * 0.25, note: 48 + rank, rank: rank, count: count, probability: 0.5, tilt: tilt, constantDensity: false) { passed += 1 }
+            return Double(passed) / Double(trials)
+        }
+        XCTAssertGreaterThan(passRate(4, 5, 0.8), passRate(0, 5, 0.8) + 0.2, "+tilt: the TOP note survives more than the bottom")
+        XCTAssertLessThan(passRate(4, 5, -0.8), passRate(0, 5, -0.8) - 0.2, "−tilt: the reverse")
+    }
+    // ARP → FIT (user 2026-08-11): cycle = one beat, so a bigger chord ticks FASTER (more note-ons in the same time).
+    func testArpFitScalesRateWithChordSize() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].paramsA.arpFit = true
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        func ons(_ notes: [UInt8]) -> Int { let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e); return e.ons.filter { $0.cable == 1 }.count }
+        XCTAssertGreaterThan(ons([60, 64, 67, 71, 74, 77]), ons([60, 64]), "a 6-note chord fits faster → more ticks than a 2-note")
+    }
     // DRONE = a LEGATO chord-hold (user 2026-08-10): placed across columns it HOLDS continuously (NO re-strike per
     // step) and is SILENT where no drone cell is (playhead-dependent). gold=drone in cols 0..3; hold a chord one pass.
     func testDroneIsALegatoHoldAcrossItsColumns() {

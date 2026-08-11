@@ -1203,7 +1203,7 @@ final class Router {
                 guard n >= 0 && n <= 127 else { continue }
                 let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 let vel = droneScale < 1.0 ? UInt8(max(1, min(127, Int((Double(vel0) * droneScale).rounded())))) : vel0   // DRONE scales by GATE
-                if mode == .chance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
+                if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, t: t, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
@@ -2165,9 +2165,10 @@ final class Router {
             if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
             let colStart = (m / S).rounded(.down) * S
-            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
+            for k in 0..<cCnt {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if chancePasses(beat: colStart, note: Int(n), probability: p.probability) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
+                if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: p.probability, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .harmonize:
             let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]
@@ -2301,6 +2302,10 @@ final class Router {
         var arpBeats = effectiveRateBeats(colour, t: t)
         let gate = effectiveGate(colour, t: t)
         let octaves = effectiveOctaves(colour, t: t)
+        if colour.a.arpFit {   // FIT (user 2026-08-11): one full pool traversal = one beat, so the cycle stays constant as the chord grows
+            let n = max(1, pool.srcCount(for: cell))
+            arpBeats = max(0.03125, 1.0 / Double(n * octaves))
+        }
         if arpBeats <= 0 { arpBeats = 0.25 }
         if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
 

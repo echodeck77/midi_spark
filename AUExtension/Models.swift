@@ -85,6 +85,9 @@ struct ColourParams: Codable, Equatable {
     var curve: Double? = 0         // strum: timing curve −1…1 (0 = linear)
     var velTilt: Double? = 0       // strum: velocity tilt −1…1 (0 = flat)
     var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
+    var chanceTilt: Double? = 0    // chance WEIGHT −1…1 (user 2026-08-11): +favours TOP notes, −favours BOTTOM
+    var chanceDensity: Bool? = false // chance CONSTANT-DENSITY: keep ~a constant NUMBER of notes regardless of chord size
+    var arpFit: Bool? = false      // arp FIT (user 2026-08-11): rate derives so ONE pool traversal = one beat (constant cycle)
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]

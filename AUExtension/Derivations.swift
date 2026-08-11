@@ -941,6 +941,19 @@ func chancePasses(beat: Double, note: Int, probability: Double) -> Bool {
     let h = splitmix64Mix(UInt64(bitPattern: q) &* 0x9E3779B97F4A7C15 &+ UInt64(bitPattern: Int64(note &* 2654435761)))
     return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < probability
 }
+/// CHANCE with POOL-AWARENESS (user 2026-08-11), folding into the seeded `chancePasses`:
+/// • CONSTANT-DENSITY: keep roughly a CONSTANT NUMBER of notes regardless of chord size — per-note p = min(1, prob·8/N)
+///   (so a big chord thins to ~prob·8 notes, a small one passes). • WEIGHT/tilt (−1…1): bias which notes survive by
+///   their RANK (0 = bottom … 1 = top); +tilt favours the TOP notes, −tilt the BOTTOM.
+func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probability: Double, tilt: Double, constantDensity: Bool) -> Bool {
+    var p = probability
+    if constantDensity && count > 0 { p = min(1.0, probability * 8.0 / Double(count)) }
+    if tilt != 0 && count > 1 {
+        let f = Double(rank) / Double(count - 1)      // 0 (bottom) … 1 (top)
+        p = max(0, min(1, p + tilt * (f - 0.5)))
+    }
+    return chancePasses(beat: beat, note: note, probability: p)
+}
 
 // MARK: - STRUM (§3): stagger a chord's onsets over `spread`, with a timing curve and velocity tilt
 

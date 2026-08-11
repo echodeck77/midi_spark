@@ -1397,6 +1397,7 @@ struct ProcessorBox: View {
             field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
             }
+            field("FIT (cycle = 1 beat)") { seg(["OFF", "ON"], sel: (p.arpFit ?? false) ? "ON" : "OFF") { i in setParam { $0.arpFit = (i == 1) } } }
         case .ratchet:
             field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
                 setParam { $0.count = [2,3,4,6,8][i] } } }
@@ -1427,6 +1428,9 @@ struct ProcessorBox: View {
         case .chance:
             field("PROBABILITY \(Int((p.probability ?? 1) * 100))%") {
                 Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
+            field("WEIGHT \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)") {
+                Slider(value: bind((p.chanceTilt ?? 0) / 2 + 0.5) { v in setParam { $0.chanceTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
+            field("DENSITY") { seg(["FIXED %", "CONSTANT N"], sel: (p.chanceDensity ?? false) ? "CONSTANT N" : "FIXED %") { i in setParam { $0.chanceDensity = (i == 1) } } }
         case .harmonize:
             let iv = p.harmIntervals ?? [0,0,0]
             ForEach(0..<3, id: \.self) { k in
