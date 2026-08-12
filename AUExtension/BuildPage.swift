@@ -511,9 +511,8 @@ extension DiagView {
                 }
                 AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
             })
-            AnyView(buildEmitters(cell: cell))                   // EMITTERS below the grid — lines up with staging's verb box (same grid height + column rhythm)
-            Spacer(minLength: 0)
-            AnyView(buildEmitterMuteSolo(cell: cell))            // per-emitter MUTE/SOLO at the bottom — lines up with STAGE THE GRID
+            AnyView(buildEmitters(cell: cell))                   // EMITTERS fill from below the grid DOWN TO the M/S buttons
+            AnyView(buildEmitterMuteSolo(cell: cell))            // per-emitter MUTE/SOLO — the emitters now reach it (no gap)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -527,15 +526,16 @@ extension DiagView {
             ForEach(Array(["A", "B", "C", "D"].enumerated()), id: \.offset) { i, e in
                 VStack(spacing: 4) {
                     Text(e).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                    RoundedRectangle(cornerRadius: 4).fill(buildCell).frame(height: 44)   // a velocity fader placeholder
-                        .overlay(RoundedRectangle(cornerRadius: 4).fill(buildCyan.opacity(0.5)).frame(height: 22), alignment: .bottom)
+                    RoundedRectangle(cornerRadius: 4).fill(buildCell)   // the velocity fader STRETCHES down to the M/S row
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(RoundedRectangle(cornerRadius: 4).fill(buildCyan.opacity(0.5)).frame(height: 26), alignment: .bottom)
                     Text("CH \(i + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 }
-                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
             }
         }
-        .frame(width: w)
+        .frame(width: w).frame(maxHeight: .infinity)              // the emitters fill the space down to the M/S buttons
     }
 
     // per-emitter MUTE / SOLO — a row of four A–D groups, each with an M and an S button. Spans the emitter width so
@@ -585,10 +585,16 @@ extension DiagView {
             RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the PREVIEW cell = the selected colour
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
-            ForEach(Array(chain.enumerated()), id: \.offset) { _, slot in   // the colour's OWN processors (none for a new cell)
-                buildSlot(slot.type.rawValue); Text("┈").foregroundColor(buildDim)
+            ForEach(0..<8, id: \.self) { i in                     // UP TO 8 processor slots (the chain's capacity)
+                if i < chain.count {
+                    buildSlot(chain[i].type.rawValue, colour: buildSelHue)   // a real processor — the selected colour
+                } else if i == chain.count {
+                    buildSlot("+", dashed: true)                  // the add-processor ghost (editing wires later)
+                } else {
+                    buildSlot("", dashed: true)                   // an empty capacity slot
+                }
+                if i < 7 { Text("┈").foregroundColor(buildDim) }
             }
-            buildSlot("+", dashed: true)                          // the add-processor ghost (editing wires later)
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
         }
@@ -665,11 +671,15 @@ extension DiagView {
         .padding(.horizontal, 9).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 9).fill(buildCell))
     }
-    @ViewBuilder private func buildSlot(_ s: String, dashed: Bool = false) -> some View {
-        Text(s).font(.system(size: 8, design: .monospaced)).foregroundColor(dashed ? buildDim : .white)
-            .frame(width: 44, height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(dashed ? Color.clear : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(dashed ? buildDim : Color(white: 0.15),
+    // A processor slot in the footer chain. `colour` fills a REAL processor with the selected colour; else a dashed
+    // empty/ghost slot. Boxes are a little bigger than before (50×40).
+    @ViewBuilder private func buildSlot(_ s: String, dashed: Bool = false, colour: Color? = nil) -> some View {
+        Text(s).font(.system(size: 9, weight: colour != nil ? .heavy : .regular, design: .monospaced))
+            .foregroundColor(colour != nil ? .black : (dashed ? buildDim : .white))
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .frame(width: 50, height: 40)
+            .background(RoundedRectangle(cornerRadius: 7).fill(colour ?? (dashed ? Color.clear : buildCell)))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(colour != nil ? Color.clear : (dashed ? buildDim : Color(white: 0.15)),
                                                               style: StrokeStyle(lineWidth: dashed ? 1.3 : 1, dash: dashed ? [4] : [])))
     }
 }
