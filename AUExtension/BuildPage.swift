@@ -228,10 +228,9 @@ extension DiagView {
         au?.setBuildStagingScene(buildStagingScene())           // the engine now derives MIDI from the STAGING grid (the column under the playhead)
     }
 
-    // Build an EPHEMERAL scene from the staging grid: one cell per stocked slot, referencing that colour with
-    // processors=nil so it inherits the colour's machine (its settings); the colour's routing (emitters/input) is
-    // carried from its representative cell. Fresh SceneState.empty() → LADDER-free, so EVERY stocked cell in the
-    // playhead's column sounds, not a single rung. (user 2026-08-12)
+    // Build an EPHEMERAL scene from the staging grid — ONLY the SELECTED cell per column (buildStagingSel) is placed,
+    // so exactly one cell sounds per column (the white-outlined one). The cell references its colour with processors=nil
+    // (inherits the colour's machine/settings); routing is carried from the colour's representative cell. (user 2026-08-12)
     private func buildStagingScene() -> SceneState {
         var routing: [String: (buses: Set<Bus>, recv: Int)] = [:]   // per-colour routing, resolved OUTSIDE the scene build
         for c in 0..<8 { for r in 0..<8 { if let cid = buildStagingCells[c][r], routing[cid] == nil {
@@ -239,15 +238,27 @@ extension DiagView {
             routing[cid] = (rep?.buses ?? [.a], rep?.inputReceiver ?? ddStickyReceiver)
         } } }
         var s = SceneState.empty()
-        for c in 0..<8 { for r in 0..<8 {
-            guard let cid = buildStagingCells[c][r] else { continue }
+        for c in 0..<8 {
+            let r = c < buildStagingSel.count ? buildStagingSel[c] : -1     // the ONE selected row for this column
+            guard r >= 0, r < 8, let cid = buildStagingCells[c][r] else { continue }
             let rt = routing[cid] ?? ([.a], 0)
             var cell = Cell(colourID: cid, buses: rt.buses.isEmpty ? [.a] : rt.buses)
             cell.inputReceiver = max(0, min(3, rt.recv))
             cell.processors = nil                               // inherit the colour's machine (its settings)
             s.setCell(c, r, cell)
-        } }
+        }
         return s
+    }
+
+    // Keep the per-column selection VALID: a selection pointing at an empty cell falls back to the topmost stocked cell
+    // in that column (the gentle default), or −1 if the column is empty. An explicit valid selection is preserved.
+    private func buildReconcileStagingSel() {
+        for c in 0..<8 {
+            let r = buildStagingSel[c]
+            if r < 0 || r >= 8 || buildStagingCells[c][r] == nil {
+                buildStagingSel[c] = (0..<8).first { buildStagingCells[c][$0] != nil } ?? -1
+            }
+        }
     }
 
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
@@ -486,11 +497,12 @@ extension DiagView {
                         HStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildStagingCells[c][r]
+                                let selected = id != nil && buildStagingSel[c] == r
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? buildCell)
                                     .frame(width: cell, height: cell)
-                                    .overlay(RoundedRectangle(cornerRadius: 7)     // PLACE armed → outline each cell in the selected colour
-                                        .stroke(buildSelHue, lineWidth: 2).opacity(buildVerb == .place ? 1 : 0))
+                                    .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
+                                        .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -500,6 +512,14 @@ extension DiagView {
                 .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
             }
         }
+    }
+
+    // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; the SELECTED
+    // colour when PLACE is armed (so you can see where a place lands); otherwise none.
+    private func buildStagingStroke(c: Int, r: Int, stocked: Bool) -> Color {
+        if stocked && buildStagingSel[c] == r { return .white }
+        if buildVerb == .place { return buildSelHue }
+        return .clear
     }
 
     // A staging cell tap. PLACE (armed) stocks a cell of the selected colour + its machine (the colour IS its machine);
@@ -515,10 +535,12 @@ extension DiagView {
             } else {                                                                // 1st tap → remember the original, then place
                 buildPlacedOrig.updateValue(buildStagingCells[c][r], forKey: key)  // updateValue (not subscript) so a nil original is KEPT, not dropped
                 buildStagingCells[c][r] = cid
+                buildStagingSel[c] = r                                             // a newly placed cell becomes the SELECTED (playing) cell for its column
             }
         case .delete: buildStagingCells[c][r] = nil; buildPlacedOrig.removeValue(forKey: c * 8 + r)
         default: break
         }
+        buildReconcileStagingSel()                             // a revert/delete may have emptied the selected cell → fall back
         buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
     }
 
@@ -526,7 +548,7 @@ extension DiagView {
     // settings — the stocked cell references the colourID). (user 2026-08-12)
     private func buildFillStagingRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
-        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row) }
+        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row); buildStagingSel[c] = row }   // fill → that row is selected in every column
         buildDeletedRows[row] = nil                            // a fresh fill discards any pending "restore" for this row
         buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
     }
@@ -542,6 +564,7 @@ extension DiagView {
             buildDeletedRows[row] = (0..<8).map { buildStagingCells[$0][row] }
             for c in 0..<8 { buildStagingCells[c][row] = nil }
         }
+        buildReconcileStagingSel()                             // emptied/restored cells → refresh each column's selection
         buildStagingSyncIfPlaying()
     }
 
