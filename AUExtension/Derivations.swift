@@ -23,6 +23,10 @@ import Foundation
     (x.truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
 }
 
+/// The musical-beat START of the column that `beat` falls in — floors `beat` to the step grid (`S` = a step's beats).
+/// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
+@inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
+
 /// The splitmix64 finalizing avalanche — mixes a seed into a well-distributed 64-bit hash. Shared by the
 /// loop-consistent RANDOM arp position and the per-note CHANCE gate so the two can't drift.
 @inline(__always) func splitmix64Mix(_ x: UInt64) -> UInt64 {

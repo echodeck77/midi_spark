@@ -1129,7 +1129,7 @@ final class Router {
                                  windowEnd: Int64, out: MIDIEmitter?,
                                  reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
                                  diag: inout KernelDiag) {
-        let colStart = (mNow / S).rounded(.down) * S
+        let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                 windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample,
@@ -1256,7 +1256,7 @@ final class Router {
                                mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
                                windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard pool.count > 0 || latchMask != 0 else { return }
-        let colStart = (mNow / S).rounded(.down) * S
+        let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                 windowStart: windowStart, S: S, a: a)
         for r in 0..<Snap.rows {
@@ -1329,7 +1329,7 @@ final class Router {
             let e = echoTails[i]
             // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
             // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
-            if e.spill == .cut && mStart >= (e.onset / S).rounded(.down) * S + S { echoTails[i].active = false; continue }
+            if e.spill == .cut && mStart >= columnStart(e.onset, S) + S { echoTails[i].active = false; continue }
             if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
@@ -1384,7 +1384,7 @@ final class Router {
 
             let onTime = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                   windowStart: windowStart, S: S, a: a)
-            let colEnd = (mTickBeat / S).rounded(.down) * S + S
+            let colEnd = columnStart(mTickBeat, S) + S
             let mOff = min(mTickBeat + sub * gateFraction, colEnd)
             let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
@@ -1628,7 +1628,7 @@ final class Router {
         //      relocation/loop is the same edge, no special case. ----
         if effColumn != prevEffColumn {
             if anyVoiceActive() {
-                let boundaryMusical = (mNow / S).rounded(.down) * S     // start of effColumn
+                let boundaryMusical = columnStart(mNow, S)     // start of effColumn
                 let realB = realOf(boundaryMusical, stepBeats: S, a: a)
                 let off = max(0, (realB - beatPos) / beatsPerSample)
                 // §2 CONTINUITY: keep the legato drones alive across the boundary — emitColumnHolds reconciles
@@ -1997,7 +1997,7 @@ final class Router {
         let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        let colStart = (mWinStart / S).rounded(.down) * S
+        let colStart = columnStart(mWinStart, S)
 
         // CELL MACHINE: as a chain DRIVER, the source is the composed set of the stages BEFORE the driver; each note
         // FOLDS through the stages AFTER it (emitDriverNote). A single-slot generator (chainDriver < 0) reads the
@@ -2164,7 +2164,7 @@ final class Router {
                                pool: src, filter: 0, cableMask: 0b1111)   // velocity inherited from the picked source note
             if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
-            let colStart = (m / S).rounded(.down) * S
+            let colStart = columnStart(m, S)
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
             for k in 0..<cCnt {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
@@ -2365,7 +2365,7 @@ final class Router {
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
-            let colStart = (mTickBeat / S).rounded(.down) * S
+            let colStart = columnStart(mTickBeat, S)
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
             // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
             let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)
@@ -2412,7 +2412,7 @@ final class Router {
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
         let spread = effectiveSpread(colour, t: t)
         let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
-        let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+        let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
         let cycleBeats = Double(Snap.cols) * S
         // CELL MACHINE: a STRUM chain DRIVER staggers the composed set of the stages BEFORE it (derived once at colStart).
         if chainDriver >= 0 { composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cycleBeats) }
@@ -2505,7 +2505,7 @@ final class Router {
         if effColumn != previewPrevColumn {
             let mNow = musicalOf(beatPos, stepBeats: S, a: a)
             if anyVoiceActive() {
-                let boundaryMusical = (mNow / S).rounded(.down) * S
+                let boundaryMusical = columnStart(mNow, S)
                 let off = max(0, (realOf(boundaryMusical, stepBeats: S, a: a) - beatPos) / beatsPerSample)
                 allNotesOff(atSample: windowStart + Int64(off), out: out)
             }
@@ -2539,7 +2539,7 @@ final class Router {
             let sub = S / Double(max(1, repeats))
             iterateTicks(row: vr, effColumn: effColumn, sub: sub, gateFraction: 0.6, beatPos: beatPos,
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
-                let colStart = (mTickBeat / S).rounded(.down) * S
+                let colStart = columnStart(mTickBeat, S)
                 let repIdx = Int(((mTickBeat - colStart) / sub).rounded())
                 let srcN = pool.srcCount(filter: f)
                 for k in 0..<srcN {
@@ -2555,7 +2555,7 @@ final class Router {
             let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
             let count = pool.srcCount(filter: f)   // STRUM is source-based (no row-feed, matching the real loop)
             if count > 0 {
-                let colStart = (musicalOf(beatPos, stepBeats: S, a: a) / S).rounded(.down) * S
+                let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
                 let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 while strumProgress[vr] < count {
                     let j = strumProgress[vr]
@@ -2583,7 +2583,7 @@ final class Router {
                                   filter: UInt8, busMask: UInt8, mNow: Double, beatPos: Double, beatsPerSample: Double,
                                   S: Double, a: Double, windowStart: Int64, windowEnd: Int64, pool: NotePool,
                                   out: MIDIEmitter?, diag: inout KernelDiag) {
-        let colStart = (mNow / S).rounded(.down) * S
+        let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         let prob = isChance ? effectiveProbability(colour, t: t) : 1

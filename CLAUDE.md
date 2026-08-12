@@ -179,6 +179,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ COVERAGE + REFACTOR PASS — pool-aware/MOD/Dice tests + `columnStart` extraction (2026-08-12, on `main`, PUSHED
+  next; macOS 603 green, iOS builds). Two parallel survey agents (missing tests · safe refactors), every finding
+  VERIFIED against the code before acting. **+9 TESTS** closing real gaps: (Router) `testChanceWeightBiasesEmitted-
+  Notes` + `testStrumSpreadNormWidensTheRakeWhenPerNote` — prove the ENGINE actually READS `chanceTilt`/`strumSpread-
+  Norm` (the pure math was tested but a dropped `normalize:`/tilt arg would've slipped past every test); (builder)
+  `testPoolAwareParamsResolveAndClamp` — the ColourParams→SnapParams copy + `chanceTilt` −1…1 clamp; (Dice)
+  `testEffectiveChainAppliesButtons` — the BUTTON branch of `chain(buttonOn:)` (only sliders/manual-buttons were
+  exercised); (Derivations) `testColumnStartFloorsToTheStepGrid`, `testModFollowDensityProxy`, `testModStepsWrapAnd-
+  Guard` (SMOOTH (i+1)%8 wrap + <8-step guard), `testCcDefaultRestingValues` (was entirely untested), `testChance-
+  PassesPoolSingleNoteNoTrap` (count=1 skips the tilt divide-by-(count−1)). **REFACTOR** (behaviour-identical): the
+  `(beat / S).rounded(.down) * S` column-start idiom (repeated 13× in Router's hot path) extracted to a pure
+  `@inline(__always) columnStart(_:_:)` in Derivations (matches `clamp`/`positiveFract`/`splitmix64Mix`; now unit-
+  tested); +2 stale morph comments fixed (SnapshotBuilder/Snapshot referenced removed `b`/`tier`/`morph` fields).
+  DELIBERATELY SKIPPED (flagged): the BuildPage micro-dedups (rail-spacer/grid-width — volatile file, Paul's active
+  WIP) and the cross-file piano-key constants (low value); no dead code proposed (consistent with prior audits — the
+  inert items are reserved/decode/test-covered).**
 - **▶ THE BUILD PAGE — LEFT COLUMN WIRED to the engine (2026-08-12, on `main`, PUSHED next; iOS builds; DEVICE ear/eye
   owed). First real wiring slice per the approved plan (`~/.claude/plans/resilient-imagining-truffle.md`) — the left
   column (the machine's I/O + cast + audition) now drives the live document via the existing device-verified DragDrop/AU

@@ -54,7 +54,7 @@ struct SnapCell {
     var chopActive = false           // fast-path: any slice deviates from all-MAIN
     // CELL MACHINE (feat/EditPageSpike): the resolved processor CHAIN — one SnapParams per slot, head first,
     // resolved from the cell's `processors` (or a 1-slot head from the Colour's A face when the cell has none).
-    // `slotBypass[k]` = slot k's true-bypass. Morph is dropped (SnapColour.a/b/tier/morph go dormant). The
+    // `slotBypass[k]` = slot k's true-bypass. (Morph removed — SnapColour carries only the single A face.) The
     // head-only stage-1 reads `proc` (== procs[0]) and `bypassed` (== slotBypass[0]); stage-2 runs the whole
     // chain in series (Router pipeline) with only the TAIL emitting.
     var procs: [SnapParams] = [SnapParams()]

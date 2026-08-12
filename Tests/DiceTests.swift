@@ -68,4 +68,25 @@ final class DiceTests: XCTestCase {
             XCTAssertEqual(Dice.getD(full[m.slot], m.param), m.alt, accuracy: 1e-9, "slider 0 at 1.0 reaches its alt value")
         }
     }
+
+    // The BUTTON branch of chain(buttonOn:) — the path the live engine actually calls for a toggle (the existing tests
+    // only drive sliders through chain(), or apply buttons MANUALLY). Composing all buttons ON must equal applying each
+    // op to the base, and a switchType button must set its slot's type.
+    func testEffectiveChainAppliesButtons() {
+        var rng = DiceRNG(seed: 0x0B77)
+        let r = Dice.roll(target: 5, using: &rng)
+        guard !r.buttons.isEmpty else { return XCTFail("a roll yields button macros") }
+        let composed = r.chain(sliderVals: [0, 0, 0, 0], buttonOn: Array(repeating: true, count: r.buttons.count))
+        var expected = r.base
+        for b in r.buttons {
+            switch b.op {
+            case .bypass(let k):            if k < expected.count { expected[k].bypassed.toggle() }
+            case .switchType(let k, let t): if k < expected.count { expected[k].type = t }
+            }
+        }
+        XCTAssertEqual(composed, expected, "chain(buttonOn:) applies each button's op through the composition path")
+        for b in r.buttons { if case .switchType(let k, let t) = b.op, k < composed.count {
+            XCTAssertEqual(composed[k].type, t, "switchType button sets slot \(k)'s type")
+        } }
+    }
 }

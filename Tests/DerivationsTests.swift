@@ -1566,6 +1566,47 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modStepsUnipolar(steps, phase: 0.13,  smooth: false), 1, accuracy: 1e-9, "step 1 high")
         XCTAssertEqual(modStepsUnipolar(steps, phase: 0.0625, smooth: true), 0.5, accuracy: 0.05, "SMOOTH interpolates between steps")
     }
+    // columnStart floors a beat to the step grid (the shared spelling of the Router's column-start idiom).
+    func testColumnStartFloorsToTheStepGrid() {
+        XCTAssertEqual(columnStart(0.0, 0.5), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(columnStart(0.49, 0.5), 0.0, accuracy: 1e-9)
+        XCTAssertEqual(columnStart(0.5, 0.5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(columnStart(1.3, 0.5), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(columnStart(2.0, 1.0), 2.0, accuracy: 1e-9)
+        XCTAssertEqual(columnStart(2.9, 1.0) + 1.0, 3.0, accuracy: 1e-9, "the +S end-of-column form")
+    }
+    // .density is the v1 pool-fullness proxy (count/8, clamped) — documents the interim so a true event-rate change shows as a test edit.
+    func testModFollowDensityProxy() {
+        XCTAssertEqual(modFollowUnipolar(.density, count: 4, meanNote: 60, meanVel: 100), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.density, count: 8, meanNote: 60, meanVel: 100), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(modFollowUnipolar(.density, count: 16, meanNote: 60, meanVel: 100), 1.0, accuracy: 1e-9, "clamped at 1")
+    }
+    // modStepsUnipolar edges: a <8-step array returns 0 (guard); SMOOTH wraps step 7 → step 0 via (i+1)%8.
+    func testModStepsWrapAndGuard() {
+        XCTAssertEqual(modStepsUnipolar([1, 2, 3], phase: 0.5, smooth: false), 0, accuracy: 1e-9, "short array (<8) → 0")
+        let steps = [0, 0, 0, 0, 0, 0, 0, 127]
+        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.9375, smooth: true), 0.5, accuracy: 0.02, "SMOOTH wraps step 7 → step 0")
+    }
+    // ccDefault — the resting value a MOD target reverts to when abandoned (so a sweep past CC7 doesn't leave volume down).
+    func testCcDefaultRestingValues() {
+        XCTAssertEqual(ccDefault(7), 127, "volume → full")
+        XCTAssertEqual(ccDefault(11), 127, "expression → full")
+        XCTAssertEqual(ccDefault(74), 127, "cutoff → full")
+        XCTAssertEqual(ccDefault(10), 64, "pan → centre")
+        XCTAssertEqual(ccDefault(8), 64, "balance → centre")
+        XCTAssertEqual(ccDefault(1), 0, "everything else → off")
+        XCTAssertEqual(ccDefault(64), 0, "sustain → off")
+    }
+    // chancePassesPool: a SINGLE-note pool skips the tilt branch (count > 1) — no divide-by-(count−1) — and equals plain chancePasses.
+    func testChancePassesPoolSingleNoteNoTrap() {
+        for tilt in [-1.0, 0.0, 0.9] {
+            for beat in stride(from: 0.0, through: 1.0, by: 0.25) {
+                XCTAssertEqual(chancePassesPool(beat: beat, note: 60, rank: 0, count: 1, probability: 0.5, tilt: tilt, constantDensity: false),
+                               chancePasses(beat: beat, note: 60, probability: 0.5),
+                               "count 1: tilt is a no-op; equals plain chancePasses")
+            }
+        }
+    }
     func testModStrikeEnvelope() {
         XCTAssertEqual(modStrikeUnipolar(t: 0,    attack: 0.5, release: 1.0), 0,   accuracy: 1e-9)
         XCTAssertEqual(modStrikeUnipolar(t: 0.25, attack: 0.5, release: 1.0), 0.5, accuracy: 1e-9, "rising")

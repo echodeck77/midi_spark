@@ -10,10 +10,8 @@ enum SnapshotBuilder {
     static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
         let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
-        // ---- colours: resolve A (procA); B = this Colour's OWN procB (delta item 8, two-processor model).
-        //      typeB == nil ⇒ B-less ⇒ b = a, tier none. paramsB is resolved with fallback A, so a SPARSE
-        //      procB inherits A's fields. tier gates render glide (full = same type) vs flip (swap). The old
-        //      partner-Colour lookup (altColour) retires — it stays a decode-only legacy key for migration. ----
+        // ---- colours: resolve each Colour's single (A) param bag + its ON assignments (the A/B morph layer was
+        //      removed — SnapColour no longer carries b/tier/morph; paramsB/typeB stay decode-only legacy keys). ----
         var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
         for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
             var sc = SnapColour()

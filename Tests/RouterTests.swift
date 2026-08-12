@@ -257,6 +257,36 @@ final class RouterTests: XCTestCase {
         func ons(_ notes: [UInt8]) -> Int { let e = RecordingEmitter(); run(b, chord(notes), beats: 8, into: e); return e.ons.filter { $0.cable == 1 }.count }
         XCTAssertGreaterThan(ons([60, 64, 67, 71, 74, 77]), ons([60, 64]), "a 6-note chord fits faster → more ticks than a 2-note")
     }
+    // CHANCE → WEIGHT/tilt RENDERED (not just the pure fn): with prob 0.5, +tilt drives the TOP note's p→1 (always
+    // sounds) and the BOTTOM's p→0 (dropped); −tilt reverses. Proves the router READS chanceTilt at the hold path.
+    func testChanceWeightBiasesEmittedNotes() {
+        func topBot(_ tilt: Double) -> (top: Int, bot: Int) {
+            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+            cs[gi].type = .chance; cs[gi].paramsA.probability = 0.5; cs[gi].paramsA.chanceTilt = tilt
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 62, 64, 65, 67, 69]), beats: 4, into: e)
+            return (e.ons.filter { $0.cable == 1 && $0.note == 69 }.count,
+                    e.ons.filter { $0.cable == 1 && $0.note == 60 }.count)
+        }
+        let up = topBot(1.0)
+        XCTAssertGreaterThan(up.top, 0, "+tilt: the top note (p→1) sounds")
+        XCTAssertEqual(up.bot, 0, "+tilt: the bottom note (p→0) is dropped")
+        let down = topBot(-1.0)
+        XCTAssertEqual(down.top, 0, "−tilt: the top note is dropped")
+        XCTAssertGreaterThan(down.bot, 0, "−tilt: the bottom note sounds")
+    }
+    // STRUM → WIDTH RENDERED: PER-NOTE (strumSpreadNorm=false) spreads the rake WIDER than EVEN, so the last onset
+    // lands LATER. Proves the router threads `strumSpreadNorm` into strumOffset (a dropped arg would fail here).
+    func testStrumSpreadNormWidensTheRakeWhenPerNote() {
+        func lastOnset(_ norm: Bool) -> Int64 {
+            var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+            cs[gi].type = .strum; cs[gi].paramsA.spread = 0.5; cs[gi].paramsA.strumSpreadNorm = norm
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 62, 64, 65, 67, 69]), beats: 1.9, into: e)
+            return e.ons.filter { $0.cable == 1 }.map { $0.sample }.max() ?? 0
+        }
+        XCTAssertGreaterThan(lastOnset(false), lastOnset(true), "PER-NOTE spreads the rake wider → later last onset")
+    }
     // DRONE = a LEGATO chord-hold (user 2026-08-10): placed across columns it HOLDS continuously (NO re-strike per
     // step) and is SILENT where no drone cell is (playhead-dependent). gold=drone in cols 0..3; hold a chord one pass.
     func testDroneIsALegatoHoldAcrossItsColumns() {
