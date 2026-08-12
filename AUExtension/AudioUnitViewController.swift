@@ -92,6 +92,9 @@ struct DiagView: View {
     @State var buildVerb: BuildVerb? = .place   // BUILD lands with PLACE armed (user 2026-08-12)
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
+    @State var buildStagingMode: BuildGridMode = .edit   // the staging grid's PLAY/EDIT radio (header, above the grid)
+    @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
+    @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)

@@ -52,6 +52,7 @@ private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
+enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (styled like PART 1 ▾)
 
 extension DiagView {
 
@@ -285,6 +286,22 @@ extension DiagView {
         }
     }
 
+    // The per-grid PLAY/EDIT radio — two chips styled exactly like the PART 1 ▾ header (size-10 heavy mono, h26,
+    // buildPanel), RIGHT-aligned so it sits at PART 1's row above each grid. The active side fills cyan.
+    @ViewBuilder private func buildGridModeRadio(_ mode: Binding<BuildGridMode>) -> some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            ForEach([BuildGridMode.play, .edit], id: \.self) { m in
+                Text(m.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(mode.wrappedValue == m ? .black : buildDim)
+                    .padding(.horizontal, 10).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(mode.wrappedValue == m ? buildCyan : buildPanel))
+                    .contentShape(Rectangle())
+                    .onTapGesture { mode.wrappedValue = m }
+            }
+        }
+    }
+
     // The selected door's MIDI-IN CHANNEL box (keyboard-sized) — tap opens a channel selector (OMNI · CH 1–16).
     @ViewBuilder private func buildChannelBox(receiver i: Int, channel: Int) -> some View {
         Menu {
@@ -435,7 +452,7 @@ extension DiagView {
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildSelectStagingVoice() }))
-            Color.clear.frame(height: cell / 2)                   // a little breathing room above the grid (≈ half a cell)
+            buildGridModeRadio($buildStagingMode)                 // PLAY/EDIT radio, right-aligned, at PART 1 ▾'s row
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
             Spacer(minLength: 0)
@@ -458,7 +475,10 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildFillStagingRow($0) }   // press a row button → fill that row with the selected colour
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a row button …
+                if buildVerb == .delete { buildDeleteStagingRow(row) }                      // DELETE armed → clear the row (2nd press restores)
+                else { buildFillStagingRow(row) }                                           // else → fill it with the selected colour
+            }
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
                 VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
@@ -498,7 +518,22 @@ extension DiagView {
     private func buildFillStagingRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         for c in 0..<8 { buildStagingCells[c][row] = cid }
+        buildDeletedRows[row] = nil                            // a fresh fill discards any pending "restore" for this row
         buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
+    }
+
+    // DELETE verb + a staging ROW button: first press empties every cell in the row (settings cleared); a second
+    // press RESTORES the row to exactly what it held. (user 2026-08-12)
+    private func buildDeleteStagingRow(_ row: Int) {
+        guard row >= 0, row < 8 else { return }
+        if let saved = buildDeletedRows[row] {                 // 2nd press → restore
+            for c in 0..<8 { buildStagingCells[c][row] = c < saved.count ? saved[c] : nil }
+            buildDeletedRows[row] = nil
+        } else {                                                // 1st press → save + clear
+            buildDeletedRows[row] = (0..<8).map { buildStagingCells[$0][row] }
+            for c in 0..<8 { buildStagingCells[c][row] = nil }
+        }
+        buildStagingSyncIfPlaying()
     }
 
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
@@ -594,7 +629,7 @@ extension DiagView {
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            Color.clear.frame(height: cell / 2)                   // a little breathing room above the grid (≈ half a cell), matching staging
+            buildGridModeRadio($buildPlayMode)                    // PLAY/EDIT radio, right-aligned, at PART 1 ▾'s row
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
