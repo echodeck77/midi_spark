@@ -912,10 +912,10 @@ struct DiagView: View {
             // gestures (a held verb, MUTE arm) so state can't leak across tabs.
             editArmed = (tab == .processors || tab == .dragDrop || tab == .build)   // DRAG&DROP + BUILD reuse the per-cell flow-diagram machinery
             if tab != .grid { heldVerb = nil }
-            if tab != .dragDrop && ddSolo { ddSolo = false; au?.clearColourSolo() }   // don't leave the app soloed on a colour
+            if tab != .dragDrop && tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS CELL/MACHINE) is shared by DD+BUILD; only clear it leaving both
             if tab != .dragDrop && ddDeleteMode { ddDeleteMode = false; ddDeleteStashCells = [:]; ddDeleteStashColours = [:] }   // don't leave delete mode armed
             ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
-            if tab == .dragDrop { ddEnsureSelection() }            // open the page with a colour selected (GOLD by default, user 2026-08-09)
+            if tab == .dragDrop || tab == .build { ddEnsureSelection() }   // open the page with a colour selected (GOLD by default, user 2026-08-09)
         }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
