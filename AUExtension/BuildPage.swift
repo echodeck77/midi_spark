@@ -509,6 +509,7 @@ extension DiagView {
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? buildCell)
                                     .frame(width: cell, height: cell)
+                                    .opacity(buildStagingMode == .play && !selected ? 0.3 : 1)   // PLAY mode dims every cell except the selected one
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .contentShape(Rectangle())
