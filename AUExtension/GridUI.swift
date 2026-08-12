@@ -1234,6 +1234,7 @@ struct ProcessorBox: View {
     var onRemove: (() -> Void)? = nil                   // nil = not removable (the head slot)
     var onMacro: (() -> Void)? = nil                    // slotMode: the MACRO button → the authoring flow (spec macro-authoring)
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
+    var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
@@ -1250,7 +1251,7 @@ struct ProcessorBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: slotMode ? 14 : 6) {
-            titleRow
+            if !slotMode || showSlotChrome { titleRow }   // BUILD supplies its own header → hide the built-in title row
             if mixed {
                 mixedFace                                // MIXED-SET: no honest Colour-level edit for a multi-Colour set
             } else {

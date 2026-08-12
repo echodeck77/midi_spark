@@ -60,7 +60,10 @@ extension DiagView {
         // column width → SwiftUI's fatal "Invalid frame dimension" (the plugin fails to load in AUM). Draw nothing
         // until a real, finite size arrives.
         if size.width.isFinite, size.height.isFinite, size.width > 80, size.height > 80 {
-            if size.width > size.height { buildLandscape(size) } else { buildPortrait(size) }
+            ZStack {
+                if size.width > size.height { AnyView(buildLandscape(size)) } else { AnyView(buildPortrait(size)) }
+                if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
+            }
         } else {
             Color.clear
         }
@@ -656,7 +659,8 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             ForEach(0..<8, id: \.self) { i in                     // UP TO 8 processor slots (the chain's capacity)
                 if i < chain.count {
-                    buildSlot(chain[i].type.rawValue, colour: buildSelHue)   // a real processor — the selected colour
+                    buildSlot(chain[i].type.rawValue, colour: buildSelHue, bypassed: chain[i].bypassed)   // a real processor — the selected colour
+                        .onTapGesture { buildEditSlot = i }       // touch → open the processor pop-up editor
                 } else if i == chain.count {
                     buildSlot("+", dashed: true)                  // the add-processor ghost (editing wires later)
                 } else {
@@ -742,7 +746,7 @@ extension DiagView {
     }
     // A processor slot in the footer chain. `colour` fills a REAL processor with the selected colour; else a dashed
     // empty/ghost slot. Boxes are a little bigger than before (50×40).
-    @ViewBuilder private func buildSlot(_ s: String, dashed: Bool = false, colour: Color? = nil) -> some View {
+    @ViewBuilder private func buildSlot(_ s: String, dashed: Bool = false, colour: Color? = nil, bypassed: Bool = false) -> some View {
         Text(s).font(.system(size: 9, weight: colour != nil ? .heavy : .regular, design: .monospaced))
             .foregroundColor(colour != nil ? .black : (dashed ? buildSelHue : .white))   // dashed capacity/ghost slots = the SELECTED colour
             .lineLimit(1).minimumScaleFactor(0.6)
@@ -750,5 +754,97 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 7).fill(colour ?? (dashed ? Color.clear : buildCell)))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(colour != nil ? Color.clear : (dashed ? buildSelHue : Color(white: 0.15)),
                                                               style: StrokeStyle(lineWidth: dashed ? 1.3 : 1, dash: dashed ? [4] : [])))
+            .overlay(bypassed ? RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.45)) : nil)   // a BYPASSED processor reads dimmed
+            .opacity(bypassed ? 0.7 : 1)
+    }
+
+    // ── PROCESSOR POP-UP EDITOR ──────────────────────────────────────────────────────────────────────────────────
+    // Touching a footer processor opens this large, colour-tinted pop-up showing ALL of that processor's controls
+    // (reusing ProcessorBox in slotMode). The dimmed scrim closes on tap, but leaves the FOOTER exposed & live — so
+    // touching another processor switches straight to its editor. DELETE PROCESSOR + BYPASS sit at the top. (user 2026-08-12)
+    @ViewBuilder private func buildProcessorEditor(slot: Int, size: CGSize) -> some View {
+        let chain = selectedColourChain()
+        let footerReserve = BuildGeom.barH + 26                // keep the footer strip uncovered → still tappable to switch processors
+        if slot < chain.count, let cid = ddSelectedColourID {
+            ZStack {
+                VStack(spacing: 0) {                            // scrim closes on tap — but NOT over the footer
+                    Color.black.opacity(0.55).contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
+                    Color.clear.frame(height: footerReserve)
+                }
+                .ignoresSafeArea()
+                buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, size: size)
+                    .padding(.bottom, footerReserve)
+            }
+        }
+    }
+
+    @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, size: CGSize) -> some View {
+        let hue = buildSelHue
+        let panelW = min(560, size.width - 80)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {                               // HEADER: colour + name · BYPASS · DELETE PROCESSOR
+                RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
+                Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
+                Text(proc.type.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                Spacer()
+                Button { buildChainToggleBypass(slot) } label: {
+                    Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(proc.bypassed ? .black : .white)
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(proc.bypassed ? hue : Color.white.opacity(0.14)))
+                }.buttonStyle(.plain)
+                Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
+                    Text("DELETE PROCESSOR").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.85)))
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background(hue.opacity(0.22))
+            Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
+            ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
+        }
+        .frame(width: panelW).frame(maxHeight: size.height * 0.82)
+        .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+        .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the scrim (close)
+    }
+
+    // ProcessorBox for a BUILD colour-template slot — mirrors DiagView.slotBox but writes COLOUR-scoped (the selected
+    // colour's templateChain via withChainColour). Our own header carries Delete/Bypass, so the box's chrome is hidden.
+    @ViewBuilder private func buildSlotBox(_ i: Int, _ slot: ProcessorSlot, cid: String) -> some View {
+        let sc: Colour = { var c = Colour(colourID: cid, type: slot.type); c.paramsA = slot.params; return c }()
+        ProcessorBox(
+            colour: sc, colourIndex: -1, face: .a,
+            onEdit: { mutate in
+                buildChainEditSlot(i) { s in
+                    var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
+                    mutate(&tmp); s.params = tmp.paramsA
+                }
+            },
+            onTranspose: { _ in }, onMorph: { _ in },
+            onSetTypeA: { t in buildChainSetType(i, t) },
+            height: 260, slotMode: true, slotBypassed: slot.bypassed,
+            accentOverride: buildSelHue,
+            passHead: d.playing ? (d.pass & 3) : -1,
+            onBypass: { buildChainToggleBypass(i) },
+            onRemove: { buildChainRemoveSlot(i); buildEditSlot = nil },
+            onMacro: nil, plainTitle: true, showSlotChrome: false)
+    }
+
+    // BUILD chain edits — colour-scoped: they write the SELECTED colour's template chain (its machine).
+    private func buildChainEditSlot(_ i: Int, _ mutate: @escaping (inout ProcessorSlot) -> Void) {
+        guard let cid = ddSelectedColourID else { return }
+        au?.withChainColour(cid) { if i < $0.count { mutate(&$0[i]) } }
+        refreshFromDocument()
+    }
+    private func buildChainToggleBypass(_ i: Int) { buildChainEditSlot(i) { $0.bypassed.toggle() } }
+    private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i) { $0.type = t } }
+    private func buildChainRemoveSlot(_ i: Int) {
+        guard let cid = ddSelectedColourID else { return }
+        au?.withChainColour(cid) { if i < $0.count { $0.remove(at: i) } }
+        refreshFromDocument()
     }
 }
