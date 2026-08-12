@@ -291,6 +291,7 @@ extension DiagView {
                     }
                 }
             }
+            .frame(width: g.size.width, height: 52, alignment: .topLeading)   // EXPAND to the full row so offset keys stay in-bounds & hittable
         }
         .frame(height: 52)
         .padding(.vertical, 2)
@@ -301,14 +302,16 @@ extension DiagView {
     // The per-receiver SOURCE toggle flanking the piano: a DIN connector (MIDI in) on the left, the in-app piano on
     // the right — piano-height, half an R1 button wide. The active side is filled cyan.
     @ViewBuilder private func buildSourceToggle(_ icon: String, active: Bool, width: CGFloat, rotate: Bool = false, action: (() -> Void)? = nil) -> some View {
-        Image(systemName: icon).font(.system(size: 18, weight: .semibold))
-            .rotationEffect(.degrees(rotate ? 90 : 0))
-            .foregroundColor(active ? .black : buildDim)
-            .frame(width: width, height: 52)
-            .background(RoundedRectangle(cornerRadius: 7).fill(active ? buildCyan : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(active ? 0 : 0.4), lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { action?() }
+        Button { action?() } label: {                        // a Button (not onTapGesture) — reliable hit-testing on this small target
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold))
+                .rotationEffect(.degrees(rotate ? 90 : 0))
+                .foregroundColor(active ? .black : buildDim)
+                .frame(width: width, height: 52)
+                .background(RoundedRectangle(cornerRadius: 7).fill(active ? buildCyan : buildCell))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(active ? 0 : 0.4), lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // OCT −/+ buttons under the piano (octave shift for the selected PIANO door).
