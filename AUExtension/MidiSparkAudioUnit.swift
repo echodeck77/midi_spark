@@ -131,6 +131,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // materialise the legacy A face on first edit
     }
     private func passthroughTemplateSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }   // all-bypassed ≡ empty ≡ passthrough
+    /// Does this colour carry its OWN stored chain? A nil templateChain falls back to the legacy A-face (an arp, for
+    /// the default colours) — BUILD reads this straight off `document` (NOT the polled `docColours` mirror, which is
+    /// empty on first appear) to convert a bare colour to an explicit passthrough at load. (user 2026-08-12)
+    func colourHasStoredChain(_ colourID: String) -> Bool { document.colours.first { $0.colourID == colourID }?.templateChain != nil }
     /// Mutate the colour's chain and clear the per-cell overrides of every cell of that colour (all scenes) so they
     /// inherit it. An empty result stores a single bypassed slot = the born-audible passthrough (an empty template
     /// would fall through to the legacy face). ONE undoable document edit.

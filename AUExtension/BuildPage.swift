@@ -211,9 +211,8 @@ extension DiagView {
         // A-face — and every default colour is type .arp, so auditioning it plays an arp the user can't see in the
         // (empty) chain. Convert that implicit arp into an EXPLICIT passthrough once, so what you hear matches the
         // shown-empty chain (unprocessed MIDI). Only fires when templateChain is nil → no churn on real chains. (user 2026-08-12)
-        if let cid = ddSelectedColourID,
-           let c = docColours.first(where: { $0.colourID == cid }), c.templateChain == nil {
-            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()
+        if let cid = ddSelectedColourID, au?.colourHasStoredChain(cid) == false {
+            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // read the LIVE document (docColours is empty on first appear)
         }
         ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
@@ -497,9 +496,9 @@ extension DiagView {
                     if idx > 0 { partDivider(line: true) }         // the DIVIDING LINE lives here, between the row buttons
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 7).fill(hue)   // staging row selector = the SELECTED colour (full)
+                            RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(0.4))   // MATCH the loop-key headers (white on cyan)
                                 .frame(width: cell, height: cell)
-                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.black))
+                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.9)))
                         }
                     }
                 }
@@ -738,11 +737,11 @@ extension DiagView {
     // empty/ghost slot. Boxes are a little bigger than before (50×40).
     @ViewBuilder private func buildSlot(_ s: String, dashed: Bool = false, colour: Color? = nil) -> some View {
         Text(s).font(.system(size: 9, weight: colour != nil ? .heavy : .regular, design: .monospaced))
-            .foregroundColor(colour != nil ? .black : (dashed ? buildDim : .white))
+            .foregroundColor(colour != nil ? .black : (dashed ? buildSelHue : .white))   // dashed capacity/ghost slots = the SELECTED colour
             .lineLimit(1).minimumScaleFactor(0.6)
             .frame(width: 50, height: 40)
             .background(RoundedRectangle(cornerRadius: 7).fill(colour ?? (dashed ? Color.clear : buildCell)))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(colour != nil ? Color.clear : (dashed ? buildDim : Color(white: 0.15)),
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(colour != nil ? Color.clear : (dashed ? buildSelHue : Color(white: 0.15)),
                                                               style: StrokeStyle(lineWidth: dashed ? 1.3 : 1, dash: dashed ? [4] : [])))
     }
 }
