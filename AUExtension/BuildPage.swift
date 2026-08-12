@@ -425,7 +425,7 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8])     // cell-sized ROW BUTTONS on the LEFT (staging = one group of 8)
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildFillStagingRow($0) }   // press a row button → fill that row with the selected colour
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
                 VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
@@ -457,6 +457,13 @@ extension DiagView {
         case .delete: buildStagingCells[c][r] = nil
         default: break
         }
+    }
+
+    // Press a staging ROW button → fill every cell in that row with the SELECTED colour (which carries its machine/
+    // settings — the stocked cell references the colourID). (user 2026-08-12)
+    private func buildFillStagingRow(_ row: Int) {
+        guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
+        for c in 0..<8 { buildStagingCells[c][row] = cid }
     }
 
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
@@ -498,17 +505,20 @@ extension DiagView {
     // ROW BUTTONS — a cell-sized selector per grid row on the LEFT edge; shared by both grids. `bands` is the row
     // grouping (staging = [8]; play = [3,2,1,1,1]) so the buttons carry the SAME part dividers as the grid → they align
     // row-for-row. A top spacer clears the loop-key row.
-    @ViewBuilder private func buildRowButtons(cell: CGFloat, hue: Color, bands: [Int]) -> some View {
+    @ViewBuilder private func buildRowButtons(cell: CGFloat, hue: Color, bands: [Int], onRow: ((Int) -> Void)? = nil) -> some View {
         VStack(spacing: BuildGeom.cellGap) {
             Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             VStack(spacing: 0) {
                 ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
                     if idx > 0 { partDivider(line: true) }         // the DIVIDING LINE lives here, between the row buttons
+                    let base = bands.prefix(idx).reduce(0, +)      // absolute grid-row offset for this band
                     VStack(spacing: BuildGeom.cellGap) {
-                        ForEach(0..<rows, id: \.self) { _ in
+                        ForEach(0..<rows, id: \.self) { r in
                             RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(0.4))   // MATCH the loop-key headers (white on cyan)
                                 .frame(width: cell, height: cell)
                                 .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.9)))
+                                .contentShape(Rectangle())
+                                .onTapGesture { onRow?(base + r) }  // press → fill that whole grid row
                         }
                     }
                 }
