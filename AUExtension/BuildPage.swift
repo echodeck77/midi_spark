@@ -464,11 +464,8 @@ extension DiagView {
             buildBox("A: MIDI OUT", "ch1")
         }
         .frame(maxWidth: .infinity)                               // centre the chain in the footer
-        .overlay(alignment: .leading) {                          // RANDOMIZE + MUTATE pinned to the LEFT
-            HStack(spacing: 10) {
-                buildFooterBtn("🎲 RANDOMIZE", pink: true)
-                buildFooterBtn("MUTATE")
-            }
+        .overlay(alignment: .leading) {                          // RANDOMIZE pinned to the LEFT (footer MUTATE removed — the staging strip's MUTATE is THE mutate, iteration 5 §2)
+            buildFooterBtn("🎲 RANDOMIZE", pink: true)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
