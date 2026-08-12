@@ -203,9 +203,18 @@ extension DiagView {
     // PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID are a RADIO — the ONE workshop voice, DEFAULTING to the MACHINE
     // (`buildStagingPlaying == false`). Selecting one deselects the other; the visual always follows the flag so the
     // buttons never appear dead. The MACHINE side also engages the audition (best-effort — needs a selected colour).
-    private func buildSelectMachineVoice() {
+    // Internal so the VC can engage it on BUILD appear (so the default machine voice actually SOLOS — never the whole grid).
+    func buildSelectMachineVoice() {
         buildStagingPlaying = false                              // machine is the voice (staging off)
         ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
+        // A colour that was never given a chain has a nil templateChain, which the engine resolves via the LEGACY
+        // A-face — and every default colour is type .arp, so auditioning it plays an arp the user can't see in the
+        // (empty) chain. Convert that implicit arp into an EXPLICIT passthrough once, so what you hear matches the
+        // shown-empty chain (unprocessed MIDI). Only fires when templateChain is nil → no churn on real chains. (user 2026-08-12)
+        if let cid = ddSelectedColourID,
+           let c = docColours.first(where: { $0.colourID == cid }), c.templateChain == nil {
+            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()
+        }
         ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
     private func buildSelectStagingVoice() {
@@ -222,9 +231,11 @@ extension DiagView {
     }
 
     // The selected colour's OWN processors (its templateChain) — shown on the footer; EMPTY for a new colour.
+    // A stored passthrough placeholder (all-bypassed — how a blank/new colour is persisted) shows as NO processors.
     private func selectedColourChain() -> [ProcessorSlot] {
         guard let cid = ddSelectedColourID, let c = docColours.first(where: { $0.colourID == cid }) else { return [] }
-        return c.templateChain ?? []
+        let chain = c.templateChain ?? []
+        return chain.allSatisfy { $0.bypassed } ? [] : chain
     }
 
     @ViewBuilder private func buildPartHeader() -> some View {
@@ -348,7 +359,7 @@ extension DiagView {
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                     .opacity(i == ddColourSel ? 1 : 0))
                 .contentShape(Rectangle())
-                .onTapGesture { shown ? ddSelectColour(i) : ddCreateColour(i) }
+                .onTapGesture { shown ? ddSelectColour(i) : buildCreateColour(i) }
         } else {
             // beyond the 16 model colours: still a "+" that CREATES the next undefined colour (the palette caps at 16).
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
@@ -361,7 +372,18 @@ extension DiagView {
 
     // Create the next undefined colour (a "+" cast slot beyond the 16 model colours taps this; no-op when all 16 exist).
     private func buildCreateNextColour() {
-        for j in 0..<colourIDs.count where !ddColourShown(j) { ddCreateColour(j); return }
+        for j in 0..<colourIDs.count where !ddColourShown(j) { buildCreateColour(j); return }
+    }
+
+    // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
+    // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default colour is type
+    // .arp, so it would play an arp the user can't see in the (empty) chain. Store a passthrough placeholder so the
+    // audio matches the shown-empty chain. (user 2026-08-12)
+    private func buildCreateColour(_ i: Int) {
+        guard i < colourIDs.count else { return }
+        ddCreateColour(i)
+        au?.withChainColour(colourIDs[i]) { $0 = [] }          // [] → a bypassed-passgate passthrough (not the arp A-face)
+        refreshFromDocument()
     }
 
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────

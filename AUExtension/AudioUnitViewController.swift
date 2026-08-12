@@ -921,6 +921,7 @@ struct DiagView: View {
             if tab != .dragDrop && ddDeleteMode { ddDeleteMode = false; ddDeleteStashCells = [:]; ddDeleteStashColours = [:] }   // don't leave delete mode armed
             ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
             if tab == .dragDrop || tab == .build { ddEnsureSelection() }   // open the page with a colour selected (GOLD by default, user 2026-08-09)
+            if tab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // BUILD lands on PLAY THIS MACHINE → SOLO the machine (never the whole grid)
         }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
@@ -1090,7 +1091,10 @@ struct DiagView: View {
         // when our plugin view is hidden or the app is backgrounded — the render engine is untouched. onAppear/
         // onDisappear catch the host showing/hiding us; the notifications catch app background/foreground.
         .environment(\.animationsPaused, animationsPaused)
-        .onAppear { uiAppeared = true }
+        .onAppear {
+            uiAppeared = true
+            if activeTab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // land on BUILD already SOLOing the machine — never the whole grid
+        }
         .onDisappear { uiAppeared = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
