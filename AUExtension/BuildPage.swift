@@ -65,6 +65,8 @@ extension DiagView {
                 if size.width > size.height { AnyView(buildLandscape(size)) } else { AnyView(buildPortrait(size)) }
                 if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
                 if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
+                if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
+                if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
             }
         } else {
             Color.clear
@@ -351,8 +353,10 @@ extension DiagView {
 
     // The per-grid PLAY/EDIT radio — two chips styled exactly like the PART 1 ▾ header (size-10 heavy mono, h26,
     // buildPanel), RIGHT-aligned so it sits at PART 1's row above each grid. The active side fills cyan.
-    @ViewBuilder private func buildGridModeRadio(_ mode: Binding<BuildGridMode>) -> some View {
+    @ViewBuilder private func buildGridModeRadio(_ mode: Binding<BuildGridMode>, onEye: (() -> Void)? = nil) -> some View {
         HStack(spacing: 6) {
+            Image(systemName: "eye").font(.system(size: 13, weight: .semibold)).foregroundColor(buildCyan)   // LEFT: open this grid full-screen
+                .frame(height: 26).contentShape(Rectangle()).onTapGesture { onEye?() }
             Spacer(minLength: 0)
             ForEach([BuildGridMode.play, .edit], id: \.self) { m in
                 Text(m.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -526,7 +530,7 @@ extension DiagView {
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildSelectStagingVoice() }))
-            buildGridModeRadio($buildStagingMode)                 // PLAY/EDIT radio, right-aligned, at PART 1 ▾'s row
+            buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
                 .opacity(buildStagingMode == .play ? 0.35 : 1)    // PLAY mode disables the editing verbs
@@ -738,7 +742,7 @@ extension DiagView {
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            buildGridModeRadio($buildPlayMode)                    // PLAY/EDIT radio, right-aligned, at PART 1 ▾'s row
+            buildGridModeRadio($buildPlayMode) { buildPlayMode = .play; buildGridPopup = 1 }   // eye → full-screen perform grid (play mode)
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
@@ -866,6 +870,10 @@ extension DiagView {
         .padding(.horizontal, 14).padding(.top, 9)               // NO bottom padding — the boxes' bottom edge is the panel's bottom edge
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(alignment: .bottomTrailing) {                   // EYE (bottom-right) → the signal-flow diagram pop-up
+            Image(systemName: "eye").font(.system(size: 15, weight: .semibold)).foregroundColor(buildCyan)
+                .padding(10).contentShape(Rectangle()).onTapGesture { buildFlowOpen = true }
+        }
     }
 
     // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like buildActionBtn).
@@ -1079,6 +1087,70 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
             .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
             .contentShape(Rectangle()).onTapGesture { }           // swallow taps inside the panel
+        }
+    }
+
+    // ── SIGNAL-FLOW DIAGRAM POP-UP (footer eye) ──────────────────────────────────────────────────────────────────
+    // Reuses the PROCESSORS page's flow diagram (MIDI in → processor row → emitter row, one dotted thread) for the
+    // SELECTED colour's machine. Display-only for now; animation is a later slice. (user 2026-08-13)
+    @ViewBuilder private func buildFlowPopup(size: CGSize) -> some View {
+        let hue = buildSelHue
+        let w = min(1000, size.width - 80)
+        let cell: Cell = {
+            var c = Cell(colourID: ddSelectedColourID ?? "")
+            c.processors = selectedColourChain()                  // show exactly the footer chain (incl. empty "+" slots)
+            c.inputReceiver = buildSelReceiver
+            c.buses = ddSelectedColourBuses()
+            return c
+        }()
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildFlowOpen = false }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "eye").font(.system(size: 16, weight: .semibold)).foregroundColor(hue)
+                    Text("SIGNAL FLOW").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
+                    Spacer()
+                }
+                flowDiagram(cell, width: w).allowsHitTesting(false)   // the exact processors-page diagram — display-only
+            }
+            .padding(18)
+            .frame(width: w + 36)
+            .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+            .contentShape(Rectangle()).onTapGesture { }
+        }
+    }
+
+    // ── FULL-SCREEN GRID POP-UP (grid eye) ───────────────────────────────────────────────────────────────────────
+    // Shows JUST the respective grid (0 = staging, 1 = perform) at a large cell size, in PLAY mode. (user 2026-08-13)
+    @ViewBuilder private func buildGridPopupView(_ kind: Int, size: CGSize) -> some View {
+        let hue = buildSelHue
+        let popupW = min(920, size.width - 60)
+        let cell = max(30, min(70, (popupW - BuildGeom.cellGap * 9 - 24) / 10))   // 10-cell span (matches the perform grid)
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildGridPopup = nil }
+            VStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "eye").font(.system(size: 16, weight: .semibold)).foregroundColor(hue)
+                    Text(kind == 0 ? "STAGING GRID" : "PERFORM GRID").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
+                    Spacer()
+                }
+                if kind == 0 {
+                    AnyView(buildStagingGrid(cell: cell, hue: hue))
+                } else {
+                    AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
+                        buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])
+                        VStack(spacing: BuildGeom.cellGap) { buildLoopKeys(cell: cell); AnyView(buildPlayBands(cell: cell)) }
+                        buildRightPartButtons(cell: cell, hue: buildCyan)
+                    })
+                }
+            }
+            .padding(22)
+            .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+            .contentShape(Rectangle()).onTapGesture { }
         }
     }
 }
