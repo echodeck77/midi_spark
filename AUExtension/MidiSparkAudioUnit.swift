@@ -331,13 +331,22 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         kernel.setSoloColumn(col)
         return true
     }
+    /// BUILD: when the STAGING voice is playing, the engine renders THIS scene (the staging grid) in place of the
+    /// document's active scene — ephemeral, the document is NEVER touched (encode/persist read `document`). nil = off.
+    private var stagingRenderScene: SceneState? = nil
+    func setBuildStagingScene(_ scene: SceneState?) { stagingRenderScene = scene; scheduleRebuild() }
+
     /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
-    /// (unplaced-colour audition) injected at its empty slot. Never used by encode/persist (those read `document`).
+    /// (unplaced-colour audition) injected at its empty slot, or the BUILD staging grid override. Never used by
+    /// encode/persist (those read `document`).
     private func renderDoc() -> PluginState {
-        guard let p = previewSolo else { return document }
+        if stagingRenderScene == nil, previewSolo == nil { return document }
         var temp = document
         let si = temp.activeSceneResolved
-        if temp.scenes.indices.contains(si) { temp.scenes[si].setCell(p.col, p.row, p.cell) }
+        if temp.scenes.indices.contains(si) {
+            if let sc = stagingRenderScene { temp.scenes[si] = sc }            // STAGING grid overrides the played scene
+            if let p = previewSolo { temp.scenes[si].setCell(p.col, p.row, p.cell) }
+        }
         return temp
     }
 

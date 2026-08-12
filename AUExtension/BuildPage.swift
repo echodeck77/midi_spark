@@ -208,6 +208,7 @@ extension DiagView {
     // buttons never appear dead. The MACHINE side also engages the audition (best-effort — needs a selected colour).
     // Internal so the VC can engage it on BUILD appear (so the default machine voice actually SOLOS — never the whole grid).
     func buildSelectMachineVoice() {
+        au?.setBuildStagingScene(nil)                           // leave STAGING playback → the solo audits against the real scene
         buildStagingPlaying = false                              // machine is the voice (staging off)
         ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
         // A colour that was never given a chain has a nil templateChain, which the engine resolves via the LEGACY
@@ -220,9 +221,35 @@ extension DiagView {
         ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
     private func buildSelectStagingVoice() {
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // stop the machine audition
-        buildStagingPlaying = true                               // staging is the voice (engine-backed staging audio is a later slice)
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // stop the machine audition — the selected colour must NOT derive MIDI now
+        buildStagingPlaying = true                               // staging is the voice
+        au?.setBuildStagingScene(buildStagingScene())           // the engine now derives MIDI from the STAGING grid (the column under the playhead)
     }
+
+    // Build an EPHEMERAL scene from the staging grid: one cell per stocked slot, referencing that colour with
+    // processors=nil so it inherits the colour's machine (its settings); the colour's routing (emitters/input) is
+    // carried from its representative cell. Fresh SceneState.empty() → LADDER-free, so EVERY stocked cell in the
+    // playhead's column sounds, not a single rung. (user 2026-08-12)
+    private func buildStagingScene() -> SceneState {
+        var routing: [String: (buses: Set<Bus>, recv: Int)] = [:]   // per-colour routing, resolved OUTSIDE the scene build
+        for c in 0..<8 { for r in 0..<8 { if let cid = buildStagingCells[c][r], routing[cid] == nil {
+            let rep = ddRepresentativeCell(cid)
+            routing[cid] = (rep?.buses ?? [.a], rep?.inputReceiver ?? ddStickyReceiver)
+        } } }
+        var s = SceneState.empty()
+        for c in 0..<8 { for r in 0..<8 {
+            guard let cid = buildStagingCells[c][r] else { continue }
+            let rt = routing[cid] ?? ([.a], 0)
+            var cell = Cell(colourID: cid, buses: rt.buses.isEmpty ? [.a] : rt.buses)
+            cell.inputReceiver = max(0, min(3, rt.recv))
+            cell.processors = nil                               // inherit the colour's machine (its settings)
+            s.setCell(c, r, cell)
+        } }
+        return s
+    }
+
+    // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
+    private func buildStagingSyncIfPlaying() { if buildStagingPlaying { au?.setBuildStagingScene(buildStagingScene()) } }
 
     // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
     private func buildRandomizeSimple() {
@@ -457,6 +484,7 @@ extension DiagView {
         case .delete: buildStagingCells[c][r] = nil
         default: break
         }
+        buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
     }
 
     // Press a staging ROW button → fill every cell in that row with the SELECTED colour (which carries its machine/
@@ -464,6 +492,7 @@ extension DiagView {
     private func buildFillStagingRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         for c in 0..<8 { buildStagingCells[c][row] = cid }
+        buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
     }
 
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
@@ -799,15 +828,17 @@ extension DiagView {
                 Spacer()
                 Button { buildChainToggleBypass(slot) } label: {
                     Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(proc.bypassed ? .black : .white)
+                        .foregroundColor(.white)                  // white on black
                         .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(proc.bypassed ? hue : Color.white.opacity(0.14)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: 1))
                 }.buttonStyle(.plain)
                 Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
                     Text("DELETE PROCESSOR").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white)
+                        .foregroundColor(.red)                    // red on black
                         .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.85)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.7), lineWidth: 1))
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
