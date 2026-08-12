@@ -253,10 +253,53 @@ extension DiagView {
             let rt = routing[cid] ?? ([.a], 0)
             var cell = Cell(colourID: cid, buses: rt.buses.isEmpty ? [.a] : rt.buses)
             cell.inputReceiver = max(0, min(3, rt.recv))
-            cell.processors = nil                               // inherit the colour's machine (its settings)
+            cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil   // a STAGED row plays its own variation; else inherit the colour's machine
             s.setCell(c, r, cell)
         }
         return s
+    }
+
+    // STAGE THE GRID — from the selected colour's machine, generate 7 VARIATIONS; order all 8 (original + variations)
+    // by OUTPUT COMPLEXITY; lay one machine per row top→bottom (least→most complex), each row shaded lighter→darker;
+    // select the ORIGINAL's row in every column; switch to PLAY mode + play the staging grid. (user 2026-08-12)
+    private func buildStageTheGrid() {
+        guard let cid = ddSelectedColourID else { return }
+        var rng = SystemRandomNumberGenerator()
+        let base = selectedColourChain().filter { !buildIsEmptySlot($0) }
+        var machines: [[ProcessorSlot]] = [base.isEmpty ? [] : base]          // index 0 = the ORIGINAL
+        for _ in 0..<7 { machines.append(buildVaryChain(base, &rng)) }
+        func complexity(_ c: [ProcessorSlot]) -> Int { let e = Dice.evalRun(c); return e.sig.count * 100 + e.peak }   // output density
+        let ranked = machines.enumerated().sorted { complexity($0.element) < complexity($1.element) }   // ascending: least → most complex
+        var originalRow = 0
+        for (row, item) in ranked.enumerated() {
+            buildRowChain[row] = item.element
+            buildRowShade[row] = 0.7 - Double(row) / 7.0 * 1.4                 // +0.7 (lightest, top) → −0.7 (darkest, bottom)
+            if item.offset == 0 { originalRow = row }                          // where the original landed
+        }
+        for c in 0..<8 { for r in 0..<8 { buildStagingCells[c][r] = cid }; buildStagingSel[c] = originalRow }   // fill the grid; select the original's row everywhere
+        buildDeletedRows.removeAll(); buildPlacedOrig.removeAll()
+        buildStagingMode = .play                                              // auto-shift to PLAY mode
+        buildSelectStagingVoice()                                             // play the staging grid (publishes the scene)
+    }
+
+    // One VARIATION of `base`: 1–3 random mutations (insert / remove / retype / bypass a slot), guaranteed audible.
+    private func buildVaryChain(_ base: [ProcessorSlot], _ rng: inout SystemRandomNumberGenerator) -> [ProcessorSlot] {
+        var chain = base
+        if chain.isEmpty { chain = Dice.rollSimple(using: &rng) }
+        for _ in 0..<Int.random(in: 1...3, using: &rng) {
+            switch Int.random(in: 0..<4, using: &rng) {
+            case 0 where chain.count < 6:
+                if let s = Dice.rollSimple(using: &rng).first { chain.insert(s, at: Int.random(in: 0...chain.count, using: &rng)) }
+            case 1 where chain.count > 1:
+                chain.remove(at: Int.random(in: 0..<chain.count, using: &rng))
+            case 2:
+                let i = Int.random(in: 0..<chain.count, using: &rng); chain[i].type = ProcessorType.allCases.randomElement(using: &rng)!
+            default:
+                let i = Int.random(in: 0..<chain.count, using: &rng); chain[i].bypassed.toggle()
+            }
+        }
+        if chain.isEmpty || chain.allSatisfy({ $0.bypassed }) || Dice.signature(chain).isEmpty { chain = Dice.rollSimple(using: &rng) }
+        return chain
     }
 
     // Keep the per-column selection VALID: a selection pointing at an empty cell falls back to the topmost stocked cell
@@ -488,6 +531,8 @@ extension DiagView {
         }
         .frame(width: gridW).frame(height: 34)
         .background(RoundedRectangle(cornerRadius: 10).fill(buildPink))
+        .contentShape(Rectangle())
+        .onTapGesture { buildStageTheGrid() }
     }
 
     // the staging 8×8 (row rail · loop keys · variation rows) — its OWN opaque view so its deep generic type doesn't
@@ -506,9 +551,12 @@ extension DiagView {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildStagingCells[c][r]
                                 let selected = id != nil && buildStagingSel[c] == r
+                                let staged = r < buildRowChain.count && !buildRowChain[r].isEmpty
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(id.flatMap { colourColor($0) } ?? buildCell)
+                                    .fill(staged ? buildSelHue : (id.flatMap { colourColor($0) } ?? buildCell))
                                     .frame(width: cell, height: cell)
+                                    .overlay { if staged { RoundedRectangle(cornerRadius: 7)   // staged row → shade the selected colour lighter/darker by complexity
+                                        .fill(buildRowShade[r] >= 0 ? Color.white.opacity(buildRowShade[r]) : Color.black.opacity(-buildRowShade[r])) } }
                                     .opacity(buildStagingMode == .play && !selected ? 0.3 : 1)   // PLAY mode dims every cell except the selected one
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
@@ -553,6 +601,7 @@ extension DiagView {
         case .delete: buildStagingCells[c][r] = nil; buildPlacedOrig.removeValue(forKey: c * 8 + r)
         default: break
         }
+        if r < buildRowChain.count { buildRowChain[r] = [] }   // a manual edit turns a STAGED variation row back into a normal row
         buildReconcileStagingSel()                             // a revert/delete may have emptied the selected cell → fall back
         buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
     }
@@ -562,6 +611,7 @@ extension DiagView {
     private func buildFillStagingRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row); buildStagingSel[c] = row }   // fill → that row is selected in every column
+        if row < buildRowChain.count { buildRowChain[row] = [] }   // a manual fill turns a STAGED variation row back into a normal row
         buildDeletedRows[row] = nil                            // a fresh fill discards any pending "restore" for this row
         buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
     }
