@@ -506,8 +506,17 @@ extension DiagView {
     // DELETE clears it. MOVE + the engine-backed audition land with the ephemeral staging document (a later slice).
     private func buildStagingTap(_ c: Int, _ r: Int) {
         switch buildVerb {
-        case .place: if let cid = ddSelectedColourID { buildStagingCells[c][r] = cid }
-        case .delete: buildStagingCells[c][r] = nil
+        case .place:
+            guard let cid = ddSelectedColourID else { break }
+            let key = c * 8 + r
+            if buildStagingCells[c][r] == cid, let orig = buildPlacedOrig[key] {   // 2nd tap → revert to what the cell held before
+                buildStagingCells[c][r] = orig
+                buildPlacedOrig.removeValue(forKey: key)
+            } else {                                                                // 1st tap → remember the original, then place
+                buildPlacedOrig.updateValue(buildStagingCells[c][r], forKey: key)  // updateValue (not subscript) so a nil original is KEPT, not dropped
+                buildStagingCells[c][r] = cid
+            }
+        case .delete: buildStagingCells[c][r] = nil; buildPlacedOrig.removeValue(forKey: c * 8 + r)
         default: break
         }
         buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
@@ -517,7 +526,7 @@ extension DiagView {
     // settings — the stocked cell references the colourID). (user 2026-08-12)
     private func buildFillStagingRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
-        for c in 0..<8 { buildStagingCells[c][row] = cid }
+        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row) }
         buildDeletedRows[row] = nil                            // a fresh fill discards any pending "restore" for this row
         buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
     }
