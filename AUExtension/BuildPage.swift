@@ -130,7 +130,8 @@ extension DiagView {
         let recvs = au?.uiReceivers() ?? []
         let sel = buildSelReceiver
         let piano = sel < recvs.count && recvs[sel].latchPianoResolved
-        let togW = (castW - 12) / 8
+        let togW = min(50, max(28, (castW - 80) / 2))            // comfortable toggle targets, clamped so the row always FITS castW
+        let midW = max(60, castW - togW * 2 - 10)                // the keyboard/channel box FILLS the span between the two toggles (all widths fixed → no greedy layout)
         VStack(alignment: .center, spacing: 8) {
             HStack(spacing: 4) {                                   // R1–R4: pick the door (⌨ piano · ⎓ MIDI); the face below edits it
                 ForEach(0..<4, id: \.self) { i in
@@ -140,14 +141,13 @@ extension DiagView {
             }
             .frame(width: castW)                                  // the receivers row fills the column
             HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano; the middle SHOWS the chosen source
-                buildSourceToggle("cable.connector", active: !piano, width: togW) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
+                buildSourceToggle("cable.connector", active: !piano, width: togW) { buildSetSource(sel, piano: false) }
                 if piano {
-                    buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: true)
-                        .frame(maxWidth: .infinity)               // 176-pt keyboard centred in the wider row
+                    buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: true, width: midW)
                 } else {
-                    buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // fills the middle
+                    buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0).frame(width: midW)
                 }
-                buildSourceToggle("pianokeys", active: piano, width: togW, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
+                buildSourceToggle("pianokeys", active: piano, width: togW, rotate: true) { buildSetSource(sel, piano: true) }
             }
             .frame(width: castW)                                  // the midi-select row fills the column
             HStack(spacing: 6) {                                   // octave shift for the selected door, with the current offset between
@@ -167,8 +167,17 @@ extension DiagView {
         ddStickyReceiver = i
         if let cid = ddSelectedColourID, ddColourIsPlaced(cid) {
             au?.editCellsOfColour(cid) { $0.inputReceiver = i }
-            refreshFromDocument()
         }
+        receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
+        refreshFromDocument()
+    }
+
+    // Flip the SELECTED door between MIDI-in and the in-app piano. Mirroring `receivers` guarantees SwiftUI
+    // invalidates this row immediately (buildInputSection reads uiReceivers live, but the mirror forces the update).
+    private func buildSetSource(_ i: Int, piano: Bool) {
+        au?.setReceiverLatchPiano(i, piano)
+        receivers = au?.uiReceivers() ?? receivers
+        refreshFromDocument()
     }
 
     @ViewBuilder private func buildCastSection(castW: CGFloat) -> some View {
@@ -331,33 +340,30 @@ extension DiagView {
 
     // The octave keyboard for the selected PIANO door (one octave from C3, matching the receiver keyboard). Tap a key
     // to pick/unpick it into the door's frozen pool; dimmed + inert when the door isn't in PIANO mode.
-    @ViewBuilder private func buildKeyboard(receiver i: Int, held: Set<Int>, enabled: Bool) -> some View {
+    @ViewBuilder private func buildKeyboard(receiver i: Int, held: Set<Int>, enabled: Bool, width: CGFloat) -> some View {
         let startNote = 48                                    // C3, one octave (matches ReceiverConfigView)
         let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
         let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]
-        GeometryReader { g in                                 // FILL the width between the flanking toggles (was a fixed 176 that overflowed narrow columns)
-            let ww = max(1, g.size.width / 7)                 // white-key width spreads across the whole row
-            let bw = ww * 0.6
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<7, id: \.self) { wi in
-                    let note = startNote + whiteOffsets[wi]
-                    RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
-                        .frame(width: max(1, ww - 1), height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
-                        .offset(x: CGFloat(wi) * ww)
-                        .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
-                }
-                ForEach(0..<7, id: \.self) { wi in
-                    if let bOff = blackAfter[wi] {
-                        let note = startNote + bOff
-                        RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
-                            .frame(width: bw, height: 31).offset(x: CGFloat(wi + 1) * ww - bw / 2)
-                            .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
-                    }
+        let ww = max(1, width / 7)                            // EXPLICIT width (no GeometryReader — greedy in an HStack, was breaking the toggle hit-testing)
+        let bw = ww * 0.6
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<7, id: \.self) { wi in
+                let note = startNote + whiteOffsets[wi]
+                RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
+                    .frame(width: max(1, ww - 1), height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
+                    .offset(x: CGFloat(wi) * ww)
+                    .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            }
+            ForEach(0..<7, id: \.self) { wi in
+                if let bOff = blackAfter[wi] {
+                    let note = startNote + bOff
+                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
+                        .frame(width: bw, height: 31).offset(x: CGFloat(wi + 1) * ww - bw / 2)
+                        .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
             }
-            .frame(width: g.size.width, height: 52, alignment: .topLeading)   // EXPAND to the full row so offset keys stay in-bounds & hittable
         }
-        .frame(height: 52)
+        .frame(width: width, height: 52, alignment: .topLeading)
         .padding(.vertical, 2)
         .opacity(enabled ? 1 : 0.35)
         .allowsHitTesting(enabled)
