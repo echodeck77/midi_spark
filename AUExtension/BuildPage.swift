@@ -53,6 +53,7 @@ private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
 enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (styled like PART 1 ▾)
+enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
 
 extension DiagView {
 
@@ -117,7 +118,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, action: { buildSelectMachineVoice() }))
+            AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, fill: .cell, action: { buildSelectMachineVoice() }))   // fills over ONE cell
             AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
             Spacer(minLength: 0)
@@ -529,7 +530,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildSelectStagingVoice() }))
+            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, fill: .grid, action: { buildSelectStagingVoice() }))   // fills over the whole grid
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
@@ -741,7 +742,7 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
+            AnyView(buildColumnButton("START/STOP THE PLAY GRID", fill: .grid))   // grid-duration fill (animates once the perform voice is selectable)
             buildGridModeRadio($buildPlayMode) { buildPlayMode = .play; buildGridPopup = 1 }   // eye → full-screen perform grid (play mode)
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
@@ -888,19 +889,42 @@ extension DiagView {
     }
 
     // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
-    // The identical audition button at the top of each column (dot + label, cyan-bordered). `active` fills it cyan
-    // (auditioning); `action` (when given) makes it tappable.
-    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, action: (() -> Void)? = nil) -> some View {
+    // The identical audition button at the top of each column (dot + label, cyan-bordered). `active` marks it the
+    // playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
+    // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
+    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(active ? Color.black : buildCyan).frame(width: 8, height: 8)
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : buildCyan).tracking(1)
+            Circle().fill(active ? Color.white : buildCyan).frame(width: 8, height: 8)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity).frame(height: 38)
-        .background(RoundedRectangle(cornerRadius: 10).fill(active ? buildCyan : buildCell))
+        .background(
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 10).fill(active ? buildCyan.opacity(0.28) : buildCell)   // active = dim cyan base (empty)
+                if active && d.playing && fill != .none {
+                    GeometryReader { g in
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                            RoundedRectangle(cornerRadius: 10).fill(buildCyan)                          // bright fill = the playhead sweeping L→R
+                                .frame(width: g.size.width * buildHeaderFill(fill, tl.date))
+                        }
+                    }
+                }
+            }
+        )
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { action?() }
+    }
+
+    // The header playhead's fill fraction (0…1) — phase-locked to the transport, warped by SWING (as the grid playhead).
+    // .cell fills over ONE step; .grid fills over the whole 8-column loop.
+    private func buildHeaderFill(_ fill: BuildFill, _ now: Date) -> CGFloat {
+        let live = ddBeatAnchor + now.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0
+        let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0))
+        let period = fill == .cell ? stepBeats : stepBeats * Double(Snap.cols)
+        let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
+        return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
     }
     @ViewBuilder private func buildStep(_ s: String) -> some View {
         Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
