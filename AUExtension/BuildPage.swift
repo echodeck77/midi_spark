@@ -499,7 +499,7 @@ extension DiagView {
                         ForEach(0..<rows, id: \.self) { _ in
                             RoundedRectangle(cornerRadius: 7).fill(hue)   // staging row selector = the SELECTED colour (full)
                                 .frame(width: cell, height: cell)
-                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.85)))
+                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.black))
                         }
                     }
                 }
