@@ -82,7 +82,7 @@ extension DiagView {
                 // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
                 // demangler's stack (SIGSEGV opening BUILD). AnyView is a nominal type the demangler won't recurse
                 // through — each column's type is instantiated separately + bounded.
-                AnyView(buildPaletteColumn().frame(width: leftW, alignment: .center))
+                AnyView(buildPaletteColumn(colW: leftW).frame(width: leftW, alignment: .center))
                 AnyView(buildStagingColumn(cell: cell).frame(width: gridColW, alignment: .center))
                 AnyView(buildPlayColumn(cell: cell).frame(width: gridColW, alignment: .center))
             }
@@ -95,7 +95,7 @@ extension DiagView {
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 10))
         VStack(spacing: 12) {
-            AnyView(buildPaletteColumn())          // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
+            AnyView(buildPaletteColumn(colW: size.width - 20))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
             AnyView(buildStagingColumn(cell: cell))
             AnyView(buildPlayColumn(cell: cell))
             AnyView(buildMachinery())
@@ -107,22 +107,24 @@ extension DiagView {
     // IMPORTANT: keep this VStack SHALLOW — the INPUT/CAST/OUTPUT groups are SEPARATE opaque sub-views. A single
     // deeply-nested SwiftUI view type here makes the Swift runtime's type-metadata demangler recurse until it
     // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
-    @ViewBuilder private func buildPaletteColumn() -> some View {
+    @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
+        let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, action: { buildSelectMachineVoice() }))
             AnyView(buildPartHeader())
-            AnyView(buildInputSection())
-            AnyView(buildCastSection())
-            AnyView(buildOutputSection())
+            AnyView(buildInputSection(castW: castW))
+            AnyView(buildCastSection(castW: castW))
+            AnyView(buildOutputSection(castW: castW))
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    @ViewBuilder private func buildInputSection() -> some View {
+    @ViewBuilder private func buildInputSection(castW: CGFloat) -> some View {
         let recvs = au?.uiReceivers() ?? []
         let sel = buildSelReceiver
         let piano = sel < recvs.count && recvs[sel].latchPianoResolved
+        let togW = (castW - 12) / 8
         VStack(alignment: .center, spacing: 8) {
             HStack(spacing: 4) {                                   // R1–R4: pick the door (⌨ piano · ⎓ MIDI); the face below edits it
                 ForEach(0..<4, id: \.self) { i in
@@ -130,16 +132,18 @@ extension DiagView {
                     buildIOChip("R\(i + 1) \(isPiano ? "⌨" : "⎓")", on: i == sel, keys: isPiano, fill: true) { buildSelectDoor(i) }
                 }
             }
-            .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
+            .frame(width: castW)                                  // the receivers row fills the column
             HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano; the middle SHOWS the chosen source
-                buildSourceToggle("cable.connector", active: !piano, width: (BuildGeom.castW - 12) / 8) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
+                buildSourceToggle("cable.connector", active: !piano, width: togW) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
                 if piano {
-                    buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: true)   // PIANO source → the keyboard
+                    buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: true)
+                        .frame(maxWidth: .infinity)               // 176-pt keyboard centred in the wider row
                 } else {
-                    buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // MIDI source → the channel box (tap = selector)
+                    buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // fills the middle
                 }
-                buildSourceToggle("pianokeys", active: piano, width: (BuildGeom.castW - 12) / 8, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
+                buildSourceToggle("pianokeys", active: piano, width: togW, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
             }
+            .frame(width: castW)                                  // the midi-select row fills the column
             HStack(spacing: 6) {                                   // octave shift for the selected door, with the current offset between
                 buildOctBtn("OCT −") { nudgeReceiverOctave(sel, -1) }
                 let oct = sel < receiverOctave.count ? receiverOctave[sel] : 0
@@ -161,13 +165,13 @@ extension DiagView {
         }
     }
 
-    @ViewBuilder private func buildCastSection() -> some View {
+    @ViewBuilder private func buildCastSection(castW: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildCastPalette()
+            buildCastPalette(castW: castW)
         }
     }
 
-    @ViewBuilder private func buildOutputSection() -> some View {
+    @ViewBuilder private func buildOutputSection(castW: CGFloat) -> some View {
         let buses = ddSelectedColourBuses()
         VStack(alignment: .center, spacing: 8) {
             HStack(spacing: 4) {                                   // A–D toggle the selected colour's output emitters
@@ -175,8 +179,8 @@ extension DiagView {
                     buildIOChip(b.rawValue, on: buses.contains(b), fill: true) { buildToggleBus(b) }
                 }
             }
-            .frame(width: BuildGeom.castW)                         // match the emitters row to the cast palette width
-            buildMidiOutInfo(buses: buses)                         // the lit emitters + their channels
+            .frame(width: castW)                                  // the emitters row fills the column
+            buildMidiOutInfo(buses: buses, castW: castW)          // the lit emitters + their channels
         }
     }
 
@@ -244,7 +248,7 @@ extension DiagView {
                 Text("MIDI IN ▾").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
                 Text(channel == 0 ? "OMNI" : "CH \(channel)").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
             }
-            .frame(width: 176, height: 52)
+            .frame(maxWidth: .infinity).frame(height: 52)         // fills the midi-select row
             .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
         }
@@ -303,7 +307,7 @@ extension DiagView {
     }
 
     // MIDI OUT readout below the emitters — the lit emitters + their stamp channels. Piano-height, cast-width.
-    @ViewBuilder private func buildMidiOutInfo(buses: Set<Bus>) -> some View {
+    @ViewBuilder private func buildMidiOutInfo(buses: Set<Bus>, castW: CGFloat) -> some View {
         let chans = au?.uiBusChannels() ?? [1, 2, 3, 4]
         let lit = Array(Bus.allCases.enumerated()).filter { buses.contains($0.element) }
         let summary = lit.isEmpty ? "—"
@@ -313,16 +317,17 @@ extension DiagView {
             Text(summary).font(.system(size: lit.count > 1 ? 11 : 15, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
                 .lineLimit(1).minimumScaleFactor(0.55)
         }
-        .frame(width: BuildGeom.castW, height: 52)
+        .frame(width: castW, height: 52)
         .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
     }
 
-    @ViewBuilder private func buildCastPalette() -> some View {
+    @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
+        let swatch = (castW - BuildGeom.castGap * 7) / 8           // 8 swatches fill the column width
         VStack(spacing: BuildGeom.castGap) {
             ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
                 HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<8, id: \.self) { col in
-                        buildCastSlot(row * 8 + col)
+                        buildCastSlot(row * 8 + col, swatch: swatch)
                     }
                 }
             }
@@ -330,13 +335,13 @@ extension DiagView {
     }
 
     // One cast slot. Slots 0–15 map to the 16 real colours (swatch when defined/placed, else a "+" create slot);
-    // slots 16–31 are INERT placeholders (the model has 16 colours — a >16 per-part palette is a future model change).
-    @ViewBuilder private func buildCastSlot(_ i: Int) -> some View {
+    // slots 16–31 are also "+" that create the next undefined colour (the model caps at 16).
+    @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat) -> some View {
         if i < colourIDs.count {
             let id = colourIDs[i]
             let shown = ddColourShown(i)
             RoundedRectangle(cornerRadius: 6).fill(shown ? (colourColor(id) ?? buildCell) : buildCell)
-                .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
+                .frame(width: swatch, height: swatch)
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).opacity(shown ? 0 : 1))
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
@@ -346,7 +351,7 @@ extension DiagView {
         } else {
             // beyond the 16 model colours: still a "+" that CREATES the next undefined colour (the palette caps at 16).
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
-                .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
+                .frame(width: swatch, height: swatch)
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
                 .contentShape(Rectangle())
                 .onTapGesture { buildCreateNextColour() }
