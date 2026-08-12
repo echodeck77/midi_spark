@@ -63,6 +63,7 @@ extension DiagView {
             ZStack {
                 if size.width > size.height { AnyView(buildLandscape(size)) } else { AnyView(buildPortrait(size)) }
                 if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
+                if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
             }
         } else {
             Color.clear
@@ -259,13 +260,18 @@ extension DiagView {
         refreshFromDocument()
     }
 
-    // The selected colour's OWN processors (its templateChain) — shown on the footer; EMPTY for a new colour.
-    // A stored passthrough placeholder (all-bypassed — how a blank/new colour is persisted) shows as NO processors.
+    // The selected colour's OWN processors (its templateChain) — shown on the footer. Interior EMPTY boxes (passthrough
+    // placeholders) are kept so a processor's POSITION is remembered even with empty boxes to its left; TRAILING empties
+    // collapse to "+" capacity slots. A fully blank/new colour → [] (all boxes are "+").
     private func selectedColourChain() -> [ProcessorSlot] {
         guard let cid = ddSelectedColourID, let c = docColours.first(where: { $0.colourID == cid }) else { return [] }
-        let chain = c.templateChain ?? []
-        return chain.allSatisfy { $0.bypassed } ? [] : chain
+        var chain = c.templateChain ?? []
+        while let last = chain.last, buildIsEmptySlot(last) { chain.removeLast() }
+        return chain
     }
+    // An EMPTY processor box = a passthrough placeholder (a bypassed PASSGATE — a true no-op the engine passes through).
+    private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
+    private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }
 
     @ViewBuilder private func buildPartHeader() -> some View {
         HStack(spacing: 6) {
@@ -697,13 +703,12 @@ extension DiagView {
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             ForEach(0..<8, id: \.self) { i in                     // UP TO 8 processor slots (the chain's capacity)
-                if i < chain.count {
+                if i < chain.count && !buildIsEmptySlot(chain[i]) {
                     buildSlot(chain[i].type.rawValue, colour: buildSelHue, bypassed: chain[i].bypassed)   // a real processor — the selected colour
                         .onTapGesture { buildEditSlot = i }       // touch → open the processor pop-up editor
-                } else if i == chain.count {
-                    buildSlot("+", dashed: true)                  // the add-processor ghost (editing wires later)
                 } else {
-                    buildSlot("", dashed: true)                   // an empty capacity slot
+                    buildSlot("+", dashed: true)                  // EVERY empty box is a "+" — tap to add a processor AT THIS position
+                        .onTapGesture { buildAddSlot = i }
                 }
                 if i < 7 { Text("┈").foregroundColor(buildDim) }
             }
@@ -875,17 +880,61 @@ extension DiagView {
             onMacro: nil, plainTitle: true, showSlotChrome: false)
     }
 
-    // BUILD chain edits — colour-scoped: they write the SELECTED colour's template chain (its machine).
-    private func buildChainEditSlot(_ i: Int, _ mutate: @escaping (inout ProcessorSlot) -> Void) {
+    // BUILD chain edits — colour-scoped + POSITION-PRESERVING: every edit works on the SHOWN chain and is written
+    // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
+    private func buildApplyChain(_ chain: [ProcessorSlot]) {
         guard let cid = ddSelectedColourID else { return }
-        au?.withChainColour(cid) { if i < $0.count { mutate(&$0[i]) } }
-        refreshFromDocument()
+        au?.setColourChain(cid, chain); refreshFromDocument(); buildStagingSyncIfPlaying()
+    }
+    private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
+        var c = selectedColourChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
     }
     private func buildChainToggleBypass(_ i: Int) { buildChainEditSlot(i) { $0.bypassed.toggle() } }
     private func buildChainSetType(_ i: Int, _ t: ProcessorType) { buildChainEditSlot(i) { $0.type = t } }
-    private func buildChainRemoveSlot(_ i: Int) {
-        guard let cid = ddSelectedColourID else { return }
-        au?.withChainColour(cid) { if i < $0.count { $0.remove(at: i) } }
-        refreshFromDocument()
+    private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
+        var c = selectedColourChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
+    }
+    // ADD a processor at box `i` — pad any empty boxes to its LEFT with passthroughs so its POSITION is remembered,
+    // then open that processor's editor pop-up. (user 2026-08-12)
+    private func buildChainAddAt(_ i: Int, type: ProcessorType) {
+        var c = selectedColourChain()
+        while c.count <= i { c.append(buildPassthroughSlot()) }
+        c[i] = ProcessorSlot(type: type)
+        buildApplyChain(c)
+        buildAddSlot = nil; buildEditSlot = i
+    }
+
+    // ── ADD-PROCESSOR PICKER ─────────────────────────────────────────────────────────────────────────────────────
+    // A big, clear pop-up listing every available processor. Selecting one populates box `slot` and opens its editor.
+    @ViewBuilder private func buildProcessorPicker(slot: Int, size: CGSize) -> some View {
+        let hue = buildSelHue
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildAddSlot = nil }
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ADD PROCESSOR").font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                        ForEach(ProcessorType.allCases, id: \.self) { t in
+                            Button { buildChainAddAt(slot, type: t) } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: emblemSymbol(t)).font(.system(size: 20, weight: .black)).foregroundColor(hue).frame(width: 26)
+                                    Text(t.rawValue).font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 12).frame(height: 52).frame(maxWidth: .infinity)
+                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.5), lineWidth: 1))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(18)
+            .frame(width: min(640, size.width - 60)).frame(maxHeight: size.height * 0.82)
+            .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+            .contentShape(Rectangle()).onTapGesture { }           // swallow taps inside the panel
+        }
     }
 }
