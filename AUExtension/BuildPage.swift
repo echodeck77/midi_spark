@@ -111,11 +111,12 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, action: { buildSelectMachineVoice() }))
-            AnyView(buildPartHeader())
+            AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
-            AnyView(buildCastSection(castW: castW))
-            AnyView(buildOutputSection(castW: castW))
             Spacer(minLength: 0)
+            AnyView(buildCastSection(castW: castW))               // CENTRE: the cast, vertically centred between the two
+            Spacer(minLength: 0)
+            AnyView(buildOutputSection(castW: castW))             // BOTTOM (above the footer): MIDI OUT + the emitters
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
