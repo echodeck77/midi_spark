@@ -271,24 +271,28 @@ extension DiagView {
         let startNote = 48                                    // C3, one octave (matches ReceiverConfigView)
         let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
         let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]
-        ZStack(alignment: .topLeading) {
-            ForEach(0..<7, id: \.self) { wi in
-                let note = startNote + whiteOffsets[wi]
-                RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
-                    .frame(width: 24, height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
-                    .offset(x: CGFloat(wi) * 25)
-                    .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
-            }
-            ForEach(0..<7, id: \.self) { wi in
-                if let bOff = blackAfter[wi] {
-                    let note = startNote + bOff
-                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
-                        .frame(width: 15, height: 31).offset(x: CGFloat(wi) * 25 + 17)
+        GeometryReader { g in                                 // FILL the width between the flanking toggles (was a fixed 176 that overflowed narrow columns)
+            let ww = max(1, g.size.width / 7)                 // white-key width spreads across the whole row
+            let bw = ww * 0.6
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<7, id: \.self) { wi in
+                    let note = startNote + whiteOffsets[wi]
+                    RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
+                        .frame(width: max(1, ww - 1), height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
+                        .offset(x: CGFloat(wi) * ww)
                         .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
+                }
+                ForEach(0..<7, id: \.self) { wi in
+                    if let bOff = blackAfter[wi] {
+                        let note = startNote + bOff
+                        RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
+                            .frame(width: bw, height: 31).offset(x: CGFloat(wi + 1) * ww - bw / 2)
+                            .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
+                    }
                 }
             }
         }
-        .frame(width: 176, height: 52, alignment: .topLeading)
+        .frame(height: 52)
         .padding(.vertical, 2)
         .opacity(enabled ? 1 : 0.35)
         .allowsHitTesting(enabled)
