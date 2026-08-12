@@ -109,7 +109,7 @@ extension DiagView {
     // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
     @ViewBuilder private func buildPaletteColumn() -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MACHINE", active: ddSolo, action: { buildToggleMachineAudition() }))
+            AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, action: { buildSelectMachineVoice() }))
             AnyView(buildPartHeader())
             AnyView(buildInputSection())
             AnyView(buildCastSection())
@@ -198,20 +198,17 @@ extension DiagView {
         ddStickyBuses = buses                                     // sticks for the colour's next placement too
     }
 
-    // PLAY THIS MACHINE — audition the selected colour (placed → solo its cell; unplaced → synthetic preview). Toggle;
-    // mutually exclusive with PLAY THE STAGING GRID (one workshop voice).
-    private func buildToggleMachineAudition() {
-        if ddSolo { ddSolo = false; au?.clearColourSolo(); return }
-        guard ddSelectedColourID != nil else { return }
-        buildStagingPlaying = false                              // one workshop voice — stop staging
-        ddSolo = true; ddEngageSolo()
+    // PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID are a RADIO — the ONE workshop voice, DEFAULTING to the MACHINE
+    // (`buildStagingPlaying == false`). Selecting one deselects the other; the visual always follows the flag so the
+    // buttons never appear dead. The MACHINE side also engages the audition (best-effort — needs a selected colour).
+    private func buildSelectMachineVoice() {
+        buildStagingPlaying = false                              // machine is the voice (staging off)
+        ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
+        ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
-    // PLAY THE STAGING GRID — mutually exclusive with the machine audition (engine-backed staging audio is a later
-    // slice; for now this holds the workshop-voice state + stops the machine audition).
-    private func buildToggleStagingPlay() {
-        if buildStagingPlaying { buildStagingPlaying = false; return }
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // one workshop voice — stop the machine audition
-        buildStagingPlaying = true
+    private func buildSelectStagingVoice() {
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // stop the machine audition
+        buildStagingPlaying = true                               // staging is the voice (engine-backed staging audio is a later slice)
     }
 
     // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
@@ -370,7 +367,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildToggleStagingPlay() }))
+            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildSelectStagingVoice() }))
             Color.clear.frame(height: cell / 2)                   // a little breathing room above the grid (≈ half a cell)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
@@ -382,11 +379,11 @@ extension DiagView {
 
     // STAGE THE GRID — the prominent call-to-action at the bottom of the centre column (upward chevron above the text).
     @ViewBuilder private func buildPopulate(gridW: CGFloat) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: "chevron.up").font(.system(size: 16, weight: .heavy)).foregroundColor(.black)
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.up").font(.system(size: 12, weight: .heavy)).foregroundColor(.black)
             Text("STAGE THE GRID").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black).tracking(1)
         }
-        .frame(width: gridW).frame(minHeight: 54)
+        .frame(width: gridW).frame(height: 34)
         .background(RoundedRectangle(cornerRadius: 10).fill(buildPink))
     }
 
