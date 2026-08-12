@@ -89,7 +89,7 @@ struct DiagView: View {
     // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
-    @State var buildVerb: BuildVerb? = nil
+    @State var buildVerb: BuildVerb? = .place   // BUILD lands with PLACE armed (user 2026-08-12)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the
     // engine-backed ephemeral staging document + audition is a later slice. PLACE stocks a colour here.
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
@@ -1096,6 +1096,7 @@ struct DiagView: View {
             if activeTab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // land on BUILD already SOLOing the machine — never the whole grid
         }
         .onDisappear { uiAppeared = false }
+        .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // keep the playhead anchor fresh on EVERY tab (BUILD sweep, not just DRAG&DROP)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
     }

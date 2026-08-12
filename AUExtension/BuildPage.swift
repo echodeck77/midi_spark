@@ -427,12 +427,15 @@ extension DiagView {
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? buildCell)
                                     .frame(width: cell, height: cell)
+                                    .overlay(RoundedRectangle(cornerRadius: 7)     // PLACE armed → outline each cell in the selected colour
+                                        .stroke(buildSelHue, lineWidth: 2).opacity(buildVerb == .place ? 1 : 0))
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
                         }
                     }
                 }
+                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
             }
         }
     }
@@ -494,7 +497,7 @@ extension DiagView {
                     if idx > 0 { partDivider(line: true) }         // the DIVIDING LINE lives here, between the row buttons
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                            RoundedRectangle(cornerRadius: 7).fill(hue)   // staging row selector = the SELECTED colour (full)
                                 .frame(width: cell, height: cell)
                                 .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.85)))
                         }
@@ -611,6 +614,29 @@ extension DiagView {
                             .frame(width: cell, height: cell)
                     }
                 }
+            }
+        }
+        .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
+    }
+
+    // THE PLAYHEAD — a 2pt vertical line sweeping L→R across the 8 grid columns, phase-locked to the transport beat and
+    // looping with the engine's 8-column cycle. Attached to the CELLS block only (topLeading), so it never crosses the
+    // loop-key row above or the row buttons to the side. Extrapolates the polled beat between frames (like the palette
+    // playhead) and warps by SWING so it tracks the real (swung) column windows. (user 2026-08-12)
+    @ViewBuilder private func buildPlayhead(cell: CGFloat) -> some View {
+        if d.playing {
+            let width = cell * 8 + BuildGeom.cellGap * 7               // the cells span: 8 cells + the 7 gaps between them
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
+                let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0)) // column progress in MUSICAL (swung) time
+                let colF = stepBeats > 0 ? musical / stepBeats : 0    // continuous column index since transport start
+                let wrapped = colF.truncatingRemainder(dividingBy: Double(Snap.cols))
+                let p = wrapped < 0 ? wrapped + Double(Snap.cols) : wrapped   // 0…8 across the grid, looping with the engine
+                let x = min(width, CGFloat(p) * (cell + BuildGeom.cellGap))
+                Rectangle().fill(Color.white.opacity(0.85))
+                    .frame(width: 2, height: width == 0 ? 0 : cell * 8 + BuildGeom.cellGap * 7)
+                    .offset(x: x)
+                    .allowsHitTesting(false)
             }
         }
     }
