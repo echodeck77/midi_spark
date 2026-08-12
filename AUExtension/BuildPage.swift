@@ -371,7 +371,7 @@ extension DiagView {
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildToggleStagingPlay() }))
-            Color.clear.frame(height: cell)                       // a little breathing room above the grid (≈ one cell)
+            Color.clear.frame(height: cell / 2)                   // a little breathing room above the grid (≈ half a cell)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
             Spacer(minLength: 0)
@@ -515,7 +515,7 @@ extension DiagView {
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("START/STOP THE PLAY GRID"))
-            Color.clear.frame(height: cell)                       // a little breathing room above the grid (≈ one cell), matching staging
+            Color.clear.frame(height: cell / 2)                   // a little breathing room above the grid (≈ half a cell), matching staging
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
