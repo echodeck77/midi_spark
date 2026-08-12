@@ -124,7 +124,6 @@ extension DiagView {
         let sel = buildSelReceiver
         let piano = sel < recvs.count && recvs[sel].latchPianoResolved
         VStack(alignment: .center, spacing: 8) {
-            buildStep("1 · INPUT")
             HStack(spacing: 4) {                                   // R1–R4: pick the door (⌨ piano · ⎓ MIDI); the face below edits it
                 ForEach(0..<4, id: \.self) { i in
                     let isPiano = i < recvs.count && recvs[i].latchPianoResolved
@@ -164,7 +163,6 @@ extension DiagView {
 
     @ViewBuilder private func buildCastSection() -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildStep("2 · THE CAST")
             buildCastPalette()
         }
     }
@@ -172,7 +170,6 @@ extension DiagView {
     @ViewBuilder private func buildOutputSection() -> some View {
         let buses = ddSelectedColourBuses()
         VStack(alignment: .center, spacing: 8) {
-            buildStep("3 · OUTPUT")
             HStack(spacing: 4) {                                   // A–D toggle the selected colour's output emitters
                 ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
                     buildIOChip(b.rawValue, on: buses.contains(b), fill: true) { buildToggleBus(b) }
