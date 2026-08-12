@@ -179,6 +179,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — BEHAVIOUR CONTRACT settled + iteration 5 (2026-08-12, docs on `main`; ENGINE WIRING NOT STARTED).
+  After a long tail of device-driven LAYOUT tweaks (row/part buttons, replay keys, source toggle, emitters + M/S, the
+  centred footer chain, STAGE THE GRID, CLEAR ALL), the page is still a PLACEHOLDER skeleton but the layout is settling.
+  I wrote a Given/When/Then behaviour spec (`Docs/AcceptanceCriteria/AcceptanceCriteria-build-controls-gwt.md`) with 11
+  open questions; the design side SETTLED all 11 (§D of that doc — the wiring contract). Headlines: **Q1 pipeline** =
+  build machine → `STAGE THE GRID` (machine→staging, rolls the 8-variation ladder) → pick rungs → tap a perform
+  part/row button (NO apply verb; the side-buttons ARE the targets). **Q8** LEFT merged part button = COPY ROWS into
+  the band · RIGHT per-row button = FLATTEN into that row (target decides the verb, no arming). **Q2** source toggle
+  (DIN|piano) + keyboard + OCT± = the SELECTED receiver's face (re-point on R1–R4 chip tap; keyboard only when PIANO).
+  **Q3** one workshop voice (PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID mutually exclusive; perform independent — keep
+  the behaviour, lamp already removed). **Q10** emitter M/S = perform scope only. ITERATION 5 (`-build-page-iteration-
+  5.md`): **§1** START/STOP = VIEW STATE (STOPPED=edit view, PLAYING=performance view, per grid; row buttons change
+  appearance; first deployed part auto-starts the play grid). **§3** DELETE is SHARED across all three grids (cell =
+  clear; CAST swatch = delete colour + its cells, litter semantics, one undo, "−1 colour · N cells" flash). ⚠ CONFLICT
+  TO SETTLE WITH PAUL: iteration 5 §2 says REMOVE the footer MUTATE (one mutate, the staging strip's); but Paul's later
+  live instruction put RANDOMIZE+MUTATE in the footer — the current build has BOTH. Flagged, not resolved. NEXT: wire
+  region-by-region from the settled contract once the MUTATE conflict is called.**
 - **▶ THE BUILD PAGE — increment 1e: three EQUAL columns · focus highlight REMOVED · verbs in a box (2026-08-11, on
   `main`, PUSHED next; iOS builds; DEVICE eye owed). Paul's layout call (direct, not a ferry): (1) REMOVED the focus
   economy entirely — the lit/dim zone treatment + pink accent border + ● PLAYING badge + the grab-to-focus taps + the
