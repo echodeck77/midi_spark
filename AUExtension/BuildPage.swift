@@ -132,9 +132,13 @@ extension DiagView {
                 }
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
-            HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano, flanking the channel box
+            HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano; the middle SHOWS the chosen source
                 buildSourceToggle("cable.connector", active: !piano, width: (BuildGeom.castW - 12) / 8) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
-                buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // the door's MIDI IN channel; tap = channel selector
+                if piano {
+                    buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: true)   // PIANO source → the keyboard
+                } else {
+                    buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // MIDI source → the channel box (tap = selector)
+                }
                 buildSourceToggle("pianokeys", active: piano, width: (BuildGeom.castW - 12) / 8, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
             }
             HStack(spacing: 6) {                                   // octave shift for the selected door, with the current offset between
@@ -194,11 +198,20 @@ extension DiagView {
         ddStickyBuses = buses                                     // sticks for the colour's next placement too
     }
 
-    // PLAY THIS MACHINE — audition the selected colour (placed → solo its cell; unplaced → synthetic preview). Toggle.
+    // PLAY THIS MACHINE — audition the selected colour (placed → solo its cell; unplaced → synthetic preview). Toggle;
+    // mutually exclusive with PLAY THE STAGING GRID (one workshop voice).
     private func buildToggleMachineAudition() {
         if ddSolo { ddSolo = false; au?.clearColourSolo(); return }
         guard ddSelectedColourID != nil else { return }
+        buildStagingPlaying = false                              // one workshop voice — stop staging
         ddSolo = true; ddEngageSolo()
+    }
+    // PLAY THE STAGING GRID — mutually exclusive with the machine audition (engine-backed staging audio is a later
+    // slice; for now this holds the workshop-voice state + stops the machine audition).
+    private func buildToggleStagingPlay() {
+        if buildStagingPlaying { buildStagingPlaying = false; return }
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // one workshop voice — stop the machine audition
+        buildStagingPlaying = true
     }
 
     // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
@@ -357,7 +370,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THE STAGING GRID"))
+            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, action: { buildToggleStagingPlay() }))
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
             Spacer(minLength: 0)
