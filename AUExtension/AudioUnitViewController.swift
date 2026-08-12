@@ -1142,7 +1142,7 @@ struct DiagView: View {
         .padding(.bottom, activeTab == .build ? 0 : 12)   // BUILD: no bottom margin → the processor-box row is the lowest point (no scroll)
         .background(GeometryReader { g in Color.clear.preference(key: ContentHeightKey.self, value: g.size.height) })
         Group {
-            if contentOverflows {
+            if contentOverflows && activeTab != .build {   // BUILD never scrolls (user 2026-08-12) — it sizes to fit; the scroll view steals small-control taps
                 ScrollView(.vertical, showsIndicators: true) { column }
             } else {
                 column
@@ -1157,7 +1157,11 @@ struct DiagView: View {
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
         switch activeTab {
         case .build:
-            buildPage(geo.size)               // THE BUILD PAGE (user 2026-08-11): palette → staging → play + machinery
+            // Size the page to the space it ACTUALLY gets (below the header), not the full viewport — otherwise the
+            // column is always taller than the viewport by the header's height → the whole UI scrolls, and the scroll
+            // view steals taps from small controls (the piano/MIDI toggle + keys). The GeometryReader fills exactly the
+            // remaining height → no overflow → no scroll → touches land. (user 2026-08-12)
+            GeometryReader { g in buildPage(g.size) }
         case .dragDrop:
             dragDropPage(geo.size)            // design-stage: palette · grid · machinery (user 2026-08-09)
         case .grid:
