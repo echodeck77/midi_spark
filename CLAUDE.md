@@ -195,6 +195,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   DELIBERATELY SKIPPED (flagged): the BuildPage micro-dedups (rail-spacer/grid-width — volatile file, Paul's active
   WIP) and the cross-file piano-key constants (low value); no dead code proposed (consistent with prior audits — the
   inert items are reserved/decode/test-covered).**
+- **▶ THE BUILD PAGE — comprehensive GWT + 5 new rulings ferried (2026-08-12, docs on `main`; wiring-affecting). Two
+  design docs promoted: `Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-gwt-comprehensive.md` (the full
+  Given/When/Then + a ranked top-5 GOTCHAS checklist — the authoritative wiring contract, supersedes the earlier
+  `-build-controls-gwt.md` for detail) and `-build-lasttouched-reroll-promote.md`. NEW RULINGS: **§1 RE-ROLL is
+  SELECTION-SCOPED** — 🎲 RE-ROLL re-rolls only the selected rung(s); unselected persist; nothing selected → the button
+  DIMS (whole-ladder regen stays STAGE THE GRID's job). **§2 DEPLOYMENT DOES NOT PROMOTE** — applying to the play grid
+  no longer promotes provisionals into the cast (COPY ROWS would flood 8); deployed variations stay provisional; THE
+  CAST IS USER-CURATED, ALWAYS (supersedes the old promote-on-apply pin). **§3 THE LAST TOUCHED CHIP** (new UI) — a
+  `LAST: [▢]` swatch in the machine-column header passively tracks the last-touched cell's colour on ANY grid; PUSH →
+  SELECT it (if in the cast) or ADD-to-cast+select (if provisional; full cast = refuse+flash). FOCUS RULE: only a CAST
+  tap · a STAGING rung tap · the LAST-TOUCHED push bring the machine into focus — PLAY-grid touches NEVER auto-focus.
+  **§4 AUDITION MODE toggle** (staging handle): ALONGSIDE (default, protects the B-line flow) | IN PLACE (the part's
+  deployed bands mute while staging plays — the true A/B); other parts never touched; audition config, not undo/scenes;
+  Paul's device time picks the default. **§5 I/O ASYMMETRY — the part owns the DOOR, the machine owns the WIRE:**
+  RECEIVER = per PART (part header shows [IN: Rn▾] + piano; colours inherit the door); EMITTER = per machine/COLOUR
+  (this week's colour-owned ruling; the OUTPUT step is unchanged, edits the selected colour; a new colour SOFT-defaults
+  its emitter from the part's last-used); the part header DROPS its OUT chip. ⚠ DIVERGENCE TO RECONCILE: my just-shipped
+  INPUT wiring sets the receiver PER-COLOUR (`buildSelectDoor` → `editCellsOfColour{inputReceiver}`) — that's the
+  INTERIM (parts aren't in the model yet); when parts land, the receiver lifts to PER-PART. OUTPUT-per-colour is already
+  correct. Also: the GWT still lists the footer-MUTATE "keep both or one" as OPEN, but Paul already settled it (footer
+  MUTATE removed; staging's is THE mutate). NEXT: build LAST TOUCHED + wire STAGE THE GRID / assignment per this
+  contract; nothing here is built yet beyond the left column.**
 - **▶ THE BUILD PAGE — left-column follow-ups + simpler randomize + staging PLACE (2026-08-12, on `main`, PUSHED next;
   macOS 604 green, iOS builds; DEVICE eye owed). Paul's batch on the wired left column: (1) SIMPLER RANDOMIZE — new
   `Dice.rollSimple(using:)` (a SHORT 1–3-slot all-contributing chain, NO macros: every slot changes the output when
