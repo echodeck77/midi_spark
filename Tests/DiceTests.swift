@@ -69,6 +69,20 @@ final class DiceTests: XCTestCase {
         }
     }
 
+    // rollSimple (BUILD): 1–3 slots, never empty, every slot contributes (audible + bypass-affecting), density-capped.
+    func testRollSimpleIsShortAllContributingAndAudible() {
+        for seed: UInt64 in [1, 7, 42, 0xD1CE, 0x5A3F, 99, 0xBEEF, 3] {
+            var rng = DiceRNG(seed: seed)
+            let chain = Dice.rollSimple(using: &rng)
+            XCTAssertFalse(chain.isEmpty, "seed \(seed): never empty")
+            XCTAssertLessThanOrEqual(chain.count, 3, "seed \(seed): ≤ 3 slots")
+            XCTAssertGreaterThanOrEqual(chain.count, 1, "seed \(seed): ≥ 1 slot")
+            XCTAssertFalse(Dice.signature(chain).isEmpty, "seed \(seed): audible (non-empty output)")
+            XCTAssertTrue(Dice.allContribute(chain), "seed \(seed): every slot changes the output when bypassed")
+            XCTAssertLessThanOrEqual(Dice.evalRun(chain).peak, Dice.maxConcurrency, "seed \(seed): not a flood")
+        }
+    }
+
     // The BUTTON branch of chain(buttonOn:) — the path the live engine actually calls for a toggle (the existing tests
     // only drive sliders through chain(), or apply buttons MANUALLY). Composing all buttons ON must equal applying each
     // op to the base, and a switchType button must set its slot's type.

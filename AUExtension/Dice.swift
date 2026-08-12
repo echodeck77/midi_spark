@@ -243,6 +243,31 @@ enum Dice {
         return best
     }
 
+    /// A SIMPLER roll (BUILD): a SHORT all-contributing chain of 1–3 slots — every slot changes the output when
+    /// bypassed (`allContribute`), the chain never sounds empty, and it stays under the density cap. NO macros. (The
+    /// full `roll(target:)` — with evaluated slider/button macros — is kept for elsewhere, e.g. the DRAG&DROP page.)
+    static func rollSimple(using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {
+        let want = Int.random(in: 1...3, using: &rng)
+        var best: [ProcessorSlot] = []
+        for _ in 0..<6 {                                         // a few attempts; keep the longest all-contributing ≤ want
+            var chain: [ProcessorSlot] = []; var sig = signature(chain); var budget = 12
+            while chain.count < want && budget > 0 {
+                budget -= 1
+                let trial = chain + [randomSlot(using: &rng)]
+                let (tsig, tpeak) = evalRun(trial)
+                guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }
+                if allContribute(trial) { chain = trial; sig = tsig }
+            }
+            if chain.count > best.count { best = chain }
+            if best.count >= want { break }
+        }
+        if best.isEmpty {                                        // guarantee ≥1 audible slot — never a silent chain
+            var budget = 24
+            while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { best = one; break } }
+        }
+        return best
+    }
+
     /// Up to 4 SLIDER macros — each morphs one (slot, Double-param) toward the far end of its range, KEPT only if that
     /// change alters the output (so every slider is audible). `sigBase` is the base chain's signature (computed once).
     static func rollSliders(_ base: [ProcessorSlot], sigBase: [Int], using rng: inout some RandomNumberGenerator) -> [SliderMacro] {

@@ -195,6 +195,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   DELIBERATELY SKIPPED (flagged): the BuildPage micro-dedups (rail-spacer/grid-width — volatile file, Paul's active
   WIP) and the cross-file piano-key constants (low value); no dead code proposed (consistent with prior audits — the
   inert items are reserved/decode/test-covered).**
+- **▶ THE BUILD PAGE — left-column follow-ups + simpler randomize + staging PLACE (2026-08-12, on `main`, PUSHED next;
+  macOS 604 green, iOS builds; DEVICE eye owed). Paul's batch on the wired left column: (1) SIMPLER RANDOMIZE — new
+  `Dice.rollSimple(using:)` (a SHORT 1–3-slot all-contributing chain, NO macros: every slot changes the output when
+  bypassed + never sounds empty + density-capped; reuses `randomSlot`/`evalRun`/`allContribute`); BUILD's footer
+  RANDOMIZE now calls it via `withChainColour` (the full `Dice.roll(target:)` with macros stays for DRAG&DROP). Test
+  `testRollSimpleIsShortAllContributingAndAudible` (8 seeds). (2) INPUT: the piano keyboard is replaced by a
+  keyboard-sized MIDI-IN CHANNEL box (`buildChannelBox`, a Menu → OMNI · CH 1–16 via `setReceiverChannel`); an OCTAVE
+  offset label (0 / +1 / −1) sits between OCT −/+ (`receiverOctave[sel]`). (`buildKeyboard` kept, unused — reserved).
+  (3) the top-row REPLAY keys ALWAYS show the loop glyph (never a chevron); held shows via fill. (4) THE CAST: every
+  empty slot (incl. 16–31) is a "+" that creates the next undefined colour (`buildCreateNextColour`; palette caps at
+  16). (5) STAGING grid is BLANK — an ephemeral `buildStagingCells [col][row]→colourID` store (NOT the real scene; the
+  engine-backed staging doc is later); PLACE (armed) stocks the selected colour, DELETE clears (`buildStagingTap`;
+  MOVE + audition later). (6) the footer PREVIEW cell is the selected colour's hue + shows the colour's REAL processors
+  (`selectedColourChain` = its templateChain — EMPTY for a new colour), not the placeholder ARP/MASK/MOD snake.**
 - **▶ THE BUILD PAGE — LEFT COLUMN WIRED to the engine (2026-08-12, on `main`, PUSHED next; iOS builds; DEVICE ear/eye
   owed). First real wiring slice per the approved plan (`~/.claude/plans/resilient-imagining-truffle.md`) — the left
   column (the machine's I/O + cast + audition) now drives the live document via the existing device-verified DragDrop/AU

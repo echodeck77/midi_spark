@@ -132,13 +132,16 @@ extension DiagView {
                 }
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
-            HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano
+            HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano, flanking the channel box
                 buildSourceToggle("cable.connector", active: !piano, width: (BuildGeom.castW - 12) / 8) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
-                buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: piano)
+                buildChannelBox(receiver: sel, channel: sel < recvs.count ? recvs[sel].channel : 0)   // the door's MIDI IN channel; tap = channel selector
                 buildSourceToggle("pianokeys", active: piano, width: (BuildGeom.castW - 12) / 8, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
             }
-            HStack(spacing: 6) {                                   // octave shift for the selected PIANO door
+            HStack(spacing: 6) {                                   // octave shift for the selected door, with the current offset between
                 buildOctBtn("OCT −") { nudgeReceiverOctave(sel, -1) }
+                let oct = sel < receiverOctave.count ? receiverOctave[sel] : 0
+                Text(oct > 0 ? "+\(oct)" : "\(oct)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(buildCyan).frame(minWidth: 30)
                 buildOctBtn("OCT +") { nudgeReceiverOctave(sel, +1) }
             }.frame(width: 176)
         }
@@ -198,6 +201,20 @@ extension DiagView {
         ddSolo = true; ddEngageSolo()
     }
 
+    // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
+    private func buildRandomizeSimple() {
+        guard let cid = ddSelectedColourID else { return }
+        var rng = SystemRandomNumberGenerator()
+        au?.withChainColour(cid) { $0 = Dice.rollSimple(using: &rng) }
+        refreshFromDocument()
+    }
+
+    // The selected colour's OWN processors (its templateChain) — shown on the footer; EMPTY for a new colour.
+    private func selectedColourChain() -> [ProcessorSlot] {
+        guard let cid = ddSelectedColourID, let c = docColours.first(where: { $0.colourID == cid }) else { return [] }
+        return c.templateChain ?? []
+    }
+
     @ViewBuilder private func buildPartHeader() -> some View {
         HStack(spacing: 6) {
             Text("PART 1 ▾").font(.system(size: 10, weight: .heavy, design: .monospaced))
@@ -207,6 +224,22 @@ extension DiagView {
                 .padding(.horizontal, 8).frame(height: 26)
                 .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
             Spacer(minLength: 0)
+        }
+    }
+
+    // The selected door's MIDI-IN CHANNEL box (keyboard-sized) — tap opens a channel selector (OMNI · CH 1–16).
+    @ViewBuilder private func buildChannelBox(receiver i: Int, channel: Int) -> some View {
+        Menu {
+            Button("OMNI") { au?.setReceiverChannel(i, 0); refreshFromDocument() }
+            ForEach(1..<17, id: \.self) { ch in Button("CH \(ch)") { au?.setReceiverChannel(i, ch); refreshFromDocument() } }
+        } label: {
+            VStack(spacing: 2) {
+                Text("MIDI IN ▾").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                Text(channel == 0 ? "OMNI" : "CH \(channel)").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+            }
+            .frame(width: 176, height: 52)
+            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
         }
     }
 
@@ -304,9 +337,18 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture { shown ? ddSelectColour(i) : ddCreateColour(i) }
         } else {
-            RoundedRectangle(cornerRadius: 6).fill(buildCell.opacity(0.4))
+            // beyond the 16 model colours: still a "+" that CREATES the next undefined colour (the palette caps at 16).
+            RoundedRectangle(cornerRadius: 6).fill(buildCell)
                 .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
+                .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
+                .contentShape(Rectangle())
+                .onTapGesture { buildCreateNextColour() }
         }
+    }
+
+    // Create the next undefined colour (a "+" cast slot beyond the 16 model colours taps this; no-op when all 16 exist).
+    private func buildCreateNextColour() {
+        for j in 0..<colourIDs.count where !ddColourShown(j) { ddCreateColour(j); return }
     }
 
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────
@@ -341,22 +383,31 @@ extension DiagView {
             buildRowButtons(cell: cell, hue: hue, bands: [8])     // cell-sized ROW BUTTONS on the LEFT (staging = one group of 8)
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
-                VStack(spacing: BuildGeom.cellGap) {               // 8 variation rows, one colour, dim/act placeholders
+                VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
                     ForEach(0..<8, id: \.self) { r in
                         HStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<8, id: \.self) { c in
-                                let filled = (c + r * 3) % 4 != 0
-                                let active = (c + r) % 5 == 0
+                                let id = buildStagingCells[c][r]
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(filled ? hue.opacity(active ? 1 : 0.28) : buildCell)
+                                    .fill(id.flatMap { colourColor($0) } ?? buildCell)
                                     .frame(width: cell, height: cell)
-                                    .overlay(RoundedRectangle(cornerRadius: 7)
-                                        .stroke(Color.white, lineWidth: 2).opacity(active ? 1 : 0))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { buildStagingTap(c, r) }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    // A staging cell tap. PLACE (armed) stocks a cell of the selected colour + its machine (the colour IS its machine);
+    // DELETE clears it. MOVE + the engine-backed audition land with the ephemeral staging document (a later slice).
+    private func buildStagingTap(_ c: Int, _ r: Int) {
+        switch buildVerb {
+        case .place: if let cid = ddSelectedColourID { buildStagingCells[c][r] = cid }
+        case .delete: buildStagingCells[c][r] = nil
+        default: break
         }
     }
 
@@ -390,7 +441,7 @@ extension DiagView {
                 let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
                 RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(held ? 0.6 : 0.4))
                     .frame(width: cell, height: cell)
-                    .overlay(Image(systemName: held ? "repeat" : "chevron.down")
+                    .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
                         .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.9)))
             }
         }
@@ -529,21 +580,21 @@ extension DiagView {
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
-        let hue = buildSelHue
+        let chain = selectedColourChain()                         // the SELECTED colour's real processors (empty for a new colour)
         HStack(spacing: 10) {                                      // THE CHAIN — select-cell box → MIDI OUT box (centred)
-            RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID / select-cell box
+            RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the PREVIEW cell = the selected colour
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
-            buildSlot("ARP"); Text("┈").foregroundColor(buildDim)
-            buildSlot("MASK"); Text("┈").foregroundColor(buildDim)
-            buildSlot("MOD"); Text("┈").foregroundColor(buildDim)
-            buildSlot("+", dashed: true)
+            ForEach(Array(chain.enumerated()), id: \.offset) { _, slot in   // the colour's OWN processors (none for a new cell)
+                buildSlot(slot.type.rawValue); Text("┈").foregroundColor(buildDim)
+            }
+            buildSlot("+", dashed: true)                          // the add-processor ghost (editing wires later)
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
         }
         .frame(maxWidth: .infinity)                               // centre the chain in the footer
         .overlay(alignment: .leading) {                          // RANDOMIZE pinned to the LEFT (footer MUTATE removed — the staging strip's MUTATE is THE mutate, iteration 5 §2)
-            buildFooterBtn("🎲 RANDOMIZE", pink: true) { ddRandomize() }   // re-roll the selected colour's machine (chain + params)
+            buildFooterBtn("🎲 RANDOMIZE", pink: true) { buildRandomizeSimple() }   // BUILD: the SIMPLER roll (short chain, no macros)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
