@@ -387,24 +387,38 @@ extension DiagView {
         let startNote = 48                                    // C3, one octave (matches ReceiverConfigView)
         let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
         let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]
-        let ww = max(1, width / 7)                            // EXPLICIT width (no GeometryReader — greedy in an HStack, was breaking the toggle hit-testing)
-        let bw = ww * 0.6
+        let ww = max(1, width / 7)
+        let bw = ww * 0.62
         ZStack(alignment: .topLeading) {
-            ForEach(0..<7, id: \.self) { wi in
-                let note = startNote + whiteOffsets[wi]
-                RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
-                    .frame(width: max(1, ww - 1), height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
-                    .offset(x: CGFloat(wi) * ww)
-                    .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-            }
-            ForEach(0..<7, id: \.self) { wi in
-                if let bOff = blackAfter[wi] {
-                    let note = startNote + bOff
-                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
-                        .frame(width: bw, height: 31).offset(x: CGFloat(wi + 1) * ww - bw / 2)
-                        .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            // WHITE keys — a real HStack (LAYOUT-positioned, NOT .offset). `.offset` keeps each view's layout frame at
+            // x=0 and only shifts the render, which breaks hit-testing here; an HStack gives each key an honest frame.
+            HStack(spacing: 1) {
+                ForEach(0..<7, id: \.self) { wi in
+                    let note = startNote + whiteOffsets[wi]
+                    RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
+                        .frame(width: max(1, ww - 1), height: 52)
+                        .contentShape(Rectangle())
+                        .onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
                 }
             }
+            // BLACK keys straddle white-key boundaries → positioned in an overlay HStack of per-white slots (still
+            // layout-based: each slot is ww wide, its black key pinned trailing so it sits over the boundary).
+            HStack(spacing: 0) {
+                ForEach(0..<7, id: \.self) { wi in
+                    Color.clear.frame(width: ww, height: 52)
+                        .overlay(alignment: .trailing) {
+                            if let bOff = blackAfter[wi] {
+                                let note = startNote + bOff       // pinned to the white-key boundary (trailing) — NO .offset, so its hit frame is honest
+                                RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
+                                    .frame(width: bw, height: 31)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                            }
+                        }
+                }
+            }
+            .allowsHitTesting(true)
         }
         .frame(width: width, height: 52, alignment: .topLeading)
         .padding(.vertical, 2)
