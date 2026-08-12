@@ -742,7 +742,7 @@ extension DiagView {
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
         let chain = selectedColourChain()                         // the SELECTED colour's real processors (empty for a new colour)
-        HStack(spacing: 10) {                                      // THE CHAIN — select-cell box → MIDI OUT box (centred)
+        HStack(alignment: .bottom, spacing: 10) {                  // THE CHAIN — select-cell box → MIDI OUT box (bottom-aligned)
             RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the PREVIEW cell = the selected colour
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
@@ -759,12 +759,12 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             buildBox("A: MIDI OUT", "ch1")
         }
-        .frame(maxWidth: .infinity)                               // centre the chain in the footer
-        .overlay(alignment: .leading) {                          // RANDOMIZE pinned to the LEFT (footer MUTATE removed — the staging strip's MUTATE is THE mutate, iteration 5 §2)
+        .frame(maxWidth: .infinity, minHeight: 46, alignment: .bottomLeading)   // room for the taller RANDOMIZE; the box row sits at the BOTTOM
+        .overlay(alignment: .bottomLeading) {                    // RANDOMIZE pinned bottom-LEFT (footer MUTATE removed — the staging strip's MUTATE is THE mutate, iteration 5 §2)
             buildFooterBtn("🎲 RANDOMIZE", pink: true) { buildRandomizeSimple() }   // BUILD: the SIMPLER roll (short chain, no macros)
         }
-        .padding(.horizontal, 14).padding(.vertical, 9)
-        .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
+        .padding(.horizontal, 14).padding(.top, 9)               // NO bottom padding — the boxes' bottom edge is the panel's bottom edge
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
     }
 

@@ -1135,7 +1135,8 @@ struct DiagView: View {
             arrangementBar.frame(maxWidth: 1024)       // §2: LOGO · header · TAB BAR · scene row — capped to the grid's 1024 width, centred
             tabBody(geo)                               // the surface for the active tab
         }
-        .padding(12)
+        .padding(.horizontal, 12).padding(.top, 12)
+        .padding(.bottom, activeTab == .build ? 0 : 12)   // BUILD: no bottom margin → the processor-box row is the lowest point (no scroll)
         .background(GeometryReader { g in Color.clear.preference(key: ContentHeightKey.self, value: g.size.height) })
         Group {
             if contentOverflows {
