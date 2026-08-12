@@ -179,6 +179,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   QUANTIZE default = NEXT STEP (chip ready for INSTANT|NEXT STEP|NEXT BEAT); ③ PROVISIONALS = EPHEMERAL (a staging-
   local document, promoted to real palette slots only on APPLY). Still open on Paul: hot-drop · un-flatten · SOLO edge
   cases (device-feel).**
+- **▶ THE BUILD PAGE — LEFT COLUMN WIRED to the engine (2026-08-12, on `main`, PUSHED next; iOS builds; DEVICE ear/eye
+  owed). First real wiring slice per the approved plan (`~/.claude/plans/resilient-imagining-truffle.md`) — the left
+  column (the machine's I/O + cast + audition) now drives the live document via the existing device-verified DragDrop/AU
+  plumbing (colour-owned-routing storage DEFERRED; routing written per-cell by fan-out). **THE CAST** (`buildCastSlot`):
+  slots 0–15 map to the 16 real `colourIDs` — swatch (`colourColor`) when `ddColourShown` else a "+" create slot; tap →
+  `ddSelectColour`/`ddCreateColour`; ring on `ddColourSel`; slots 16–31 inert (model has 16 colours — a >16 per-part
+  palette is future). **PLAY THIS MACHINE** (`buildToggleMachineAudition`): toggles `ddEngageSolo()` (placed →
+  `setColourSolo`, unplaced → `setColourSoloPreview`) / `clearColourSolo`. **INPUT** (`buildInputSection`): R1–R4 chips
+  pick the door (`buildSelReceiver`, shows ⌨/⎓ from `latchPianoResolved`) + fan the colour's `inputReceiver` +
+  `ddStickyReceiver`; DIN|piano source toggle → `setReceiverLatchPiano`; live 1-octave keyboard (C3, matches
+  ReceiverConfigView) → `toggleReceiverPianoNote`, reflects `pianoNotesResolved`, dim+inert unless PIANO; OCT± →
+  `nudgeReceiverOctave`. **OUTPUT** (`buildOutputSection`): A–D toggle the colour's buses via `editCellsOfColour`
+  (placed) / `ddStickyBuses` (unplaced), never empty; MIDI-OUT readout shows lit emitters + `uiBusChannels`. **Footer
+  RANDOMIZE** → `ddRandomize()` (rolls the colour's machine). Made `ddColourIsPlaced`/`ddColourShown`/`ddRepresentative-
+  Cell` internal (shared with BUILD); replaced the placeholder `buildSelColour` with `buildSelReceiver` + a real
+  `buildSelHue`. NOT wired this slice: the footer CHAIN editor (the placeholder snake is Paul's deliberate layout — a
+  swap needs his steer), parts/per-part palette, staging + STAGE THE GRID + the N-variation generator + MUTATE, the
+  perform grid + emitter M/S + replay loop, colour-owned-routing storage, machine⟷staging mutual-exclusion.**
 - **▶ THE BUILD PAGE — BEHAVIOUR CONTRACT settled + iteration 5 (2026-08-12, docs on `main`; ENGINE WIRING NOT STARTED).
   After a long tail of device-driven LAYOUT tweaks (row/part buttons, replay keys, source toggle, emitters + M/S, the
   centred footer chain, STAGE THE GRID, CLEAR ALL), the page is still a PLACEHOLDER skeleton but the layout is settling.

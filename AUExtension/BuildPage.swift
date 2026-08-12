@@ -66,6 +66,9 @@ extension DiagView {
         }
     }
 
+    // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
+    fileprivate var buildSelHue: Color { colourColor(ddSelectedColourID ?? "") ?? buildCyan }
+
     // ── LANDSCAPE: three EQUAL columns (palette · staging · play) over the full-width machinery strip ──────────────
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
@@ -106,7 +109,7 @@ extension DiagView {
     // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
     @ViewBuilder private func buildPaletteColumn() -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MACHINE"))
+            AnyView(buildColumnButton("PLAY THIS MACHINE", active: ddSolo, action: { buildToggleMachineAudition() }))
             AnyView(buildPartHeader())
             AnyView(buildInputSection())
             AnyView(buildCastSection())
@@ -117,19 +120,38 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildInputSection() -> some View {
+        let recvs = au?.uiReceivers() ?? []
+        let sel = buildSelReceiver
+        let piano = sel < recvs.count && recvs[sel].latchPianoResolved
         VStack(alignment: .center, spacing: 8) {
             buildStep("1 · INPUT")
-            HStack(spacing: 4) {
-                buildIOChip("R1 ⌨", on: true, keys: true, fill: true)
-                buildIOChip("R2 ⎓", fill: true); buildIOChip("R3 ⎓", fill: true); buildIOChip("R4 ⎓", fill: true)
+            HStack(spacing: 4) {                                   // R1–R4: pick the door (⌨ piano · ⎓ MIDI); the face below edits it
+                ForEach(0..<4, id: \.self) { i in
+                    let isPiano = i < recvs.count && recvs[i].latchPianoResolved
+                    buildIOChip("R\(i + 1) \(isPiano ? "⌨" : "⎓")", on: i == sel, keys: isPiano, fill: true) { buildSelectDoor(i) }
+                }
             }
             .frame(width: BuildGeom.castW)                         // match the receivers row to the cast palette width
-            HStack(spacing: 5) {                                   // per-receiver SOURCE toggle: DIN (MIDI in) | in-app piano
-                buildSourceToggle("cable.connector", active: false, width: (BuildGeom.castW - 12) / 8)   // DIN / MIDI in
-                buildKeyboard()                                    // a PIANO door reveals its octave keyboard (placeholder)
-                buildSourceToggle("pianokeys", active: true, width: (BuildGeom.castW - 12) / 8, rotate: true)   // in-app piano (active)
+            HStack(spacing: 5) {                                   // the SELECTED door's SOURCE toggle: DIN (MIDI in) | in-app piano
+                buildSourceToggle("cable.connector", active: !piano, width: (BuildGeom.castW - 12) / 8) { au?.setReceiverLatchPiano(sel, false); refreshFromDocument() }
+                buildKeyboard(receiver: sel, held: sel < recvs.count ? Set(recvs[sel].pianoNotesResolved) : [], enabled: piano)
+                buildSourceToggle("pianokeys", active: piano, width: (BuildGeom.castW - 12) / 8, rotate: true) { au?.setReceiverLatchPiano(sel, true); refreshFromDocument() }
             }
-            HStack(spacing: 6) { buildOctBtn("OCT −"); buildOctBtn("OCT +") }.frame(width: 176)   // octave shift
+            HStack(spacing: 6) {                                   // octave shift for the selected PIANO door
+                buildOctBtn("OCT −") { nudgeReceiverOctave(sel, -1) }
+                buildOctBtn("OCT +") { nudgeReceiverOctave(sel, +1) }
+            }.frame(width: 176)
+        }
+    }
+
+    // Select which INPUT door (R1–R4) the machine listens to + the face edits. Fans the choice onto the selected
+    // colour's cells (its input receiver) and the page sticky, so a fresh cell inherits it.
+    private func buildSelectDoor(_ i: Int) {
+        buildSelReceiver = i
+        ddStickyReceiver = i
+        if let cid = ddSelectedColourID, ddColourIsPlaced(cid) {
+            au?.editCellsOfColour(cid) { $0.inputReceiver = i }
+            refreshFromDocument()
         }
     }
 
@@ -141,15 +163,39 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildOutputSection() -> some View {
+        let buses = ddSelectedColourBuses()
         VStack(alignment: .center, spacing: 8) {
             buildStep("3 · OUTPUT")
-            HStack(spacing: 4) {
-                buildIOChip("A", on: true, fill: true); buildIOChip("B", fill: true)
-                buildIOChip("C", fill: true); buildIOChip("D", fill: true)
+            HStack(spacing: 4) {                                   // A–D toggle the selected colour's output emitters
+                ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
+                    buildIOChip(b.rawValue, on: buses.contains(b), fill: true) { buildToggleBus(b) }
+                }
             }
             .frame(width: BuildGeom.castW)                         // match the emitters row to the cast palette width
-            buildMidiOutInfo()                                     // clear MIDI OUT channel info, piano-height
+            buildMidiOutInfo(buses: buses)                         // the lit emitters + their channels
         }
+    }
+
+    // The selected colour's output emitters (from its placed cells, else the page sticky default).
+    private func ddSelectedColourBuses() -> Set<Bus> {
+        if let cid = ddSelectedColourID, let c = ddRepresentativeCell(cid) { return c.buses }
+        return ddStickyBuses
+    }
+
+    private func buildToggleBus(_ bus: Bus) {
+        guard let cid = ddSelectedColourID else { return }
+        var buses = ddSelectedColourBuses()
+        if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
+        if buses.isEmpty { buses = [bus] }                        // never leave a colour with no output
+        if ddColourIsPlaced(cid) { au?.editCellsOfColour(cid) { $0.buses = buses }; refreshFromDocument() }
+        ddStickyBuses = buses                                     // sticks for the colour's next placement too
+    }
+
+    // PLAY THIS MACHINE — audition the selected colour (placed → solo its cell; unplaced → synthetic preview). Toggle.
+    private func buildToggleMachineAudition() {
+        if ddSolo { ddSolo = false; au?.clearColourSolo(); return }
+        guard ddSelectedColourID != nil else { return }
+        ddSolo = true; ddEngageSolo()
     }
 
     @ViewBuilder private func buildPartHeader() -> some View {
@@ -164,49 +210,68 @@ extension DiagView {
         }
     }
 
-    // The octave keyboard shown under a selected PIANO door (placeholder: one octave, some notes held). Mockup layout.
-    @ViewBuilder private func buildKeyboard() -> some View {
-        let whites: [(x: CGFloat, held: Bool)] = [(0, true), (25, false), (50, true), (75, false), (100, true), (125, false), (150, false)]
-        let blacks: [(x: CGFloat, held: Bool)] = [(17, false), (42, false), (92, false), (117, true), (142, false)]
+    // The octave keyboard for the selected PIANO door (one octave from C3, matching the receiver keyboard). Tap a key
+    // to pick/unpick it into the door's frozen pool; dimmed + inert when the door isn't in PIANO mode.
+    @ViewBuilder private func buildKeyboard(receiver i: Int, held: Set<Int>, enabled: Bool) -> some View {
+        let startNote = 48                                    // C3, one octave (matches ReceiverConfigView)
+        let whiteOffsets = [0, 2, 4, 5, 7, 9, 11]
+        let blackAfter: [Int: Int] = [0: 1, 1: 3, 3: 6, 4: 8, 5: 10]
         ZStack(alignment: .topLeading) {
-            ForEach(Array(whites.enumerated()), id: \.offset) { _, k in
-                RoundedRectangle(cornerRadius: 3).fill(k.held ? buildCyan : Color(white: 0.9))
+            ForEach(0..<7, id: \.self) { wi in
+                let note = startNote + whiteOffsets[wi]
+                RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color(white: 0.9))
                     .frame(width: 24, height: 52).overlay(RoundedRectangle(cornerRadius: 3).stroke(buildPanel, lineWidth: 1))
-                    .offset(x: k.x)
+                    .offset(x: CGFloat(wi) * 25)
+                    .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
             }
-            ForEach(Array(blacks.enumerated()), id: \.offset) { _, k in
-                RoundedRectangle(cornerRadius: 2).fill(k.held ? buildCyan : buildPanel)
-                    .frame(width: 15, height: 31).offset(x: k.x)
+            ForEach(0..<7, id: \.self) { wi in
+                if let bOff = blackAfter[wi] {
+                    let note = startNote + bOff
+                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : buildPanel)
+                        .frame(width: 15, height: 31).offset(x: CGFloat(wi) * 25 + 17)
+                        .contentShape(Rectangle()).onTapGesture { au?.toggleReceiverPianoNote(i, note); refreshFromDocument() }
+                }
             }
         }
         .frame(width: 176, height: 52, alignment: .topLeading)
         .padding(.vertical, 2)
+        .opacity(enabled ? 1 : 0.35)
+        .allowsHitTesting(enabled)
     }
 
     // The per-receiver SOURCE toggle flanking the piano: a DIN connector (MIDI in) on the left, the in-app piano on
     // the right — piano-height, half an R1 button wide. The active side is filled cyan.
-    @ViewBuilder private func buildSourceToggle(_ icon: String, active: Bool, width: CGFloat, rotate: Bool = false) -> some View {
+    @ViewBuilder private func buildSourceToggle(_ icon: String, active: Bool, width: CGFloat, rotate: Bool = false, action: (() -> Void)? = nil) -> some View {
         Image(systemName: icon).font(.system(size: 18, weight: .semibold))
             .rotationEffect(.degrees(rotate ? 90 : 0))
             .foregroundColor(active ? .black : buildDim)
             .frame(width: width, height: 52)
             .background(RoundedRectangle(cornerRadius: 7).fill(active ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(active ? 0 : 0.4), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { action?() }
     }
 
     // OCT −/+ buttons under the piano (octave shift for the selected PIANO door).
-    @ViewBuilder private func buildOctBtn(_ s: String) -> some View {
+    @ViewBuilder private func buildOctBtn(_ s: String, action: (() -> Void)? = nil) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white)
             .frame(maxWidth: .infinity).frame(height: 26)
             .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { action?() }
     }
 
-    // clear MIDI OUT info below the emitters — piano-height, cast-width.
-    @ViewBuilder private func buildMidiOutInfo() -> some View {
+    // MIDI OUT readout below the emitters — the lit emitters + their stamp channels. Piano-height, cast-width.
+    @ViewBuilder private func buildMidiOutInfo(buses: Set<Bus>) -> some View {
+        let chans = au?.uiBusChannels() ?? [1, 2, 3, 4]
+        let lit = Array(Bus.allCases.enumerated()).filter { buses.contains($0.element) }
+        let summary = lit.isEmpty ? "—"
+            : lit.map { "\($0.element.rawValue)→CH\(chans.indices.contains($0.offset) ? chans[$0.offset] : $0.offset + 1)" }.joined(separator: "   ")
         VStack(spacing: 3) {
             Text("MIDI OUT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
-            Text("A → CH 1").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+            Text(summary).font(.system(size: lit.count > 1 ? 11 : 15, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                .lineLimit(1).minimumScaleFactor(0.55)
         }
         .frame(width: BuildGeom.castW, height: 52)
         .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
@@ -217,23 +282,36 @@ extension DiagView {
             ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
                 HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<8, id: \.self) { col in
-                        let i = row * 8 + col
-                        let hue = i < buildHues.count ? buildHues[i] : buildCell
-                        RoundedRectangle(cornerRadius: 6).fill(hue)
-                            .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
-                            .overlay(RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
-                                .opacity(i == buildSelColour ? 1 : 0))
-                            .onTapGesture { buildSelColour = i }
+                        buildCastSlot(row * 8 + col)
                     }
                 }
             }
         }
     }
 
+    // One cast slot. Slots 0–15 map to the 16 real colours (swatch when defined/placed, else a "+" create slot);
+    // slots 16–31 are INERT placeholders (the model has 16 colours — a >16 per-part palette is a future model change).
+    @ViewBuilder private func buildCastSlot(_ i: Int) -> some View {
+        if i < colourIDs.count {
+            let id = colourIDs[i]
+            let shown = ddColourShown(i)
+            RoundedRectangle(cornerRadius: 6).fill(shown ? (colourColor(id) ?? buildCell) : buildCell)
+                .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
+                .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).opacity(shown ? 0 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
+                    .opacity(i == ddColourSel ? 1 : 0))
+                .contentShape(Rectangle())
+                .onTapGesture { shown ? ddSelectColour(i) : ddCreateColour(i) }
+        } else {
+            RoundedRectangle(cornerRadius: 6).fill(buildCell.opacity(0.4))
+                .frame(width: BuildGeom.castSwatch, height: BuildGeom.castSwatch)
+        }
+    }
+
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
-        let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
+        let hue = buildSelHue
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
@@ -451,7 +529,7 @@ extension DiagView {
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
-        let hue = buildSelColour < buildHues.count ? buildHues[buildSelColour] : buildHues[0]
+        let hue = buildSelHue
         HStack(spacing: 10) {                                      // THE CHAIN — select-cell box → MIDI OUT box (centred)
             RoundedRectangle(cornerRadius: 9).fill(hue).frame(width: 40, height: 40)   // the colour ID / select-cell box
             buildBox("R1: MIDI IN", "OMNI")
@@ -465,7 +543,7 @@ extension DiagView {
         }
         .frame(maxWidth: .infinity)                               // centre the chain in the footer
         .overlay(alignment: .leading) {                          // RANDOMIZE pinned to the LEFT (footer MUTATE removed — the staging strip's MUTATE is THE mutate, iteration 5 §2)
-            buildFooterBtn("🎲 RANDOMIZE", pink: true)
+            buildFooterBtn("🎲 RANDOMIZE", pink: true) { ddRandomize() }   // re-roll the selected colour's machine (chain + params)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .frame(maxWidth: .infinity, minHeight: BuildGeom.barH, alignment: .leading)
@@ -473,36 +551,43 @@ extension DiagView {
     }
 
     // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like buildActionBtn).
-    @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false) -> some View {
+    @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(pink ? Color.black : Color.white)
             .padding(.horizontal, 16).frame(height: 46)
             .background(RoundedRectangle(cornerRadius: 11).fill(pink ? buildPink : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(buildCyan.opacity(pink ? 0 : 0.35), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { action?() }
     }
 
     // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
-    // The identical audition button at the top of each column (dot + label, cyan-bordered).
-    @ViewBuilder private func buildColumnButton(_ label: String) -> some View {
+    // The identical audition button at the top of each column (dot + label, cyan-bordered). `active` fills it cyan
+    // (auditioning); `action` (when given) makes it tappable.
+    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(buildCyan).frame(width: 8, height: 8)
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).tracking(1)
+            Circle().fill(active ? Color.black : buildCyan).frame(width: 8, height: 8)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity).frame(height: 38)
-        .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))
+        .background(RoundedRectangle(cornerRadius: 10).fill(active ? buildCyan : buildCell))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { action?() }
     }
     @ViewBuilder private func buildStep(_ s: String) -> some View {
         Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
     }
-    @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false) -> some View {
+    @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
             .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
             .padding(.horizontal, 7)
             .frame(maxWidth: fill ? .infinity : nil).frame(height: 48)   // fill → the row spreads evenly to the cast width; height doubled (24→48)
             .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan, lineWidth: keys && !on ? 1 : 0))
+            .contentShape(Rectangle())
+            .onTapGesture { action?() }
     }
     @ViewBuilder private func buildActionBtn(_ s: String, pink: Bool = false) -> some View {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).multilineTextAlignment(.center)

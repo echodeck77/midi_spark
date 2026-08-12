@@ -580,12 +580,12 @@ extension DiagView {
 
     // MARK: - selection helpers
 
-    private func ddColourIsPlaced(_ id: String) -> Bool {
+    func ddColourIsPlaced(_ id: String) -> Bool {      // internal: shared with the BUILD page
         for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { return true } }
         return false
     }
     /// A palette slot shows a colour when it's been CREATED (defined flag) or has placed cells; else it's a "+" slot.
-    private func ddColourShown(_ i: Int) -> Bool {
+    func ddColourShown(_ i: Int) -> Bool {             // internal: shared with the BUILD page
         (i < docColours.count && docColours[i].defined == true) || ddColourIsPlaced(colourIDs[i])
     }
     /// Tap a "+" slot → CREATE a new colour (mark it defined; its default machine is the colour's own head). It shows
@@ -608,7 +608,7 @@ extension DiagView {
         }
         return false
     }
-    private func ddRepresentativeCell(_ id: String) -> Cell? {
+    func ddRepresentativeCell(_ id: String) -> Cell? {   // internal: shared with the BUILD page
         for c in 0..<8 { for r in 0..<8 { if let cell = scene.cellAt(c, r), cell.colourID == id { return cell } } }
         return nil
     }
