@@ -466,6 +466,8 @@ extension DiagView {
             buildGridModeRadio($buildStagingMode)                 // PLAY/EDIT radio, right-aligned, at PART 1 ▾'s row
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
+                .opacity(buildStagingMode == .play ? 0.35 : 1)    // PLAY mode disables the editing verbs
+                .allowsHitTesting(buildStagingMode == .edit)
             Spacer(minLength: 0)
             AnyView(buildPopulate(gridW: gridW))                  // bottom of the centre column, above the footer
         }
@@ -518,13 +520,17 @@ extension DiagView {
     // colour when PLACE is armed (so you can see where a place lands); otherwise none.
     private func buildStagingStroke(c: Int, r: Int, stocked: Bool) -> Color {
         if stocked && buildStagingSel[c] == r { return .white }
-        if buildVerb == .place { return buildSelHue }
+        if buildStagingMode == .edit && buildVerb == .place { return buildSelHue }   // place cue only when EDIT + PLACE
         return .clear
     }
 
-    // A staging cell tap. PLACE (armed) stocks a cell of the selected colour + its machine (the colour IS its machine);
-    // DELETE clears it. MOVE + the engine-backed audition land with the ephemeral staging document (a later slice).
+    // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
+    // (playing) cell for its column. In EDIT mode: PLACE stocks the selected colour, DELETE clears, etc.
     private func buildStagingTap(_ c: Int, _ r: Int) {
+        if buildStagingMode == .play {                            // PLAY mode → SELECT the active cell (no placing)
+            if buildStagingCells[c][r] != nil { buildStagingSel[c] = r; buildStagingSyncIfPlaying() }
+            return
+        }
         switch buildVerb {
         case .place:
             guard let cid = ddSelectedColourID else { break }
