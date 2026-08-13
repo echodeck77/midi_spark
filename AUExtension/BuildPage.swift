@@ -905,7 +905,7 @@ extension DiagView {
                 if active && d.playing && fill != .none {
                     GeometryReader { g in
                         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                            RoundedRectangle(cornerRadius: 10).fill(buildCyan)                          // bright fill = the playhead sweeping L→R
+                            RoundedRectangle(cornerRadius: 10).fill(buildCyan.opacity(0.5))              // dimmer fill = the playhead sweeping L→R
                                 .frame(width: g.size.width * buildHeaderFill(fill, tl.date))
                         }
                     }
