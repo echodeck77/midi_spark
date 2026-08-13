@@ -61,71 +61,11 @@ struct DDZonePref: PreferenceKey {
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
 }
 
+// The DRAG&DROP page (dragDropPage) + its drag/palette/grid/machinery helpers were REMOVED (user 2026-08-13) — the
+// BUILD page superseded it. What remains here is the COLOUR-MANAGEMENT cluster still shared with BUILD (select/create/
+// solo/representative-cell helpers, ddSelectedColourID) plus `ddZone` (used by EditPage's flowDiagram) and the
+// DDRowCycle/DDCellAt types that back @State in AudioUnitViewController.
 extension DiagView {
-    @ViewBuilder func dragDropPage(_ size: CGSize) -> some View {
-        let pageW = min(size.width - 24, 1024)                       // hold the global 1024 content cap (user 2026-08-09)
-        let landscape = size.width > size.height
-        // grid + palette are HEIGHT-MATCHED (user 2026-08-09): the grid = loop row (18) + 8 cells; the palette = 4
-        // swatches + the DELETE box (= a swatch). gridCell drives, swatch is derived so both stack to the same height.
-        let H = min(size.height * (landscape ? 0.52 : 0.46), landscape ? 480 : 400)
-        let gridCell = max(16, min(48, (H - 50) / 8))
-        let matchedH = gridCell * 8 + 50                             // the actual grid height after clamping
-        let swatch = landscape ? max(20, (matchedH - 64) / 5)        // landscape: HEADER (GOLD·cell·count) + 4 palette rows + DELETE match the grid height (user 2026-08-10)
-                               : max(22, (matchedH - 128) / 5)       // portrait: palette + DELETE + identity (name·count·PLAY) matches it
-        let paletteW = swatch * 4 + 18
-        Group {
-            if landscape {
-                VStack(spacing: 10) {
-                    HStack(alignment: .top, spacing: 16) {            // TOP band (user 2026-08-10): LEFT palette column · CENTRED grid · RIGHT action box
-                        VStack(spacing: 8) {                          // LEFT column, LEFT-aligned: header ABOVE the palette; whole column == grid height
-                            ddColourHeader().frame(height: 28)
-                            ddPalette(swatch: swatch, litterHeight: swatch)
-                        }.frame(width: paletteW, height: matchedH, alignment: .top)
-                        Spacer(minLength: 0)
-                        HStack(alignment: .top, spacing: 5) {         // CENTRED grid (Spacers either side)
-                            ddRowSelectors(cell: gridCell, topInset: 18)
-                            VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
-                            ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
-                        }
-                        Spacer(minLength: 0)
-                        ddActionBox().frame(width: paletteW, height: matchedH)   // RIGHT box — EQUAL size to the left column; RANDOMIZE·MUTATE·LIBRARY, wired to the last slot
-                    }
-                    // MACHINERY (landscape): PLAY: THIS CELL sits top-left (where LIBRARY was). (user 2026-08-10)
-                    ddMachinery(width: pageW, landscape: true).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
-            } else {
-                VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 20) {            // PORTRAIT (user 2026-08-10): LEFT column · grid RIGHT-aligned
-                        VStack(alignment: .leading, spacing: 10) {   // order: swatch+GOLD · "N cells" · palette · DELETE · PLAY: THIS CELL
-                            ddColourIdentity(showPlay: false)         // the preview cell + GOLD, then "N cells" below
-                            ddPalette(swatch: swatch, litterHeight: swatch)   // palette + DELETE
-                            ddPlayCellButton()                        // PLAY: THIS CELL (bottom)
-                        }.frame(width: paletteW, alignment: .leading)
-                        Spacer(minLength: 0)                          // push the grid to the RIGHT
-                        HStack(alignment: .top, spacing: 5) {
-                            ddRowSelectors(cell: gridCell, topInset: 18)
-                            VStack(spacing: 4) { ddColumnLoopRow(cell: gridCell); ddGrid(cell: gridCell) }
-                            ddRowSelectors(cell: gridCell, topInset: 18, pointRight: true)   // RIGHT-side row selectors (user 2026-08-09)
-                        }
-                    }.frame(height: matchedH, alignment: .top)
-                    Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-                    ddMachinery(width: pageW).frame(maxWidth: .infinity, alignment: .top)
-                    ddMacroControls().frame(maxWidth: 460).padding(.horizontal, 12)   // THE DICE: sliders + buttons BELOW the machinery (portrait) (user 2026-08-10)
-                }
-            }
-        }
-        .frame(width: pageW)
-        .frame(maxWidth: .infinity)                                  // centre the capped content on wider canvases
-        .padding(.vertical, 12)
-        .coordinateSpace(name: "dd")                                               // the drag's shared frame of reference
-        .onPreferenceChange(DDZonePref.self) { ddZones = $0 }                       // collect the drop-zone frames
-        // SAFETY NET: a page-level release clears any stuck drag state. The page root survives the cell re-renders that
-        // can cancel a source cell's own gesture mid-drop (leaving the ghost/highlights stuck). (user 2026-08-09)
-        .simultaneousGesture(DragGesture(minimumDistance: 10, coordinateSpace: .named("dd")).onEnded { _ in ddResetDrag() })   // min 10 so a TAP never triggers the reset (was interfering with processor-box taps) (user 2026-08-10)
-        .overlay(alignment: .topLeading) { if let p = ddDragPayload { ddGhost(p).position(x: ddDragLoc.x, y: ddDragLoc.y - 32).allowsHitTesting(false) } }   // the in-hand ghost, above the finger
-        .overlay { if landscape { ddActionLine() } }   // the connector: action box → final processor box (both measured in "dd" space)
-        .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // playhead: anchor each poll for extrapolation
-    }
     // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
     func ddZone(_ key: String) -> some View {   // internal so flowDiagram (EditPage.swift) can measure the last processor slot for the action-box line
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }

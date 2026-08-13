@@ -192,34 +192,9 @@ extension DiagView {
     /// THE CELL-EDIT PAGE — ONE non-scrolling panel (user 2026-08-09). LANDSCAPE: grid LEFT · flow diagram RIGHT ·
     /// the mode buttons in a row along the BOTTOM. PORTRAIT: grid TOP with the mode buttons in a slim column to its
     /// right · flow diagram in the BOTTOM half. No informational text; the play-scope is a single button by the flow.
-    @ViewBuilder func editSpikePage(_ size: CGSize) -> some View {
-        let landscape = size.width > size.height
-        let gridW: CGFloat = landscape
-            ? max(120, min(size.height - 96, (size.width * 0.46) / 1.3)) * 1.3   // landscape: bound by height & ~46% width
-            : max(160, min(size.width - 152, (size.height * 0.46) * 1.3))          // portrait: top half, clear of the 122 button column
-        let gridH = gridW / 1.3
-        let cellH = max(16, min(46, (gridH - 30) / 9))
-
-        if landscape {
-            VStack(spacing: 10) {
-                HStack(alignment: .top, spacing: 14) {
-                    spikeGrid(cellH).frame(width: gridW, height: gridH)
-                    flowRegion(width: size.width - gridW - 44)   // flow diagram + play-scope, on the right
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }.frame(maxHeight: .infinity, alignment: .top)
-                modeButtons(vertical: false)                                  // the mode buttons ALONG THE BOTTOM
-            }.padding(12)
-        } else {
-            VStack(spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    spikeGrid(cellH).frame(width: gridW, height: gridH)
-                    modeButtons(vertical: true).frame(width: 122)             // slim mode-button column, right of the grid
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                flowRegion(width: size.width - 24)               // flow diagram + play-scope, BOTTOM half
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }.padding(12)
-        }
-    }
+    // The PROCESSORS page (editSpikePage) was REMOVED (user 2026-08-13) — the BUILD page superseded it. What remains in
+    // this file is machinery still SHARED with the surviving GRID page (macro authoring, proc-edit/split pop-ups, the
+    // cell library, edit-session helpers) and BUILD (flowDiagram + its receiver/emitter/slot cluster, dinMark, mainDestHue).
     /// The flow-diagram region: the play-scope button above the flow diagram (or a hint when no cell is selected).
     @ViewBuilder private func flowRegion(width: CGFloat) -> some View {
         VStack(spacing: 8) {
@@ -307,7 +282,7 @@ extension DiagView {
     func syncSingleModeActivation() {
         // NOT on the DRAG&DROP page: there the selection is the WHOLE colour, so deriving the active rung from it would
         // activate every column the colour occupies (user 2026-08-09 bug). The DD grid sets the rung via armLadderRung.
-        guard ladderMode, editMode == .addEdit, activeTab != .dragDrop, let au else { return }
+        guard ladderMode, editMode == .addEdit, let au else { return }
         var topByColumn: [Int: Int] = [:]
         for p in sel.cells { topByColumn[p.col] = min(topByColumn[p.col] ?? p.row, p.row) }
         guard !topByColumn.isEmpty else { return }
@@ -438,10 +413,9 @@ extension DiagView {
     // write the colour's TEMPLATE chain (and clear every per-cell override across all scenes) → every cell of the
     // colour, in every scene, stays uniform. Elsewhere (the PROCESSORS tab's manual selection) edits apply per-cell.
     // (user 2026-08-09: processor settings must change uniformly across all instances of a colour.)
-    private var editColourScoped: Bool { activeTab == .dragDrop }
-    // On the DRAG&DROP page use the SELECTED palette colour (works even before the colour has a placed cell — its
-    // machinery is always shown on a synthetic cell); elsewhere fall back to the anchor cell's colour.
-    private var editScopeColourID: String? { (activeTab == .dragDrop ? ddSelectedColourID : nil) ?? editingCell?.colourID }
+    private var editColourScoped: Bool { false }   // was the DRAG&DROP page (removed); the surviving GRID edit flow is per-cell
+    // The anchor cell's colour scopes an edit (the DRAG&DROP colour-wide path was removed with that page).
+    private var editScopeColourID: String? { editingCell?.colourID }
     // Every chain edit is based on the DISPLAYED chain (cellChain(editingCell)) and written whole — so a colour-scoped
     // edit can't operate on a stale representative cell (which reverted the arp / emptied the chain to a passgate on
     // delete — user 2026-08-09/10). `applyChain` writes it colour-wide (DRAG&DROP) or per-cell (PROCESSORS).

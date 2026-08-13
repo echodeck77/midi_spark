@@ -113,9 +113,8 @@ struct ArrangementBar: View {
     // GRID keeps the perform cyan; PROCESSORS the orchid (matches the old EDIT segment); the rest wear scene amber.
     private func tabHue(_ tab: AppTab) -> Color {
         switch tab {
-        case .build:      return editHue          // the new primary workshop wears the orchid (mockup's pink-active BUILD tab)
+        case .build:      return editHue          // the primary workshop wears the orchid (mockup's pink-active BUILD tab)
         case .grid:       return barCyan
-        case .processors: return editHue
         default:          return sceneAmber
         }
     }

@@ -67,9 +67,8 @@ enum EditPageMode { case addEdit, move, mute, clear }
 /// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
 enum AppTab: String, CaseIterable {
-    case build = "BUILD"          // THE BUILD PAGE (design: two-grid-flow, user 2026-08-11) — the new primary workshop; DESTINED to replace dragDrop + processors
-    case grid = "GRID", processors = "PROCESSORS", receivers = "MIDI IN", emitters = "MIDI OUT"
-    case dragDrop = "DRAG&DROP"   // design-stage predecessor of BUILD (palette · grid · machinery, user 2026-08-09) — kept until BUILD supersedes it
+    case build = "BUILD"          // THE BUILD PAGE (design: two-grid-flow, user 2026-08-11) — the primary workshop; SUPERSEDED + removed the DRAG&DROP + PROCESSORS pages (user 2026-08-13)
+    case grid = "GRID", receivers = "MIDI IN", emitters = "MIDI OUT"
     case macros = "MACROS", automation = "AUTOMATION"
     var live: Bool { self != .macros && self != .automation }
 }
@@ -926,15 +925,13 @@ struct DiagView: View {
         }
         .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
         .onChange(of: activeTab) { tab in
-            // LAYOUT v2: the PROCESSORS tab IS the old EDIT mode — `editArmed` still drives the begin/apply session
-            // logic below, so entering/leaving PROCESSORS opens/commits it. Any tab switch clears transient GRID
-            // gestures (a held verb, MUTE arm) so state can't leak across tabs.
-            editArmed = (tab == .processors || tab == .dragDrop || tab == .build)   // DRAG&DROP + BUILD reuse the per-cell flow-diagram machinery
+            // BUILD reuses the per-cell flow-diagram machinery via `editArmed` (drives the begin/apply session below).
+            // Any tab switch clears transient GRID gestures (a held verb, MUTE arm) so state can't leak across tabs.
+            editArmed = (tab == .build)
             if tab != .grid { heldVerb = nil }
-            if tab != .dragDrop && tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS CELL/MACHINE) is shared by DD+BUILD; only clear it leaving both
-            if tab != .dragDrop && ddDeleteMode { ddDeleteMode = false; ddDeleteStashCells = [:]; ddDeleteStashColours = [:] }   // don't leave delete mode armed
+            if tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS MACHINE) — only clear it when leaving BUILD
             ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
-            if tab == .dragDrop || tab == .build { ddEnsureSelection() }   // open the page with a colour selected (GOLD by default, user 2026-08-09)
+            if tab == .build { ddEnsureSelection() }   // open BUILD with a colour selected (GOLD by default, user 2026-08-09)
             if tab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // BUILD lands on PLAY THIS MACHINE → SOLO the machine (never the whole grid)
         }
         .onChange(of: editArmed) { on in
@@ -1167,12 +1164,8 @@ struct DiagView: View {
             // view steals taps from small controls (the piano/MIDI toggle + keys). The GeometryReader fills exactly the
             // remaining height → no overflow → no scroll → touches land. (user 2026-08-12)
             GeometryReader { g in buildPage(g.size) }
-        case .dragDrop:
-            dragDropPage(geo.size)            // design-stage: palette · grid · machinery (user 2026-08-09)
         case .grid:
             signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)
-        case .processors:
-            editSpikePage(geo.size)          // the edit page CONTENT (its own header dropped — parent renders the bar)
         case .emitters:
             rackMatrixView                    // the treatment matrix, now a full page
         case .receivers:
