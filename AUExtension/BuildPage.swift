@@ -740,11 +740,12 @@ extension DiagView {
     // STAGE THE GRID — the prominent call-to-action at the bottom of the centre column (upward chevron above the text).
     @ViewBuilder private func buildPopulate(gridW: CGFloat) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: "chevron.up").font(.system(size: 12, weight: .heavy)).foregroundColor(.black)
-            Text("STAGE THE GRID").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black).tracking(1)
+            Image(systemName: "chevron.up").font(.system(size: 12, weight: .heavy)).foregroundColor(buildPink)
+            Text("STAGE THE GRID").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1)
         }
         .frame(width: gridW).frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 10).fill(buildPink))
+        .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))                      // §0 MUTED: a restrained CTA — pink is a WHISPER (ink + edge), not a slab
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildPink.opacity(0.55), lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture { buildStageTheGrid() }
     }
@@ -882,10 +883,11 @@ extension DiagView {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
                 let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
-                RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(held ? 0.6 : 0.4))
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.14 : 0.06))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
                     .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
-                        .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(0.9)))
+                        .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.75 : 0.4)))
             }
         }
     }
@@ -902,9 +904,10 @@ extension DiagView {
                     let base = bands.prefix(idx).reduce(0, +)      // absolute grid-row offset for this band
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { r in
-                            RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(0.4))   // MATCH the loop-key headers (white on cyan)
+                            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))   // §0 MUTED: neutral row rail (matches the loop keys)
                                 .frame(width: cell, height: cell)
-                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.9)))
+                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.4)))
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(base + r) }  // press → fill that whole grid row
                         }
@@ -1105,10 +1108,10 @@ extension DiagView {
     // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like buildActionBtn).
     @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
-            .foregroundColor(pink ? Color.black : Color.white)
+            .foregroundColor(pink ? buildPink : Color.white)                                 // §0 MUTED: pink is a WHISPER (ink + edge on neutral), not a slab
             .padding(.horizontal, 16).frame(height: 46)
-            .background(RoundedRectangle(cornerRadius: 11).fill(pink ? buildPink : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(pink ? Color.clear : buildEdge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 11).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(pink ? buildPink.opacity(0.55) : buildEdge, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { action?() }
     }
@@ -1159,8 +1162,8 @@ extension DiagView {
             .foregroundColor(on ? Color.black : (keys ? buildCyan : buildDim))
             .padding(.horizontal, 7)
             .frame(maxWidth: fill ? .infinity : nil).frame(height: 48)   // fill → the row spreads evenly to the cast width; height doubled (24→48)
-            .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan, lineWidth: keys && !on ? 1 : 0))
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON keeps the accent (armed); idle mutes
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))   // §0: neutral border when idle (was standing cyan)
             .contentShape(Rectangle())
             .onTapGesture { action?() }
     }
