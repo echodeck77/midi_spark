@@ -433,6 +433,24 @@ extension DiagView {
         buildPublishScene()
     }
 
+    // THE VALVE (design ferry: row-button-valve) — the LEFT band selector is a FLATTEN ⇄ RESTORE toggle.
+    // EMPTY band → flatten the current part onto it (deploy + christen), STASH its workshop behind the band, and open
+    // a FRESH part (staging/column clear). SET band (already holds a part) → UNLOAD it and RESTORE that part's stashed
+    // workshop (a part switch: the current workshop retains under its own part). The RIGHT per-row rung-flatten is the
+    // held exception — left unchanged until Paul defines it.
+    func buildBandValve(base: Int, rows: Int) {
+        let setPart = (0..<rows).compactMap { i -> Int? in let R = base + i; return R < 8 && buildPerformPart[R] >= 0 ? buildPerformPart[R] : nil }.first
+        if let p = setPart, p < buildParts.count {           // SET → RESTORE (the part comes home to be rethought)
+            buildSwitchPart(p)                               // save the current (fresh) workshop, load p's stashed one
+            for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = -1 }
+            buildParts[p].deployed = false
+            buildPublishScene()
+        } else {                                             // EMPTY → FLATTEN + christen, then STASH + clear the bench
+            buildDeployBand(base: base, rows: rows)          // deploy the current part (copy rows) + christen
+            buildAddPart()                                   // stash the workshop behind the band + open a fresh part
+        }
+    }
+
     // START/STOP THE PLAY GRID — the PIECE voice (third zoom level). INDEPENDENT of the auditions (correction):
     // starting/stopping it never touches the chain/part; the stage plays until the user stops it.
     private func buildTogglePerformVoice() {
@@ -879,12 +897,13 @@ extension DiagView {
                 let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
                 let base = bands.prefix(idx).reduce(0, +)          // this band's first grid row
                 let mine = (0..<rows).contains { base + $0 < 8 && buildPerformPart[base + $0] == buildCurrentPart }   // §2: does the CURRENT part live in this band?
-                RoundedRectangle(cornerRadius: 7).fill(buildHues[idx % buildHues.count].opacity(0.4))   // §4: the rail wears its BAND's hue (matches the cell wash)
+                let set = (0..<rows).contains { base + $0 < 8 && buildPerformPart[base + $0] >= 0 }   // VALVE: this band HOLDS a part (SET)
+                RoundedRectangle(cornerRadius: 7).fill(buildHues[idx % buildHues.count].opacity(set ? 0.7 : 0.4))   // §4 band hue; SET reads more solid
                     .frame(width: cell, height: h)
-                    .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(mine ? 0.95 : 0.45)))
+                    .overlay(Text(set ? "\(idx + 1)" : "+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(set ? (mine ? 0.95 : 0.6) : 0.4)))   // SET shows the number; EMPTY shows a + (deploy-here)
                     .overlay(alignment: .leading) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: the deployed band's bright-ink RAIL BRACKET (others sit dim)
                     .contentShape(Rectangle())
-                    .onTapGesture { buildDeployBand(base: base, rows: rows) }   // Call 1: LEFT band selector = COPY ROWS (part spans the band)
+                    .onTapGesture { buildBandValve(base: base, rows: rows) }   // THE VALVE: empty → flatten+stash+clear · set → restore
             }
         }
     }
