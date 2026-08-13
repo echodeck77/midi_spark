@@ -104,6 +104,13 @@ struct DiagView: View {
     @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
     @State var buildCurrentPart: Int = 0                 // index of the part currently on the build column
     @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every colour follows)
+    // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
+    // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
+    @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
+    @State var buildPerformChain: [[[ProcessorSlot]]] = Array(repeating: Array(repeating: [], count: 8), count: 8)
+    @State var buildPerformRecv: [Int] = Array(repeating: 0, count: 8)          // per perform-ROW input door
+    @State var buildPerformEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)  // per perform-ROW emitters
+    @State var buildPerformPlaying: Bool = false                                // the PIECE is the active voice
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildGridPopup: Int? = nil        // BUILD grid eye → a full-screen grid pop-up (0 = staging, 1 = perform; nil = closed)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the

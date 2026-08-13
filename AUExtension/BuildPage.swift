@@ -232,8 +232,8 @@ extension DiagView {
     // buttons never appear dead. The MACHINE side also engages the audition (best-effort — needs a selected colour).
     // Internal so the VC can engage it on BUILD appear (so the default machine voice actually SOLOS — never the whole grid).
     func buildSelectMachineVoice() {
-        au?.setBuildStagingScene(nil)                           // leave STAGING playback → the solo audits against the real scene
-        buildStagingPlaying = false                              // machine is the voice (staging off)
+        au?.setBuildStagingScene(nil)                           // leave STAGING/PIECE playback → the solo audits against the real scene
+        buildStagingPlaying = false; buildPerformPlaying = false // chain is the voice (the other two off)
         ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
@@ -248,6 +248,7 @@ extension DiagView {
     }
     private func buildSelectStagingVoice() {
         if ddSolo { ddSolo = false; au?.clearColourSolo() }      // stop the machine audition — the selected colour must NOT derive MIDI now
+        buildPerformPlaying = false                              // stop the piece
         buildStagingPlaying = true                               // staging is the voice
         au?.setBuildStagingScene(buildStagingScene())           // the engine now derives MIDI from the STAGING grid (the column under the playhead)
     }
@@ -373,8 +374,50 @@ extension DiagView {
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O, default cast; the previous part keeps its workshop.
     private func buildAddPart() { buildSavePart(); buildParts.append(BuildPart()); buildLoadPart(buildParts.count - 1) }
-    // §1: deploying the current part to the play grid CHRISTENS it (PART n) and makes ADD PART askable.
-    func buildDeployCurrentPart() { if buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].deployed = true } }
+    // §1: deploying the current part to the play grid CHRISTENS it (PART n), COPIES its per-column selection into the
+    // TAPPED perform ROW, carries the part's I/O, and makes ADD PART askable.
+    func buildDeployCurrentPart(toRow R: Int) {
+        guard buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }
+        buildParts[buildCurrentPart].deployed = true
+        for c in 0..<8 {
+            let sr = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the part's selected cell for this column
+            if sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] {
+                buildPerformCells[c][R] = cid
+                buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
+            } else {
+                buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []
+            }
+        }
+        buildPerformRecv[R] = buildSelReceiver                   // the row carries the deploying part's I/O
+        buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        if buildPerformPlaying { au?.setBuildStagingScene(buildPerformScene()) }   // reflect live if the piece is playing
+    }
+
+    // The ephemeral scene for THE PIECE — every deployed perform cell (all rows sound per column: polyphony across parts).
+    private func buildPerformScene() -> SceneState {
+        var s = SceneState.empty()
+        for c in 0..<8 { for r in 0..<8 {
+            guard let cid = buildPerformCells[c][r] else { continue }
+            var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
+            cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
+            cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
+            s.setCell(c, r, cell)
+        } }
+        return s
+    }
+
+    // START/STOP THE PLAY GRID — the PIECE voice (third zoom level). Mutually exclusive with the chain + part voices.
+    private func buildTogglePerformVoice() {
+        if buildPerformPlaying {
+            buildPerformPlaying = false
+            au?.setBuildStagingScene(nil)
+        } else {
+            if ddSolo { ddSolo = false; au?.clearColourSolo() }   // stop the chain audition
+            buildStagingPlaying = false                            // stop the part audition
+            buildPerformPlaying = true
+            au?.setBuildStagingScene(buildPerformScene())
+        }
+    }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
     private func buildPartName(_ i: Int) -> String { i < buildParts.count && buildParts[i].deployed ? "PART \(i + 1)" : "UNASSIGNED PART" }
 
@@ -811,11 +854,12 @@ extension DiagView {
             Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
                 let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
+                let base = bands.prefix(idx).reduce(0, +)          // this band's first grid row
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
                     .frame(width: cell, height: h)
                     .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
                     .contentShape(Rectangle())
-                    .onTapGesture { buildDeployCurrentPart() }   // §1: assigning to the play grid DEPLOYS → christens the part
+                    .onTapGesture { buildDeployCurrentPart(toRow: base) }   // §1: assign the current part to this band's row → deploy + christen
             }
         }
     }
@@ -831,7 +875,7 @@ extension DiagView {
                     .frame(width: cell, height: cell)
                     .overlay(Text("\(part)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
                     .contentShape(Rectangle())
-                    .onTapGesture { buildDeployCurrentPart() }   // §1: assigning to the play grid DEPLOYS → christens the part
+                    .onTapGesture { buildDeployCurrentPart(toRow: r) }   // §1: assign the current part to THIS row → deploy + christen
             }
         }
     }
@@ -839,7 +883,7 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("START/STOP THE PLAY GRID", fill: .grid))   // grid-duration fill (animates once the perform voice is selectable)
+            AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, action: { buildTogglePerformVoice() }))   // the PIECE voice
             buildGridModeRadio($buildPlayMode) { buildPlayMode = .play; buildGridPopup = 1 }   // eye → full-screen perform grid (play mode)
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
@@ -901,16 +945,15 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.5), lineWidth: 1.5))
     }
 
-    // the PLAY grid rows — its OWN opaque view (see buildPaletteColumn's metadata-stack note).
+    // the PLAY grid rows — THE PIECE: real deployed cells (one row per deployed part). Empty until parts are deployed.
     @ViewBuilder private func buildPlayBands(cell: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.cellGap) {                       // UNIFORM 8 rows — no line inside the grid; parts show on the row buttons
+        VStack(spacing: BuildGeom.cellGap) {                       // UNIFORM 8 rows — parts show on the row buttons
             ForEach(0..<8, id: \.self) { r in
-                let p = r < 3 ? 0 : (r < 5 ? 1 : r - 3)            // this row's PART (parts: 0-2 · 3-4 · 5 · 6 · 7)
-                let base = buildHues[p % buildHues.count]           // one base hue PER PART
                 HStack(spacing: BuildGeom.cellGap) {
                     ForEach(0..<8, id: \.self) { c in
-                        let shade = 0.35 + 0.5 * Double((r * 3 + c * 2 + p) % 4) / 3.0   // a variety of SIMILAR shades within the part
-                        RoundedRectangle(cornerRadius: 7).fill(base.opacity(shade))
+                        let id = buildPerformCells[c][r]
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(id.flatMap { colourColor($0) } ?? buildCell)   // deployed cell = its colour; else empty
                             .frame(width: cell, height: cell)
                     }
                 }
