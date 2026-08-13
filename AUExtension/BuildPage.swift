@@ -67,6 +67,7 @@ struct BuildPart {
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
     var rowShade: [Double] = Array(repeating: 0, count: 8)
     var colourSel: Int = 0            // the cast selection (colourIDs index)
+    var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store (begins clean)
     var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
     var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
     var deployed: Bool = false        // christened (PART n) once deployed to the play grid
@@ -240,7 +241,7 @@ extension DiagView {
     func buildSelectMachineVoice() {
         au?.setBuildStagingScene(nil)                           // leave STAGING/PIECE playback → the solo audits against the real scene
         buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent (correction) — it keeps its flag/sound
-        ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
+        buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined colours (once); selects within the cast
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
         // A colour that was never given a chain has a nil templateChain, which the engine resolves via the LEGACY
@@ -376,7 +377,7 @@ extension DiagView {
         var p = buildParts[buildCurrentPart]
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
         p.rowChain = buildRowChain; p.rowShade = buildRowShade
-        p.colourSel = ddColourSel; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters
+        p.colourSel = ddColourSel; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast
         buildParts[buildCurrentPart] = p
     }
     private func buildLoadPart(_ i: Int) {
@@ -385,9 +386,27 @@ extension DiagView {
         let p = buildParts[i]
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade
-        ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters
+        ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
         buildPulseColourID = nil; buildHighlightColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
+        buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
+    }
+    // Seed part 1's cast ONCE from the colours already defined/placed in the document (so the first BUILD isn't blank);
+    // every NEW part (ADD PART / valve flatten) still begins with a clean, empty cast. §2 cast view.
+    func buildSeedCastIfNeeded() {
+        guard !buildCastSeeded else { return }
+        buildCastSeeded = true
+        if buildPartCast.isEmpty {
+            buildPartCast = (0..<colourIDs.count).filter { ddColourShown($0) }.map { colourIDs[$0] }
+            if buildPartCast.isEmpty, let g = colourIDs.first { buildPartCast = [g] }   // fall back to GOLD so there's a starting swatch
+        }
+        buildEnsureCastSelection()
+    }
+    // Keep the selection within the PART's cast (its own palette). A fresh, EMPTY cast → NO selection: the footer + the
+    // machine audition have nothing until the user adds a colour. Replaces the global ddEnsureSelection on BUILD. §2.
+    func buildEnsureCastSelection() {
+        if let cid = ddSelectedColourID, buildPartCast.contains(cid) { return }   // already a valid cast member
+        if let first = buildPartCast.first, let gi = colourIDs.firstIndex(of: first) { ddColourSel = gi } else { ddColourSel = -1 }
     }
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O, default cast; the previous part keeps its workshop.
@@ -633,48 +652,56 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture { buildCommitPulse() }
             }
-        } else if i < colourIDs.count {
-            let id = colourIDs[i]
-            let shown = ddColourShown(i)
-            RoundedRectangle(cornerRadius: 6).fill(shown ? (colourColor(id) ?? buildCell) : buildCell)
+        } else if i < buildPartCast.count {                        // §2: a MEMBER of THIS part's cast
+            let id = buildPartCast[i]
+            RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? buildCell)
                 .frame(width: swatch, height: swatch)
-                .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).opacity(shown ? 0 : 1))
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
-                    .opacity(i == ddColourSel ? 1 : 0))
+                    .opacity(id == ddSelectedColourID ? 1 : 0))
                 .contentShape(Rectangle())
-                .onTapGesture { shown ? ddSelectColour(i) : buildCreateColour(i) }
-        } else {
-            // beyond the 16 model colours: still a "+" that CREATES the next undefined colour (the palette caps at 16).
+                .onTapGesture { if let gi = colourIDs.firstIndex(of: id) { ddSelectColour(gi) } }
+        } else if i == buildPartCast.count {                       // the ADD slot — a "+" that adds a colour to THIS part's cast
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
                 .frame(width: swatch, height: swatch)
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
                 .contentShape(Rectangle())
-                .onTapGesture { buildCreateNextColour() }
+                .onTapGesture { buildAddCastColour() }
+        } else {
+            RoundedRectangle(cornerRadius: 6).fill(buildCell.opacity(0.4))   // beyond the cast — inert
+                .frame(width: swatch, height: swatch)
         }
     }
 
-    // Create the next undefined colour (a "+" cast slot beyond the 16 model colours taps this; no-op when all 16 exist).
-    private func buildCreateNextColour() {
-        for j in 0..<colourIDs.count where !ddColourShown(j) { buildCreateColour(j); return }
-    }
-    // The first undefined palette slot — where the pulsing candidate lives (nil = palette full).
-    private func buildFirstFreePaletteSlot() -> Int? {
-        for j in 0..<colourIDs.count where !ddColourShown(j) { return j }
-        return nil
+    // The pulsing candidate lives at the cast's ADD slot (right after the current members); nil once the palette is full.
+    private func buildFirstFreePaletteSlot() -> Int? { buildPartCast.count < 32 ? buildPartCast.count : nil }
+    // The next UNDEFINED global colour to materialize (nil = all 16 exist).
+    private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
+    // ADD a colour to THIS part's cast: materialize a fresh global colour (or reuse one not yet in the cast), add its ID.
+    private func buildAddCastColour() {
+        if let j = buildFirstUndefinedGlobal() {
+            buildCreateColour(j)
+            if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
+            ddSelectColour(j)
+        } else if let j = (0..<colourIDs.count).first(where: { !buildPartCast.contains(colourIDs[$0]) }) {
+            buildPartCast.append(colourIDs[j]); ddSelectColour(j)     // all 16 defined → SHARE an existing one into this cast
+        }
     }
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
     // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) and every grid
     // instance of it is HIGHLIGHTED — so the user edits the machine knowing where it's placed. (user 2026-08-13)
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
-        if !buildPulseChain.isEmpty, let slot = buildFirstFreePaletteSlot() {
-            buildCreateColour(slot)                               // a variation → add it to the palette in the same position
-            au?.withChainColour(colourIDs[slot]) { $0 = buildPulseChain }
-            ddSelectColour(slot)
-            buildHighlightColourID = colourIDs[slot]
+        if !buildPulseChain.isEmpty, let j = buildFirstUndefinedGlobal() {
+            buildCreateColour(j)                                  // a variation → materialize a new global colour carrying its machine
+            au?.withChainColour(colourIDs[j]) { $0 = buildPulseChain }
+            if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
+            ddSelectColour(j)
+            buildHighlightColourID = colourIDs[j]
         } else if let idx = colourIDs.firstIndex(of: pid) {
-            ddSelectColour(idx)                                   // an existing colour → select it (loads its machine into the footer)
+            if !buildPartCast.contains(pid) { buildPartCast.append(pid) }   // LAST TOUCHED promotes the colour INTO this part's cast (§2)
+            ddSelectColour(idx)                                   // select it (loads its machine into the footer)
             buildHighlightColourID = pid
         }
         buildPulseColourID = nil; buildPulseChain = []
