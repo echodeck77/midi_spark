@@ -603,9 +603,11 @@ extension DiagView {
     // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
     // (playing) cell for its column. In EDIT mode: PLACE stocks the selected colour, DELETE clears, etc.
     private func buildStagingTap(_ c: Int, _ r: Int) {
-        if buildStagingMode == .play {                            // PLAY mode → SELECT the active cell (no placing)
-            if buildStagingCells[c][r] != nil { buildStagingSel[c] = r; buildStagingSyncIfPlaying() }
-            return
+        if buildStagingMode == .play {                            // PLAY mode → SELECT / DESELECT the active cell (no placing)
+            guard buildStagingCells[c][r] != nil else { return }
+            buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the PLAYING cell → deselect (column goes silent, only the prior tail rings out); else select it
+            buildStagingSyncIfPlaying()
+            return                                                // early return → no reconcile, so an explicit −1 sticks
         }
         switch buildVerb {
         case .place:
