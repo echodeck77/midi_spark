@@ -233,7 +233,7 @@ extension DiagView {
     // Internal so the VC can engage it on BUILD appear (so the default machine voice actually SOLOS — never the whole grid).
     func buildSelectMachineVoice() {
         au?.setBuildStagingScene(nil)                           // leave STAGING/PIECE playback → the solo audits against the real scene
-        buildStagingPlaying = false; buildPerformPlaying = false // chain is the voice (the other two off)
+        buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent (correction) — it keeps its flag/sound
         ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
@@ -247,29 +247,41 @@ extension DiagView {
         ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
     private func buildSelectStagingVoice() {
-        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // stop the machine audition — the selected colour must NOT derive MIDI now
-        buildPerformPlaying = false                              // stop the piece
-        buildStagingPlaying = true                               // staging is the voice
-        au?.setBuildStagingScene(buildStagingScene())           // the engine now derives MIDI from the STAGING grid (the column under the playhead)
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }      // CHAIN ⟂ PART: stop the chain audition (they're mutually exclusive)
+        buildStagingPlaying = true                               // the PART is a voice — the PIECE (if playing) keeps sounding ALONGSIDE (correction)
+        buildPublishScene()
     }
 
-    // Build an EPHEMERAL scene from the staging grid — ONLY the SELECTED cell per column (buildStagingSel) is placed,
-    // so exactly one cell sounds per column (the white-outlined one). §2: every cell takes the PART-owned I/O (one
-    // input door + one set of emitters, shared across all colours); the cell inherits the colour's machine (or its
-    // staged variation chain). (design ferry: part-owned I/O, 2026-08-12)
-    private func buildStagingScene() -> SceneState {
-        let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        let recv = max(0, min(3, buildSelReceiver))
+    // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
+    // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
+    // staging/perform cell takes its PART-owned I/O + the colour's machine (or a staged variation chain). The CHAIN
+    // audition (PLAY THIS MIDI CHAIN) owns the render via a solo on the real scene, so it leaves the ephemeral clear.
+    private func buildPublishScene() {
+        if ddSolo { au?.setBuildStagingScene(nil); return }      // chain audition owns the render (solo)
+        guard buildStagingPlaying || buildPerformPlaying else { au?.setBuildStagingScene(nil); return }
         var s = SceneState.empty()
-        for c in 0..<8 {
-            let r = c < buildStagingSel.count ? buildStagingSel[c] : -1     // the ONE selected row for this column
-            guard r >= 0, r < 8, let cid = buildStagingCells[c][r] else { continue }
-            var cell = Cell(colourID: cid, buses: buses)                    // PART emitters
-            cell.inputReceiver = recv                                       // PART input door
-            cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil   // a STAGED row plays its own variation; else inherit the colour's machine
-            s.setCell(c, r, cell)
+        if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
+            for c in 0..<8 { for r in 0..<8 {
+                guard let cid = buildPerformCells[c][r] else { continue }
+                var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
+                cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
+                cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
+                s.setCell(c, r, cell)
+            } }
         }
-        return s
+        if buildStagingPlaying {                                 // THE PART — the staging selection, ALONGSIDE the piece
+            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+            let recv = max(0, min(3, buildSelReceiver))
+            for c in 0..<8 {
+                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
+                guard r >= 0, r < 8, let cid = buildStagingCells[c][r] else { continue }
+                var cell = Cell(colourID: cid, buses: buses)
+                cell.inputReceiver = recv
+                cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil
+                s.setCell(c, r, cell)                            // the audition sits in front on a slot collision
+            }
+        }
+        au?.setBuildStagingScene(s)
     }
 
     // STAGE THE GRID — from the selected colour's machine, generate 7 VARIATIONS; order all 8 (original + variations)
@@ -327,7 +339,7 @@ extension DiagView {
     }
 
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
-    private func buildStagingSyncIfPlaying() { if buildStagingPlaying { au?.setBuildStagingScene(buildStagingScene()) } }
+    private func buildStagingSyncIfPlaying() { buildPublishScene() }   // re-publish the combined (part + piece) scene after an edit
 
     // BUILD RANDOMIZE — the SIMPLER roll (a short 1–3-slot all-contributing chain, no macros); writes it colour-wide.
     private func buildRandomizeSimple() {
@@ -390,33 +402,14 @@ extension DiagView {
         }
         buildPerformRecv[R] = buildSelReceiver                   // the row carries the deploying part's I/O
         buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        if buildPerformPlaying { au?.setBuildStagingScene(buildPerformScene()) }   // reflect live if the piece is playing
+        buildPublishScene()                                      // reflect live if the piece is playing
     }
 
-    // The ephemeral scene for THE PIECE — every deployed perform cell (all rows sound per column: polyphony across parts).
-    private func buildPerformScene() -> SceneState {
-        var s = SceneState.empty()
-        for c in 0..<8 { for r in 0..<8 {
-            guard let cid = buildPerformCells[c][r] else { continue }
-            var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
-            cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
-            cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
-            s.setCell(c, r, cell)
-        } }
-        return s
-    }
-
-    // START/STOP THE PLAY GRID — the PIECE voice (third zoom level). Mutually exclusive with the chain + part voices.
+    // START/STOP THE PLAY GRID — the PIECE voice (third zoom level). INDEPENDENT of the auditions (correction):
+    // starting/stopping it never touches the chain/part; the stage plays until the user stops it.
     private func buildTogglePerformVoice() {
-        if buildPerformPlaying {
-            buildPerformPlaying = false
-            au?.setBuildStagingScene(nil)
-        } else {
-            if ddSolo { ddSolo = false; au?.clearColourSolo() }   // stop the chain audition
-            buildStagingPlaying = false                            // stop the part audition
-            buildPerformPlaying = true
-            au?.setBuildStagingScene(buildPerformScene())
-        }
+        buildPerformPlaying.toggle()
+        buildPublishScene()
     }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
     private func buildPartName(_ i: Int) -> String { i < buildParts.count && buildParts[i].deployed ? "PART \(i + 1)" : "UNASSIGNED PART" }
