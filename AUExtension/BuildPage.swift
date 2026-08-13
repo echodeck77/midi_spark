@@ -879,7 +879,7 @@ extension DiagView {
                 let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
                 let base = bands.prefix(idx).reduce(0, +)          // this band's first grid row
                 let mine = (0..<rows).contains { base + $0 < 8 && buildPerformPart[base + $0] == buildCurrentPart }   // §2: does the CURRENT part live in this band?
-                RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                RoundedRectangle(cornerRadius: 7).fill(buildHues[idx % buildHues.count].opacity(0.4))   // §4: the rail wears its BAND's hue (matches the cell wash)
                     .frame(width: cell, height: h)
                     .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(mine ? 0.95 : 0.45)))
                     .overlay(alignment: .leading) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: the deployed band's bright-ink RAIL BRACKET (others sit dim)
@@ -970,18 +970,28 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.5), lineWidth: 1.5))
     }
 
-    // the PLAY grid rows — THE PIECE: real deployed cells (one row per deployed part). Empty until parts are deployed.
+    // the PLAY grid rows — THE PIECE: real deployed cells. §4 BAND WASHES (design ferry): each band carries its own hue
+    // family as a low-alpha WASH BEHIND its cells (empty cells go clear so the wash reads); the cells keep their TRUE
+    // colour on top — rails differentiate, machines stay recognisable across grids. Alpha is a starting point.
     @ViewBuilder private func buildPlayBands(cell: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.cellGap) {                       // UNIFORM 8 rows — parts show on the row buttons
-            ForEach(0..<8, id: \.self) { r in
-                HStack(spacing: BuildGeom.cellGap) {
-                    ForEach(0..<8, id: \.self) { c in
-                        let id = buildPerformCells[c][r]
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(id.flatMap { colourColor($0) } ?? buildCell)   // deployed cell = its colour; else empty
-                            .frame(width: cell, height: cell)
+        let bands = [3, 2, 1, 1, 1]                                // the play grid's band form (8 rows)
+        VStack(spacing: BuildGeom.cellGap) {
+            ForEach(Array(bands.enumerated()), id: \.offset) { bi, rows in
+                let base = bands.prefix(bi).reduce(0, +)
+                VStack(spacing: BuildGeom.cellGap) {
+                    ForEach(0..<rows, id: \.self) { ri in
+                        let r = base + ri
+                        HStack(spacing: BuildGeom.cellGap) {
+                            ForEach(0..<8, id: \.self) { c in
+                                let id = buildPerformCells[c][r]
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(id.flatMap { colourColor($0) } ?? Color.clear)   // filled = TRUE colour; empty = clear → the band wash shows through
+                                    .frame(width: cell, height: cell)
+                            }
+                        }
                     }
                 }
+                .background(RoundedRectangle(cornerRadius: 8).fill(buildHues[bi % buildHues.count].opacity(0.16)))   // §4 the band's hue WASH, behind the cells
             }
         }
         .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
