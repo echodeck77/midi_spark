@@ -49,6 +49,7 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
+private let buildEdge  = Color(white: 1).opacity(0.12)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
@@ -142,6 +143,10 @@ extension DiagView {
             AnyView(buildOutputSection(castW: castW))             // BOTTOM (above the footer): MIDI OUT + the emitters
         }
         .frame(maxWidth: .infinity, alignment: .center)
+        // §1 THE THREAD (colour-architecture): a thin selected-hue edge down the LEFT column → it reads with the
+        // footer chain (also hue-framed) as ONE object — the machine's anatomy, input → thread → chain → output.
+        // Alpha is a starting point; Paul tunes on glass.
+        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(buildSelHue.opacity(0.55)).frame(width: 2).padding(.vertical, 6) }
     }
 
     @ViewBuilder private func buildInputSection(castW: CGFloat) -> some View {
@@ -489,7 +494,7 @@ extension DiagView {
             }
             .frame(maxWidth: .infinity).frame(height: 52)         // fills the midi-select row
             .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
         }
     }
 
@@ -547,7 +552,7 @@ extension DiagView {
                 .foregroundColor(active ? .black : buildDim)
                 .frame(width: width, height: 52)
                 .background(RoundedRectangle(cornerRadius: 7).fill(active ? buildCyan : buildCell))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(active ? 0 : 0.4), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(active ? Color.clear : buildEdge, lineWidth: 1))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -558,7 +563,7 @@ extension DiagView {
         Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white)
             .frame(maxWidth: .infinity).frame(height: 26)
             .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { action?() }
     }
@@ -1025,8 +1030,9 @@ extension DiagView {
         .padding(.horizontal, 14).padding(.top, 9)               // NO bottom padding — the boxes' bottom edge is the panel's bottom edge
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.45), lineWidth: 1.5))   // §1 THE THREAD: the chain frame wears the machine's hue (reads with the left column)
         .overlay(alignment: .bottomTrailing) {                   // EYE (bottom-right) → the signal-flow diagram pop-up
-            Image(systemName: "eye").font(.system(size: 15, weight: .semibold)).foregroundColor(buildCyan)
+            Image(systemName: "eye").font(.system(size: 15, weight: .semibold)).foregroundColor(buildDim)   // §0 muted chrome: a whisper, not an accent
                 .padding(10).contentShape(Rectangle()).onTapGesture { buildFlowOpen = true }
         }
     }
@@ -1037,7 +1043,7 @@ extension DiagView {
             .foregroundColor(pink ? Color.black : Color.white)
             .padding(.horizontal, 16).frame(height: 46)
             .background(RoundedRectangle(cornerRadius: 11).fill(pink ? buildPink : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(buildCyan.opacity(pink ? 0 : 0.35), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(pink ? Color.clear : buildEdge, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { action?() }
     }
@@ -1066,7 +1072,7 @@ extension DiagView {
                 }
             }
         )
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildCyan, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? buildCyan : buildEdge, lineWidth: 1))   // §0: the voice keeps the accent; idle mutes
         .contentShape(Rectangle())
         .onTapGesture { action?() }
     }
@@ -1106,7 +1112,7 @@ extension DiagView {
             .foregroundColor(armed ? Color.black : Color.white)
             .frame(maxWidth: .infinity).frame(minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildCyan, lineWidth: 1).opacity(armed ? 0 : 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))   // §0: armed keeps the cyan fill; idle mutes to a whisper
             .contentShape(Rectangle())
             .onTapGesture { buildVerb = armed ? nil : v }
     }
