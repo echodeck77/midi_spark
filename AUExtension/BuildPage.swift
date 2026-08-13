@@ -475,11 +475,12 @@ extension DiagView {
 
     @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
         let swatch = (castW - BuildGeom.castGap * 7) / 8           // 8 swatches fill the column width
+        let pulseSlot = buildPulseColourID != nil ? buildFirstFreePaletteSlot() : nil   // the last-free slot holds the pulsing candidate
         VStack(spacing: BuildGeom.castGap) {
             ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
                 HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<8, id: \.self) { col in
-                        buildCastSlot(row * 8 + col, swatch: swatch)
+                        buildCastSlot(row * 8 + col, swatch: swatch, pulseSlot: pulseSlot)
                     }
                 }
             }
@@ -488,8 +489,20 @@ extension DiagView {
 
     // One cast slot. Slots 0–15 map to the 16 real colours (swatch when defined/placed, else a "+" create slot);
     // slots 16–31 are also "+" that create the next undefined colour (the model caps at 16).
-    @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat) -> some View {
-        if i < colourIDs.count {
+    @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat, pulseSlot: Int?) -> some View {
+        if i == pulseSlot, let pid = buildPulseColourID {          // the PULSING candidate from a touched grid cell → tap to add + select
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let phase = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)   // pulse the colour in/out over black
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(Color.black)
+                    RoundedRectangle(cornerRadius: 6).fill(colourColor(pid) ?? buildCell).opacity(0.15 + 0.85 * phase)
+                }
+                .frame(width: swatch, height: swatch)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.7), lineWidth: 1.5))
+                .contentShape(Rectangle())
+                .onTapGesture { buildCommitPulse() }
+            }
+        } else if i < colourIDs.count {
             let id = colourIDs[i]
             let shown = ddColourShown(i)
             RoundedRectangle(cornerRadius: 6).fill(shown ? (colourColor(id) ?? buildCell) : buildCell)
@@ -513,6 +526,28 @@ extension DiagView {
     // Create the next undefined colour (a "+" cast slot beyond the 16 model colours taps this; no-op when all 16 exist).
     private func buildCreateNextColour() {
         for j in 0..<colourIDs.count where !ddColourShown(j) { buildCreateColour(j); return }
+    }
+    // The first undefined palette slot — where the pulsing candidate lives (nil = palette full).
+    private func buildFirstFreePaletteSlot() -> Int? {
+        for j in 0..<colourIDs.count where !ddColourShown(j) { return j }
+        return nil
+    }
+    // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
+    // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) and every grid
+    // instance of it is HIGHLIGHTED — so the user edits the machine knowing where it's placed. (user 2026-08-13)
+    private func buildCommitPulse() {
+        guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
+        if !buildPulseChain.isEmpty, let slot = buildFirstFreePaletteSlot() {
+            buildCreateColour(slot)                               // a variation → add it to the palette in the same position
+            au?.withChainColour(colourIDs[slot]) { $0 = buildPulseChain }
+            ddSelectColour(slot)
+            buildHighlightColourID = colourIDs[slot]
+        } else if let idx = colourIDs.firstIndex(of: pid) {
+            ddSelectColour(idx)                                   // an existing colour → select it (loads its machine into the footer)
+            buildHighlightColourID = pid
+        }
+        buildPulseColourID = nil; buildPulseChain = []
+        refreshFromDocument()
     }
 
     // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
@@ -581,6 +616,8 @@ extension DiagView {
                                     .opacity(buildStagingMode == .play && !selected ? 0.3 : 1)   // PLAY mode dims every cell except the selected one
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
+                                    .overlay { if id != nil && id == buildHighlightColourID {   // every instance of the committed colour → pink highlight
+                                        RoundedRectangle(cornerRadius: 7).stroke(buildPink, lineWidth: 3) } }
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -603,6 +640,10 @@ extension DiagView {
     // A staging cell tap. In PLAY mode the verbs are DISABLED — a tap on a STOCKED cell just makes it the active
     // (playing) cell for its column. In EDIT mode: PLACE stocks the selected colour, DELETE clears, etc.
     private func buildStagingTap(_ c: Int, _ r: Int) {
+        if let id = buildStagingCells[c][r] {                     // touching a STOCKED cell offers its colour+settings as a PULSING palette candidate
+            buildPulseColourID = id
+            buildPulseChain = (r < buildRowChain.count && !buildRowChain[r].isEmpty) ? buildRowChain[r] : []
+        }
         if buildStagingMode == .play {                            // PLAY mode → SELECT / DESELECT the active cell (no placing)
             guard buildStagingCells[c][r] != nil else { return }
             buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the PLAYING cell → deselect (column goes silent, only the prior tail rings out); else select it
@@ -909,7 +950,7 @@ extension DiagView {
                 if active && d.playing && fill != .none {
                     GeometryReader { g in
                         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                            RoundedRectangle(cornerRadius: 10).fill(buildCyan.opacity(0.5))              // dimmer fill = the playhead sweeping L→R
+                            RoundedRectangle(cornerRadius: 10).fill(buildCyan.opacity(0.3))              // dim fill = the playhead sweeping L→R
                                 .frame(width: g.size.width * buildHeaderFill(fill, tl.date))
                         }
                     }
