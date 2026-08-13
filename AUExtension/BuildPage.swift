@@ -895,10 +895,12 @@ extension DiagView {
         VStack(spacing: BuildGeom.cellGap) {
             Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             ForEach(0..<5, id: \.self) { r in                            // rows 1–5 only
-                let part = r < 3 ? 1 : 2
-                RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
+                let bandIndex = r < 3 ? 0 : 1                             // rows 0–2 = band 1 · rows 3–4 = band 2
+                let mine = buildPerformPart[r] == buildCurrentPart
+                RoundedRectangle(cornerRadius: 7).fill(buildHues[bandIndex % buildHues.count].opacity(0.4))   // §4: wears its BAND's hue (matches the cell wash + left rail)
                     .frame(width: cell, height: cell)
-                    .overlay(Text("\(part)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+                    .overlay(Text("\(bandIndex + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(mine ? 0.95 : 0.45)))
+                    .overlay(alignment: .trailing) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: current part's rows get the bright-ink bracket
                     .contentShape(Rectangle())
                     .onTapGesture { buildDeployCurrentPart(toRow: r) }   // §1: assign the current part to THIS row → deploy + christen
             }
@@ -985,8 +987,9 @@ extension DiagView {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildPerformCells[c][r]
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(id.flatMap { colourColor($0) } ?? Color.clear)   // filled = TRUE colour; empty = clear → the band wash shows through
+                                    .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // filled = TRUE colour; empty = a translucent recess (the band wash still tints it)
                                     .frame(width: cell, height: cell)
+                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.09), lineWidth: 1))   // outline every cell → the grid READS even when empty
                             }
                         }
                     }
