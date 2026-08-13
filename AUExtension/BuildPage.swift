@@ -357,7 +357,9 @@ extension DiagView {
     @ViewBuilder private func buildGridModeRadio(_ mode: Binding<BuildGridMode>, onEye: (() -> Void)? = nil) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "eye").font(.system(size: 13, weight: .semibold)).foregroundColor(buildCyan)   // LEFT: open this grid full-screen
-                .frame(height: 26).contentShape(Rectangle()).onTapGesture { onEye?() }
+                .padding(.horizontal, 10).frame(height: 26)      // a chip matching PLAY/EDIT's height, with side padding
+                .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+                .contentShape(Rectangle()).onTapGesture { onEye?() }
             Spacer(minLength: 0)
             ForEach([BuildGridMode.play, .edit], id: \.self) { m in
                 Text(m.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
