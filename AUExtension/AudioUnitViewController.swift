@@ -101,6 +101,9 @@ struct DiagView: View {
     @State var buildPulseColourID: String? = nil   // a touched grid cell's colour, offered as a PULSING candidate in the last free palette slot (nil = none)
     @State var buildPulseChain: [ProcessorSlot] = []   // the candidate's machine (for a staged variation cell); empty → use the colour's own chain
     @State var buildHighlightColourID: String? = nil   // after committing a candidate: highlight every grid instance of this colour
+    @State var buildParts: [BuildPart] = [BuildPart()]   // the PARTS (workshop lifecycle); the CURRENT part's fields live in the working @State below, synced on switch
+    @State var buildCurrentPart: Int = 0                 // index of the part currently on the build column
+    @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every colour follows)
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildGridPopup: Int? = nil        // BUILD grid eye → a full-screen grid pop-up (0 = staging, 1 = perform; nil = closed)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the

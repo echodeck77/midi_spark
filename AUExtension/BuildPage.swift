@@ -55,6 +55,21 @@ enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" 
 enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (styled like PART 1 ▾)
 enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
 
+// A PART — the workshop-level unit of the BUILD lifecycle (unassigned → built → staged → deployed). It owns its own
+// staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
+// shared across every colour/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
+// (design ferry AcceptanceCriteria-part-lifecycle-io, 2026-08-12)
+struct BuildPart {
+    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
+    var stagingSel: [Int] = Array(repeating: -1, count: 8)
+    var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
+    var rowShade: [Double] = Array(repeating: 0, count: 8)
+    var colourSel: Int = 0            // the cast selection (colourIDs index)
+    var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
+    var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
+    var deployed: Bool = false        // christened (PART n) once deployed to the play grid
+}
+
 extension DiagView {
 
     @ViewBuilder func buildPage(_ size: CGSize) -> some View {
@@ -340,14 +355,53 @@ extension DiagView {
     private func buildIsEmptySlot(_ s: ProcessorSlot) -> Bool { s.type == .passgate && s.bypassed }
     private func buildPassthroughSlot() -> ProcessorSlot { var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }
 
+    // ── PARTS lifecycle (unassigned → built → staged → deployed) ─────────────────────────────────────────────────
+    // The CURRENT part's fields live in the working @State (buildStagingCells etc.); these snapshot/restore them so
+    // switching parts keeps each part's workshop intact (§3). (design ferry: AcceptanceCriteria-part-lifecycle-io)
+    private func buildSavePart() {
+        guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count else { return }
+        var p = buildParts[buildCurrentPart]
+        p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
+        p.rowChain = buildRowChain; p.rowShade = buildRowShade
+        p.colourSel = ddColourSel; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters
+        buildParts[buildCurrentPart] = p
+    }
+    private func buildLoadPart(_ i: Int) {
+        guard i >= 0, i < buildParts.count else { return }
+        buildCurrentPart = i
+        let p = buildParts[i]
+        buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
+        buildRowChain = p.rowChain; buildRowShade = p.rowShade
+        ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters
+        buildPulseColourID = nil; buildHighlightColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
+        buildStagingSyncIfPlaying()
+    }
+    private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
+    // §3: a NEW part arrives FRESH — empty staging, unset I/O, default cast; the previous part keeps its workshop.
+    private func buildAddPart() { buildSavePart(); buildParts.append(BuildPart()); buildLoadPart(buildParts.count - 1) }
+    // §1: deploying the current part to the play grid CHRISTENS it (PART n) and makes ADD PART askable.
+    func buildDeployCurrentPart() { if buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].deployed = true } }
+    private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
+    private func buildPartName(_ i: Int) -> String { i < buildParts.count && buildParts[i].deployed ? "PART \(i + 1)" : "UNASSIGNED PART" }
+
     @ViewBuilder private func buildPartHeader() -> some View {
         HStack(spacing: 6) {
-            Text("PART 1 ▾").font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .padding(.horizontal, 10).frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
-            Text("+ NEW").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(buildDim)
+            Menu {                                                // the selector — switch between parts
+                ForEach(0..<buildParts.count, id: \.self) { i in Button(buildPartName(i)) { buildSwitchPart(i) } }
+            } label: {
+                Text("\(buildPartName(buildCurrentPart)) ▾").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .padding(.horizontal, 10).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+            }
+            // ADD PART — GLOWS (pink) once the current part is deployed; only then is it askable.
+            Text("ADD PART").font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(buildCurrentDeployed ? .black : buildDim)
                 .padding(.horizontal, 8).frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+                .background(RoundedRectangle(cornerRadius: 8).fill(buildCurrentDeployed ? buildPink : buildCell))
+                .opacity(buildCurrentDeployed ? 1 : 0.45)
+                .contentShape(Rectangle())
+                .onTapGesture { if buildCurrentDeployed { buildAddPart() } }
             Spacer(minLength: 0)
         }
     }
@@ -766,6 +820,8 @@ extension DiagView {
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
                     .frame(width: cell, height: h)
                     .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildDeployCurrentPart() }   // §1: assigning to the play grid DEPLOYS → christens the part
             }
         }
     }
@@ -780,6 +836,8 @@ extension DiagView {
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
                     .frame(width: cell, height: cell)
                     .overlay(Text("\(part)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildDeployCurrentPart() }   // §1: assigning to the play grid DEPLOYS → christens the part
             }
         }
     }
