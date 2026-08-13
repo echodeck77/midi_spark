@@ -50,6 +50,7 @@ private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 private let buildEdge  = Color(white: 1).opacity(0.12)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
+private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
 enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
@@ -407,6 +408,7 @@ extension DiagView {
         }
         buildPerformRecv[R] = buildSelReceiver                   // the row carries the deploying part's I/O
         buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        buildPerformPart[R] = buildCurrentPart                   // §2: the row now belongs to this part
         buildPublishScene()                                      // reflect live if the piece is playing
     }
 
@@ -415,7 +417,7 @@ extension DiagView {
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart < buildParts.count else { return }
         buildParts[buildCurrentPart].deployed = true
-        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] } }   // clear the band
+        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = buildCurrentPart }   // clear the band + claim it for this part (§2)
         let picked = Set((0..<8).compactMap { buildStagingSel[$0] >= 0 ? buildStagingSel[$0] : nil }).sorted()   // the part's distinct rungs
         for (i, sr) in picked.prefix(rows).enumerated() {
             let R = base + i; guard R < 8 else { break }
@@ -449,6 +451,7 @@ extension DiagView {
                     .lineLimit(1).minimumScaleFactor(0.7)
                     .padding(.horizontal, 10).frame(height: 26)
                     .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+                    .overlay(alignment: .bottom) { Rectangle().fill(buildPartInk).frame(height: 2) }   // §2: the part's bright-ink underline
             }
             // ADD PART — GLOWS (pink) once the current part is deployed; only then is it askable.
             Text("ADD PART").font(.system(size: 9, weight: .heavy, design: .monospaced))
@@ -735,6 +738,7 @@ extension DiagView {
                     }
                 }
                 .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
+                .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
         }
     }
@@ -874,9 +878,11 @@ extension DiagView {
             ForEach(Array(bands.enumerated()), id: \.offset) { idx, rows in
                 let h = cell * CGFloat(rows) + BuildGeom.cellGap * CGFloat(rows - 1)   // merge across the part's rows
                 let base = bands.prefix(idx).reduce(0, +)          // this band's first grid row
+                let mine = (0..<rows).contains { base + $0 < 8 && buildPerformPart[base + $0] == buildCurrentPart }   // §2: does the CURRENT part live in this band?
                 RoundedRectangle(cornerRadius: 7).fill(hue.opacity(0.4))
                     .frame(width: cell, height: h)
-                    .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
+                    .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(mine ? 0.95 : 0.45)))
+                    .overlay(alignment: .leading) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: the deployed band's bright-ink RAIL BRACKET (others sit dim)
                     .contentShape(Rectangle())
                     .onTapGesture { buildDeployBand(base: base, rows: rows) }   // Call 1: LEFT band selector = COPY ROWS (part spans the band)
             }
