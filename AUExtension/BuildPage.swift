@@ -178,15 +178,13 @@ extension DiagView {
         }
     }
 
-    // Select which INPUT door (R1–R4) the machine listens to + the face edits. Fans the choice onto the selected
-    // colour's cells (its input receiver) and the page sticky, so a fresh cell inherits it.
+    // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
+    // scene-build + audition; no per-colour cell fanning.
     private func buildSelectDoor(_ i: Int) {
         buildSelReceiver = i
         ddStickyReceiver = i
-        if let cid = ddSelectedColourID, ddColourIsPlaced(cid) {
-            au?.editCellsOfColour(cid) { $0.inputReceiver = i }
-        }
         receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
+        buildStagingSyncIfPlaying()                              // the part's door applies to every staging cell, live
         refreshFromDocument()
     }
 
@@ -205,9 +203,9 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildOutputSection(castW: CGFloat) -> some View {
-        let buses = ddSelectedColourBuses()
+        let buses = buildPartEmitters                             // §2: OUTPUT is PART-owned — every colour follows
         VStack(alignment: .center, spacing: 8) {
-            HStack(spacing: 4) {                                   // A–D toggle the selected colour's output emitters
+            HStack(spacing: 4) {                                   // A–D toggle the PART's output emitters
                 ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
                     buildIOChip(b.rawValue, on: buses.contains(b), fill: true) { buildToggleBus(b) }
                 }
@@ -217,19 +215,16 @@ extension DiagView {
         }
     }
 
-    // The selected colour's output emitters (from its placed cells, else the page sticky default).
-    private func ddSelectedColourBuses() -> Set<Bus> {
-        if let cid = ddSelectedColourID, let c = ddRepresentativeCell(cid) { return c.buses }
-        return ddStickyBuses
-    }
+    // §2 (design ferry): the emitters are PART-owned now — shared across every colour/cell of the part.
+    private func ddSelectedColourBuses() -> Set<Bus> { buildPartEmitters }
 
     private func buildToggleBus(_ bus: Bus) {
-        guard let cid = ddSelectedColourID else { return }
-        var buses = ddSelectedColourBuses()
+        var buses = buildPartEmitters
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
-        if buses.isEmpty { buses = [bus] }                        // never leave a colour with no output
-        if ddColourIsPlaced(cid) { au?.editCellsOfColour(cid) { $0.buses = buses }; refreshFromDocument() }
-        ddStickyBuses = buses                                     // sticks for the colour's next placement too
+        if buses.isEmpty { buses = [bus] }                        // never leave the PART with no output
+        buildPartEmitters = buses
+        ddStickyBuses = buses                                     // the machine audition preview reads this
+        buildStagingSyncIfPlaying()                               // the part's emitters apply to every staging cell, live
     }
 
     // PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID are a RADIO — the ONE workshop voice, DEFAULTING to the MACHINE
@@ -240,6 +235,8 @@ extension DiagView {
         au?.setBuildStagingScene(nil)                           // leave STAGING playback → the solo audits against the real scene
         buildStagingPlaying = false                              // machine is the voice (staging off)
         ddEnsureSelection()                                      // ensure a colour is selected so the audition has a target
+        ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
+        ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
         // A colour that was never given a chain has a nil templateChain, which the engine resolves via the LEGACY
         // A-face — and every default colour is type .arp, so auditioning it plays an arp the user can't see in the
         // (empty) chain. Convert that implicit arp into an EXPLICIT passthrough once, so what you hear matches the
@@ -256,21 +253,18 @@ extension DiagView {
     }
 
     // Build an EPHEMERAL scene from the staging grid — ONLY the SELECTED cell per column (buildStagingSel) is placed,
-    // so exactly one cell sounds per column (the white-outlined one). The cell references its colour with processors=nil
-    // (inherits the colour's machine/settings); routing is carried from the colour's representative cell. (user 2026-08-12)
+    // so exactly one cell sounds per column (the white-outlined one). §2: every cell takes the PART-owned I/O (one
+    // input door + one set of emitters, shared across all colours); the cell inherits the colour's machine (or its
+    // staged variation chain). (design ferry: part-owned I/O, 2026-08-12)
     private func buildStagingScene() -> SceneState {
-        var routing: [String: (buses: Set<Bus>, recv: Int)] = [:]   // per-colour routing, resolved OUTSIDE the scene build
-        for c in 0..<8 { for r in 0..<8 { if let cid = buildStagingCells[c][r], routing[cid] == nil {
-            let rep = ddRepresentativeCell(cid)
-            routing[cid] = (rep?.buses ?? [.a], rep?.inputReceiver ?? ddStickyReceiver)
-        } } }
+        let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        let recv = max(0, min(3, buildSelReceiver))
         var s = SceneState.empty()
         for c in 0..<8 {
             let r = c < buildStagingSel.count ? buildStagingSel[c] : -1     // the ONE selected row for this column
             guard r >= 0, r < 8, let cid = buildStagingCells[c][r] else { continue }
-            let rt = routing[cid] ?? ([.a], 0)
-            var cell = Cell(colourID: cid, buses: rt.buses.isEmpty ? [.a] : rt.buses)
-            cell.inputReceiver = max(0, min(3, rt.recv))
+            var cell = Cell(colourID: cid, buses: buses)                    // PART emitters
+            cell.inputReceiver = recv                                       // PART input door
             cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil   // a STAGED row plays its own variation; else inherit the colour's machine
             s.setCell(c, r, cell)
         }
