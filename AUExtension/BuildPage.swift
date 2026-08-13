@@ -1150,8 +1150,10 @@ extension DiagView {
     // Shows JUST the respective grid (0 = staging, 1 = perform) at a large cell size, in PLAY mode. (user 2026-08-13)
     @ViewBuilder private func buildGridPopupView(_ kind: Int, size: CGSize) -> some View {
         let hue = buildSelHue
-        let popupW = min(920, size.width - 60)
-        let cell = max(30, min(70, (popupW - BuildGeom.cellGap * 9 - 24) / 10))   // 10-cell span (matches the perform grid)
+        let popupW = min(920, size.width - 80)
+        let cellByW = (popupW - BuildGeom.cellGap * 9 - 44) / 10          // 10-cell span (matches the perform grid)
+        let cellByH = (size.height - 150 - BuildGeom.cellGap * 8) / 10    // ~9 cells tall + header/padding → clamp so it FITS onscreen
+        let cell = max(20, min(46, min(cellByW, cellByH)))
         ZStack {
             Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildGridPopup = nil }
             VStack(alignment: .center, spacing: 12) {
