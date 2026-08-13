@@ -405,6 +405,27 @@ extension DiagView {
         buildPublishScene()                                      // reflect live if the piece is playing
     }
 
+    // COPY ROWS (Call 1): the LEFT band selector lands a MULTI-RUNG part as the whole BAND — each DISTINCT staging row
+    // it picks becomes a band row (rows-with-picks preserved, the part spans the band). Christens like a flatten.
+    func buildDeployBand(base: Int, rows: Int) {
+        guard buildCurrentPart < buildParts.count else { return }
+        buildParts[buildCurrentPart].deployed = true
+        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] } }   // clear the band
+        let picked = Set((0..<8).compactMap { buildStagingSel[$0] >= 0 ? buildStagingSel[$0] : nil }).sorted()   // the part's distinct rungs
+        for (i, sr) in picked.prefix(rows).enumerated() {
+            let R = base + i; guard R < 8 else { break }
+            for c in 0..<8 where buildStagingSel[c] == sr {                 // columns whose pick lives in staging row sr
+                if let cid = buildStagingCells[c][sr] {
+                    buildPerformCells[c][R] = cid
+                    buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
+                }
+            }
+            buildPerformRecv[R] = buildSelReceiver
+            buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        }
+        buildPublishScene()
+    }
+
     // START/STOP THE PLAY GRID — the PIECE voice (third zoom level). INDEPENDENT of the auditions (correction):
     // starting/stopping it never touches the chain/part; the stage plays until the user stops it.
     private func buildTogglePerformVoice() {
@@ -852,7 +873,7 @@ extension DiagView {
                     .frame(width: cell, height: h)
                     .overlay(Text("\(idx + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)))
                     .contentShape(Rectangle())
-                    .onTapGesture { buildDeployCurrentPart(toRow: base) }   // §1: assign the current part to this band's row → deploy + christen
+                    .onTapGesture { buildDeployBand(base: base, rows: rows) }   // Call 1: LEFT band selector = COPY ROWS (part spans the band)
             }
         }
     }
