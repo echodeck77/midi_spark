@@ -1,35 +1,20 @@
 import SwiftUI
-// The DRAG&DROP page was REMOVED (user 2026-08-13) — the BUILD page superseded it. This file now holds only the
-// COLOUR-MANAGEMENT cluster still shared with BUILD (ddSelectColour/ddCreateColour/ddColourShown/ddColourIsPlaced/
-// ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedColourID + their internals), `ddZone` (used by
-// EditPage's flowDiagram), and the DDRowCycle/DDCellAt/DDZonePref types that back @State in AudioUnitViewController.
+// The DRAG&DROP page (and all its drag/palette/grid/machinery/dice code) was REMOVED (user 2026-08-13) — the BUILD
+// page superseded it. This file now holds ONLY the colour-management cluster still shared with BUILD (ddSelectColour/
+// ddCreateColour/ddColourShown/ddColourIsPlaced/ddRepresentativeCell/ddEngageSolo/ddEnsureSelection/ddSelectedColourID
+// + their internals) and `ddZone` (used by EditPage's flowDiagram).
 
-// (legacy) the row-selector PAINT cycle type — kept only to back a @State var in the view controller.
-struct DDRowCycle { var row: Int; var colour: Int; var phase: Int; var original: [Cell?] }
-
-// DELETE MODE (user 2026-08-10): while the DELETE box is HELD, a tap deletes a cell/colour; a second tap reverts it.
-// A stashed (col,row,cell) so a re-tap can put it back exactly.
-struct DDCellAt: Equatable { let col: Int; let row: Int; let cell: Cell }
-
-// Drop-zone frames for the CUSTOM finger-tracking drag (SwiftUI's .onDrag/.onDrop don't survive the AU host).
+// Drop-zone frames for ddZone (still used by EditPage's flowDiagram to measure the last processor slot).
 struct DDZonePref: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { $1 } }
 }
 
-// The DRAG&DROP page (dragDropPage) + its drag/palette/grid/machinery helpers were REMOVED (user 2026-08-13) — the
-// BUILD page superseded it. What remains here is the COLOUR-MANAGEMENT cluster still shared with BUILD (select/create/
-// solo/representative-cell helpers, ddSelectedColourID) plus `ddZone` (used by EditPage's flowDiagram) and the
-// DDRowCycle/DDCellAt types that back @State in AudioUnitViewController.
 extension DiagView {
     // A cell/swatch reports its frame (in "dd" space) so a drag's end point can be hit-tested to a landing.
     func ddZone(_ key: String) -> some View {   // internal so flowDiagram (EditPage.swift) can measure the last processor slot for the action-box line
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
     }
-    // The custom drag (user 2026-08-09): a LONG PRESS (0.25s) ARMS the drag — the ghost appears + the actual move/copy
-    // begins. A quick tap still flows to onTapGesture. The inner DragGesture has minimumDistance 0 so `.second` fires
-    // at the press point the instant the hold completes.
-    func ddResetDrag() { ddDragPayload = nil; ddTouchSource = nil; ddDropHover = nil }
     var ddSelectedColourID: String? {
         if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
         return editingCell?.colourID

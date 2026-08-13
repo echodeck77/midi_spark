@@ -109,26 +109,11 @@ struct DiagView: View {
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
-    @State var ddDropHover: String? = nil     // DRAG&DROP: the drop target currently under a drag ("grid:c:r" / "palette:i" / "litter")
-    @State var ddLitterFlash: String? = nil   // DRAG&DROP: the litter briefly flashes what it took ("−1 colour · 5 cells")
-    @State var ddDragPayload: String? = nil   // DRAG&DROP custom drag: what's in hand ("colour:<id>" / "cell:<c>:<r>"); nil = idle
-    @State var ddTouchSource: String? = nil   // DRAG&DROP: a draggable source is being TOUCHED (pre-drag) → highlight targets; cleared on release
-    @State var ddPaintColour: String? = nil   // DRAG&DROP: a palette colour is HELD DOWN → tapping grid cells PAINTS them that colour; cleared on release
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
-    @State var ddDragLoc: CGPoint = .zero      // …the finger's location in the page ("dd") coordinate space
-    @State var ddZones: [String: CGRect] = [:] // …measured drop-zone frames (grid cells · palette swatches · litter)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
     @State var ddBeatAnchorAt: Date = Date()
-    @State var ddRowCycle: DDRowCycle? = nil   // DRAG&DROP row selector: the 3-press paint cycle (fill empties → fill row → revert)
     @State var ddSolo = false                  // DRAG&DROP PLAY: THIS CELL — isolate + freeze on the selected cell's column
-    @State var ddDeleteMode = false            // DRAG&DROP: the DELETE box is HELD → tap a cell/colour to delete it (2nd tap reverts); red-highlights both grids
-    @State var ddDeleteStashCells: [String: Cell] = [:]     // …grid cells deleted this hold (key "c:r" → the removed cell), for toggle-revert
-    @State var ddDeleteStashColours: [String: [DDCellAt]] = [:]  // …colours deleted this hold (id → its removed cells), for toggle-revert
-    @State var ddDice: Dice.Result? = nil       // THE DICE (user 2026-08-10): the last roll (base chain + evaluated slider/button macros)
-    @State var ddDiceColour: String? = nil      // …which colour ddDice was rolled for (the macros apply to it)
-    @State var ddDiceSliders: [Double] = [0, 0, 0, 0]   // …the 4 spring-slider positions (0…1; spring back to 0 on release)
-    @State var ddDiceButtons: [Bool] = [false, false, false, false]   // …the 4 binary-macro toggles
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
@@ -930,7 +915,6 @@ struct DiagView: View {
             editArmed = (tab == .build)
             if tab != .grid { heldVerb = nil }
             if tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS MACHINE) — only clear it when leaving BUILD
-            ddResetDrag(); ddPaintColour = nil                    // never carry a stuck ghost/highlight/paint-hold across a tab switch
             if tab == .build { ddEnsureSelection() }   // open BUILD with a colour selected (GOLD by default, user 2026-08-09)
             if tab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // BUILD lands on PLAY THIS MACHINE → SOLO the machine (never the whole grid)
         }
