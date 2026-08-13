@@ -118,7 +118,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MACHINE", active: !buildStagingPlaying, fill: .cell, action: { buildSelectMachineVoice() }))   // fills over ONE cell
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildStagingPlaying, fill: .cell, action: { buildSelectMachineVoice() }))   // fills over ONE cell
             AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
             Spacer(minLength: 0)
@@ -567,7 +567,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THE STAGING GRID", active: buildStagingPlaying, fill: .grid, action: { buildSelectStagingVoice() }))   // fills over the whole grid
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildStagingPlaying, fill: .grid, action: { buildSelectStagingVoice() }))   // fills over the whole grid
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
@@ -1177,7 +1177,7 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "eye").font(.system(size: 16, weight: .semibold)).foregroundColor(hue)
-                    Text("SIGNAL FLOW").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
+                    Text("THE MIDI CHAIN").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
                     Spacer()
                 }
                 flowDiagram(cell, width: w).allowsHitTesting(false)   // the exact processors-page diagram — display-only
