@@ -120,6 +120,7 @@ struct DiagView: View {
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
+    @State var buildPendingVoiceStaging: Bool? = nil   // an armed CHAIN⟷PART voice switch, applied on the next cell boundary (nil = none)
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
@@ -949,9 +950,13 @@ struct DiagView: View {
             if playCellOnly { au?.setEditSolo(editSelTargets) }   // "play this cell only" follows the selection
         }
         .onChange(of: d.absoluteStep) { _ in                  // LADDER commit: the armed column's current STEP just finished → set the new
+            buildCommitPendingVoice()                          // BUILD: apply an armed CHAIN⟷PART voice switch on the cell boundary (Paul 2026-08-14)
             guard !ladderPending.isEmpty else { return }      // rung for its next entry. absoluteStep increments each step EVEN when the
             for (col, row) in ladderPending { au?.setActiveRow(col, row) }   // playhead is LOOPING one column (a lap) — where effColumn never changes, so
             ladderPending = [:]; refreshFromDocument()         // the old effColumn-change trigger never fired and the arm just blinked forever.
+        }
+        .onChange(of: d.playing) { playing in                 // transport stopped mid-arm → apply the pending voice switch now (no boundary will come)
+            if !playing { buildCommitPendingVoice() }
         }
         .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
             if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }

@@ -136,7 +136,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildStagingPlaying, fill: .cell, action: { buildSelectMachineVoice() }))   // fills over ONE cell
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildStagingPlaying, fill: .cell, action: { buildRequestMachineVoice() }))   // fills over ONE cell (switch quantized to the next cell)
             AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
             Spacer(minLength: 0)
@@ -257,6 +257,26 @@ extension DiagView {
         if ddSolo { ddSolo = false; au?.clearColourSolo() }      // CHAIN ⟂ PART: stop the chain audition (they're mutually exclusive)
         buildStagingPlaying = true                               // the PART is a voice — the PIECE (if playing) keeps sounding ALONGSIDE (correction)
         buildPublishScene()
+    }
+
+    // The header buttons REQUEST a workshop-voice switch; while the transport runs, the switch is QUANTIZED to the next
+    // cell boundary (buildCommitPendingVoice, fired from the VC's absoluteStep hook) so it lands on the grid, not mid-cell.
+    // Stopped, or re-selecting the same voice → immediate. (Paul 2026-08-14)
+    func buildRequestMachineVoice() { buildRequestVoice(staging: false) }
+    func buildRequestStagingVoice() { buildRequestVoice(staging: true) }
+    private func buildRequestVoice(staging: Bool) {
+        if d.playing && staging != buildStagingPlaying {
+            buildPendingVoiceStaging = staging                   // arm — applied at the next cell boundary
+        } else {
+            buildPendingVoiceStaging = nil
+            staging ? buildSelectStagingVoice() : buildSelectMachineVoice()
+        }
+    }
+    // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
+    func buildCommitPendingVoice() {
+        guard let s = buildPendingVoiceStaging else { return }
+        buildPendingVoiceStaging = nil
+        s ? buildSelectStagingVoice() : buildSelectMachineVoice()
     }
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
@@ -787,7 +807,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS PART", active: buildStagingPlaying, fill: .grid, action: { buildSelectStagingVoice() }))   // fills over the whole grid
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildStagingPlaying, fill: .grid, action: { buildRequestStagingVoice() }))   // fills over the whole grid (switch quantized to the next cell)
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
