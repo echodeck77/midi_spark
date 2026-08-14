@@ -656,9 +656,16 @@ extension DiagView {
     @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
         let cols = 4                                                // 4 columns → the 8 defaults read as 2 rows of 4 (top-left)
         let swatch = min((castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols), 30)   // capped so 4-wide doesn't blow up the column height
-        let pulseSlot = buildPulseColourID != nil ? buildFirstFreePaletteSlot() : nil   // the first free slot holds the pulsing candidate
-        let filled = buildPartCast.count + (pulseSlot != nil ? 1 : 0)
-        let rows = max(2, min(4, (filled + cols) / cols))          // at least the 2 default rows; grows to fit + one add row; ≤ 4 (16 cap)
+        let pulseSlot: Int? = {                                    // where the pulsing candidate lives (Paul 2026-08-14)
+            guard let pid = buildPulseColourID else { return nil }
+            if let existing = buildPartCast.firstIndex(of: pid) {  // already in the palette → pulse THAT slot, never a phantom new one …
+                return pid == ddSelectedColourID ? nil : (0..<16).first { buildCastMemberAt($0) == existing }   // … UNLESS already selected
+            }
+            return buildFirstFreePaletteSlot()                     // a genuinely NEW colour → the "create me" candidate at the bottom-right
+        }()
+        let hasAdds = buildPartCast.count > buildCastDefaultCount
+        let proposingNew = buildPulseColourID.map { !buildPartCast.contains($0) } ?? false
+        let rows = (hasAdds || proposingNew) ? 4 : 2               // 2 rows for just the defaults; expands to 4 once colours fill in from the bottom-right
         VStack(spacing: BuildGeom.castGap) {
             ForEach(0..<rows, id: \.self) { row in
                 HStack(spacing: BuildGeom.castGap) {
@@ -680,10 +687,9 @@ extension DiagView {
             .allowsHitTesting(false)
     }
 
-    // One cast slot. Slots 0–15 map to the 16 real colours (swatch when defined/placed, else a "+" create slot);
-    // slots 16–31 are also "+" that create the next undefined colour (the model caps at 16).
+    // One cast slot (of the 4×4 palette). DEFAULTS fill top-left, adds fill bottom-right (see buildCastMemberAt).
     @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat, pulseSlot: Int?) -> some View {
-        if i == pulseSlot, let pid = buildPulseColourID {          // the PULSING candidate from a touched grid cell → tap to add + select
+        if i == pulseSlot, let pid = buildPulseColourID {          // the PULSING candidate → tap to commit (SELECT it; never a duplicate)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let phase = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)   // pulse the colour in/out over black
                 ZStack {
@@ -691,12 +697,12 @@ extension DiagView {
                     RoundedRectangle(cornerRadius: 6).fill(colourColor(pid) ?? buildCell).opacity(0.15 + 0.85 * phase)
                 }
                 .frame(width: swatch, height: swatch)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.7), lineWidth: 1.5))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))   // a NEUTRAL border — pulsing is NOT the selected/targeted state
                 .contentShape(Rectangle())
                 .onTapGesture { buildCommitPulse() }
             }
-        } else if i < buildPartCast.count {                        // §2: a MEMBER of THIS part's cast — TAP selects, LONG-PRESS adds
-            let id = buildPartCast[i]
+        } else if let m = buildCastMemberAt(i) {                   // a MEMBER of the cast — TAP selects, LONG-PRESS adds
+            let id = buildPartCast[m]
             RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? buildCell)
                 .frame(width: swatch, height: swatch)
                 .overlay(RoundedRectangle(cornerRadius: 6)
@@ -716,8 +722,22 @@ extension DiagView {
         }
     }
 
-    // The pulsing candidate lives at the cast's ADD slot (right after the current members); nil once the palette is full.
-    private func buildFirstFreePaletteSlot() -> Int? { buildPartCast.count < 32 ? buildPartCast.count : nil }
+    // THE PALETTE GRID is 4×4 (16 slots). DEFAULTS fill the TOP-LEFT in order; user-added colours fill from the
+    // BOTTOM-RIGHT corner (slot 15 first, then 14, …) so a proposed/added colour always "starts at the bottom right".
+    private var buildCastDefaultCount: Int { min(Self.buildDefaultTypes.count, buildPartCast.count) }
+    // slot (0–15) → the buildPartCast index shown there, or nil (an empty slot).
+    private func buildCastMemberAt(_ slot: Int) -> Int? {
+        let dc = buildCastDefaultCount
+        if slot < dc { return slot }                                  // defaults, top-left, in order
+        let fromEnd = 15 - slot                                       // 0 at the bottom-right corner
+        return (fromEnd >= 0 && fromEnd < buildPartCast.count - dc) ? dc + fromEnd : nil   // adds, bottom-right
+    }
+    // The bottom-right-most FREE add slot — where the next colour is proposed/committed (nil once the 16 cap is hit).
+    private func buildFirstFreePaletteSlot() -> Int? {
+        let addCount = buildPartCast.count - buildCastDefaultCount
+        let slot = 15 - addCount
+        return slot > buildCastDefaultCount - 1 && slot >= 0 ? slot : nil
+    }
     // The next UNDEFINED global colour to materialize (nil = all 16 exist).
     private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
     // ADD a colour to THIS part's cast: materialize a fresh global colour (or reuse one not yet in the cast), add its ID.
@@ -735,8 +755,10 @@ extension DiagView {
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
-        if !buildPulseChain.isEmpty, let j = buildFirstUndefinedGlobal() {
-            buildCreateColour(j)                                  // a variation → materialize a new global colour carrying its machine
+        if buildPartCast.contains(pid), let idx = colourIDs.firstIndex(of: pid) {
+            ddSelectColour(idx)                                   // ALREADY a palette member → just SELECT it, never duplicate (Paul 2026-08-14)
+        } else if !buildPulseChain.isEmpty, let j = buildFirstUndefinedGlobal() {
+            buildCreateColour(j)                                  // a NEW variation → materialize a new global colour carrying its machine
             au?.withChainColour(colourIDs[j]) { $0 = buildPulseChain }
             if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
             ddSelectColour(j)
@@ -1114,7 +1136,8 @@ extension DiagView {
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
         let chain = selectedColourChain()                         // the SELECTED colour's real processors (empty for a new colour)
-        HStack(alignment: .center, spacing: 10) {                  // THE CHAIN — EXAMPLE cell · IN box · slots (vertically centred in the footer)
+        HStack(alignment: .center, spacing: 10) {                  // THE CHAIN — RANDOMIZE · EXAMPLE cell · IN box · slots (all in a row, none overlapping)
+            buildFooterBtn("🎲 RANDOMIZE", pink: true) { buildRandomizeSimple() }   // LEFT: the SIMPLER roll — now IN the row (was an overlay covering the example cell)
             RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the EXAMPLE cell = the selected machine, to the LEFT of the processor boxes
                 .overlay { if ddSelectedColourID != nil { buildTargetMark(24) } }              // …wearing the same TARGET as the cast swatch
             buildBox("R1: MIDI IN", "OMNI")
@@ -1130,10 +1153,7 @@ extension DiagView {
                 if i < 7 { Text("┈").foregroundColor(buildDim) }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)   // room for the taller RANDOMIZE; the box row sits CENTRED
-        .overlay(alignment: .leading) {                          // RANDOMIZE pinned LEFT, centred with the boxes
-            buildFooterBtn("🎲 RANDOMIZE", pink: true) { buildRandomizeSimple() }   // BUILD: the SIMPLER roll (short chain, no macros)
-        }
+        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .padding(.horizontal, 14).padding(.vertical, 9)          // symmetric padding → the boxes centre in the footer
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
