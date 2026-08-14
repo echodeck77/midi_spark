@@ -985,10 +985,10 @@ extension DiagView {
         HStack(spacing: 6) {
             ForEach(Array(["A", "B", "C", "D"].enumerated()), id: \.offset) { i, e in
                 VStack(spacing: 4) {
-                    Text(e).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                    Text(e).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))   // §0 MUTED: neutral identifier (was standing cyan)
                     RoundedRectangle(cornerRadius: 4).fill(buildCell)   // the velocity fader STRETCHES down to the M/S row
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .overlay(RoundedRectangle(cornerRadius: 4).fill(buildCyan.opacity(0.5)).frame(height: 26), alignment: .bottom)
+                        .overlay(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.22)).frame(height: 26), alignment: .bottom)   // §0 MUTED: the level bar reads as a neutral value, not a cyan slab
                     Text("CH \(i + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 6)
@@ -1155,7 +1155,7 @@ extension DiagView {
         return CGFloat(max(0, min(1, raw < 0 ? raw + 1 : raw)))
     }
     @ViewBuilder private func buildStep(_ s: String) -> some View {
-        Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1.2)
+        Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1.2)   // §0 MUTED: step labels recede (were loud pink)
     }
     @ViewBuilder private func buildIOChip(_ s: String, on: Bool = false, keys: Bool = false, fill: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(s).font(.system(size: 9, weight: on ? .heavy : .regular, design: .monospaced))
@@ -1187,7 +1187,7 @@ extension DiagView {
     @ViewBuilder private func buildBox(_ title: String, _ ch: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title).font(.system(size: 9, design: .monospaced)).foregroundColor(.white)
-            Text(ch).font(.system(size: 8, design: .monospaced)).foregroundColor(buildCyan)
+            Text(ch).font(.system(size: 8, design: .monospaced)).foregroundColor(buildDim)   // §0 MUTED: channel readout recedes (was standing cyan)
         }
         .padding(.horizontal, 9).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 9).fill(buildCell))
