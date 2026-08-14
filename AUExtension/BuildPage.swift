@@ -1214,12 +1214,15 @@ extension DiagView {
     }
 
     // ── small shared placeholder widgets ─────────────────────────────────────────────────────────────────────────
-    // The identical audition button at the top of each column (dot + label, cyan-bordered). `active` marks it the
-    // playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
+    // The identical audition button at the top of each column (transport glyph + label, cyan-bordered). `active` marks
+    // it the playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
     // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
     @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(active ? Color.white : buildCyan).frame(width: 8, height: 8)
+            Image(systemName: active ? "stop.fill" : "play.fill")   // TRANSPORT glyphs — clear play ▶ / stop ■ (no size change to the button)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(active ? .white : buildCyan)
+                .frame(width: 13)
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
