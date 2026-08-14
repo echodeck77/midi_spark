@@ -654,20 +654,17 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
-        let cols = 4                                                // 4 columns → the 8 defaults read as 2 rows of 4 (top-left)
-        let swatch = min((castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols), 30)   // capped so 4-wide doesn't blow up the column height
+        let cols = 8                                                // 8×4 grid (original proportions); defaults sit in the top-left 4×2 block
+        let swatch = (castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols)   // 8 swatches fill the column width
         let pulseSlot: Int? = {                                    // where the pulsing candidate lives (Paul 2026-08-14)
             guard let pid = buildPulseColourID else { return nil }
             if let existing = buildPartCast.firstIndex(of: pid) {  // already in the palette → pulse THAT slot, never a phantom new one …
-                return pid == ddSelectedColourID ? nil : (0..<16).first { buildCastMemberAt($0) == existing }   // … UNLESS already selected
+                return pid == ddSelectedColourID ? nil : (0..<32).first { buildCastMemberAt($0) == existing }   // … UNLESS already selected
             }
             return buildFirstFreePaletteSlot()                     // a genuinely NEW colour → the "create me" candidate at the bottom-right
         }()
-        let hasAdds = buildPartCast.count > buildCastDefaultCount
-        let proposingNew = buildPulseColourID.map { !buildPartCast.contains($0) } ?? false
-        let rows = (hasAdds || proposingNew) ? 4 : 2               // 2 rows for just the defaults; expands to 4 once colours fill in from the bottom-right
         VStack(spacing: BuildGeom.castGap) {
-            ForEach(0..<rows, id: \.self) { row in
+            ForEach(0..<4, id: \.self) { row in
                 HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<cols, id: \.self) { col in
                         buildCastSlot(row * cols + col, swatch: swatch, pulseSlot: pulseSlot)
@@ -722,21 +719,24 @@ extension DiagView {
         }
     }
 
-    // THE PALETTE GRID is 4×4 (16 slots). DEFAULTS fill the TOP-LEFT in order; user-added colours fill from the
-    // BOTTOM-RIGHT corner (slot 15 first, then 14, …) so a proposed/added colour always "starts at the bottom right".
+    // THE PALETTE GRID stays 8×4 (32 slots). The 8 DEFAULTS occupy the TOP-LEFT 4×2 block (a proportion of the grid);
+    // user-added colours fill from the BOTTOM-RIGHT corner (slot 31 first, then 30, …) so a new colour "starts bottom-right".
     private var buildCastDefaultCount: Int { min(Self.buildDefaultTypes.count, buildPartCast.count) }
-    // slot (0–15) → the buildPartCast index shown there, or nil (an empty slot).
+    // slot (0–31) → the buildPartCast index shown there, or nil (an empty slot). 8 cols × 4 rows.
     private func buildCastMemberAt(_ slot: Int) -> Int? {
         let dc = buildCastDefaultCount
-        if slot < dc { return slot }                                  // defaults, top-left, in order
-        let fromEnd = 15 - slot                                       // 0 at the bottom-right corner
-        return (fromEnd >= 0 && fromEnd < buildPartCast.count - dc) ? dc + fromEnd : nil   // adds, bottom-right
+        let row = slot / 8, col = slot % 8
+        if row < 2 && col < 4 {                                       // the top-left 4×2 default block
+            let k = row * 4 + col
+            return k < dc ? k : nil
+        }
+        let a = 31 - slot                                            // adds fill from the bottom-right corner
+        return (a >= 0 && a < buildPartCast.count - dc) ? dc + a : nil
     }
-    // The bottom-right-most FREE add slot — where the next colour is proposed/committed (nil once the 16 cap is hit).
+    // The bottom-right-most FREE add slot — where the next colour is proposed/committed (nil once the palette is full).
     private func buildFirstFreePaletteSlot() -> Int? {
-        let addCount = buildPartCast.count - buildCastDefaultCount
-        let slot = 15 - addCount
-        return slot > buildCastDefaultCount - 1 && slot >= 0 ? slot : nil
+        let slot = 31 - (buildPartCast.count - buildCastDefaultCount)
+        return slot > 11 ? slot : nil                                 // adds live below/right of the default block; never collide with it
     }
     // The next UNDEFINED global colour to materialize (nil = all 16 exist).
     private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
