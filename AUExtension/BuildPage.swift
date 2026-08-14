@@ -387,7 +387,7 @@ extension DiagView {
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade
         ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
-        buildPulseColourID = nil; buildHighlightColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
+        buildPulseColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
     }
@@ -714,8 +714,8 @@ extension DiagView {
         }
     }
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
-    // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) and every grid
-    // instance of it is HIGHLIGHTED — so the user edits the machine knowing where it's placed. (user 2026-08-13)
+    // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) — and THE TARGET
+    // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
         if !buildPulseChain.isEmpty, let j = buildFirstUndefinedGlobal() {
@@ -723,11 +723,9 @@ extension DiagView {
             au?.withChainColour(colourIDs[j]) { $0 = buildPulseChain }
             if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
             ddSelectColour(j)
-            buildHighlightColourID = colourIDs[j]
         } else if let idx = colourIDs.firstIndex(of: pid) {
             if !buildPartCast.contains(pid) { buildPartCast.append(pid) }   // LAST TOUCHED promotes the colour INTO this part's cast (§2)
             ddSelectColour(idx)                                   // select it (loads its machine into the footer)
-            buildHighlightColourID = pid
         }
         buildPulseColourID = nil; buildPulseChain = []
         refreshFromDocument()
@@ -800,9 +798,7 @@ extension DiagView {
                                     .opacity(buildStagingMode == .play && !selected ? 0.3 : 1)   // PLAY mode dims every cell except the selected one
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
-                                    .overlay { if id != nil && id == buildHighlightColourID {   // every instance of the committed colour → pink highlight
-                                        RoundedRectangle(cornerRadius: 7).stroke(buildPink, lineWidth: 3) } }
-                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every cell matching the selected machine
+                                    .overlay { if selected && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides ONLY the selected (playing) cell of the focused machine — not every matching cell
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
