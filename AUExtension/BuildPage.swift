@@ -651,6 +651,16 @@ extension DiagView {
         }
     }
 
+    // THE TARGET — a reticle marking the SELECTED machine wherever it appears: the cast swatch, the footer EXAMPLE cell,
+    // and every grid cell that shares the selected colour (matches its properties). (Paul 2026-08-14)
+    @ViewBuilder private func buildTargetMark(_ size: CGFloat) -> some View {
+        Image(systemName: "scope")
+            .font(.system(size: size, weight: .medium))
+            .foregroundColor(.white)
+            .shadow(color: .black.opacity(0.7), radius: 1)
+            .allowsHitTesting(false)
+    }
+
     // One cast slot. Slots 0–15 map to the 16 real colours (swatch when defined/placed, else a "+" create slot);
     // slots 16–31 are also "+" that create the next undefined colour (the model caps at 16).
     @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat, pulseSlot: Int?) -> some View {
@@ -673,6 +683,7 @@ extension DiagView {
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                     .opacity(id == ddSelectedColourID ? 1 : 0))
+                .overlay { if id == ddSelectedColourID { buildTargetMark(swatch * 0.6) } }   // THE TARGET rides the selected cast cell
                 .contentShape(Rectangle())
                 .onTapGesture { if let gi = colourIDs.firstIndex(of: id) { ddSelectColour(gi) } }
         } else if i == buildPartCast.count {                       // the ADD slot — a "+" that adds a colour to THIS part's cast
@@ -791,6 +802,7 @@ extension DiagView {
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .overlay { if id != nil && id == buildHighlightColourID {   // every instance of the committed colour → pink highlight
                                         RoundedRectangle(cornerRadius: 7).stroke(buildPink, lineWidth: 3) } }
+                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every cell matching the selected machine
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -1053,6 +1065,7 @@ extension DiagView {
                                     .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // filled = TRUE colour; empty = a translucent recess (the band wash still tints it)
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.09), lineWidth: 1))   // outline every cell → the grid READS even when empty
+                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
                             }
                         }
                     }
@@ -1088,8 +1101,9 @@ extension DiagView {
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
     @ViewBuilder private func buildMachinery() -> some View {
         let chain = selectedColourChain()                         // the SELECTED colour's real processors (empty for a new colour)
-        HStack(alignment: .center, spacing: 10) {                  // THE CHAIN — select-cell box → MIDI OUT box (vertically centred in the footer)
-            RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the PREVIEW cell = the selected colour
+        HStack(alignment: .center, spacing: 10) {                  // THE CHAIN — EXAMPLE cell · IN box · slots (vertically centred in the footer)
+            RoundedRectangle(cornerRadius: 9).fill(buildSelHue).frame(width: 40, height: 40)   // the EXAMPLE cell = the selected machine, to the LEFT of the processor boxes
+                .overlay { if ddSelectedColourID != nil { buildTargetMark(24) } }              // …wearing the same TARGET as the cast swatch
             buildBox("R1: MIDI IN", "OMNI")
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             ForEach(0..<8, id: \.self) { i in                     // UP TO 8 processor slots (the chain's capacity)
@@ -1102,8 +1116,6 @@ extension DiagView {
                 }
                 if i < 7 { Text("┈").foregroundColor(buildDim) }
             }
-            Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
-            buildBox("A: MIDI OUT", "ch1")
         }
         .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)   // room for the taller RANDOMIZE; the box row sits CENTRED
         .overlay(alignment: .leading) {                          // RANDOMIZE pinned LEFT, centred with the boxes
