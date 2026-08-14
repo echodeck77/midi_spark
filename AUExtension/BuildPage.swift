@@ -875,7 +875,7 @@ extension DiagView {
                         }
                     }
                 }
-                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
+                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying) }   // sweeps only when the PART grid plays
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
         }
@@ -1180,15 +1180,15 @@ extension DiagView {
                 .background(RoundedRectangle(cornerRadius: 8).fill(buildHues[bi % buildHues.count].opacity(0.16)))   // §4 the band's hue WASH, behind the cells
             }
         }
-        .overlay(alignment: .topLeading) { buildPlayhead(cell: cell) }   // the sweeping playhead — cells only, not the keys/rails
+        .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildPerformPlaying) }   // sweeps only when the PLAY grid plays
     }
 
     // THE PLAYHEAD — a 2pt vertical line sweeping L→R across the 8 grid columns, phase-locked to the transport beat and
     // looping with the engine's 8-column cycle. Attached to the CELLS block only (topLeading), so it never crosses the
     // loop-key row above or the row buttons to the side. Extrapolates the polled beat between frames (like the palette
     // playhead) and warps by SWING so it tracks the real (swung) column windows. (user 2026-08-12)
-    @ViewBuilder private func buildPlayhead(cell: CGFloat) -> some View {
-        if d.playing {
+    @ViewBuilder private func buildPlayhead(cell: CGFloat, active: Bool) -> some View {
+        if d.playing && active {                                  // only when THIS grid is the playing voice (Paul 2026-08-14)
             let width = cell * 8 + BuildGeom.cellGap * 7               // the cells span: 8 cells + the 7 gaps between them
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
@@ -1253,10 +1253,12 @@ extension DiagView {
     // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
     @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: active ? "stop.fill" : "play.fill")   // TRANSPORT glyphs — clear play ▶ / stop ■ (no size change to the button)
-                .font(.system(size: 12, weight: .black))
-                .foregroundColor(active ? .white : buildCyan)
-                .frame(width: 13)
+            HStack(spacing: 4) {                                    // BOTH transport signs, the CURRENT state highlighted (Paul 2026-08-14)
+                Image(systemName: "play.fill").font(.system(size: 10, weight: .black))
+                    .foregroundColor(active ? .white : .white.opacity(0.22))          // PLAYING → play lit
+                Image(systemName: "stop.fill").font(.system(size: 10, weight: .black))
+                    .foregroundColor(active ? .white.opacity(0.22) : .white)          // STOPPED → stop lit
+            }
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
