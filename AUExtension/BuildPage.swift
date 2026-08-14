@@ -1091,7 +1091,8 @@ extension DiagView {
     // Returns [col][row] colourIDs (nil = nothing to preview there).
     private func buildPreviewCells() -> [[String?]] {
         var out = Array(repeating: Array(repeating: String?.none, count: 8), count: 8)
-        guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed else { return out }
+        // Only while the PARTS (staging) grid is playing — NOT during a MIDI-chain audition. (Paul 2026-08-14)
+        guard buildStagingPlaying, buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed else { return out }
         let selRows = Set((0..<8).compactMap { buildStagingSel[$0] >= 0 ? buildStagingSel[$0] : nil }).sorted()
         let K = selRows.count
         guard K > 0 else { return out }
