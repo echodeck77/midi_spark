@@ -136,7 +136,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildStagingPlaying, fill: .cell, action: { buildRequestMachineVoice() }))   // fills over ONE cell (switch quantized to the next cell)
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildDisplayStaging, fill: .cell, action: { buildRequestMachineVoice() }))   // header responds immediately (display); MIDI switch quantized
             AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
             Spacer(minLength: 0)
@@ -278,6 +278,9 @@ extension DiagView {
         buildPendingVoiceStaging = nil
         s ? buildSelectStagingVoice() : buildSelectMachineVoice()
     }
+    // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADER reads this so
+    // it highlights the new voice IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
+    var buildDisplayStaging: Bool { buildPendingVoiceStaging ?? buildStagingPlaying }
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
     // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
@@ -818,7 +821,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS PART", active: buildStagingPlaying, fill: .grid, action: { buildRequestStagingVoice() }))   // fills over the whole grid (switch quantized to the next cell)
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayStaging, fill: .grid, action: { buildRequestStagingVoice() }))   // header responds immediately (display); MIDI switch quantized
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
@@ -1253,11 +1256,11 @@ extension DiagView {
     // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
     @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
-            HStack(spacing: 4) {                                    // BOTH transport signs, the CURRENT state highlighted (Paul 2026-08-14)
-                Image(systemName: "play.fill").font(.system(size: 10, weight: .black))
-                    .foregroundColor(active ? .white : .white.opacity(0.22))          // PLAYING → play lit
-                Image(systemName: "stop.fill").font(.system(size: 10, weight: .black))
-                    .foregroundColor(active ? .white.opacity(0.22) : .white)          // STOPPED → stop lit
+            HStack(spacing: 5) {                                    // BOTH transport signs, the CURRENT state boldly lit (Paul 2026-08-15)
+                Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
+                    .foregroundColor(active ? Color(red: 0.36, green: 0.92, blue: 0.52) : .white.opacity(0.22))   // PLAYING → GREEN play
+                Image(systemName: "stop.fill").font(.system(size: 15, weight: .black))
+                    .foregroundColor(active ? .white.opacity(0.22) : Color(red: 0.98, green: 0.5, blue: 0.5))     // STOPPED → RED stop
             }
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .white : buildCyan).tracking(1)
                 .lineLimit(1).minimumScaleFactor(0.6)
