@@ -513,10 +513,21 @@ extension DiagView {
             buildSwitchPart(p)                               // save the current (fresh) workshop, load p's stashed one
             for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = -1 }
             buildParts[p].deployed = false
+            // OUTPUT (Paul 2026-08-14): the play grid CONTINUES for every still-deployed part; the demoted part plays
+            // from the PART grid (alongside). Chain audition off — output is now piece + this part.
+            if ddSolo { ddSolo = false; au?.clearColourSolo() }
+            buildStagingPlaying = true                       // the demoted part sounds from the part grid
+            buildPerformPlaying = buildPerformPart.contains { $0 >= 0 }   // the play grid keeps going iff other parts remain deployed
             buildPublishScene()
         } else {                                             // EMPTY → FLATTEN + christen, then STASH + clear the bench
             buildDeployBand(base: base, rows: rows)          // deploy the current part (copy rows) + christen
             buildAddPart()                                   // stash the workshop behind the band + open a fresh part
+            // OUTPUT (Paul 2026-08-14): the part grid cleared → switch the MIDI output to the PLAY GRID, which STARTS
+            // on assignment. Chain audition + the (now empty) part voice both off.
+            if ddSolo { ddSolo = false; au?.clearColourSolo() }
+            buildStagingPlaying = false
+            buildPerformPlaying = true
+            buildPublishScene()
         }
     }
 
