@@ -391,15 +391,27 @@ extension DiagView {
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
     }
-    // Seed part 1's cast ONCE from the colours already defined/placed in the document (so the first BUILD isn't blank);
-    // every NEW part (ADD PART / valve flatten) still begins with a clean, empty cast. §2 cast view.
+    // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
+    // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
+    // every part's cast. Each carries a single-processor machine at that type's default settings.
+    static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .echo, .strum, .chance, .harmonize, .drone]
+    func buildDefaultCastIDs() -> [String] { Array(colourIDs.prefix(min(Self.buildDefaultTypes.count, colourIDs.count))) }
+    // Define global colours 0–7 as the default machines (once). Idempotent — safe to re-run; re-stamps the machine.
+    func buildSeedDefaultColours() {
+        for (i, t) in Self.buildDefaultTypes.enumerated() where i < colourIDs.count {
+            if !ddColourShown(i) { ddCreateColour(i) }                     // make the global colour exist
+            au?.withChainColour(colourIDs[i]) { $0 = [ProcessorSlot(type: t)] }   // its default single-processor machine
+        }
+        refreshFromDocument()
+    }
+    // Seed the 8 default colours + open part 1's palette on them, ONCE. Every NEW part also opens on the defaults
+    // (see buildAddPart) so the starter palette is always there. §2 cast view.
     func buildSeedCastIfNeeded() {
         guard !buildCastSeeded else { return }
         buildCastSeeded = true
-        if buildPartCast.isEmpty {
-            buildPartCast = (0..<colourIDs.count).filter { ddColourShown($0) }.map { colourIDs[$0] }
-            if buildPartCast.isEmpty, let g = colourIDs.first { buildPartCast = [g] }   // fall back to GOLD so there's a starting swatch
-        }
+        buildSeedDefaultColours()
+        buildPartCast = buildDefaultCastIDs()
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].cast = buildPartCast }
         buildEnsureCastSelection()
     }
     // Keep the selection within the PART's cast (its own palette). A fresh, EMPTY cast → NO selection: the footer + the
@@ -409,8 +421,12 @@ extension DiagView {
         if let first = buildPartCast.first, let gi = colourIDs.firstIndex(of: first) { ddColourSel = gi } else { ddColourSel = -1 }
     }
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
-    // §3: a NEW part arrives FRESH — empty staging, unset I/O, default cast; the previous part keeps its workshop.
-    private func buildAddPart() { buildSavePart(); buildParts.append(BuildPart()); buildLoadPart(buildParts.count - 1) }
+    // §3: a NEW part arrives FRESH — empty staging, unset I/O; its palette opens on the 8 DEFAULTS (Paul 2026-08-14).
+    private func buildAddPart() {
+        buildSavePart()
+        var p = BuildPart(); p.cast = buildDefaultCastIDs()
+        buildParts.append(p); buildLoadPart(buildParts.count - 1)
+    }
     // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
     // sits), and a column with NOTHING selected is left BLANK. Carries the part's I/O. Does NOT set deployed/claim/publish
     // — the caller owns those. (Paul 2026-08-14: single-row targets copy the selected cell regardless of row.)
@@ -638,13 +654,16 @@ extension DiagView {
     }
 
     @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
-        let swatch = (castW - BuildGeom.castGap * 7) / 8           // 8 swatches fill the column width
-        let pulseSlot = buildPulseColourID != nil ? buildFirstFreePaletteSlot() : nil   // the last-free slot holds the pulsing candidate
+        let cols = 4                                                // 4 columns → the 8 defaults read as 2 rows of 4 (top-left)
+        let swatch = min((castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols), 30)   // capped so 4-wide doesn't blow up the column height
+        let pulseSlot = buildPulseColourID != nil ? buildFirstFreePaletteSlot() : nil   // the first free slot holds the pulsing candidate
+        let filled = buildPartCast.count + (pulseSlot != nil ? 1 : 0)
+        let rows = max(2, min(4, (filled + cols) / cols))          // at least the 2 default rows; grows to fit + one add row; ≤ 4 (16 cap)
         VStack(spacing: BuildGeom.castGap) {
-            ForEach(0..<4, id: \.self) { row in                    // 8×4 = 32 slots (8 columns · 4 rows)
+            ForEach(0..<rows, id: \.self) { row in
                 HStack(spacing: BuildGeom.castGap) {
-                    ForEach(0..<8, id: \.self) { col in
-                        buildCastSlot(row * 8 + col, swatch: swatch, pulseSlot: pulseSlot)
+                    ForEach(0..<cols, id: \.self) { col in
+                        buildCastSlot(row * cols + col, swatch: swatch, pulseSlot: pulseSlot)
                     }
                 }
             }
@@ -676,7 +695,7 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture { buildCommitPulse() }
             }
-        } else if i < buildPartCast.count {                        // §2: a MEMBER of THIS part's cast
+        } else if i < buildPartCast.count {                        // §2: a MEMBER of THIS part's cast — TAP selects, LONG-PRESS adds
             let id = buildPartCast[i]
             RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? buildCell)
                 .frame(width: swatch, height: swatch)
@@ -686,16 +705,14 @@ extension DiagView {
                 .overlay { if id == ddSelectedColourID { buildTargetMark(swatch * 0.6) } }   // THE TARGET rides the selected cast cell
                 .contentShape(Rectangle())
                 .onTapGesture { if let gi = colourIDs.firstIndex(of: id) { ddSelectColour(gi) } }
-        } else if i == buildPartCast.count {                       // the ADD slot — a "+" that adds a colour to THIS part's cast
+                .onLongPressGesture(minimumDuration: 0.4) { buildAddCastColour() }   // ANY button can ADD a colour — via long press (Paul 2026-08-14)
+        } else {                                                   // an EMPTY slot — a "+" that ADDS on LONG PRESS (every button can add)
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
                 .frame(width: swatch, height: swatch)
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
                 .contentShape(Rectangle())
-                .onTapGesture { buildAddCastColour() }
-        } else {
-            RoundedRectangle(cornerRadius: 6).fill(buildCell.opacity(0.4))   // beyond the cast — inert
-                .frame(width: swatch, height: swatch)
+                .onLongPressGesture(minimumDuration: 0.4) { buildAddCastColour() }
         }
     }
 
