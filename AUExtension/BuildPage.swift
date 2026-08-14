@@ -1136,9 +1136,11 @@ extension DiagView {
                                 let id = buildPerformCells[c][r]
                                 let ghost = id == nil ? preview[c][r] : nil   // preview only where no cell is deployed
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(id.flatMap { colourColor($0) } ?? (ghost.flatMap { colourColor($0)?.opacity(0.3) } ?? Color.black.opacity(0.35)))   // TRUE colour · else DIMMED preview · else empty recess
+                                    .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // TRUE colour · else the empty recess (preview shows as an outline, not a fill)
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.09), lineWidth: 1))   // outline every cell → the grid READS even when empty
+                                    .overlay { if let g = ghost, let gc = colourColor(g) {   // THE PREVIEW = a THICK, DIMMED OUTLINE in the colour (not a fill)
+                                        RoundedRectangle(cornerRadius: 7).strokeBorder(gc.opacity(0.45), lineWidth: 3) } }
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
                             }
                         }
