@@ -1082,11 +1082,48 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.5), lineWidth: 1.5))
     }
 
+    // THE DIMMED PREVIEW (Paul 2026-08-14): while the CURRENT part is UNASSIGNED, show its staging SELECTION on every
+    // UNASSIGNED play-grid band. The shape follows the count of DISTINCT selected rows K:
+    //   • a SINGLE-rung band always shows the FLATTEN (each column's selected cell — the same algorithm as deployment);
+    //   • a multi-rung band with K == 1 shows the flatten on its TOP rung;
+    //   • a multi-rung band whose rung count == K shows the K selected rows on its K rungs;
+    //   • otherwise (K > 1 and ≠ the band's rungs) the selection doesn't fit that band → no preview.
+    // Returns [col][row] colourIDs (nil = nothing to preview there).
+    private func buildPreviewCells() -> [[String?]] {
+        var out = Array(repeating: Array(repeating: String?.none, count: 8), count: 8)
+        guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed else { return out }
+        let selRows = Set((0..<8).compactMap { buildStagingSel[$0] >= 0 ? buildStagingSel[$0] : nil }).sorted()
+        let K = selRows.count
+        guard K > 0 else { return out }
+        func flatten(intoRow R: Int) {                             // deployment's flatten: each column's selected cell, wherever its row
+            for c in 0..<8 {
+                let sr = buildStagingSel[c]
+                if sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] { out[c][R] = cid }
+            }
+        }
+        let bands = [3, 2, 1, 1, 1]
+        for (bi, N) in bands.enumerated() {
+            let base = bands.prefix(bi).reduce(0, +)
+            if (0..<N).contains(where: { base + $0 < 8 && buildPerformPart[base + $0] >= 0 }) { continue }   // band already holds a deployed part
+            if N == 1 || K == 1 {
+                flatten(intoRow: base)                             // single lane, or one selected row → flatten onto the (top) rung
+            } else if K == N {
+                for (i, sr) in selRows.enumerated() {              // K selected rows → the band's K rungs, top-down
+                    for c in 0..<8 where buildStagingSel[c] == sr {
+                        if let cid = buildStagingCells[c][sr] { out[c][base + i] = cid }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
     // the PLAY grid rows — THE PIECE: real deployed cells. §4 BAND WASHES (design ferry): each band carries its own hue
     // family as a low-alpha WASH BEHIND its cells (empty cells go clear so the wash reads); the cells keep their TRUE
     // colour on top — rails differentiate, machines stay recognisable across grids. Alpha is a starting point.
     @ViewBuilder private func buildPlayBands(cell: CGFloat) -> some View {
         let bands = [3, 2, 1, 1, 1]                                // the play grid's band form (8 rows)
+        let preview = buildPreviewCells()                          // the dimmed preview of the current unassigned part
         VStack(spacing: BuildGeom.cellGap) {
             ForEach(Array(bands.enumerated()), id: \.offset) { bi, rows in
                 let base = bands.prefix(bi).reduce(0, +)
@@ -1096,8 +1133,9 @@ extension DiagView {
                         HStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildPerformCells[c][r]
+                                let ghost = id == nil ? preview[c][r] : nil   // preview only where no cell is deployed
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // filled = TRUE colour; empty = a translucent recess (the band wash still tints it)
+                                    .fill(id.flatMap { colourColor($0) } ?? (ghost.flatMap { colourColor($0)?.opacity(0.3) } ?? Color.black.opacity(0.35)))   // TRUE colour · else DIMMED preview · else empty recess
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.09), lineWidth: 1))   // outline every cell → the grid READS even when empty
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
