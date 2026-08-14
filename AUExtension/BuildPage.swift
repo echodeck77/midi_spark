@@ -49,7 +49,7 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
-private let buildEdge  = Color(white: 1).opacity(0.12)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
+private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
@@ -883,11 +883,11 @@ extension DiagView {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
                 let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
-                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.14 : 0.06))   // §0 MUTED: neutral keys, held reads as a slight brightening
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.22 : 0.11))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
                     .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
-                        .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.75 : 0.4)))
+                        .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.85 : 0.55)))
             }
         }
     }
@@ -904,10 +904,10 @@ extension DiagView {
                     let base = bands.prefix(idx).reduce(0, +)      // absolute grid-row offset for this band
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { r in
-                            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06))   // §0 MUTED: neutral row rail (matches the loop keys)
+                            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.11))   // §0 MUTED: neutral row rail (matches the loop keys)
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.4)))
+                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.55)))
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(base + r) }  // press → fill that whole grid row
                         }
