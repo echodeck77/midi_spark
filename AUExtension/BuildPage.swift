@@ -522,10 +522,10 @@ extension DiagView {
         } else {                                             // EMPTY → FLATTEN + christen, then STASH + clear the bench
             buildDeployBand(base: base, rows: rows)          // deploy the current part (copy rows) + christen
             buildAddPart()                                   // stash the workshop behind the band + open a fresh part
-            // OUTPUT (Paul 2026-08-14): the part grid cleared → switch the MIDI output to the PLAY GRID, which STARTS
-            // on assignment. Chain audition + the (now empty) part voice both off.
+            // OUTPUT + FOCUS (Paul 2026-08-14/15): the PLAY GRID starts on assignment and carries the output; FOCUS
+            // moves to the fresh PART grid (empty → silent, so the output is the play grid) — NOT the chain. Chain off.
             if ddSolo { ddSolo = false; au?.clearColourSolo() }
-            buildStagingPlaying = false
+            buildStagingPlaying = true
             buildPerformPlaying = true
             buildPublishScene()
         }
