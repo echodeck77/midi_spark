@@ -411,43 +411,57 @@ extension DiagView {
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O, default cast; the previous part keeps its workshop.
     private func buildAddPart() { buildSavePart(); buildParts.append(BuildPart()); buildLoadPart(buildParts.count - 1) }
-    // §1: deploying the current part to the play grid CHRISTENS it (PART n), COPIES its per-column selection into the
-    // TAPPED perform ROW, carries the part's I/O, and makes ADD PART askable.
-    func buildDeployCurrentPart(toRow R: Int) {
-        guard buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }
-        buildParts[buildCurrentPart].deployed = true
+    // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
+    // sits), and a column with NOTHING selected is left BLANK. Carries the part's I/O. Does NOT set deployed/claim/publish
+    // — the caller owns those. (Paul 2026-08-14: single-row targets copy the selected cell regardless of row.)
+    private func buildCopySelectedRow(toRow R: Int) {
+        guard R >= 0, R < 8 else { return }
         for c in 0..<8 {
-            let sr = c < buildStagingSel.count ? buildStagingSel[c] : -1   // the part's selected cell for this column
+            let sr = c < buildStagingSel.count ? buildStagingSel[c] : -1   // this column's selected (playing) cell
             if sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] {
                 buildPerformCells[c][R] = cid
                 buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
             } else {
-                buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []
+                buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []   // nothing selected → blank in the play grid
             }
         }
         buildPerformRecv[R] = buildSelReceiver                   // the row carries the deploying part's I/O
         buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+    }
+
+    // §1: deploying the current part to a SINGLE play-grid row CHRISTENS it (PART n) and copies its per-column selection
+    // into the tapped row (selected cell regardless of staging row · blank where unselected), carrying the part's I/O.
+    func buildDeployCurrentPart(toRow R: Int) {
+        guard buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }
+        buildParts[buildCurrentPart].deployed = true
+        buildCopySelectedRow(toRow: R)
         buildPerformPart[R] = buildCurrentPart                   // §2: the row now belongs to this part
         buildPublishScene()                                      // reflect live if the piece is playing
     }
 
-    // COPY ROWS (Call 1): the LEFT band selector lands a MULTI-RUNG part as the whole BAND — each DISTINCT staging row
-    // it picks becomes a band row (rows-with-picks preserved, the part spans the band). Christens like a flatten.
+    // Land the current part on a BAND. Christens like a flatten. (Paul 2026-08-14 — deployment semantics by target shape:)
+    //   • MULTI-ROW band (rows > 1): copy the whole staging LADDER — every OCCUPIED staging row (selected AND muted cells)
+    //     becomes a band rung, top-down, capped to the band's height. Nothing is dropped; the muted cells are the rungs.
+    //   • SINGLE-ROW band (rows == 1): the selected cell per column (regardless of row), blank where unselected.
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart < buildParts.count else { return }
         buildParts[buildCurrentPart].deployed = true
         for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = buildCurrentPart }   // clear the band + claim it for this part (§2)
-        let picked = Set((0..<8).compactMap { buildStagingSel[$0] >= 0 ? buildStagingSel[$0] : nil }).sorted()   // the part's distinct rungs
-        for (i, sr) in picked.prefix(rows).enumerated() {
-            let R = base + i; guard R < 8 else { break }
-            for c in 0..<8 where buildStagingSel[c] == sr {                 // columns whose pick lives in staging row sr
-                if let cid = buildStagingCells[c][sr] {
-                    buildPerformCells[c][R] = cid
-                    buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
+        if rows <= 1 {
+            buildCopySelectedRow(toRow: base)                    // a lane: the selected melody, blank where unselected
+        } else {
+            let occupied = (0..<8).filter { sr in (0..<8).contains { c in buildStagingCells[c][sr] != nil } }   // staging rows that hold ANY cell
+            for (i, sr) in occupied.prefix(rows).enumerated() {  // one rung per occupied staging row (muted cells included)
+                let R = base + i; guard R < 8 else { break }
+                for c in 0..<8 {
+                    if let cid = buildStagingCells[c][sr] {
+                        buildPerformCells[c][R] = cid
+                        buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
+                    }
                 }
+                buildPerformRecv[R] = buildSelReceiver
+                buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
             }
-            buildPerformRecv[R] = buildSelReceiver
-            buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
         }
         buildPublishScene()
     }
