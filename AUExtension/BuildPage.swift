@@ -536,7 +536,14 @@ extension DiagView {
         if let cid = ddSelectedColourID, buildPartCast.contains(cid) { return }   // already a valid cast member
         if let first = buildPartCast.first { buildSelectID(first) } else { buildSelID = nil; ddColourSel = -1 }
     }
-    private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
+    private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildReturnPart = nil; buildSavePart(); buildLoadPart(i) }   // any manual switch cancels a pending return
+    // A RESTORE switch (via a valve): remember the UNDEFINED bench we're leaving, so the next promote returns to it
+    // instead of a blank part. (Paul 2026-08-15 QoL)
+    private func buildRestoreSwitch(to p: Int) {
+        let returning = (buildCurrentPart >= 0 && buildCurrentPart < buildParts.count && !buildParts[buildCurrentPart].deployed) ? buildCurrentPart : nil
+        buildSwitchPart(p)                                   // clears buildReturnPart …
+        buildReturnPart = returning                          // … then records the bench to come back to
+    }
     // A part is UNUSED when nothing distinguishes it from a just-created one: un-deployed, default cast, empty staging.
     private func buildPartIsUnused(_ p: BuildPart) -> Bool {
         !p.deployed && p.cast == buildDefaultCastIDs() && p.stagingCells.allSatisfy { $0.allSatisfy { $0 == nil } }
@@ -546,6 +553,12 @@ extension DiagView {
     // entries. Reuse touches only an empty, un-deployed slot, so no deployed part's stored index shifts. (Paul 2026-08-15)
     private func buildAddPart() {
         buildSavePart()
+        // QoL: if a restore left an undefined bench pending, RETURN to it (the part the user was building) instead of a
+        // fresh one — so restore→promote drops them back on their in-progress work. (Paul 2026-08-15)
+        if let ret = buildReturnPart, ret != buildCurrentPart, ret < buildParts.count, !buildParts[ret].deployed {
+            buildReturnPart = nil; buildLoadPart(ret); return
+        }
+        buildReturnPart = nil
         var fresh = BuildPart(); fresh.cast = buildDefaultCastIDs()
         if let reuse = buildParts.indices.first(where: { $0 != buildCurrentPart && buildPartIsUnused(buildParts[$0]) }) {
             buildParts[reuse] = fresh; buildLoadPart(reuse)
@@ -649,7 +662,7 @@ extension DiagView {
             buildDeployBand(base: base, rows: rows); buildAddPart(); buildValveOutput(promote: true)
         } else if buildBandIsWhole(base: base, rows: rows), buildPerformPart[base] >= 0, buildPerformPart[base] < buildParts.count {
             let p = buildPerformPart[base]
-            buildSwitchPart(p)
+            buildRestoreSwitch(to: p)
             for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = -1; buildPerformStagingRow[base + i] = -1 }
             buildParts[p].deployed = false
             buildValveOutput(promote: false)
@@ -663,7 +676,7 @@ extension DiagView {
         guard R >= 0, R < 8, !buildRowInWholeBand(R) else { return }
         let p = buildPerformPart[R]
         if p >= 0, p < buildParts.count {                    // SET → restore this rung's sub-part
-            buildSwitchPart(p)
+            buildRestoreSwitch(to: p)
             for c in 0..<8 { buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []; buildPerformMute.remove(c * 8 + R) }
             buildPerformPart[R] = -1; buildPerformStagingRow[R] = -1
             buildParts[p].deployed = false
