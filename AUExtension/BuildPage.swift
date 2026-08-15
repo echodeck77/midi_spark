@@ -851,8 +851,8 @@ extension DiagView {
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
             buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a row button …
-                if buildVerb == .delete { buildDeleteStagingRow(row) }                      // DELETE armed → clear the row (2nd press restores)
-                else { buildFillStagingRow(row) }                                           // else → fill it with the selected colour
+                if buildStagingMode == .edit, buildVerb == .delete { buildDeleteStagingRow(row) }   // (edit + DELETE → clear the row; 2nd press restores)
+                else { buildStampRow(row) }                                                 // else → SET the row to the selected colour (one colour per row)
             }
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
@@ -925,14 +925,27 @@ extension DiagView {
         buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
     }
 
-    // Press a staging ROW button → fill every cell in that row with the SELECTED colour (which carries its machine/
-    // settings — the stocked cell references the colourID). (user 2026-08-12)
-    private func buildFillStagingRow(_ row: Int) {
+    // Press a staging ROW button → SET that row to the SELECTED colour + its machine. ONE COLOUR PER ROW (Paul 2026-08-15):
+    //  • overwrites whatever the row held;
+    //  • if the colour already occupies ANOTHER row, that row is REMOVED (the colour relocates) and any columns that were
+    //    playing it move their pick to the new row — so the vertical sequence follows the colour.
+    // The row carries the colour's OWN machine (the cell references the colourID; no per-row variation override).
+    private func buildStampRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
-        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row); buildStagingSel[c] = row }   // fill → that row is selected in every column
-        if row < buildRowChain.count { buildRowChain[row] = [] }   // a manual fill turns a STAGED variation row back into a normal row
-        buildDeletedRows[row] = nil                            // a fresh fill discards any pending "restore" for this row
-        buildStagingSyncIfPlaying()                             // reflect the fill in the live staging audio
+        for r in 0..<8 where r != row && (0..<8).contains(where: { buildStagingCells[$0][r] == cid }) {   // the colour's PRIOR row(s) → remove
+            for c in 0..<8 {
+                buildStagingCells[c][r] = nil
+                if buildStagingSel[c] == r { buildStagingSel[c] = row }   // a column playing the old row now plays the new one
+            }
+            if r < buildRowChain.count { buildRowChain[r] = [] }
+            if r < buildRowShade.count { buildRowShade[r] = 0 }
+            buildDeletedRows[r] = nil
+        }
+        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row) }   // set the whole row to the colour
+        if row < buildRowChain.count { buildRowChain[row] = [] }   // use the colour's own machine (not a STAGE-THE-GRID variation)
+        if row < buildRowShade.count { buildRowShade[row] = 0 }
+        buildDeletedRows[row] = nil
+        buildStagingSyncIfPlaying()
     }
 
     // DELETE verb + a staging ROW button: first press empties every cell in the row (settings cleared); a second
