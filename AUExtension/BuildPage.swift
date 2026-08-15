@@ -340,8 +340,22 @@ extension DiagView {
     // concurrency), and inserts it just ABOVE the source if LESS complex (a LIGHTER new colour) or just BELOW if MORE
     // complex (DARKER), rearranging the rows. The new colours are NOT added to the palette — touch one on the grid to
     // preview + add it (the pulse flow). Needs ≥1 populated row (the button is disabled otherwise).
+    // Free the colour slots held by PRIOR staged variations — any hue-overridden colour NO part has adopted into its
+    // cast — and strip them from this grid. Keeps slots available so re-staging can always refill to 8. (Paul 2026-08-15)
+    private func buildReclaimVariations() {
+        let adopted = Set(buildParts.flatMap { $0.cast }).union(buildPartCast)
+        let orphans = colourHueOverride.keys.filter { !adopted.contains($0) }
+        guard !orphans.isEmpty else { return }
+        let orphanSet = Set(orphans)
+        for c in 0..<8 { for r in 0..<8 where orphanSet.contains(buildStagingCells[c][r] ?? "") { buildStagingCells[c][r] = nil } }
+        au?.editDocument { doc in for id in orphans { if let i = colourIDs.firstIndex(of: id), i < doc.colours.count { doc.colours[i].defined = false; doc.colours[i].templateChain = nil } } }
+        for id in orphans { colourHueOverride[id] = nil }
+        refreshFromDocument()
+    }
+
     private func buildStageTheGrid() {
-        var order: [String] = (0..<8).compactMap { buildRowColour($0) }        // populated rows, top→bottom (one colour each)
+        buildReclaimVariations()                                               // reclaim prior variation slots → back to the originals
+        var order: [String] = (0..<8).compactMap { buildRowColour($0) }        // the ORIGINAL populated rows, top→bottom (one colour each)
         guard !order.isEmpty else { return }
         var rng = SystemRandomNumberGenerator()
         var dup: [String: Int] = Dictionary(uniqueKeysWithValues: order.map { ($0, 0) })
