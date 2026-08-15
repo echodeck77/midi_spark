@@ -157,6 +157,47 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REMOVING THE 16-COLOUR CAP — colours are now unlimited + ephemeral (2026-08-14/15, on `main`, PUSHED; stage 1
+  test-verified macOS 604 green, stage 2 iOS-built + DEVICE-VERIFIED by Paul). Paul: "lots of ephemeral colours…
+  a colour lives if it's on any of the three grids." **STAGE 1 (`128c186`) — engine:** `SnapshotBuilder` sizes its
+  colour array to the document (≥16, was fixed 16) and resolves each cell's colour BY ID (`colourIndexByID`, global
+  `colourIDs` index for the canonical 16 + a doc-order fallback for anything appended); `renderDoc()` can append
+  colours beyond the 16. Behaviour-identical for a plain 16-colour doc. **BONUS FIND:** `FuzzTests` built cells with
+  non-canonical IDs (`"c0".."c5"`) the OLD builder SKIPPED → the whole fuzz suite was VACUOUS (empty engine). The
+  id-based lookup made it REAL; the engine passes every invariant — only I5's status allowlist lacked GLIDE's valid
+  pitch-bend `0xE0` (added). **STAGE 2 (`263067b`) — BUILD (hybrid, keeps the 16-colour flow + overflow):** colour
+  IDENTITY is now ID-based, not index-based — `@State buildSelID: String?` is the BUILD selection (`ddSelectedColourID`
+  prefers it); allocation takes a free document slot if one remains, else mints an unlimited EPHEMERAL `"b<n>"` colour
+  (machine in `@State buildColourReg`, hue in the global `colourHueOverride` read by `colourColor`). `buildSyncColours()`
+  pushes the registry to the AU (`setBuildEphemeralColours`); `renderDoc` appends them so staging/piece cells + the
+  chain-audition preview resolve. Machine read/write centralised (`buildColourMachine`/`buildWriteColourMachine`).
+  **GARBAGE COLLECTION** (`buildGCColours`) frees any colour — ephemeral OR a document VARIATION slot — not in the
+  UNION live set: every part's cast/staging · the play grid · `rowUnder` reverts · pending restores · pulse · selection
+  (so reverts/undo stay safe; canonical defaults untouched). `BuildPart` persists `selID` (was a colour index).
+  Orphan-parts fixed (`bfcb996`): `buildAddPart` REUSES an unused part (un-deployed · default cast · empty staging)
+  instead of accumulating stray UNASSIGNED PARTs — reuse only touches empty slots so no deployed index shifts.**
+- **▶ THE BUILD PAGE — parts-grid rework + STAGE THE GRID rework + valve output/focus + polish (2026-08-14/15, on
+  `main`, PUSHED; iOS builds, engine 604 green, DEVICE-VERIFIED by Paul). A long device-driven batch. **PARTS GRID =
+  ONE COLOUR PER ROW** (Paul's preferred authoring: one colour per row, sequence chosen VERTICALLY as rungs): grid
+  DEFAULTS to PLAY mode; row buttons repurposed (`buildStampRow`) — press SETS the row to the selected colour + its
+  machine, overwriting; if the colour already lives on another row it RELOCATES and the old row REVERTS to what it
+  displaced (per-part `rowUnder` memory, NOT blank); a stamp auto-selects a column only where it has no pick (never
+  steals). PLAY mode selects ONE rung per column, populated or NOT (white outline). Cells always render the EXACT
+  palette colour (dropped the STAGE-THE-GRID shade + play-mode dim); the TARGET rides every cell matching the selected
+  palette colour. **STAGE THE GRID reworked** — MUTATES the placed rows (not the selected colour); disabled until ≥1
+  row; loops to 8, duplicating the fewest-duplicated row, analysing complexity (note frequency + concurrency via
+  `Dice.evalRun`; velocity not yet exposed), inserting LIGHTER-above / DARKER-below as a NEW similar colour (custom
+  hue near the source via `colourHueOverride`); variations stay OUT of the palette until touched (the pulse→commit
+  flow). **THE VALVE output/focus** — promote starts the PLAY grid + focuses the fresh PART grid (empty→silent, play
+  grid carries the output); demote keeps the play grid running for remaining parts + plays the demoted part from the
+  part grid alongside; per-part EMITTERS apply LIVE to the chain audition + part grid (`buildToggleBus` re-engages).
+  **HEADER transport** — both play/stop glyphs shown, current state lit (green play / red stop); CHAIN⟷PART switch
+  QUANTIZED to the next cell boundary (`buildPendingVoiceStaging`, committed from `d.absoluteStep`) but the header
+  highlights IMMEDIATELY (`buildDisplayStaging`); playhead only on the playing grid; START/STOP + PLAY THIS PART grey
+  out until their grid has content. Dimmed PREVIEW of the unassigned part's selection on unassigned play-grid bands
+  (thick outline, only while the part grid plays). **ENGINE FIX (macOS 604 green):** STRUM re-arms each step under a
+  HELD column (`prevForcedStep`) — the default STRUM colour was silent on PLAY THIS MIDI CHAIN because `strumProgress`
+  only reset on a column transition, which never comes under `forceColumnHold`.**
 - **▶ THE BUILD PAGE — increment 1: the tab + default + layout skeleton (2026-08-11, on `main`, PUSHED next; iOS
   builds; DEVICE eye owed). New design ferried in: `Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-two-grid-
   flow.md` + `Docs/mockup-build-three-grids-landscape.html` (promoted from the inbox, now canon). A NEW primary
