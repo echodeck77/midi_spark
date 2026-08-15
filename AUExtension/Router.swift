@@ -531,6 +531,10 @@ final class Router {
 
     @inline(__always)
     private func over(_ slotIndex: Int, _ fallback: Double) -> Double {
+        // The override table is sized for the 16 host-automatable colours (transpose 2+i, morph 18+i, i<16).
+        // An EPHEMERAL colour (index ≥16, Paul's unlimited-colours model) has no param address → no override,
+        // so it uses its own value. Guard the read so a high colour index never traps the render thread.
+        guard slotIndex >= 0, slotIndex < overrides.count else { return fallback }
         let v = overrides[slotIndex]
         return v.isNaN ? fallback : v
     }

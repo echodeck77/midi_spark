@@ -1052,6 +1052,24 @@ final class RouterTests: XCTestCase {
         return SnapshotBuilder.build(from: st)
     }
 
+    func testColourIndexBeyondOverrideTableDoesNotTrapRender() {
+        // Paul 2026-08-15 crash (SIGTRAP adding a 2nd flattened part): the render-side override table is sized for the
+        // 16 host-automatable colours (transpose at slot 2+i), but the unlimited-ephemeral-colours model can place a
+        // cell whose colour index ≥33, so over(2+ci) read PAST the table end → out-of-bounds trap on the render thread.
+        // A colour beyond the 16 automatable slots has no param override → it must fall back to its own transpose.
+        var colours = colourIDs.map { Colour(colourID: $0, type: .arp) }        // the canonical 16
+        for i in 0..<24 { colours.append(passgateColour("x\(i)", transpose: 0)) }   // 40 total → last index 39 ≫ 33
+        colours[colours.count - 1].transpose = 7                                 // the high-index colour transposes +7
+        let hi = colours[colours.count - 1].colourID
+        var s = SceneState.empty()
+        s.cells[0][0] = Cell(colourID: hi, buses: [.a])
+        let box = SnapshotBuilder.build(from: PluginState(colours: colours, scenes: [s]))
+        let e = RecordingEmitter()
+        run(box, chord([60]), beats: 4, into: e)                                // must not trap
+        XCTAssertTrue(e.events.contains { $0.status == 0x90 && $0.note == 67 }, "the high-index colour holds 60 transposed to 67, using its own transpose")
+        assertNothingLeftSounding(e)
+    }
+
     func testClaimSuppressesSamePitchOnNonClaimant() {
         // One cell fans A+B; A claims. Within the articulation A opens 60 first, so B yields it: nothing
         // on cable 2, and All (cable 0) carries A's copy only.
