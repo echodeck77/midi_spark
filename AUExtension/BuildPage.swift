@@ -236,29 +236,28 @@ extension DiagView {
         if buses.isEmpty { buses = [bus] }                        // never leave the PART with no output
         buildPartEmitters = buses
         ddStickyBuses = buses                                     // the machine audition preview reads this
-        // The PART owns the output — apply it LIVE to whatever's sounding (Paul 2026-08-15): the MIDI-chain audition
-        // re-engages with the new emitters, the part/piece scene re-publishes. Both stamp buildPartEmitters on every cell.
-        if ddSolo { ddEngageSolo() } else { buildStagingSyncIfPlaying() }
+        // The PART owns the output — apply it LIVE to whatever's sounding (Paul 2026-08-15): re-publishing the scene
+        // re-stamps buildPartEmitters onto the chain audition's injected row AND the part/piece cells.
+        buildPublishScene()
     }
 
-    // PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID are a RADIO — the ONE workshop voice, DEFAULTING to the MACHINE
-    // (`buildStagingPlaying == false`). Selecting one deselects the other; the visual always follows the flag so the
-    // buttons never appear dead. The MACHINE side also engages the audition (best-effort — needs a selected colour).
-    // Internal so the VC can engage it on BUILD appear (so the default machine voice actually SOLOS — never the whole grid).
+    // The MIDI-CHAIN voice. Paul 2026-08-15: it plays the selected colour's machine RAW — behind the scenes a 1-row play
+    // grid whose EVERY column is "selected", so the machine sounds on every column with NONE of the part grid's column
+    // rules. It rides the SAME ephemeral scene as the part/piece (buildPublishScene injects it), so it coexists with the
+    // play grid instead of owning the render via an isolating solo. `ddSolo` is just the "chain is the voice" flag now.
     func buildSelectMachineVoice() {
-        au?.setBuildStagingScene(nil)                           // leave STAGING/PIECE playback → the solo audits against the real scene
-        buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent (correction) — it keeps its flag/sound
+        buildStagingPlaying = false                              // CHAIN ⟂ PART; the PIECE is independent — it keeps sounding via the scene
         buildSeedCastIfNeeded()                                  // §2: part 1's cast reflects the already-defined colours (once); selects within the cast
         ddStickyReceiver = buildSelReceiver                      // §2: the chain audition uses the PART's I/O (door + emitters)
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        // A colour that was never given a chain has a nil templateChain, which the engine resolves via the LEGACY
-        // A-face — and every default colour is type .arp, so auditioning it plays an arp the user can't see in the
-        // (empty) chain. Convert that implicit arp into an EXPLICIT passthrough once, so what you hear matches the
-        // shown-empty chain (unprocessed MIDI). Only fires when templateChain is nil → no churn on real chains. (user 2026-08-12)
+        // A document colour never given a chain shows an EMPTY chain but has a nil templateChain; make it an explicit []
+        // once so the palette's shown-empty chain matches the raw sound (the injected cell reads buildColourChain, which
+        // is [] here → a born-audible passthrough — never the legacy A-face arp). Only fires when the chain is unstored.
         if let cid = ddSelectedColourID, buildColourReg[cid] == nil, au?.colourHasStoredChain(cid) == false {
             au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // document colour only — ephemeral colours always carry a registry machine
         }
-        ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
+        ddSolo = true                                           // the chain is the voice — sounded RAW via the ephemeral scene
+        buildPublishScene()
     }
     private func buildSelectStagingVoice() {
         if ddSolo { ddSolo = false; au?.clearColourSolo() }      // CHAIN ⟂ PART: stop the chain audition (they're mutually exclusive)
@@ -305,9 +304,9 @@ extension DiagView {
         if let v = buildPendingWorkshopVoice {
             buildPendingWorkshopVoice = nil; buildPendingReengage = false
             buildApplyWorkshopVoice(v)
-        } else if buildPendingReengage {                 // a palette colour change → re-engage the chain audition on the boundary
+        } else if buildPendingReengage {                 // a palette colour change → re-inject the new chain colour on the boundary
             buildPendingReengage = false
-            if ddSolo { ddEngageSolo() }
+            if ddSolo { buildPublishScene() }
         }
     }
     // Population (Paul 2026-08-15): real deployed play-grid cells (preview doesn't count) · any stocked staging cell.
@@ -316,11 +315,12 @@ extension DiagView {
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
     // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
-    // staging/perform cell takes its PART-owned I/O + the colour's machine (or a staged variation chain). The CHAIN
-    // audition (PLAY THIS MIDI CHAIN) owns the render via a solo on the real scene, so it leaves the ephemeral clear.
+    // staging/perform cell takes its PART-owned I/O + the colour's machine (or a staged variation chain). Paul 2026-08-15:
+    // the MIDI CHAIN now ALSO rides this scene (a 1-row grid, every column active → raw, no part-grid column rules), so it
+    // sounds ALONGSIDE the play grid instead of owning the render via a solo.
     private func buildPublishScene() {
-        if ddSolo { au?.setBuildStagingScene(nil); return }      // chain audition owns the render (solo)
-        guard buildStagingPlaying || buildPerformPlaying else { au?.setBuildStagingScene(nil); return }
+        au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
+        guard buildStagingPlaying || buildPerformPlaying || ddSolo else { au?.setBuildStagingScene(nil); return }
         var s = SceneState.empty()
         if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
             for c in 0..<8 { for r in 0..<8 {
@@ -341,6 +341,19 @@ extension DiagView {
                 cell.inputReceiver = recv
                 cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil
                 s.setCell(c, r, cell)                            // the audition sits in front on a slot collision
+            }
+        }
+        if ddSolo, let cid = ddSelectedColourID {                // THE MIDI CHAIN — the selected colour, RAW: its machine
+            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters   // on a full 1-row grid, every column active
+            let recv = max(0, min(3, buildSelReceiver))          // (so it plays each column, with NONE of the part's column rules)
+            let mach = buildColourChain(cid)                     // audible slots only; [] = a born-audible passthrough (raw MIDI)
+            if let row = (0..<8).first(where: { r in (0..<8).allSatisfy { s.cellAt($0, r) == nil } }) {   // an EMPTY row → no collision with part/piece
+                for c in 0..<8 {
+                    var cell = Cell(colourID: cid, buses: buses)
+                    cell.inputReceiver = recv
+                    cell.processors = mach                       // explicit chain (even []) — never the legacy A-face arp fallback
+                    s.setCell(c, row, cell)
+                }
             }
         }
         au?.setBuildStagingScene(s)
@@ -382,11 +395,10 @@ extension DiagView {
         ddColourSel = colourIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        if ddSolo && d.playing {
-            ddScopeToColour(id, anchor: nil, engage: false)      // playing the chain → SEAMLESS: re-engage the audition on the next cell boundary
-            buildPendingReengage = true
-        } else {
-            ddScopeToColour(id, anchor: nil)                     // stopped / not auditioning → immediate
+        ddScopeToColour(id, anchor: nil, engage: false)          // BUILD never uses the AU solo — the chain plays via the scene
+        if ddSolo {                                              // auditioning the chain → re-inject the newly-selected colour
+            if d.playing { buildPendingReengage = true }         // SEAMLESS: swap on the next cell boundary
+            else { buildPublishScene() }                         // stopped → immediate
         }
     }
     private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
