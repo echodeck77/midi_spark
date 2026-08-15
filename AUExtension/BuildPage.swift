@@ -344,11 +344,14 @@ extension DiagView {
             }
         }
         if ddSolo, let cid = ddSelectedColourID {                // THE MIDI CHAIN — the selected colour, RAW: its machine
-            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters   // on a full 1-row grid, every column active
+            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters   // on a 1-row grid, every FREE column active
             let recv = max(0, min(3, buildSelReceiver))          // (so it plays each column, with NONE of the part's column rules)
             let mach = buildColourChain(cid)                     // audible slots only; [] = a born-audible passthrough (raw MIDI)
-            if let row = (0..<8).first(where: { r in (0..<8).allSatisfy { s.cellAt($0, r) == nil } }) {   // an EMPTY row → no collision with part/piece
-                for c in 0..<8 {
+            // Prefer a fully-empty row; if the piece fills every row, fall back to the LEAST-occupied one and fill only its
+            // free columns — the preview goes gappy where the piece already sits, but only in the all-8-rows-full case (rare).
+            let occ = (0..<8).map { r in (0..<8).filter { s.cellAt($0, r) != nil }.count }   // occupied cells per row
+            if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
+                for c in 0..<8 where s.cellAt(c, row) == nil {
                     var cell = Cell(colourID: cid, buses: buses)
                     cell.inputReceiver = recv
                     cell.processors = mach                       // explicit chain (even []) — never the legacy A-face arp fallback
