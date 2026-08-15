@@ -193,17 +193,8 @@ struct ReceiverConfigView: View {
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text("Bypass to Emitters").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
-                HStack(spacing: 5) {
-                    ForEach(0..<4, id: \.self) { d in
-                        let sel = Int(r.bypassDestResolved) & (1 << d) != 0
-                        Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                            .foregroundColor(sel ? .black : ink.opacity(0.6))
-                            .frame(width: 34, height: 30)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(sel ? cyan : ink.opacity(0.1)))
-                            .contentShape(Rectangle()).onTapGesture {   // sets the destination only — never toggles bypass
-                                au?.setReceiverBypassDest(i, Int(r.bypassDestResolved) ^ (1 << d)); onChanged()
-                            }
-                    }
+                HStack(spacing: 5) {   // sets the destination only — never toggles bypass
+                    emitterMaskChips(mask: Int(r.bypassDestResolved)) { d in au?.setReceiverBypassDest(i, Int(r.bypassDestResolved) ^ (1 << d)); onChanged() }
                 }
             }
             .opacity(on ? 1 : 0.4)   // dimmed while bypass is OFF (still tappable — pick the emitter ahead of time)
@@ -222,16 +213,20 @@ struct ReceiverConfigView: View {
         return VStack(alignment: .leading, spacing: 5) {
             Text("Controllers to Emitters").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.65))
             HStack(spacing: 5) {
-                ForEach(0..<4, id: \.self) { d in
-                    let sel = mask & (1 << d) != 0
-                    Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(sel ? .black : ink.opacity(0.6))
-                        .frame(width: 34, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(sel ? cyan : ink.opacity(0.1)))
-                        .contentShape(Rectangle()).onTapGesture { au?.setReceiverControllerMask(i, mask ^ (1 << d)); onChanged() }
-                }
+                emitterMaskChips(mask: mask) { d in au?.setReceiverControllerMask(i, mask ^ (1 << d)); onChanged() }
                 Text("CC · bend · AT · PC, re-stamped").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.leading, 6)
             }
+        }
+    }
+    // A row of A·B·C·D emitter-mask chips (shared by the bypass-dest + controller-forward rows). (dedup 2026-08-15)
+    @ViewBuilder private func emitterMaskChips(mask: Int, _ toggle: @escaping (Int) -> Void) -> some View {
+        ForEach(0..<4, id: \.self) { d in
+            let sel = mask & (1 << d) != 0
+            Text(["A", "B", "C", "D"][d]).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundColor(sel ? .black : ink.opacity(0.6))
+                .frame(width: 34, height: 30)
+                .background(RoundedRectangle(cornerRadius: 5).fill(sel ? cyan : ink.opacity(0.1)))
+                .contentShape(Rectangle()).onTapGesture { toggle(d) }
         }
     }
 
