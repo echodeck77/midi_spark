@@ -863,16 +863,12 @@ extension DiagView {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildStagingCells[c][r]
                                 let selected = buildStagingSel[c] == r   // a rung can be selected even when EMPTY (Paul 2026-08-15)
-                                let staged = r < buildRowChain.count && !buildRowChain[r].isEmpty
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(staged ? buildSelHue : (id.flatMap { colourColor($0) } ?? buildCell))
+                                    .fill(id.flatMap { colourColor($0) } ?? buildCell)   // ALWAYS the exact palette colour — no shading, no dimming (Paul 2026-08-15)
                                     .frame(width: cell, height: cell)
-                                    .overlay { if staged { RoundedRectangle(cornerRadius: 7)   // staged row → shade the selected colour lighter/darker by complexity
-                                        .fill(buildRowShade[r] >= 0 ? Color.white.opacity(buildRowShade[r]) : Color.black.opacity(-buildRowShade[r])) } }
-                                    .opacity(buildStagingMode == .play && !selected ? 0.3 : 1)   // PLAY mode dims every cell except the selected one
-                                    .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE = the selected (playing) cell; else PLACE armed → selected-colour outline
+                                    .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
-                                    .overlay { if selected && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides ONLY the selected (playing) cell of the focused machine — not every matching cell
+                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // TARGET on EVERY cell matching the selected palette colour (editable), selected or not
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
