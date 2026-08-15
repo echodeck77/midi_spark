@@ -123,8 +123,12 @@ enum GridGeometry {
     }
 }
 
+// BUILD's STAGE-THE-GRID variations are REAL colour IDs given a custom hue near their source (a new, distinguishable
+// colour — not a shade drawn over the source). Session-scoped, like the rest of the BUILD workspace. (Paul 2026-08-15)
+var colourHueOverride: [String: UInt32] = [:]
 func colourColor(_ id: String) -> Color? {
-    colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
+    if let hex = colourHueOverride[id] { return Color(hex: hex) }
+    return colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
 }
 
 private let accentCyan = Color(red: 0.15, green: 0.88, blue: 0.94)   // playhead / PERFORM accent

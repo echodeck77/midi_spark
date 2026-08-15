@@ -320,25 +320,52 @@ extension DiagView {
         au?.setBuildStagingScene(s)
     }
 
-    // STAGE THE GRID — from the selected colour's machine, generate 7 VARIATIONS; order all 8 (original + variations)
-    // by OUTPUT COMPLEXITY; lay one machine per row top→bottom (least→most complex), each row shaded lighter→darker;
-    // select the ORIGINAL's row in every column; switch to PLAY mode + play the staging grid. (user 2026-08-12)
+    // A colour's OWN machine (templateChain), audible slots only.
+    private func buildColourChain(_ cid: String) -> [ProcessorSlot] {
+        (docColours.first { $0.colourID == cid }?.templateChain ?? []).filter { !buildIsEmptySlot($0) }
+    }
+    private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
+    // The base hue of a colour (its override if any, else its palette hex).
+    private func buildBaseHex(_ id: String) -> UInt32 { colourHueOverride[id] ?? colourIDs.firstIndex(of: id).map { colourHexes[$0] } ?? 0x808080 }
+    // A NEW hue near `source` — lighter (mix toward white) or darker (toward black), with a floor so it's always distinguishable.
+    private func buildSimilarHue(of source: String, lighter: Bool, srcC: Int, newC: Int) -> UInt32 {
+        let amount = min(0.6, abs(Double(srcC - newC)) / 400.0 + 0.18)        // ≥0.18 so siblings are always tellable apart
+        let base = buildBaseHex(source), t = lighter ? 255.0 : 0.0
+        func mix(_ shift: Int) -> UInt32 { let ch = Double((base >> shift) & 0xFF); return UInt32(max(0, min(255, ch + (t - ch) * amount))) }
+        return (mix(16) << 16) | (mix(8) << 8) | mix(0)
+    }
+
+    // STAGE THE GRID (Paul 2026-08-15) — MUTATE what's already placed, filling the grid to 8 rows. Each pass duplicates the
+    // populated row that's been duplicated FEWEST so far, tweaks its machine, analyses complexity (note frequency +
+    // concurrency), and inserts it just ABOVE the source if LESS complex (a LIGHTER new colour) or just BELOW if MORE
+    // complex (DARKER), rearranging the rows. The new colours are NOT added to the palette — touch one on the grid to
+    // preview + add it (the pulse flow). Needs ≥1 populated row (the button is disabled otherwise).
     private func buildStageTheGrid() {
-        guard let cid = ddSelectedColourID else { return }
+        var order: [String] = (0..<8).compactMap { buildRowColour($0) }        // populated rows, top→bottom (one colour each)
+        guard !order.isEmpty else { return }
         var rng = SystemRandomNumberGenerator()
-        let base = selectedColourChain().filter { !buildIsEmptySlot($0) }
-        var machines: [[ProcessorSlot]] = [base.isEmpty ? [] : base]          // index 0 = the ORIGINAL
-        for _ in 0..<7 { machines.append(buildVaryChain(base, &rng)) }
-        func complexity(_ c: [ProcessorSlot]) -> Int { let e = Dice.evalRun(c); return e.sig.count * 100 + e.peak }   // output density
-        let ranked = machines.enumerated().sorted { complexity($0.element) < complexity($1.element) }   // ascending: least → most complex
-        var originalRow = 0
-        for (row, item) in ranked.enumerated() {
-            buildRowChain[row] = item.element
-            buildRowShade[row] = 0.7 - Double(row) / 7.0 * 1.4                 // +0.7 (lightest, top) → −0.7 (darkest, bottom)
-            if item.offset == 0 { originalRow = row }                          // where the original landed
+        var dup: [String: Int] = Dictionary(uniqueKeysWithValues: order.map { ($0, 0) })
+        while order.count < 8, let free = buildFirstUndefinedGlobal() {
+            guard let source = order.min(by: { (dup[$0] ?? 0, order.firstIndex(of: $0)!) < (dup[$1] ?? 0, order.firstIndex(of: $1)!) }) else { break }
+            let srcMachine = buildColourChain(source)
+            let mutated = buildVaryChain(srcMachine, &rng)
+            let newID = colourIDs[free]
+            ddCreateColour(free)                                              // define the new colour (NOT added to the cast)
+            au?.withChainColour(newID) { $0 = mutated }                        // its mutated machine lives on the template
+            let srcC = buildComplexity(srcMachine), newC = buildComplexity(mutated)
+            colourHueOverride[newID] = buildSimilarHue(of: source, lighter: newC < srcC, srcC: srcC, newC: newC)
+            order.insert(newID, at: newC < srcC ? order.firstIndex(of: source)! : order.firstIndex(of: source)! + 1)   // lighter above · darker below
+            dup[newID] = 0; dup[source, default: 0] += 1
         }
-        for c in 0..<8 { for r in 0..<8 { buildStagingCells[c][r] = cid }; buildStagingSel[c] = originalRow }   // fill the grid; select the original's row everywhere
-        buildDeletedRows.removeAll(); buildPlacedOrig.removeAll()
+        refreshFromDocument()
+        for r in 0..<8 {                                                       // lay the reordered rows top→bottom; machines are on the templates
+            let cid = r < order.count ? order[r] : nil
+            for c in 0..<8 { buildStagingCells[c][r] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + r) }
+            if r < buildRowChain.count { buildRowChain[r] = [] }
+            if r < buildRowUnder.count { buildRowUnder[r] = nil }
+        }
+        buildReconcileStagingSel()                                            // keep each column's pick valid after the reshuffle
+        buildDeletedRows.removeAll()
         buildStagingMode = .play                                              // auto-shift to PLAY mode
         buildSelectStagingVoice()                                             // play the staging grid (publishes the scene)
     }
@@ -841,6 +868,7 @@ extension DiagView {
 
     // STAGE THE GRID — the prominent call-to-action at the bottom of the centre column (upward chevron above the text).
     @ViewBuilder private func buildPopulate(gridW: CGFloat) -> some View {
+        let enabled = buildStagingPopulated                                                  // disabled until ≥1 row is placed (Paul 2026-08-15)
         HStack(spacing: 5) {
             Image(systemName: "chevron.up").font(.system(size: 12, weight: .heavy)).foregroundColor(buildPink)
             Text("STAGE THE GRID").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildPink).tracking(1)
@@ -848,8 +876,10 @@ extension DiagView {
         .frame(width: gridW).frame(height: 34)
         .background(RoundedRectangle(cornerRadius: 10).fill(buildCell))                      // §0 MUTED: a restrained CTA — pink is a WHISPER (ink + edge), not a slab
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(buildPink.opacity(0.55), lineWidth: 1))
+        .opacity(enabled ? 1 : 0.35)
         .contentShape(Rectangle())
-        .onTapGesture { buildStageTheGrid() }
+        .onTapGesture { if enabled { buildStageTheGrid() } }
+        .allowsHitTesting(enabled)
     }
 
     // the staging 8×8 (row rail · loop keys · variation rows) — its OWN opaque view so its deep generic type doesn't
