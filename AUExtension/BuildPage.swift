@@ -282,6 +282,9 @@ extension DiagView {
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADER reads this so
     // it highlights the new voice IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
     var buildDisplayStaging: Bool { buildPendingVoiceStaging ?? buildStagingPlaying }
+    // Population (Paul 2026-08-15): real deployed play-grid cells (preview doesn't count) · any stocked staging cell.
+    var buildPerformPopulated: Bool { buildPerformCells.contains { $0.contains { $0 != nil } } }
+    var buildStagingPopulated: Bool { buildStagingCells.contains { $0.contains { $0 != nil } } }
 
     // Publish the ephemeral scene for the ACTIVE voices. §correction (2026-08-13): the PIECE is INDEPENDENT of the
     // audition — PLAY THIS PART + START/STOP THE PLAY GRID sound TOGETHER (the shopping/alongside workflow). Each
@@ -822,7 +825,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayStaging, fill: .grid, action: { buildRequestStagingVoice() }))   // header responds immediately (display); MIDI switch quantized
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayStaging, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestStagingVoice() }))   // enabled once EITHER grid has content
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
@@ -1069,7 +1072,7 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, action: { buildTogglePerformVoice() }))   // the PIECE voice
+            AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, enabled: buildPerformPopulated, action: { buildTogglePerformVoice() }))   // disabled until the play grid has REAL cells (preview doesn't count)
             buildGridModeRadio($buildPlayMode) { buildPlayMode = .play; buildGridPopup = 1 }   // eye → full-screen perform grid (play mode)
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
@@ -1269,7 +1272,7 @@ extension DiagView {
     // The identical audition button at the top of each column (transport glyph + label, cyan-bordered). `active` marks
     // it the playing voice; when active AND the transport plays, it becomes a PLAYHEAD — filling cyan L→R over `fill`'s
     // period (.cell = one step · .grid = the whole 8-column loop), looping. Inactive buttons never animate. (user 2026-08-13)
-    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, action: (() -> Void)? = nil) -> some View {
+    @ViewBuilder private func buildColumnButton(_ label: String, active: Bool = false, fill: BuildFill = .none, enabled: Bool = true, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 5) {                                    // BOTH transport signs, the CURRENT state boldly lit (Paul 2026-08-15)
                 Image(systemName: "play.fill").font(.system(size: 15, weight: .black))
@@ -1295,8 +1298,10 @@ extension DiagView {
             }
         )
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? buildCyan : buildEdge, lineWidth: 1))   // §0: the voice keeps the accent; idle mutes
+        .opacity(enabled ? 1 : 0.35)                             // DISABLED → greyed out (Paul 2026-08-15)
         .contentShape(Rectangle())
-        .onTapGesture { action?() }
+        .onTapGesture { if enabled { action?() } }
+        .allowsHitTesting(enabled)
     }
 
     // The header playhead's fill fraction (0…1) — phase-locked to the transport, warped by SWING (as the grid playhead).
