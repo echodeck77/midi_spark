@@ -66,6 +66,7 @@ struct BuildPart {
     var stagingSel: [Int] = Array(repeating: -1, count: 8)
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
     var rowShade: [Double] = Array(repeating: 0, count: 8)
+    var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
     var colourSel: Int = 0            // the cast selection (colourIDs index)
     var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store (begins clean)
     var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
@@ -399,7 +400,7 @@ extension DiagView {
         guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count else { return }
         var p = buildParts[buildCurrentPart]
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
-        p.rowChain = buildRowChain; p.rowShade = buildRowShade
+        p.rowChain = buildRowChain; p.rowShade = buildRowShade; p.rowUnder = buildRowUnder
         p.colourSel = ddColourSel; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast
         buildParts[buildCurrentPart] = p
     }
@@ -408,7 +409,7 @@ extension DiagView {
         buildCurrentPart = i
         let p = buildParts[i]
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
-        buildRowChain = p.rowChain; buildRowShade = p.rowShade
+        buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
         ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
         buildPulseColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
@@ -861,7 +862,7 @@ extension DiagView {
                         HStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildStagingCells[c][r]
-                                let selected = id != nil && buildStagingSel[c] == r
+                                let selected = buildStagingSel[c] == r   // a rung can be selected even when EMPTY (Paul 2026-08-15)
                                 let staged = r < buildRowChain.count && !buildRowChain[r].isEmpty
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(staged ? buildSelHue : (id.flatMap { colourColor($0) } ?? buildCell))
@@ -887,7 +888,7 @@ extension DiagView {
     // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; the SELECTED
     // colour when PLACE is armed (so you can see where a place lands); otherwise none.
     private func buildStagingStroke(c: Int, r: Int, stocked: Bool) -> Color {
-        if stocked && buildStagingSel[c] == r { return .white }
+        if buildStagingSel[c] == r { return .white }   // the selected (playing) rung — WHITE even when unpopulated (Paul 2026-08-15)
         if buildStagingMode == .edit && buildVerb == .place { return buildSelHue }   // place cue only when EDIT + PLACE
         return .clear
     }
@@ -899,9 +900,8 @@ extension DiagView {
             buildPulseColourID = id
             buildPulseChain = (r < buildRowChain.count && !buildRowChain[r].isEmpty) ? buildRowChain[r] : []
         }
-        if buildStagingMode == .play {                            // PLAY mode → SELECT / DESELECT the active cell (no placing)
-            guard buildStagingCells[c][r] != nil else { return }
-            buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the PLAYING cell → deselect (column goes silent, only the prior tail rings out); else select it
+        if buildStagingMode == .play {                            // PLAY mode → SELECT / DESELECT one rung per column (populated or NOT — Paul 2026-08-15)
+            buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the selected rung → deselect (column silent); else select it (any rung)
             buildStagingSyncIfPlaying()
             return                                                // early return → no reconcile, so an explicit −1 sticks
         }
@@ -925,26 +925,32 @@ extension DiagView {
         buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
     }
 
+    private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { buildStagingCells[$0][r] }.first : nil }
+    private func buildColumnHasSelection(_ c: Int) -> Bool { let s = buildStagingSel[c]; return s >= 0 && s < 8 }   // an empty rung counts as a selection (Paul 2026-08-15)
+    private func buildSetRow(_ r: Int, to cid: String?) {         // fill (or clear) a whole row with one colour
+        for c in 0..<8 { buildStagingCells[c][r] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + r) }
+        if r < buildRowChain.count { buildRowChain[r] = [] }      // the row carries the colour's OWN machine (no per-row variation override)
+        if r < buildRowShade.count { buildRowShade[r] = 0 }
+        buildDeletedRows[r] = nil
+    }
+
     // Press a staging ROW button → SET that row to the SELECTED colour + its machine. ONE COLOUR PER ROW (Paul 2026-08-15):
-    //  • overwrites whatever the row held;
-    //  • if the colour already occupies ANOTHER row, that row is REMOVED (the colour relocates) and any columns that were
-    //    playing it move their pick to the new row — so the vertical sequence follows the colour.
-    // The row carries the colour's OWN machine (the cell references the colourID; no per-row variation override).
+    //  • overwrites the row, remembering what it displaced (rowUnder) so it can come back;
+    //  • if the colour already occupies ANOTHER row, that row REVERTS to what it held before this colour arrived — it does
+    //    NOT blank (e.g. row A red → stamp green on A → A green; stamp green on B → A reverts to red).
+    //  • a column with NO current selection then selects the placed cell (so a fresh stamp plays; it never steals an
+    //    existing pick — the existing population survives).
     private func buildStampRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
-        for r in 0..<8 where r != row && (0..<8).contains(where: { buildStagingCells[$0][r] == cid }) {   // the colour's PRIOR row(s) → remove
-            for c in 0..<8 {
-                buildStagingCells[c][r] = nil
-                if buildStagingSel[c] == r { buildStagingSel[c] = row }   // a column playing the old row now plays the new one
-            }
-            if r < buildRowChain.count { buildRowChain[r] = [] }
-            if r < buildRowShade.count { buildRowShade[r] = 0 }
-            buildDeletedRows[r] = nil
+        if buildRowColour(row) == cid { return }                 // already this colour → nothing to do
+        for r in 0..<8 where r != row && buildRowColour(r) == cid {   // the colour's PRIOR row → REVERT it to what it displaced
+            let under = r < buildRowUnder.count ? buildRowUnder[r] : nil
+            buildSetRow(r, to: under)
+            if r < buildRowUnder.count { buildRowUnder[r] = nil }
         }
-        for c in 0..<8 { buildStagingCells[c][row] = cid; buildPlacedOrig.removeValue(forKey: c * 8 + row) }   // set the whole row to the colour
-        if row < buildRowChain.count { buildRowChain[row] = [] }   // use the colour's own machine (not a STAGE-THE-GRID variation)
-        if row < buildRowShade.count { buildRowShade[row] = 0 }
-        buildDeletedRows[row] = nil
+        if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }   // remember what THIS row displaces
+        buildSetRow(row, to: cid)
+        for c in 0..<8 where !buildColumnHasSelection(c) { buildStagingSel[c] = row }   // auto-select only where the column has no pick
         buildStagingSyncIfPlaying()
     }
 

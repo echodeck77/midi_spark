@@ -92,6 +92,7 @@ struct DiagView: View {
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     @State var buildStagingMode: BuildGridMode = .play   // the staging grid DEFAULTS to PLAY (Paul 2026-08-15 — one colour per row, sequence chosen vertically)
+    @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
     @State var buildPlacedOrig: [Int: String?] = [:]     // PLACE verb: a cell's content BEFORE it was placed (for revert on 2nd tap), keyed c*8+r
