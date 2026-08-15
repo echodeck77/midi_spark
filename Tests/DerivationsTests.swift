@@ -1652,4 +1652,26 @@ final class DerivationsTests: XCTestCase {
         let next = modUnipolar(.sampleHold, phase: 0.1, column: 2, cc: 74, cycleIndex: 6)
         XCTAssertNotEqual(a1, next, "S&H picks a NEW value on the next cycle")
     }
+
+    // CHANCE WEIGHT (tilt): the rank-weight term is only ever proven statistically via the Router. Lock its DIRECTION
+    // and full-scale magnitude at the pure boundary — at ±1 tilt with count 2 it forces the top/bottom deterministically
+    // (p reaches 1/0, which chancePasses short-circuits, so the hash is bypassed). (coverage 2026-08-15)
+    func testChancePassesPoolTiltForcesTopAndBottom() {
+        for beat in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            // +1 tilt favours the TOP (rank 1 of 2 always passes; rank 0 never does)
+            XCTAssertTrue(chancePassesPool(beat: beat, note: 60, rank: 1, count: 2, probability: 0.5, tilt: 1.0, constantDensity: false), "+tilt: top note passes @\(beat)")
+            XCTAssertFalse(chancePassesPool(beat: beat, note: 60, rank: 0, count: 2, probability: 0.5, tilt: 1.0, constantDensity: false), "+tilt: bottom note drops @\(beat)")
+            // −1 tilt favours the BOTTOM — the direction flips exactly
+            XCTAssertFalse(chancePassesPool(beat: beat, note: 60, rank: 1, count: 2, probability: 0.5, tilt: -1.0, constantDensity: false), "−tilt: top note drops @\(beat)")
+            XCTAssertTrue(chancePassesPool(beat: beat, note: 60, rank: 0, count: 2, probability: 0.5, tilt: -1.0, constantDensity: false), "−tilt: bottom note passes @\(beat)")
+        }
+    }
+
+    // GLIDE bend: the max(1, range) divide-guard for range ≤ 0 (SnapshotBuilder clamps glideRange ≥ 1, so this is
+    // defensive) — range 0 must behave like range 1, never divide by zero. (coverage 2026-08-15)
+    func testGlideBend14GuardsNonPositiveRange() {
+        XCTAssertEqual(glideBend14(semitones: 0, range: 0), 8192, "centre")
+        XCTAssertEqual(glideBend14(semitones: 1, range: 0), 16383, "frac clamps to +1 → full up")
+        XCTAssertEqual(glideBend14(semitones: -5, range: 0), 1, "frac clamps to −1 → full down")
+    }
 }

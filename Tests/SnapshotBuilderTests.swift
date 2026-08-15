@@ -215,6 +215,39 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(neg.a.chanceTilt, -1.0, "chanceTilt clamps to −1")
     }
 
+    // The render thread's ONLY sanitization of the newer echo/euclid/glide/harmonize params — a wrong bound ships a bad
+    // value straight into emission. The non-obvious ones: euclidSteps MIN is 2 (not 1), echoOffset is ±0.33. (coverage 2026-08-15)
+    func testEchoEuclidGlideHarmResolveClamps() {
+        let a = box(colours(customizing: 0) {
+            $0.paramsA.euclidSteps = 1; $0.paramsA.euclidPulses = 0; $0.paramsA.euclidRot = 99
+            $0.paramsA.echoDelayDiv = 0; $0.paramsA.echoOffset = 1.0; $0.paramsA.echoPitch = 99
+            $0.paramsA.glideRange = 0; $0.paramsA.glideTime = 99
+            $0.paramsA.harmIntervals = [30]
+        }) { _ in }.colours[0].a
+        XCTAssertEqual(a.euclidSteps, 2, "euclidSteps min is 2, not 1")
+        XCTAssertEqual(a.euclidPulses, 1)
+        XCTAssertEqual(a.euclidRot, 15)
+        XCTAssertEqual(a.echoDelayDiv, 1)
+        XCTAssertEqual(a.echoOffset, 0.33, accuracy: 1e-9, "echo offset ±0.33")
+        XCTAssertEqual(a.echoPitch, 24)
+        XCTAssertEqual(a.glideRange, 1)
+        XCTAssertEqual(a.glideTime, 4, accuracy: 1e-9)
+        XCTAssertEqual(a.harmIntervals.0, 24, "harm interval clamps to +24")
+        XCTAssertEqual(a.harmIntervals.1, 0, "missing voices pad to 0")
+        XCTAssertEqual(a.harmIntervals.2, 0)
+        let hi = box(colours(customizing: 0) { $0.paramsA.euclidSteps = 99 }) { _ in }.colours[0].a
+        XCTAssertEqual(hi.euclidSteps, 16, "euclidSteps max is 16")
+    }
+
+    // MOD STEPS ingest: a <8-element pattern fills cyclically with a per-element 0…127 clamp; an EMPTY pattern is
+    // guarded (keeps the default staircase). (coverage 2026-08-15)
+    func testResolveModStepsWrapsClampsAndGuards() {
+        let a = box(colours(customizing: 0) { $0.paramsA.modSteps = [200, -5, 50] }) { _ in }.colours[0].a
+        XCTAssertEqual(a.modSteps, [127, 0, 50, 127, 0, 50, 127, 0], "cyclic fill of a 3-element pattern + clamp")
+        let empty = box(colours(customizing: 0) { $0.paramsA.modSteps = [] }) { _ in }.colours[0].a
+        XCTAssertEqual(empty.modSteps, [0, 18, 36, 54, 72, 90, 108, 127], "empty pattern → default staircase (guard skips)")
+    }
+
     func testRunStartColumnForContiguousRun() {
         // §7 LEGATO precompute: a contiguous same-Colour run in one row shares the run's first column.
         let b = box(colours(customizing: 0) { _ in }) { s in

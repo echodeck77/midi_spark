@@ -103,4 +103,47 @@ final class DiceTests: XCTestCase {
             XCTAssertEqual(composed[k].type, t, "switchType button sets slot \(k)'s type")
         } }
     }
+
+    // getD/setD are two independent switches; a SYMMETRIC mis-mapping (both swap spread↔curve) round-trips and would
+    // pass testEffectiveChainComposition. Lock each DParam to its OWN field in both directions + the nil-defaults that
+    // seed rollSliders' base. (coverage 2026-08-15)
+    func testDiceGetSetMapEachParamToItsOwnField() {
+        var s = ProcessorSlot(type: .arp)
+        Dice.setD(&s, .spread, 0.42)
+        XCTAssertEqual(s.params.spread, 0.42, "setD(.spread) writes spread")
+        XCTAssertEqual(s.params.curve, 0, "…not curve (its default is untouched)")
+        XCTAssertEqual(s.params.gate, 0.6, "…not gate")
+        Dice.setD(&s, .ramp, 0.7); XCTAssertEqual(s.params.ramp, 0.7); XCTAssertEqual(s.params.probability, 1, "ramp ≠ probability")
+        // getD reads each field; a fresh slot's populated defaults
+        let fresh = ProcessorSlot(type: .arp)
+        XCTAssertEqual(Dice.getD(fresh, .gate), 0.6); XCTAssertEqual(Dice.getD(fresh, .probability), 1)
+        XCTAssertEqual(Dice.getD(fresh, .spread), 0.1); XCTAssertEqual(Dice.getD(fresh, .curve), 0); XCTAssertEqual(Dice.getD(fresh, .ramp), 0.5)
+        // the nil-fallback branch (a param cleared to nil → the documented default)
+        var cleared = ProcessorSlot(type: .arp)
+        cleared.params.gate = nil; cleared.params.spread = nil; cleared.params.ramp = nil
+        XCTAssertEqual(Dice.getD(cleared, .gate), 0.6, "nil → default"); XCTAssertEqual(Dice.getD(cleared, .spread), 0.1); XCTAssertEqual(Dice.getD(cleared, .ramp), 0.5)
+    }
+
+    // DiceRecorder.peakConcurrency (the density/flood cap's measurement): OFFs must sort before ONs at a coincident
+    // sample so a restrike doesn't spike the peak. Without the tie-break this reads 4, not 2. (coverage 2026-08-15)
+    func testPeakConcurrencyOrdersOffBeforeOnAtATie() {
+        let r = DiceRecorder()
+        r.emit(sampleTime: 0, cable: 1, 0x90, 60, 100)     // two voices sounding
+        r.emit(sampleTime: 0, cable: 1, 0x90, 64, 100)
+        r.emit(sampleTime: 480, cable: 1, 0x80, 60, 0)      // restrike both at the SAME sample (off, on, off, on)
+        r.emit(sampleTime: 480, cable: 1, 0x90, 60, 100)
+        r.emit(sampleTime: 480, cable: 1, 0x80, 64, 0)
+        r.emit(sampleTime: 480, cable: 1, 0x90, 64, 100)
+        XCTAssertEqual(r.peakConcurrency, 2, "off-before-on tie-break keeps the peak at 2 (not 4)")
+    }
+
+    // Result.chain guards: fewer live values than macros ⇒ home/off (== base); oversized inputs / out-of-range slots
+    // must not trap or grow the chain. (coverage 2026-08-15)
+    func testChainDefaultsMissingControlsToHome() {
+        var rng = DiceRNG(seed: 77)
+        let r = Dice.roll(target: 5, using: &rng)
+        XCTAssertEqual(r.chain(sliderVals: [], buttonOn: []), r.base, "no live values ⇒ the base chain")
+        let big = r.chain(sliderVals: Array(repeating: 0.5, count: 8), buttonOn: Array(repeating: true, count: 8))
+        XCTAssertEqual(big.count, r.base.count, "extra live values neither trap nor grow the chain")
+    }
 }
