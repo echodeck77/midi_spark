@@ -298,7 +298,7 @@ extension DiagView {
         var s = SceneState.empty()
         if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
             for c in 0..<8 { for r in 0..<8 {
-                guard let cid = buildPerformCells[c][r], !buildPerformMute.contains(c * 8 + r) else { continue }   // MUTED cell → dropped from the mix
+                guard let cid = buildPerformCells[c][r], !buildPerformMute.contains(c * 8 + r), buildPerformActiveRung(c, r) else { continue }   // MUTED / non-selected rung → silent
                 var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
                 cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
                 cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
@@ -588,13 +588,14 @@ extension DiagView {
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart < buildParts.count else { return }
         buildParts[buildCurrentPart].deployed = true
-        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = buildCurrentPart }   // clear the band (+ its mutes) + claim it (§2)
+        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = buildCurrentPart; buildPerformStagingRow[base + i] = -1 }   // clear the band (+ its mutes + rung map) + claim it (§2)
         if rows <= 1 {
             buildCopySelectedRow(toRow: base)                    // a lane: the selected melody, blank where unselected
         } else {
             let occupied = (0..<8).filter { sr in (0..<8).contains { c in buildStagingCells[c][sr] != nil } }   // staging rows that hold ANY cell
             for (i, sr) in occupied.prefix(rows).enumerated() {  // one rung per occupied staging row (muted cells included)
                 let R = base + i; guard R < 8 else { break }
+                buildPerformStagingRow[R] = sr                   // remember which staging row this rung came from (for selection sync-back)
                 for c in 0..<8 {
                     if let cid = buildStagingCells[c][sr] {
                         buildPerformCells[c][R] = cid
@@ -617,7 +618,7 @@ extension DiagView {
         let setPart = (0..<rows).compactMap { i -> Int? in let R = base + i; return R < 8 && buildPerformPart[R] >= 0 ? buildPerformPart[R] : nil }.first
         if let p = setPart, p < buildParts.count {           // SET → RESTORE (the part comes home to be rethought)
             buildSwitchPart(p)                               // save the current (fresh) workshop, load p's stashed one
-            for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = -1 }
+            for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = -1; buildPerformStagingRow[base + i] = -1 }
             buildParts[p].deployed = false
             // OUTPUT (Paul 2026-08-14): the play grid CONTINUES for every still-deployed part; the demoted part plays
             // from the PART grid (alongside). Chain audition off — output is now piece + this part.
@@ -649,6 +650,22 @@ extension DiagView {
     private func buildTogglePerformMute(_ c: Int, _ r: Int) {
         let k = c * 8 + r
         if buildPerformMute.contains(k) { buildPerformMute.remove(k) } else { buildPerformMute.insert(k) }
+        buildPublishScene()
+    }
+    // A play-grid cell SOUNDS this column when it's the active rung: single-rung parts always; a multi-rung part only
+    // when its column's selection points at this rung's source staging row. (Paul 2026-08-15)
+    private func buildPerformActiveRung(_ c: Int, _ r: Int) -> Bool {
+        let part = buildPerformPart[r]
+        guard part >= 0, buildPerformPartRows(part) > 1 else { return true }   // single-rung / empty band → always
+        let sr = buildPerformStagingRow[r]
+        return sr >= 0 && part < buildParts.count && c < buildParts[part].stagingSel.count && buildParts[part].stagingSel[c] == sr
+    }
+    // Tap a multi-rung cell → make it the column's active rung, or deselect it (column silent). Writes the DEPLOYED
+    // part's stashed selection directly, so live changes mirror back to the part grid on revert. (Paul 2026-08-15)
+    private func buildTogglePerformRung(_ c: Int, _ r: Int) {
+        let sr = buildPerformStagingRow[r]; let part = buildPerformPart[r]
+        guard sr >= 0, part >= 0, part < buildParts.count, c < buildParts[part].stagingSel.count else { return }
+        buildParts[part].stagingSel[c] = (buildParts[part].stagingSel[c] == sr) ? -1 : sr
         buildPublishScene()
     }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
@@ -1292,17 +1309,23 @@ extension DiagView {
                                 let id = buildPerformCells[c][r]
                                 let ghost = id == nil ? preview[c][r] : nil   // preview only where no cell is deployed
                                 let muted = buildPerformMute.contains(c * 8 + r)
-                                let mutable = id != nil && buildPerformPart[r] >= 0 && buildPerformPartRows(buildPerformPart[r]) == 1   // SINGLE-RUNG part → per-cell mute (multi-rung: no mute)
+                                let multiRung = buildPerformPart[r] >= 0 && buildPerformPartRows(buildPerformPart[r]) > 1
+                                let mutable = id != nil && buildPerformPart[r] >= 0 && !multiRung   // SINGLE-RUNG part → per-cell mute
+                                let activeRung = buildPerformActiveRung(c, r)                        // MULTI-rung: the selected rung of this column
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // TRUE colour · else the empty recess (preview shows as an outline, not a fill)
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.09), lineWidth: 1))   // outline every cell → the grid READS even when empty
                                     .overlay { if let g = ghost, let gc = colourColor(g) {   // THE PREVIEW = a THICK, DIMMED OUTLINE in the colour (not a fill)
                                         RoundedRectangle(cornerRadius: 7).strokeBorder(gc.opacity(0.45), lineWidth: 3) } }
+                                    .overlay { if id != nil && multiRung && activeRung { RoundedRectangle(cornerRadius: 7).stroke(Color.white, lineWidth: 2.5) } }   // WHITE = the selected rung (like the part grid)
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
-                                    .opacity(muted ? 0.3 : 1)   // MUTED cell dims — dropped from the mix (Paul 2026-08-15)
+                                    .opacity(muted || (id != nil && multiRung && !activeRung) ? 0.3 : 1)   // MUTED cell OR a non-selected rung dims
                                     .contentShape(Rectangle())
-                                    .onTapGesture { if mutable { buildTogglePerformMute(c, r) } }
+                                    .onTapGesture {
+                                        if mutable { buildTogglePerformMute(c, r) }               // single-rung → mute
+                                        else if id != nil && multiRung { buildTogglePerformRung(c, r) }   // multi-rung → pick the active rung
+                                    }
                             }
                         }
                     }
