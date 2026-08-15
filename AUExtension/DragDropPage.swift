@@ -16,6 +16,7 @@ extension DiagView {
         GeometryReader { g in Color.clear.preference(key: DDZonePref.self, value: [key: g.frame(in: .named("dd"))]) }
     }
     var ddSelectedColourID: String? {
+        if let b = buildSelID { return b }   // BUILD's ID-based selection wins (supports ephemeral colours beyond the 16)
         if ddColourSel >= 0 && ddColourSel < colourIDs.count { return colourIDs[ddColourSel] }
         return editingCell?.colourID
     }
@@ -50,7 +51,7 @@ extension DiagView {
     /// THE PER-COLOUR MODEL (user 2026-08-09): a colour IS a machine — selecting one scopes the edit to EVERY cell of
     /// that colour, so every machinery edit (add/remove/params/split) applies colour-wide. The anchor cell just drives
     /// what the flow diagram DISPLAYS. `editPointedCell`/`editChop`/`{add,edit,remove}SlotCells` all fan out to `sel`.
-    private func ddScopeToColour(_ id: String, anchor: (Int, Int)?) {
+    func ddScopeToColour(_ id: String, anchor: (Int, Int)?) {   // internal: shared with BUILD's buildSelectID
         let cells = ddColourCells(id)
         sel.reset(); for p in cells { sel.add(p) }
         if let a = anchor { selCol = a.0; selRow = a.1 }
@@ -91,6 +92,7 @@ extension DiagView {
     func ddSelectColour(_ i: Int) {
         guard i >= 0 && i < colourIDs.count else { return }
         ddColourSel = i
+        buildSelID = colourIDs[i]   // keep BUILD's ID selection in sync when a document colour is picked
         ddScopeToColour(colourIDs[i], anchor: nil)
     }
     /// Open the DRAG&DROP page with a colour selected: keep a valid current selection, else fall back to GOLD (the

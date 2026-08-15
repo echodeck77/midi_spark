@@ -339,9 +339,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// The document the snapshot renders from — the real `document`, plus the ephemeral PLAY: THIS CELL preview cell
     /// (unplaced-colour audition) injected at its empty slot, or the BUILD staging grid override. Never used by
     /// encode/persist (those read `document`).
+    /// BUILD's EPHEMERAL colours (beyond the 16 document slots) — id → its machine. renderDoc appends them so cells /
+    /// auditions referencing them resolve. Never persisted (encode/persist read `document`). (Paul 2026-08-15)
+    private var buildEphemeralColours: [(id: String, machine: [ProcessorSlot])] = []
+    func setBuildEphemeralColours(_ cs: [(id: String, machine: [ProcessorSlot])]) { buildEphemeralColours = cs; scheduleRebuild() }
+
     private func renderDoc() -> PluginState {
-        if stagingRenderScene == nil, previewSolo == nil { return document }
+        if stagingRenderScene == nil, previewSolo == nil, buildEphemeralColours.isEmpty { return document }
         var temp = document
+        for e in buildEphemeralColours where !temp.colours.contains(where: { $0.colourID == e.id }) {   // append BUILD ephemeral colours
+            var col = Colour(colourID: e.id, type: .arp)
+            col.defined = true
+            col.templateChain = e.machine
+            temp.colours.append(col)
+        }
         let si = temp.activeSceneResolved
         if temp.scenes.indices.contains(si) {
             if let sc = stagingRenderScene { temp.scenes[si] = sc }            // STAGING grid overrides the played scene

@@ -123,6 +123,9 @@ struct DiagView: View {
     @State var buildStagingPlaying = false
     @State var buildPendingVoiceStaging: Bool? = nil   // an armed CHAIN⟷PART voice switch, applied on the next cell boundary (nil = none)
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
+    @State var buildSelID: String? = nil      // BUILD: the selected colour BY ID (supports ephemeral colours beyond the 16); nil = none
+    @State var buildColourReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral colours' machines (id → chain), beyond the 16 document slots
+    @State var buildIDCounter: Int = 0        // BUILD: monotonic source for ephemeral colour IDs ("b0", "b1", …)
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe

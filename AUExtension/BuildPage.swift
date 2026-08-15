@@ -67,7 +67,7 @@ struct BuildPart {
     var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
     var rowShade: [Double] = Array(repeating: 0, count: 8)
     var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
-    var colourSel: Int = 0            // the cast selection (colourIDs index)
+    var selID: String? = nil          // the cast selection BY ID (supports ephemeral colours)
     var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store (begins clean)
     var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
     var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
@@ -251,8 +251,8 @@ extension DiagView {
         // A-face — and every default colour is type .arp, so auditioning it plays an arp the user can't see in the
         // (empty) chain. Convert that implicit arp into an EXPLICIT passthrough once, so what you hear matches the
         // shown-empty chain (unprocessed MIDI). Only fires when templateChain is nil → no churn on real chains. (user 2026-08-12)
-        if let cid = ddSelectedColourID, au?.colourHasStoredChain(cid) == false {
-            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // read the LIVE document (docColours is empty on first appear)
+        if let cid = ddSelectedColourID, buildColourReg[cid] == nil, au?.colourHasStoredChain(cid) == false {
+            au?.withChainColour(cid) { $0 = [] }; refreshFromDocument()   // document colour only — ephemeral colours always carry a registry machine
         }
         ddSolo = true; ddEngageSolo()                            // engage the machine audition (springs back off if it can't)
     }
@@ -321,8 +321,42 @@ extension DiagView {
     }
 
     // A colour's OWN machine (templateChain), audible slots only.
+    // A colour's machine — EPHEMERAL registry (beyond the 16) OR the document templateChain (the canonical 16).
+    private func buildColourMachine(_ cid: String) -> [ProcessorSlot] {
+        buildColourReg[cid] ?? (docColours.first { $0.colourID == cid }?.templateChain ?? [])
+    }
     private func buildColourChain(_ cid: String) -> [ProcessorSlot] {
-        (docColours.first { $0.colourID == cid }?.templateChain ?? []).filter { !buildIsEmptySlot($0) }
+        buildColourMachine(cid).filter { !buildIsEmptySlot($0) }
+    }
+    // Write a colour's machine to the right store, and reflect it live.
+    private func buildWriteColourMachine(_ cid: String, _ chain: [ProcessorSlot]) {
+        if buildColourReg[cid] != nil { buildColourReg[cid] = chain; buildSyncColours() }   // ephemeral
+        else { au?.setColourChain(cid, chain); refreshFromDocument() }                       // document colour
+        buildStagingSyncIfPlaying()
+    }
+    // Push the ephemeral colour registry to the AU so renderDoc appends them (their machines resolve).
+    func buildSyncColours() { au?.setBuildEphemeralColours(buildColourReg.map { (id: $0.key, machine: $0.value) }) }
+    // Allocate a NEW colour carrying `machine` + a custom hue: a free DOCUMENT slot if one remains, else an unlimited
+    // EPHEMERAL colour ("b<n>"). Returns its id. (Paul 2026-08-15 — lifts the 16-slot cap.)
+    private func buildNewColour(hex: UInt32, machine: [ProcessorSlot]) -> String {
+        if let j = buildFirstUndefinedGlobal() {
+            let id = colourIDs[j]
+            ddCreateColour(j); au?.withChainColour(id) { $0 = machine }; refreshFromDocument()
+            colourHueOverride[id] = hex
+            return id
+        }
+        buildIDCounter += 1
+        let id = "b\(buildIDCounter)"
+        buildColourReg[id] = machine; colourHueOverride[id] = hex; buildSyncColours()
+        return id
+    }
+    // Select a colour BY ID (document or ephemeral) — the ID-based BUILD selection.
+    private func buildSelectID(_ id: String) {
+        buildSelID = id
+        ddColourSel = colourIDs.firstIndex(of: id) ?? -1
+        ddStickyReceiver = buildSelReceiver
+        ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        ddScopeToColour(id, anchor: nil)
     }
     private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
     // The base hue of a colour (its override if any, else its palette hex).
@@ -340,34 +374,46 @@ extension DiagView {
     // concurrency), and inserts it just ABOVE the source if LESS complex (a LIGHTER new colour) or just BELOW if MORE
     // complex (DARKER), rearranging the rows. The new colours are NOT added to the palette — touch one on the grid to
     // preview + add it (the pulse flow). Needs ≥1 populated row (the button is disabled otherwise).
-    // Free the colour slots held by PRIOR staged variations — any hue-overridden colour NO part has adopted into its
-    // cast — and strip them from this grid. Keeps slots available so re-staging can always refill to 8. (Paul 2026-08-15)
-    private func buildReclaimVariations() {
-        let adopted = Set(buildParts.flatMap { $0.cast }).union(buildPartCast)
-        let orphans = colourHueOverride.keys.filter { !adopted.contains($0) }
-        guard !orphans.isEmpty else { return }
-        let orphanSet = Set(orphans)
-        for c in 0..<8 { for r in 0..<8 where orphanSet.contains(buildStagingCells[c][r] ?? "") { buildStagingCells[c][r] = nil } }
-        au?.editDocument { doc in for id in orphans { if let i = colourIDs.firstIndex(of: id), i < doc.colours.count { doc.colours[i].defined = false; doc.colours[i].templateChain = nil } } }
-        for id in orphans { colourHueOverride[id] = nil }
-        refreshFromDocument()
+    // GARBAGE-COLLECT colours (Paul 2026-08-15). A colour LIVES if referenced by ANY retained state you can revert to:
+    // any part's cast · any part's staging grid · the play grid · any part's rowUnder reverts · pending row/cell
+    // restores · the pulse candidate · the current selection. Anything else — ephemeral registry entries AND document
+    // VARIATION slots (hue-overridden) — is freed. The canonical defaults (no override) are never touched.
+    private func buildGCColours() {
+        var live = Set<String>()
+        live.formUnion(buildPartCast); for p in buildParts { live.formUnion(p.cast) }
+        func addCells(_ cells: [[String?]]) { for col in cells { for c in col { if let c = c { live.insert(c) } } } }
+        addCells(buildStagingCells); addCells(buildPerformCells); for p in buildParts { addCells(p.stagingCells) }
+        for u in buildRowUnder { if let u = u { live.insert(u) } }
+        for p in buildParts { for u in p.rowUnder { if let u = u { live.insert(u) } } }
+        for (_, row) in buildDeletedRows { for c in row { if let c = c { live.insert(c) } } }
+        for (_, c) in buildPlacedOrig { if let c = c { live.insert(c) } }
+        if let p = buildPulseColourID { live.insert(p) }
+        if let s = buildSelID { live.insert(s) }
+        let dead = Set(buildColourReg.keys).union(colourHueOverride.keys).subtracting(live)
+        guard !dead.isEmpty else { return }
+        for id in dead { buildColourReg[id] = nil; colourHueOverride[id] = nil }   // free ephemeral + variation hues
+        let docDead = dead.filter { colourIDs.contains($0) }                        // document VARIATION slots → undefine
+        if !docDead.isEmpty {
+            au?.editDocument { doc in for id in docDead { if let i = colourIDs.firstIndex(of: id), i < doc.colours.count { doc.colours[i].defined = false; doc.colours[i].templateChain = nil } } }
+            refreshFromDocument()
+        }
+        buildSyncColours()
     }
 
     private func buildStageTheGrid() {
-        buildReclaimVariations()                                               // reclaim prior variation slots → back to the originals
+        for c in 0..<8 { for r in 0..<8 { if let id = buildStagingCells[c][r], !buildPartCast.contains(id) { buildStagingCells[c][r] = nil } } }   // strip prior (un-adopted) variations → back to the originals
+        buildGCColours()                                                       // free the reclaimed variation colours
         var order: [String] = (0..<8).compactMap { buildRowColour($0) }        // the ORIGINAL populated rows, top→bottom (one colour each)
         guard !order.isEmpty else { return }
         var rng = SystemRandomNumberGenerator()
         var dup: [String: Int] = Dictionary(uniqueKeysWithValues: order.map { ($0, 0) })
-        while order.count < 8, let free = buildFirstUndefinedGlobal() {
+        while order.count < 8 {   // unlimited now — buildNewColour overflows to ephemeral colours past the 16 slots
             guard let source = order.min(by: { (dup[$0] ?? 0, order.firstIndex(of: $0)!) < (dup[$1] ?? 0, order.firstIndex(of: $1)!) }) else { break }
             let srcMachine = buildColourChain(source)
             let mutated = buildVaryChain(srcMachine, &rng)
-            let newID = colourIDs[free]
-            ddCreateColour(free)                                              // define the new colour (NOT added to the cast)
-            au?.withChainColour(newID) { $0 = mutated }                        // its mutated machine lives on the template
             let srcC = buildComplexity(srcMachine), newC = buildComplexity(mutated)
-            colourHueOverride[newID] = buildSimilarHue(of: source, lighter: newC < srcC, srcC: srcC, newC: newC)
+            let hue = buildSimilarHue(of: source, lighter: newC < srcC, srcC: srcC, newC: newC)
+            let newID = buildNewColour(hex: hue, machine: mutated)             // document slot OR ephemeral; NOT added to the cast
             order.insert(newID, at: newC < srcC ? order.firstIndex(of: source)! : order.firstIndex(of: source)! + 1)   // lighter above · darker below
             dup[newID] = 0; dup[source, default: 0] += 1
         }
@@ -430,8 +476,8 @@ extension DiagView {
     // placeholders) are kept so a processor's POSITION is remembered even with empty boxes to its left; TRAILING empties
     // collapse to "+" capacity slots. A fully blank/new colour → [] (all boxes are "+").
     private func selectedColourChain() -> [ProcessorSlot] {
-        guard let cid = ddSelectedColourID, let c = docColours.first(where: { $0.colourID == cid }) else { return [] }
-        var chain = c.templateChain ?? []
+        guard let cid = ddSelectedColourID else { return [] }
+        var chain = buildColourMachine(cid)
         while let last = chain.last, buildIsEmptySlot(last) { chain.removeLast() }
         return chain
     }
@@ -447,7 +493,7 @@ extension DiagView {
         var p = buildParts[buildCurrentPart]
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
         p.rowChain = buildRowChain; p.rowShade = buildRowShade; p.rowUnder = buildRowUnder
-        p.colourSel = ddColourSel; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast
+        p.selID = buildSelID; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast
         buildParts[buildCurrentPart] = p
     }
     private func buildLoadPart(_ i: Int) {
@@ -456,7 +502,7 @@ extension DiagView {
         let p = buildParts[i]
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
-        ddColourSel = p.colourSel; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
+        buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
         buildPulseColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
@@ -488,7 +534,7 @@ extension DiagView {
     // machine audition have nothing until the user adds a colour. Replaces the global ddEnsureSelection on BUILD. §2.
     func buildEnsureCastSelection() {
         if let cid = ddSelectedColourID, buildPartCast.contains(cid) { return }   // already a valid cast member
-        if let first = buildPartCast.first, let gi = colourIDs.firstIndex(of: first) { ddColourSel = gi } else { ddColourSel = -1 }
+        if let first = buildPartCast.first { buildSelectID(first) } else { buildSelID = nil; ddColourSel = -1 }
     }
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O; its palette opens on the 8 DEFAULTS (Paul 2026-08-14).
@@ -788,7 +834,7 @@ extension DiagView {
                     .opacity(id == ddSelectedColourID ? 1 : 0))
                 .overlay { if id == ddSelectedColourID { buildTargetMark(swatch * 0.6) } }   // THE TARGET rides the selected cast cell
                 .contentShape(Rectangle())
-                .onTapGesture { if let gi = colourIDs.firstIndex(of: id) { ddSelectColour(gi) } }
+                .onTapGesture { buildSelectID(id) }
                 .onLongPressGesture(minimumDuration: 0.4) { buildAddCastColour() }   // ANY button can ADD a colour — via long press (Paul 2026-08-14)
         } else {                                                   // an EMPTY slot — a "+" that ADDS on LONG PRESS (every button can add)
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
@@ -821,32 +867,26 @@ extension DiagView {
     }
     // The next UNDEFINED global colour to materialize (nil = all 16 exist).
     private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
-    // ADD a colour to THIS part's cast: materialize a fresh global colour (or reuse one not yet in the cast), add its ID.
+    // ADD a fresh (passthrough) colour to THIS part's cast: a free DOCUMENT slot if one remains, else an unlimited
+    // EPHEMERAL colour with a canonical-ish hue. Then select it. (Paul 2026-08-15 — no 16-colour cap.)
     private func buildAddCastColour() {
+        let id: String
         if let j = buildFirstUndefinedGlobal() {
-            buildCreateColour(j)
-            if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
-            ddSelectColour(j)
-        } else if let j = (0..<colourIDs.count).first(where: { !buildPartCast.contains(colourIDs[$0]) }) {
-            buildPartCast.append(colourIDs[j]); ddSelectColour(j)     // all 16 defined → SHARE an existing one into this cast
+            buildCreateColour(j); id = colourIDs[j]
+        } else {
+            buildIDCounter += 1; id = "b\(buildIDCounter)"
+            buildColourReg[id] = []; colourHueOverride[id] = colourHexes[buildIDCounter % colourHexes.count]; buildSyncColours()
         }
+        if !buildPartCast.contains(id) { buildPartCast.append(id) }
+        buildSelectID(id)
     }
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
     // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
-        if buildPartCast.contains(pid), let idx = colourIDs.firstIndex(of: pid) {
-            ddSelectColour(idx)                                   // ALREADY a palette member → just SELECT it, never duplicate (Paul 2026-08-14)
-        } else if !buildPulseChain.isEmpty, let j = buildFirstUndefinedGlobal() {
-            buildCreateColour(j)                                  // a NEW variation → materialize a new global colour carrying its machine
-            au?.withChainColour(colourIDs[j]) { $0 = buildPulseChain }
-            if !buildPartCast.contains(colourIDs[j]) { buildPartCast.append(colourIDs[j]) }
-            ddSelectColour(j)
-        } else if let idx = colourIDs.firstIndex(of: pid) {
-            if !buildPartCast.contains(pid) { buildPartCast.append(pid) }   // LAST TOUCHED promotes the colour INTO this part's cast (§2)
-            ddSelectColour(idx)                                   // select it (loads its machine into the footer)
-        }
+        if !buildPartCast.contains(pid) { buildPartCast.append(pid) }   // LAST TOUCHED promotes the colour (document or ephemeral) INTO the cast
+        buildSelectID(pid)                                             // select it (loads its machine into the footer)
         buildPulseColourID = nil; buildPulseChain = []
         refreshFromDocument()
     }
@@ -1493,7 +1533,7 @@ extension DiagView {
     // whole with setColourChain (so slot indices stay put; a deleted slot leaves a passthrough GAP, not a shift).
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
         guard let cid = ddSelectedColourID else { return }
-        au?.setColourChain(cid, chain); refreshFromDocument(); buildStagingSyncIfPlaying()
+        buildWriteColourMachine(cid, chain)
     }
     private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         var c = selectedColourChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
