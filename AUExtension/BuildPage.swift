@@ -578,6 +578,8 @@ extension DiagView {
         buildParts[buildCurrentPart].deployed = true
         buildCopySelectedRow(toRow: R)
         buildPerformPart[R] = buildCurrentPart                   // §2: the row now belongs to this part
+        buildPerformStagingRow[R] = -1                           // a single-rung lane — no rung map (per-cell mute, not selection)
+        for c in 0..<8 { buildPerformMute.remove(c * 8 + R) }    // fresh row starts unmuted
         buildPublishScene()                                      // reflect live if the piece is playing
     }
 
@@ -614,27 +616,60 @@ extension DiagView {
     // a FRESH part (staging/column clear). SET band (already holds a part) → UNLOAD it and RESTORE that part's stashed
     // workshop (a part switch: the current workshop retains under its own part). The RIGHT per-row rung-flatten is the
     // held exception — left unchanged until Paul defines it.
+    // Shared valve output/focus (Paul 2026-08-14/15): chain audition off; FOCUS the part grid. PROMOTE starts the play
+    // grid (it carries the output; the fresh part is empty/silent). RESTORE keeps the play grid going iff other parts
+    // remain deployed, and the restored part plays from the part grid alongside.
+    private func buildValveOutput(promote: Bool) {
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }
+        buildStagingPlaying = true
+        buildPerformPlaying = promote ? true : buildPerformPart.contains { $0 >= 0 }
+        buildPublishScene()
+    }
+    // The play grid's band form → the (base, rows) range containing a grid row, and the band's 1-based label number.
+    private func buildBandRange(forRow r: Int) -> (base: Int, rows: Int)? {
+        var base = 0; for rows in [3, 2, 1, 1, 1] { if r >= base && r < base + rows { return (base, rows) }; base += rows }; return nil
+    }
+    private func buildBandNumber(base: Int) -> Int {
+        var acc = 0; for (b, rows) in [3, 2, 1, 1, 1].enumerated() { if acc == base { return b + 1 }; acc += rows }; return 1
+    }
+    // A band is WHOLE (one part fills every rung — a LEFT-valve deploy) vs PER-RUNG (separate sub-parts on its rungs, or
+    // partly empty — RIGHT-valve deploys). The two are mutually exclusive on a band. (Paul 2026-08-15)
+    private func buildBandIsWhole(base: Int, rows: Int) -> Bool {
+        let ps = (0..<rows).compactMap { base + $0 < 8 ? buildPerformPart[base + $0] : nil }
+        return ps.allSatisfy { $0 >= 0 } && Set(ps).count == 1
+    }
+    private func buildRowInWholeBand(_ r: Int) -> Bool { buildBandRange(forRow: r).map { buildBandIsWhole(base: $0.base, rows: $0.rows) } ?? false }
+
+    // LEFT band valve — the WHOLE band. EMPTY → flatten the current part onto every rung (deploy + christen · stash ·
+    // clear · fresh part). WHOLE (one part fills it) → restore ALL rungs to the part grid. PER-RUNG band → INERT (use
+    // the right buttons to restore individual rungs).
     func buildBandValve(base: Int, rows: Int) {
-        let setPart = (0..<rows).compactMap { i -> Int? in let R = base + i; return R < 8 && buildPerformPart[R] >= 0 ? buildPerformPart[R] : nil }.first
-        if let p = setPart, p < buildParts.count {           // SET → RESTORE (the part comes home to be rethought)
-            buildSwitchPart(p)                               // save the current (fresh) workshop, load p's stashed one
+        let anySet = (0..<rows).contains { base + $0 < 8 && buildPerformPart[base + $0] >= 0 }
+        if !anySet {
+            buildDeployBand(base: base, rows: rows); buildAddPart(); buildValveOutput(promote: true)
+        } else if buildBandIsWhole(base: base, rows: rows), buildPerformPart[base] >= 0, buildPerformPart[base] < buildParts.count {
+            let p = buildPerformPart[base]
+            buildSwitchPart(p)
             for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = -1; buildPerformStagingRow[base + i] = -1 }
             buildParts[p].deployed = false
-            // OUTPUT (Paul 2026-08-14): the play grid CONTINUES for every still-deployed part; the demoted part plays
-            // from the PART grid (alongside). Chain audition off — output is now piece + this part.
-            if ddSolo { ddSolo = false; au?.clearColourSolo() }
-            buildStagingPlaying = true                       // the demoted part sounds from the part grid
-            buildPerformPlaying = buildPerformPart.contains { $0 >= 0 }   // the play grid keeps going iff other parts remain deployed
-            buildPublishScene()
-        } else {                                             // EMPTY → FLATTEN + christen, then STASH + clear the bench
-            buildDeployBand(base: base, rows: rows)          // deploy the current part (copy rows) + christen
-            buildAddPart()                                   // stash the workshop behind the band + open a fresh part
-            // OUTPUT + FOCUS (Paul 2026-08-14/15): the PLAY GRID starts on assignment and carries the output; FOCUS
-            // moves to the fresh PART grid (empty → silent, so the output is the play grid) — NOT the chain. Chain off.
-            if ddSolo { ddSolo = false; au?.clearColourSolo() }
-            buildStagingPlaying = true
-            buildPerformPlaying = true
-            buildPublishScene()
+            buildValveOutput(promote: false)
+        }
+        // else PER-RUNG → inert
+    }
+    // RIGHT per-rung valve (Paul 2026-08-15) — a SINGLE rung of a multi-row band, stored as a sub-part "PART na/nb/nc".
+    // EMPTY rung → flatten the current part onto it (single-row flatten · stash · clear · fresh part). SET rung → restore
+    // JUST that sub-part to the part grid (one at a time; the other rungs stay deployed). Inert on a WHOLE-band band.
+    func buildRowValve(row R: Int) {
+        guard R >= 0, R < 8, !buildRowInWholeBand(R) else { return }
+        let p = buildPerformPart[R]
+        if p >= 0, p < buildParts.count {                    // SET → restore this rung's sub-part
+            buildSwitchPart(p)
+            for c in 0..<8 { buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []; buildPerformMute.remove(c * 8 + R) }
+            buildPerformPart[R] = -1; buildPerformStagingRow[R] = -1
+            buildParts[p].deployed = false
+            buildValveOutput(promote: false)
+        } else {                                             // EMPTY rung → deploy the current part to this single rung
+            buildDeployCurrentPart(toRow: R); buildAddPart(); buildValveOutput(promote: true)
         }
     }
 
@@ -669,7 +704,17 @@ extension DiagView {
         buildPublishScene()
     }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
-    private func buildPartName(_ i: Int) -> String { i < buildParts.count && buildParts[i].deployed ? "PART \(i + 1)" : "UNASSIGNED PART" }
+    // A deployed part is named for WHERE it lives: a WHOLE band → "PART n" (n = band number); a single rung of a
+    // multi-row band → "PART na/nb/nc" (letter = the rung). Unassigned → "UNASSIGNED PART". (Paul 2026-08-15)
+    private func buildPartName(_ i: Int) -> String {
+        guard i >= 0, i < buildParts.count, buildParts[i].deployed else { return "UNASSIGNED PART" }
+        let rows = (0..<8).filter { buildPerformPart[$0] == i }
+        guard let first = rows.first, let (base, bandRows) = buildBandRange(forRow: first) else { return "PART \(i + 1)" }
+        let n = buildBandNumber(base: base)
+        if rows.count >= bandRows { return "PART \(n)" }                          // whole band (incl. a single-row lane)
+        let letters = ["a", "b", "c", "d"], rung = first - base
+        return "PART \(n)\(rung < letters.count ? letters[rung] : "")"           // a single rung of a multi-row band
+    }
 
     @ViewBuilder private func buildPartHeader() -> some View {
         HStack(spacing: 6) {
@@ -1179,13 +1224,17 @@ extension DiagView {
             Color.clear.frame(width: cell, height: cell)   // align past the loop-key row (now full cell height)
             ForEach(0..<5, id: \.self) { r in                            // rows 1–5 only
                 let bandIndex = r < 3 ? 0 : 1                             // rows 0–2 = band 1 · rows 3–4 = band 2
+                let base = bandIndex == 0 ? 0 : 3
+                let whole = buildRowInWholeBand(r)                        // this band is a WHOLE-band part → the rung valve is inert (restore via LEFT)
+                let set = buildPerformPart[r] >= 0 && !whole             // this rung holds its own sub-part
                 let mine = buildPerformPart[r] == buildCurrentPart
-                RoundedRectangle(cornerRadius: 7).fill(buildHues[bandIndex % buildHues.count].opacity(0.4))   // §4: wears its BAND's hue (matches the cell wash + left rail)
+                let letter = ["a", "b", "c"][min(r - base, 2)]           // the rung letter (a/b/c)
+                RoundedRectangle(cornerRadius: 7).fill(buildHues[bandIndex % buildHues.count].opacity(whole ? 0.15 : (set ? 0.7 : 0.4)))
                     .frame(width: cell, height: cell)
-                    .overlay(Text("\(bandIndex + 1)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(mine ? 0.95 : 0.45)))
-                    .overlay(alignment: .trailing) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: current part's rows get the bright-ink bracket
+                    .overlay(Text(whole ? "" : (set ? letter : "+")).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(whole ? 0.2 : (set ? (mine ? 0.95 : 0.6) : 0.4))))   // SET → the rung letter · EMPTY → + · WHOLE band → inert
+                    .overlay(alignment: .trailing) { if set && mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: current part's rung gets the bright-ink bracket
                     .contentShape(Rectangle())
-                    .onTapGesture { buildDeployCurrentPart(toRow: r) }   // §1: assign the current part to THIS row → deploy + christen
+                    .onTapGesture { buildRowValve(row: r) }   // RIGHT per-rung valve: deploy this rung / restore its sub-part (one at a time)
             }
         }
     }
