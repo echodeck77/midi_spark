@@ -86,9 +86,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// no explicit chain is edited (so an untouched cell keeps rendering as its Colour's A face until then).
     private func materializedChain(_ cell: Cell) -> [ProcessorSlot] {
         if let p = cell.processors { return p }                                // per-cell override — incl. an explicit EMPTY chain (passthrough)
-        let c = document.colours.first { $0.colourID == cell.colourID }
-        if let t = c?.templateChain, !t.isEmpty { return t }                   // colour TEMPLATE (3-tier — matches the builder)
-        return [ProcessorSlot(type: c?.type ?? .passgate, params: c?.paramsA ?? ColourParams())]   // legacy A face
+        return colourTemplateChain(cell.colourID)                              // else the colour TEMPLATE → legacy A face (3-tier, matches the builder)
     }
     /// The pointed cell's TWIN positions (config-equal cells, incl. itself), as encoded indices — for the grid's
     /// advertise-PULSE set (twins only advertise now; editing is the manual selection set below).
@@ -150,9 +148,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
         return colourTemplateChain(colourID)
     }
-    func withChainColour(_ colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
-        var chain = resolvedColourChain(colourID)
-        mutate(&chain)
+    /// Store a colour's chain on its template (empty → a bypassed-passgate passthrough) + drop every matching cell's
+    /// per-cell override so all inherit the template — ONE editDocument = one undo record. (shared, 2026-08-15)
+    private func storeColourChainClearingOverrides(_ colourID: String, _ chain: [ProcessorSlot]) {
         let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
         editDocument { doc in
             if let ci = doc.colours.firstIndex(where: { $0.colourID == colourID }) { doc.colours[ci].templateChain = stored }
@@ -165,21 +163,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             }
         }
     }
+    func withChainColour(_ colourID: String, _ mutate: (inout [ProcessorSlot]) -> Void) {
+        var chain = resolvedColourChain(colourID)
+        mutate(&chain)
+        storeColourChainClearingOverrides(colourID, chain)
+    }
     /// Set a colour's chain to EXACTLY `chain` (empty → a bypassed-passgate passthrough) + clear every cell's override.
     /// The UI computes `chain` from what's DISPLAYED (cellChain(editingCell)), so an edit never operates on a stale
     /// representative cell → deleting the first of two slots leaves the other, not a passgate. (user 2026-08-10 bug.)
     func setColourChain(_ colourID: String, _ chain: [ProcessorSlot]) {
-        let stored: [ProcessorSlot] = chain.isEmpty ? [passthroughTemplateSlot()] : chain
-        editDocument { doc in
-            if let ci = doc.colours.firstIndex(where: { $0.colourID == colourID }) { doc.colours[ci].templateChain = stored }
-            for si in doc.scenes.indices {
-                for c in doc.scenes[si].cells.indices {
-                    for r in doc.scenes[si].cells[c].indices where doc.scenes[si].cells[c][r]?.colourID == colourID {
-                        doc.scenes[si].cells[c][r]?.processors = nil
-                    }
-                }
-            }
-        }
+        storeColourChainClearingOverrides(colourID, chain)
     }
     /// Set the per-cell chain of `targets` to EXACTLY `chain` (empty allowed = explicit passthrough). PROCESSORS tab.
     func setCellsChain(_ targets: [(col: Int, row: Int)], _ chain: [ProcessorSlot]) {

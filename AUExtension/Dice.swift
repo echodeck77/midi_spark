@@ -37,11 +37,9 @@ struct DiceRNG: RandomNumberGenerator {
 }
 
 enum Dice {
-    // Note-affecting processor types only. MOD/GLIDE emit CC/pitch-bend, not notes → the note-signature can't see them,
-    // so they'd always read as "non-contributing"; excluded from the pool.
-    // PASSGATE is excluded — open = no-op (never contributes), closed = silence (kills the chain); both degenerate.
-    static let types: [ProcessorType] = [.arp, .ratchet, .strum, .chance, .harmonize,
-                                         .echo, .euclid, .burst, .cascade, .drone, .shift, .humanize]
+    // Note-affecting processor types only (the rationale for every pool below). MOD/GLIDE emit CC/pitch-bend, not notes
+    // → the note-signature can't see them, so they'd always read as "non-contributing"; excluded. PASSGATE is excluded
+    // too — open = no-op (never contributes), closed = silence (kills the chain); both degenerate.
     // WEIGHTED pick (user 2026-08-10): lean HARD into the rhythmic / swelling processors (arp · ratchet · euclid ·
     // burst · cascade · drone), and pull HARMONIZE right down — its fixed intervals drift out of key and there's no
     // scale-correction yet (raise it once a KEY-LOCK processor lands). Weights = repeats in the pool.
@@ -57,7 +55,6 @@ enum Dice {
     // the source chord, non-driver HOLDS after it fold onto each tick, echo is a TAIL. So compose to a plan —
     // [slow shapers] · DRIVER · [post-fold holds] · [echo] — rather than a flat random stack. Upstream rhythm runs
     // SLOWER than the driver (a moving root under a faster figure — Paul's slow→fast insight).
-    static let driverSet: Set<ProcessorType> = [.arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize]
     static let driverTypes: [ProcessorType] =                       // the rhythm engine (fast)
         Array(repeating: .arp, count: 3) + Array(repeating: .ratchet, count: 3) + Array(repeating: .euclid, count: 3) +
         Array(repeating: .burst, count: 2) + Array(repeating: .cascade, count: 2) + Array(repeating: .strum, count: 1) + [.drone]
@@ -224,13 +221,7 @@ enum Dice {
         }
         // TOP-UP: if the plan came up short, append any all-contributing + capped slot (weighted pool) to reach ≥4.
         var budget = 24
-        while chain.count < 4 && budget > 0 {
-            budget -= 1
-            let trial = chain + [randomSlot(using: &rng)]
-            let (tsig, tpeak) = evalRun(trial)
-            guard tsig != sig, !tsig.isEmpty, tpeak <= maxConcurrency else { continue }
-            if allContribute(trial) { chain = trial; sig = tsig }
-        }
+        while chain.count < 4 && budget > 0 { budget -= 1; _ = tryAdd(randomSlot(using: &rng)) }   // same gate as the role fills
         return chain
     }
     static func rollChain(target: Int, using rng: inout some RandomNumberGenerator) -> [ProcessorSlot] {

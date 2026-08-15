@@ -6,7 +6,7 @@
 //  through MidiSparkAudioUnit.editScene/editDocument → scheduleRebuild. Tokens per docs/ui-port-guide.md.
 
 import SwiftUI
-import UIKit   // ColumnHoldOverlay: multi-touch column-key holds (§5b) need a UIView, not a SwiftUI gesture
+import UIKit   // for UIColor (the old multi-touch ColumnHoldOverlay UIView that needed this is gone)
 
 // §4c INVISIBLE = FROZEN: set true at the root when the plugin view is hidden/backgrounded; every animated
 // TimelineView ORs it into its `paused:`, so the whole canvas freezes (the render engine is untouched). One

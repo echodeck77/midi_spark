@@ -4,43 +4,7 @@ import SwiftUI
 /// (button bank) that sit under the grid. Compact, self-contained (their own live drag state); they drive the macro
 /// values through the AU param tree, so they stay in sync with the MACROS tab + host automation.
 
-/// One macro rotary — a 270° gauge; a vertical drag turns it (up = more), relative to the value at drag start.
-struct GridMacroRotary: View {
-    let index: Int
-    let value: Double
-    let onSet: (Int, Double) -> Void
-
-    @State private var v: Double = 0
-    @State private var dragBase: Double? = nil
-    @GestureState private var dragging = false
-    private let hue = Color(red: 0.15, green: 0.88, blue: 0.94)
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                Circle().trim(from: 0, to: 0.75)
-                    .stroke(Color.white.opacity(0.14), style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(135))
-                Circle().trim(from: 0, to: 0.75 * v)
-                    .stroke(hue.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(135))
-                Capsule().fill(hue).frame(width: 2, height: 11).offset(y: -7).rotationEffect(.degrees(-135 + 270 * v))
-            }
-            .frame(width: 34, height: 34)
-            Text("M\(index + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-        }
-        .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 0).updating($dragging) { _, s, _ in s = true }
-            .onChanged { g in
-                if dragBase == nil { dragBase = v }
-                let nv = max(0, min(1, (dragBase ?? v) - Double(g.translation.height) / 140))
-                v = nv; onSet(index, nv)
-            }
-            .onEnded { _ in dragBase = nil })
-        .onAppear { v = value }
-        .onChange(of: value) { nv in if !dragging { v = nv } }
-    }
-}
-
-/// One macro slider — a compact VERTICAL fader (absolute: the touch position sets the value, drag to trim). Replaces
+/// One macro slider — a compact VERTICAL fader (absolute: the touch position sets the value, drag to trim). Replaced
 /// the grid-band rotary (user 2026-08-05); drives the macro value through the AU param tree like the MACROS-tab bank.
 struct GridMacroSlider: View {
     let index: Int

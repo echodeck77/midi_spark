@@ -1,5 +1,5 @@
 //  TestSessions.swift
-//  Canned documents for on-device verification (docs/test-procedures.md T1–T8).
+//  Canned documents for on-device verification (docs/test-procedures.md T1–T17).
 //
 //  There is no grid UI until step 5, so the router cannot be exercised without these.
 //  Each session is a complete PluginState loaded through the NORMAL document path
@@ -30,7 +30,7 @@ enum TestSessions {
     // MARK: - Fixtures
 
     /// 16 ARP Colours, all at documented defaults: UP, 1/16, 1 octave, gate 0.6, RETRIG,
-    /// morph 0, transpose 0, OUT CH INHERIT. Sessions override only what they are testing.
+    /// morph 0, transpose 0. Sessions override only what they are testing.
     private static func baseColours() -> [Colour] {
         colourIDs.map { Colour(colourID: $0, type: .arp) }
     }
@@ -54,7 +54,7 @@ enum TestSessions {
         return d
     }
 
-    // MARK: - T1–T8
+    // MARK: - T1–T17
 
     static let all: [Session] = [
 
