@@ -157,6 +157,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE BUILD PAGE — workshop-voice: quantized palette selection · stop-per-section · CHAIN-VIA-SCENE (2026-08-15,
+  on `main`, PUSHED; iOS builds; DEVICE ear owed). Three device-driven asks on how the SHOP sections play. **QUANTIZED
+  PALETTE SELECTION** (`990cba1`): choosing a different colour while the chain audition plays swaps the AUDIO on the
+  next cell boundary (`buildPendingReengage`, committed from `d.absoluteStep`), the DISPLAY (target/footer) still
+  updates at once. **STOP PER SECTION** (`5ba2af2`): the two shop headers (PLAY THIS MIDI CHAIN · PLAY THIS PART) are
+  now play/stop TOGGLES — press a playing section to STOP it — so BOTH can be off (was a strict radio, one always on).
+  New 3-state `BuildWorkshopVoice { none, chain, part }`: `buildWorkshopVoice` reads the live flags, `buildDisplayVoice`
+  = pending ?? live (immediate highlight), `buildRequestWorkshopVoice` toggles quantized-while-playing, `buildStopWorkshop`
+  clears ddSolo + buildStagingPlaying (the PIECE/play grid is independent, keeps sounding). Replaced `buildPendingVoiceStaging`
+  (Bool?)/`buildDisplayStaging`/`buildRequestMachine|StagingVoice`. **CHAIN VIA THE SCENE** (`e62d72a`): Paul — 'hear the
+  MIDI chain RAW, without the part grid's column rules; same mechanism as the part grid behind the scenes, with the
+  previewed cell selected the whole time — a 1-row play grid playing the preview.' The chain audition no longer owns the
+  render via an isolating solo; `buildPublishScene` injects the selected colour across a full EMPTY row (every column
+  active → raw machine on every column, none of the part's per-column selection) of the SAME ephemeral scene the
+  part/piece use — so it sounds ALONGSIDE the play grid (FIXES the play-grid-silent-while-chain-runs bug) and coexists
+  with part + piece. `ddSolo` stays the 'chain is the voice' flag; `buildSelectMachineVoice`/`buildToggleBus`/`buildSelectID`/
+  the reengage commit all re-publish instead of `ddEngageSolo`; `buildPublishScene` also `clearColourSolo()`s defensively
+  so no stray AU solo freezes the sweep. Injected cell reads `buildColourChain` ([] = born-audible passthrough → never the
+  legacy A-face arp). Graphically identical to before. Edge: all 8 rows occupied by part/piece → chain has no free row
+  (rare). The AU solo (setColourSolo/Preview) is now BUILD-unused (still serves the PROCESSORS page's PLAY: THIS CELL).**
 - **▶ REMOVING THE 16-COLOUR CAP — colours are now unlimited + ephemeral (2026-08-14/15, on `main`, PUSHED; stage 1
   test-verified macOS 604 green, stage 2 iOS-built + DEVICE-VERIFIED by Paul). Paul: "lots of ephemeral colours…
   a colour lives if it's on any of the three grids." **STAGE 1 (`128c186`) — engine:** `SnapshotBuilder` sizes its
