@@ -537,11 +537,21 @@ extension DiagView {
         if let first = buildPartCast.first { buildSelectID(first) } else { buildSelID = nil; ddColourSel = -1 }
     }
     private func buildSwitchPart(_ i: Int) { guard i != buildCurrentPart else { return }; buildSavePart(); buildLoadPart(i) }
+    // A part is UNUSED when nothing distinguishes it from a just-created one: un-deployed, default cast, empty staging.
+    private func buildPartIsUnused(_ p: BuildPart) -> Bool {
+        !p.deployed && p.cast == buildDefaultCastIDs() && p.stagingCells.allSatisfy { $0.allSatisfy { $0 == nil } }
+    }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O; its palette opens on the 8 DEFAULTS (Paul 2026-08-14).
+    // REUSE an existing unused part instead of appending, so flatten→restore stops accumulating stray "UNASSIGNED PART"
+    // entries. Reuse touches only an empty, un-deployed slot, so no deployed part's stored index shifts. (Paul 2026-08-15)
     private func buildAddPart() {
         buildSavePart()
-        var p = BuildPart(); p.cast = buildDefaultCastIDs()
-        buildParts.append(p); buildLoadPart(buildParts.count - 1)
+        var fresh = BuildPart(); fresh.cast = buildDefaultCastIDs()
+        if let reuse = buildParts.indices.first(where: { $0 != buildCurrentPart && buildPartIsUnused(buildParts[$0]) }) {
+            buildParts[reuse] = fresh; buildLoadPart(reuse)
+        } else {
+            buildParts.append(fresh); buildLoadPart(buildParts.count - 1)
+        }
     }
     // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
     // sits), and a column with NOTHING selected is left BLANK. Carries the part's I/O. Does NOT set deployed/claim/publish
