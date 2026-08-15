@@ -232,7 +232,9 @@ extension DiagView {
         if buses.isEmpty { buses = [bus] }                        // never leave the PART with no output
         buildPartEmitters = buses
         ddStickyBuses = buses                                     // the machine audition preview reads this
-        buildStagingSyncIfPlaying()                               // the part's emitters apply to every staging cell, live
+        // The PART owns the output — apply it LIVE to whatever's sounding (Paul 2026-08-15): the MIDI-chain audition
+        // re-engages with the new emitters, the part/piece scene re-publishes. Both stamp buildPartEmitters on every cell.
+        if ddSolo { ddEngageSolo() } else { buildStagingSyncIfPlaying() }
     }
 
     // PLAY THIS MACHINE ⟷ PLAY THE STAGING GRID are a RADIO — the ONE workshop voice, DEFAULTING to the MACHINE
