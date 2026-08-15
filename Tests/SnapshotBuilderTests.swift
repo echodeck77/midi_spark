@@ -239,6 +239,20 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(hi.euclidSteps, 16, "euclidSteps max is 16")
     }
 
+    // The 16-colour cap is lifted: the builder sizes its colour array to the document and resolves cells BY ID, so a
+    // colour appended beyond the canonical 16 (a BUILD ephemeral colour) renders instead of being skipped. (2026-08-15)
+    func testBuilderResolvesColourBeyondTheSixteen() {
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        var extra = Colour(colourID: "b1", type: .arp)
+        extra.templateChain = [ProcessorSlot(type: .harmonize)]   // a distinctive machine on the 17th colour
+        cs.append(extra)                                          // index 16 — beyond the fixed 16
+        let b = box(cs) { s in s.cells[3][2] = Cell(colourID: "b1") }
+        XCTAssertEqual(b.colours.count, 17, "the colour array sizes to the document, not a fixed 16")
+        let cell = b.cells[3 * Snap.rows + 2]
+        XCTAssertEqual(Int(cell.colourIndex), 16, "the appended colour resolves BY ID to index 16")
+        XCTAssertEqual(cell.procs.first?.type, .harmonize, "its templateChain is applied — the cell is NOT skipped")
+    }
+
     // MOD STEPS ingest: a <8-element pattern fills cyclically with a per-element 0…127 clamp; an EMPTY pattern is
     // guarded (keeps the default staircase). (coverage 2026-08-15)
     func testResolveModStepsWrapsClampsAndGuards() {

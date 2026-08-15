@@ -229,6 +229,25 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // STRUM under a HELD column (PLAY THIS MIDI CHAIN) must RE-ARM each step — not fire its stagger ONCE then fall
+    // silent. strumProgress reset only on a column transition, which never comes under forceColumnHold, so the default
+    // STRUM colour was silent on the machine audition; the fix re-arms it each musical step. (Paul 2026-08-15)
+    func testForceColumnReArmsStrumEachStep() {
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .strum; cs[colourIDs.firstIndex(of: "gold")!].paramsA.spread = 0.1
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 64, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        while beat < 16.0 {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let root = e.ons.filter { $0.cable == 1 && $0.note == 60 }
+        XCTAssertGreaterThan(root.count, 1, "the strum RE-STRUMS each step under a frozen column (one-shot before the fix)")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     // CHANCE → CONSTANT-DENSITY (user 2026-08-11): keep ~a constant NUMBER of notes regardless of chord size — a small
     // chord keeps MORE than fixed-% (p rises to the target), a big chord keeps FEWER (thinned to the target).
     func testChanceConstantDensityHoldsCountVsFixedPercent() {
