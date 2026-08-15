@@ -511,22 +511,25 @@ extension DiagView {
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
     // every part's cast. Each carries a single-processor machine at that type's default settings.
     static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .echo, .strum, .chance, .harmonize, .drone]
-    func buildDefaultCastIDs() -> [String] { Array(colourIDs.prefix(min(Self.buildDefaultTypes.count, colourIDs.count))) }
-    // Define global colours 0–7 as the default machines (once). Idempotent — safe to re-run; re-stamps the machine.
-    func buildSeedDefaultColours() {
-        for (i, t) in Self.buildDefaultTypes.enumerated() where i < colourIDs.count {
-            if !ddColourShown(i) { ddCreateColour(i) }                     // make the global colour exist
-            au?.withChainColour(colourIDs[i]) { $0 = [ProcessorSlot(type: t)] }   // its default single-processor machine
+    // Mint a FRESH set of 8 default colours for a PART — its OWN ephemeral copies (unique IDs, canonical hues), so a
+    // colour is NEVER shared between parts. Editing one part's default doesn't touch another's. (Paul 2026-08-15)
+    func buildFreshDefaultCast() -> [String] {
+        var ids: [String] = []
+        for (i, t) in Self.buildDefaultTypes.enumerated() {
+            buildIDCounter += 1
+            let id = "b\(buildIDCounter)"
+            buildColourReg[id] = [ProcessorSlot(type: t)]
+            colourHueOverride[id] = i < colourHexes.count ? colourHexes[i] : 0x808080
+            ids.append(id)
         }
-        refreshFromDocument()
+        buildSyncColours()
+        return ids
     }
-    // Seed the 8 default colours + open part 1's palette on them, ONCE. Every NEW part also opens on the defaults
-    // (see buildAddPart) so the starter palette is always there. §2 cast view.
+    // Seed part 1's palette with ITS OWN fresh defaults, ONCE. Every NEW part gets its own too (see buildAddPart). §2.
     func buildSeedCastIfNeeded() {
         guard !buildCastSeeded else { return }
         buildCastSeeded = true
-        buildSeedDefaultColours()
-        buildPartCast = buildDefaultCastIDs()
+        buildPartCast = buildFreshDefaultCast()
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].cast = buildPartCast }
         buildEnsureCastSelection()
     }
@@ -544,9 +547,11 @@ extension DiagView {
         buildSwitchPart(p)                                   // clears buildReturnPart …
         buildReturnPart = returning                          // … then records the bench to come back to
     }
-    // A part is UNUSED when nothing distinguishes it from a just-created one: un-deployed, default cast, empty staging.
+    // A part is UNUSED when nothing distinguishes it from a just-created one: un-deployed, empty staging, and its cast
+    // is exactly its 8 pristine per-part defaults (no edits/adds). (Paul 2026-08-15 — per-part colours)
     private func buildPartIsUnused(_ p: BuildPart) -> Bool {
-        !p.deployed && p.cast == buildDefaultCastIDs() && p.stagingCells.allSatisfy { $0.allSatisfy { $0 == nil } }
+        guard !p.deployed, p.stagingCells.allSatisfy({ $0.allSatisfy { $0 == nil } }), p.cast.count == Self.buildDefaultTypes.count else { return false }
+        return zip(p.cast, Self.buildDefaultTypes).allSatisfy { id, t in buildColourReg[id] == [ProcessorSlot(type: t)] }
     }
     // §3: a NEW part arrives FRESH — empty staging, unset I/O; its palette opens on the 8 DEFAULTS (Paul 2026-08-14).
     // REUSE an existing unused part instead of appending, so flatten→restore stops accumulating stray "UNASSIGNED PART"
@@ -559,10 +564,10 @@ extension DiagView {
             buildReturnPart = nil; buildLoadPart(ret); return
         }
         buildReturnPart = nil
-        var fresh = BuildPart(); fresh.cast = buildDefaultCastIDs()
         if let reuse = buildParts.indices.first(where: { $0 != buildCurrentPart && buildPartIsUnused(buildParts[$0]) }) {
-            buildParts[reuse] = fresh; buildLoadPart(reuse)
+            buildLoadPart(reuse)   // pristine already — keep its OWN per-part defaults, just switch to it
         } else {
+            var fresh = BuildPart(); fresh.cast = buildFreshDefaultCast()   // a new part → its own fresh defaults
             buildParts.append(fresh); buildLoadPart(buildParts.count - 1)
         }
     }
