@@ -124,7 +124,10 @@ struct DiagView: View {
     @State var buildStagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
-    @State var buildPendingVoiceStaging: Bool? = nil   // an armed CHAIN⟷PART voice switch, applied on the next cell boundary (nil = none)
+    // BUILD workshop voice = which of the two SHOP sections sounds: the MIDI CHAIN audition, the PART grid, or NEITHER.
+    // Each header toggles its own section (play ⇄ stop), so BOTH can be stopped (Paul 2026-08-15). The two never sound
+    // together (picking one stops the other) — the PIECE (play grid) is independent of this.
+    @State var buildPendingWorkshopVoice: BuildWorkshopVoice? = nil   // an armed voice switch, applied on the next cell boundary (nil = none)
     @State var buildPendingReengage: Bool = false      // a palette colour change made while the chain audition plays — re-engage on the next cell boundary (seamless)
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var buildSelID: String? = nil      // BUILD: the selected colour BY ID (supports ephemeral colours beyond the 16); nil = none

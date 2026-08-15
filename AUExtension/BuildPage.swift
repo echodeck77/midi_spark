@@ -1,5 +1,9 @@
 import SwiftUI
 
+// The ONE workshop voice: which SHOP section sounds — the MIDI CHAIN audition, the PART grid, or NEITHER. Each header
+// toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
+enum BuildWorkshopVoice { case none, chain, part }
+
 // THE BUILD PAGE — design: Docs/AcceptanceCriteria/AcceptanceCriteria-build-page-two-grid-flow.md +
 // -build-page-iteration-3.md + -build-page-iteration-4.md + Docs/mockup-build-three-grids-landscape.html
 // (user 2026-08-11). The new PRIMARY workshop and default landing tab. Destined to REPLACE the DRAG&DROP + PROCESSORS
@@ -137,7 +141,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: !buildDisplayStaging, fill: .cell, action: { buildRequestMachineVoice() }))   // header responds immediately (display); MIDI switch quantized
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; header responds immediately, MIDI switch quantized
             AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
             AnyView(buildInputSection(castW: castW))
             Spacer(minLength: 0)
@@ -262,32 +266,50 @@ extension DiagView {
         buildPublishScene()
     }
 
-    // The header buttons REQUEST a workshop-voice switch; while the transport runs, the switch is QUANTIZED to the next
-    // cell boundary (buildCommitPendingVoice, fired from the VC's absoluteStep hook) so it lands on the grid, not mid-cell.
-    // Stopped, or re-selecting the same voice → immediate. (Paul 2026-08-14)
-    func buildRequestMachineVoice() { buildRequestVoice(staging: false) }
-    func buildRequestStagingVoice() { buildRequestVoice(staging: true) }
-    private func buildRequestVoice(staging: Bool) {
-        if d.playing && staging != buildStagingPlaying {
-            buildPendingVoiceStaging = staging                   // arm — applied at the next cell boundary
+    // The LIVE workshop voice, read off the section flags (PART wins if somehow both are set — it shouldn't happen).
+    var buildWorkshopVoice: BuildWorkshopVoice {
+        if buildStagingPlaying { return .part }
+        if ddSolo { return .chain }
+        return .none
+    }
+    // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADERS read this so
+    // they highlight the new state IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
+    var buildDisplayVoice: BuildWorkshopVoice { buildPendingWorkshopVoice ?? buildWorkshopVoice }
+
+    // A header TOGGLES its section: play it if stopped, STOP it if playing (Paul 2026-08-15). Both sections can be off.
+    // While the transport runs the switch is QUANTIZED to the next cell boundary (buildCommitPendingVoice, fired from the
+    // VC's absoluteStep hook) so it lands on the grid, not mid-cell. Stopped, or re-requesting the live voice → immediate.
+    func buildRequestWorkshopVoice(_ target: BuildWorkshopVoice) {
+        if d.playing && target != buildWorkshopVoice {
+            buildPendingWorkshopVoice = target                   // arm — applied at the next cell boundary
         } else {
-            buildPendingVoiceStaging = nil
-            staging ? buildSelectStagingVoice() : buildSelectMachineVoice()
+            buildPendingWorkshopVoice = nil
+            buildApplyWorkshopVoice(target)
         }
+    }
+    private func buildApplyWorkshopVoice(_ v: BuildWorkshopVoice) {
+        switch v {
+        case .chain: buildSelectMachineVoice()
+        case .part:  buildSelectStagingVoice()
+        case .none:  buildStopWorkshop()
+        }
+    }
+    // Stop BOTH shop sections (the header's STOP action). The PIECE (play grid) is independent and keeps sounding.
+    private func buildStopWorkshop() {
+        if ddSolo { ddSolo = false; au?.clearColourSolo() }
+        buildStagingPlaying = false
+        buildPublishScene()
     }
     // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
     func buildCommitPendingVoice() {
-        if let s = buildPendingVoiceStaging {
-            buildPendingVoiceStaging = nil; buildPendingReengage = false
-            s ? buildSelectStagingVoice() : buildSelectMachineVoice()
+        if let v = buildPendingWorkshopVoice {
+            buildPendingWorkshopVoice = nil; buildPendingReengage = false
+            buildApplyWorkshopVoice(v)
         } else if buildPendingReengage {                 // a palette colour change → re-engage the chain audition on the boundary
             buildPendingReengage = false
             if ddSolo { ddEngageSolo() }
         }
     }
-    // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADER reads this so
-    // it highlights the new voice IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
-    var buildDisplayStaging: Bool { buildPendingVoiceStaging ?? buildStagingPlaying }
     // Population (Paul 2026-08-15): real deployed play-grid cells (preview doesn't count) · any stocked staging cell.
     var buildPerformPopulated: Bool { buildPerformCells.contains { $0.contains { $0 != nil } } }
     var buildStagingPopulated: Bool { buildStagingCells.contains { $0.contains { $0 != nil } } }
@@ -1015,7 +1037,7 @@ extension DiagView {
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayStaging, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestStagingVoice() }))   // enabled once EITHER grid has content
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
             buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))
