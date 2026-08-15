@@ -195,8 +195,10 @@ final class FuzzTests: XCTestCase {
         var boundsBad: String?
         var last: [Int: UInt8] = [:]
         for ev in out.events {
-            // NOTE on/off OR CC (0xB0 — the panic's CC120/CC123 blast, valid MIDI). All 3 data bytes stay in range.
-            if !(ev.status == 0x80 || ev.status == 0x90 || ev.status == 0xB0) { boundsBad = boundsBad ?? "status \(ev.status)" }
+            // NOTE on/off · CC (0xB0 — panic CC120/123 + the MOD generator) · PITCH BEND (0xE0 — GLIDE). All valid MIDI;
+            // data bytes stay in range. (Before 2026-08-15 the fuzz used non-canonical colour IDs the builder skipped,
+            // so it emitted nothing — the id-based builder lookup made it real, surfacing glide's legitimate 0xE0.)
+            if !(ev.status == 0x80 || ev.status == 0x90 || ev.status == 0xB0 || ev.status == 0xE0) { boundsBad = boundsBad ?? "status \(ev.status)" }
             if ev.note > 127 { boundsBad = boundsBad ?? "note \(ev.note)" }
             if ev.vel > 127 { boundsBad = boundsBad ?? "vel \(ev.vel)" }
             if ev.cable > 4 { boundsBad = boundsBad ?? "cable \(ev.cable)" }

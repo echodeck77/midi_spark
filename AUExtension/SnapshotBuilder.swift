@@ -12,13 +12,18 @@ enum SnapshotBuilder {
 
         // ---- colours: resolve each Colour's single (A) param bag + its ON assignments (the A/B morph layer was
         //      removed — SnapColour no longer carries b/tier/morph; paramsB/typeB stay decode-only legacy keys). ----
-        var colours = [SnapColour](repeating: SnapColour(), count: Snap.colours)
-        for (i, colour) in doc.colours.prefix(Snap.colours).enumerated() {
+        // The colour array sizes to the DOCUMENT (≥16), so BUILD's ephemeral colours appended by renderDoc() render
+        // too — the 16-slot cap is lifted. Cells look up their colour BY ID here (not the fixed global colourIDs), so
+        // any appended colour resolves. Behaviour-identical for a plain 16-colour document. (Paul 2026-08-15)
+        var colours = [SnapColour](repeating: SnapColour(), count: max(Snap.colours, doc.colours.count))
+        var colourIndexByID: [String: Int] = [:]
+        for (i, colour) in doc.colours.enumerated() {
             var sc = SnapColour()
             sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // the active type's transpose
             sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)   // morph removed: the one param bag (A)
             colours[i] = sc
+            colourIndexByID[colour.colourID] = i
         }
 
         // ---- cells ----
@@ -43,7 +48,7 @@ enum SnapshotBuilder {
             for r in 0..<Snap.rows {
                 guard c < scene.cells.count, r < scene.cells[c].count,
                       let cell = scene.cells[c][r],
-                      let colourIndex = colourIDs.firstIndex(of: cell.colourID) else { continue }
+                      let colourIndex = colourIDs.firstIndex(of: cell.colourID) ?? colourIndexByID[cell.colourID] else { continue }
                 var sc = SnapCell()
                 sc.colourIndex = Int8(colourIndex)
                 sc.alt = cell.alt
