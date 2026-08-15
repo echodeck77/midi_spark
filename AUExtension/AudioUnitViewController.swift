@@ -114,6 +114,7 @@ struct DiagView: View {
     @State var buildPerformEmit: [Set<Bus>] = Array(repeating: [.a], count: 8)  // per perform-ROW emitters
     @State var buildPerformPlaying: Bool = false                                // the PIECE is the active voice
     @State var buildPerformPart: [Int] = Array(repeating: -1, count: 8)         // which PART index sits in each perform row (§2 brightness: the current part's band lights bright)
+    @State var buildPerformMute: Set<Int> = []                                  // play grid: per-cell MUTE (key c*8+r) — single-rung parts only, drops a step from the mix (Paul 2026-08-15)
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildGridPopup: Int? = nil        // BUILD grid eye → a full-screen grid pop-up (0 = staging, 1 = perform; nil = closed)
     // BUILD staging grid — an EPHEMERAL workshop store ([col][row] → colourID; nil = blank). Not the real scene; the

@@ -298,7 +298,7 @@ extension DiagView {
         var s = SceneState.empty()
         if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
             for c in 0..<8 { for r in 0..<8 {
-                guard let cid = buildPerformCells[c][r] else { continue }
+                guard let cid = buildPerformCells[c][r], !buildPerformMute.contains(c * 8 + r) else { continue }   // MUTED cell → dropped from the mix
                 var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
                 cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
                 cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
@@ -588,7 +588,7 @@ extension DiagView {
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart < buildParts.count else { return }
         buildParts[buildCurrentPart].deployed = true
-        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = buildCurrentPart }   // clear the band + claim it for this part (§2)
+        for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = buildCurrentPart }   // clear the band (+ its mutes) + claim it (§2)
         if rows <= 1 {
             buildCopySelectedRow(toRow: base)                    // a lane: the selected melody, blank where unselected
         } else {
@@ -617,7 +617,7 @@ extension DiagView {
         let setPart = (0..<rows).compactMap { i -> Int? in let R = base + i; return R < 8 && buildPerformPart[R] >= 0 ? buildPerformPart[R] : nil }.first
         if let p = setPart, p < buildParts.count {           // SET → RESTORE (the part comes home to be rethought)
             buildSwitchPart(p)                               // save the current (fresh) workshop, load p's stashed one
-            for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = [] }; buildPerformPart[base + i] = -1 }
+            for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = -1 }
             buildParts[p].deployed = false
             // OUTPUT (Paul 2026-08-14): the play grid CONTINUES for every still-deployed part; the demoted part plays
             // from the PART grid (alongside). Chain audition off — output is now piece + this part.
@@ -641,6 +641,14 @@ extension DiagView {
     // starting/stopping it never touches the chain/part; the stage plays until the user stops it.
     private func buildTogglePerformVoice() {
         buildPerformPlaying.toggle()
+        buildPublishScene()
+    }
+    // How many play-grid rows a deployed part occupies (1 = single-rung lane · >1 = multi-rung ladder).
+    private func buildPerformPartRows(_ part: Int) -> Int { part < 0 ? 0 : (0..<8).filter { buildPerformPart[$0] == part }.count }
+    // MUTE a single-rung part's cell (dropped from the mix) — toggled on the play grid, reflected live.
+    private func buildTogglePerformMute(_ c: Int, _ r: Int) {
+        let k = c * 8 + r
+        if buildPerformMute.contains(k) { buildPerformMute.remove(k) } else { buildPerformMute.insert(k) }
         buildPublishScene()
     }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }
@@ -1283,6 +1291,8 @@ extension DiagView {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildPerformCells[c][r]
                                 let ghost = id == nil ? preview[c][r] : nil   // preview only where no cell is deployed
+                                let muted = buildPerformMute.contains(c * 8 + r)
+                                let mutable = id != nil && buildPerformPart[r] >= 0 && buildPerformPartRows(buildPerformPart[r]) == 1   // SINGLE-RUNG part → per-cell mute (multi-rung: no mute)
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // TRUE colour · else the empty recess (preview shows as an outline, not a fill)
                                     .frame(width: cell, height: cell)
@@ -1290,6 +1300,9 @@ extension DiagView {
                                     .overlay { if let g = ghost, let gc = colourColor(g) {   // THE PREVIEW = a THICK, DIMMED OUTLINE in the colour (not a fill)
                                         RoundedRectangle(cornerRadius: 7).strokeBorder(gc.opacity(0.45), lineWidth: 3) } }
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
+                                    .opacity(muted ? 0.3 : 1)   // MUTED cell dims — dropped from the mix (Paul 2026-08-15)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { if mutable { buildTogglePerformMute(c, r) } }
                             }
                         }
                     }
