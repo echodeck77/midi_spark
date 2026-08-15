@@ -125,6 +125,7 @@ struct DiagView: View {
     // BUILD one-workshop-voice: PLAY THE STAGING GRID is active (mutually exclusive with PLAY THIS MACHINE / ddSolo).
     @State var buildStagingPlaying = false
     @State var buildPendingVoiceStaging: Bool? = nil   // an armed CHAIN⟷PART voice switch, applied on the next cell boundary (nil = none)
+    @State var buildPendingReengage: Bool = false      // a palette colour change made while the chain audition plays — re-engage on the next cell boundary (seamless)
     @State var ddColourSel: Int = -1          // DRAG&DROP page: the selected palette colour index (−1 = none)
     @State var buildSelID: String? = nil      // BUILD: the selected colour BY ID (supports ephemeral colours beyond the 16); nil = none
     @State var buildColourReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral colours' machines (id → chain), beyond the 16 document slots

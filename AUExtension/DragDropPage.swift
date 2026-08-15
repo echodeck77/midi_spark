@@ -51,13 +51,13 @@ extension DiagView {
     /// THE PER-COLOUR MODEL (user 2026-08-09): a colour IS a machine — selecting one scopes the edit to EVERY cell of
     /// that colour, so every machinery edit (add/remove/params/split) applies colour-wide. The anchor cell just drives
     /// what the flow diagram DISPLAYS. `editPointedCell`/`editChop`/`{add,edit,remove}SlotCells` all fan out to `sel`.
-    func ddScopeToColour(_ id: String, anchor: (Int, Int)?) {   // internal: shared with BUILD's buildSelectID
+    func ddScopeToColour(_ id: String, anchor: (Int, Int)?, engage: Bool = true) {   // internal: shared with BUILD's buildSelectID
         let cells = ddColourCells(id)
         sel.reset(); for p in cells { sel.add(p) }
         if let a = anchor { selCol = a.0; selRow = a.1 }
         else if let first = cells.first { selCol = first.col; selRow = first.row }
         else { selCol = -1; selRow = -1 }
-        if ddSolo { ddEngageSolo() }   // PLAY: THIS CELL follows the selection
+        if engage && ddSolo { ddEngageSolo() }   // PLAY: THIS CELL follows the selection (BUILD defers this to the cell boundary)
         ddCaptureStickyRouting()   // remember the last-chosen receiver + emitters (the default for the next fresh cell)
     }
     /// STICKY ROUTING (user 2026-08-10): a fresh cell inherits the LAST receiver + emitters chosen on the page (else

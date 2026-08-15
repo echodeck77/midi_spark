@@ -277,9 +277,13 @@ extension DiagView {
     }
     // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
     func buildCommitPendingVoice() {
-        guard let s = buildPendingVoiceStaging else { return }
-        buildPendingVoiceStaging = nil
-        s ? buildSelectStagingVoice() : buildSelectMachineVoice()
+        if let s = buildPendingVoiceStaging {
+            buildPendingVoiceStaging = nil; buildPendingReengage = false
+            s ? buildSelectStagingVoice() : buildSelectMachineVoice()
+        } else if buildPendingReengage {                 // a palette colour change → re-engage the chain audition on the boundary
+            buildPendingReengage = false
+            if ddSolo { ddEngageSolo() }
+        }
     }
     // The DISPLAYED workshop voice: the armed target if a switch is pending, else the live one. The HEADER reads this so
     // it highlights the new voice IMMEDIATELY on tap, while the MIDI still switches quantized at the boundary. (Paul 2026-08-15)
@@ -352,11 +356,16 @@ extension DiagView {
     }
     // Select a colour BY ID (document or ephemeral) — the ID-based BUILD selection.
     private func buildSelectID(_ id: String) {
-        buildSelID = id
+        buildSelID = id                                          // the DISPLAY selection updates immediately (target, footer, highlight)
         ddColourSel = colourIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
         ddStickyBuses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-        ddScopeToColour(id, anchor: nil)
+        if ddSolo && d.playing {
+            ddScopeToColour(id, anchor: nil, engage: false)      // playing the chain → SEAMLESS: re-engage the audition on the next cell boundary
+            buildPendingReengage = true
+        } else {
+            ddScopeToColour(id, anchor: nil)                     // stopped / not auditioning → immediate
+        }
     }
     private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
     // The base hue of a colour (its override if any, else its palette hex).
