@@ -159,6 +159,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SPLIT PROCESSOR LANDED — the LAST outstanding processor (2026-08-16, on `main`, PUSHED; `877227c`; iOS builds,
+  macOS 663 green). The 19th ProcessorType (`AcceptanceCriteria-split-processor.md`): a set-membership filter (keep a
+  subset — ALL/TOP n/BOTTOM n/RANGE + a per-note VEL window). Chain position = two musics: [SPLIT→ARP] RE-POOL (the
+  driver walks the subset) · [ARP→SPLIT] PUNCH HOLES (non-subset visits become rests). Reuses the input-side
+  `ChordSplit`/`VelWindow`/`chordSplitWindow` as a movable chain stage. Hooks: applyStage .split (upstream re-pool);
+  emitColumnHolds (standalone/hold, filter per-rank+vel); downstream punch-holes = the row loop resolves the keep-
+  window as NOTE BOUNDS from the driver's pool (into `splitGate*` instance vars) and `emitDriverNote` gates each driven
+  note — avoids threading through all 5 driver emitters. v1: downstream ranking uses the cell's held pool (exact for
+  [driver→SPLIT] at slot 0). **ALL outstanding processors now built** — the session's roster: TUTTI · LENGTH · WEAVE
+  (both phases) · SPLIT. Next processor work would be net-new specs (or WEAVE's deferred TAPE/DUR-BY-INTERVAL chips).**
 - **▶ WEAVE PHASE 2 LANDED — DRAWN + EUCLID + slower BASE + phase (2026-08-16, on `main`, PUSHED; `b615f3a`; iOS
   builds, macOS 659 green). Completes WEAVE. Added: DRAWN (an authored rate per rank — 8-slot paint grid) · EUCLID
   (rank r fills 2r+1 of M pulses → interlocking euclidean ensemble, bass sparse/top dense). BASE moved ArpRate→StepRate

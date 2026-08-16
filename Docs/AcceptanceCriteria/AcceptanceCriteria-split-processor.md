@@ -1,5 +1,8 @@
 # SPEC → Code — THE SPLIT (chain processor): set-membership semantics
 # (2026-08-05 — answers Paul's behind-the-arp question)
+# ✅ BUILT (2026-08-16, `877227c`): both placements ([SPLIT→ARP] re-pool · [ARP→SPLIT] punch-holes) + standalone/hold,
+# all modes (ALL/TOP/BOTTOM/RANGE) + the VEL window. Reuses the input-side ChordSplit/VelWindow. v1: downstream ranks
+# against the cell's held pool (exact for [driver→SPLIT] at slot 0; an approximation for upstream-composed chains).
 _The returning chord-split/velocity-window, as a chain stage. The
 law that makes it coherent at any chain position:_
 
