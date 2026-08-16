@@ -1,6 +1,8 @@
 # AcceptanceCriteria — RTC (RATCHET) gains the MODE radio (ferry-captured 2026-08-16)
 
-**STATUS: CAPTURED, NOT BUILT.** From `SPEC-rtc-mode-radio.md` (design-side Claude, Paul 2026-08-16: "ratchet
+**STATUS: ✅ BUILT (2026-08-16, `71f3b50`).** ALL·COIN·PATTERN all shipped (COIN seeded chance + count range; PATTERN
+8-slice per-slice counts + RATE + ROTATE). The "TODAY answer" manual line remains a manual note (unbuilt, by design).
+From `SPEC-rtc-mode-radio.md` (design-side Claude, Paul 2026-08-16: "ratchet
 sporadically on arp hits — regular and random"). The TUTTI MODE-radio precedent replicating to its first sibling.
 Subordinate to Paul's direct word (direct instructions supersede ferry content).
 

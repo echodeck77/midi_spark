@@ -159,6 +159,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RATCHET MODE RADIO LANDED (ferry, 2026-08-16, on `main`, PUSHED; `71f3b50`; iOS builds, macOS 740 green). RTC gets
+  TUTTI's MODE radio (`AcceptanceCriteria-rtc-mode-radio.md`): ALL (today, default/migration-invisible) · COIN (seeded
+  per-step chance to ratchet-or-plain + a COUNT LO–HI range; CHANCE is a foldable MacroParam) · PATTERN (8-slice
+  per-slice counts · = plain/2/3/4 = roll, RATE + ROTATE). Engine: emitRatchetRow branches — ALL keeps iterateTicks,
+  COIN/PATTERN window-scan per column via a shared `ratchetStrikeAt` helper; pure `rtcCoinRatchets`/`rtcCoinCount`.
+  Answered Paul's "sporadic ratchet — regular and random." OPEN idea from Paul (not built, wants a design pass): a
+  conditional ROUTER (passgate-style OUT/THROUGH/MUTE keyed by lap/column/scene — tractable, SPLIT-sized; + external
+  triggers/cross-cell activation — bigger, control-in + routing-graph territory).**
 - **▶ INDEPENDENT-ORACLE ACCEPTANCE TESTS for ALL 19 processors LANDED (2026-08-16, on `main`, PUSHED; `4f5954d`; macOS
   737 green). Per Paul: expected output computed FROM THE CONCEPT (spec + music theory), written WITHOUT reading the
   engine, checked against the REAL Router over a representative+boundary matrix (74 cases). Harness `Tests/AcceptanceTests.swift`
