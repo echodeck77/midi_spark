@@ -320,6 +320,7 @@ extension DiagView {
     // sounds ALONGSIDE the play grid instead of owning the render via a solo.
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
+        if laneMask != 0 { setLane(0) }                          // BUILD has NO column loop yet (its loop keys are a placeholder) — a stale PERFORM/EDIT lap would lock the audition to one column (Paul 2026-08-16). Never lap the workshop.
         guard buildStagingPlaying || buildPerformPlaying || ddSolo else { au?.setBuildStagingScene(nil); return }
         var s = SceneState.empty()
         if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
@@ -1225,7 +1226,7 @@ extension DiagView {
     @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
-                let held = c == 1 || c == 2                        // placeholder: these columns are in the replay set
+                let held = (laneMask & (1 << UInt8(c))) != 0       // reflect the REAL lap set (BUILD keeps it 0 — the keys aren't wired to set it yet)
                 RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.22 : 0.11))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
