@@ -1,15 +1,3 @@
-# [CAPTURED FROM FERRY 2026-08-16 · reconciliation note below]
-# STATUS AGAINST AS-BUILT (Paul's direct instructions this week SUPERSEDE where they conflict — his standing warning):
-#  • §8 ROWS-ONLY LAW — BUILT (2026-08-16): the part grid's EDIT mode was retired; a cell tap is a rung PICK, never
-#    placement; a colour is placed as a ROW via the row buttons. Matches §8 as written.
-#  • §4 / §6 VERBS ("PLACE/MOVE/DELETE as wired stands") — SUPERSEDED: the part grid's verb box is now a SELECT · PLACE ·
-#    MUTATE row-mode radio (SELECT selects the row's rung · PLACE stamps the selected colour · MUTATE mints a
-#    value-tweaked variant, velocity+gate-fingerprinted, unique hue, pulses as a create-me candidate). PLACE/MOVE/DELETE
-#    and EDIT view are gone from the part grid. The design side should reconcile this ferry's verb ruling.
-#  • §5 TARGET SYSTEM — RATIFIED, NOT YET BUILT (a future task): reticle ◎ on the selected cell + ○ on every instance,
-#    ink-drawn/lens-proof, count on the ID chip.
-#  • §§1–4 layout / §7 CONTROL-IN — dropped / future, no action.
-#
 # INSTRUCTIONS → Code — BUILD PAGE ITERATION 6 (Paul, 2026-08-13)
 # The restructure, ruled. Supersedes: the footer chain placement
 # (+ its §5 tombstone — in-column was the unconsidered third
@@ -129,3 +117,21 @@ DELETE. The workbench becomes direct manipulation.
 - Verb ripple: on staging, DELETE at row-grain (the row button's
   clear state covers it); PLACE/MOVE lose their staging cell-scope
   (Paul's earlier drop instinct, now confirmed by the law).
+
+## §9 — RECONCILIATION (2026-08-16): §4/§6's verb roster SUPERSEDED
+## by Paul's direct instruction to Code (device outranks; absorbed)
+- **EDIT mode is RETIRED on the part grid.** PLACE/MOVE/DELETE and
+  the EDIT view are gone from staging.
+- **The verb box = a ROW-MODE RADIO: SELECT · PLACE · MUTATE** —
+  it changes what the LEFT ROW BUTTONS do: SELECT = whole-row
+  rung-pick across columns · PLACE = stamp the selected colour
+  across the row (target icon in the colour) · **MUTATE = MINT a
+  value-only variant colour** (≤3 nudged params, fingerprint incl.
+  velocity+gate, distinct from source AND every row, unique hue,
+  pulses in the palette as a create-me candidate).
+- §8's rows-only law stands as built ✓. Vocabulary care, flagged
+  once: the row-mode MUTATE **mints**; the dice-family mutate
+  **walks in place** — the manual must split them (or the row mode
+  renames to VARY/MINT if confusion bites on glass). Paul's call.
+- Also absorbed: **the unassigned part SAVES with the document**
+  (option A; per-scene deferred with scenes v2).
