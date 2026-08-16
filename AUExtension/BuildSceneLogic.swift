@@ -87,11 +87,11 @@ enum BuildSceneLogic {
     /// it to the topmost stocked cell. Only a POSITIVE pick at a now-empty/out-of-range cell falls back (to the
     /// topmost stocked cell, or −1 if the column is empty).
     // MUTATE (Paul 2026-08-16): a VALUE-only variation of a processor chain — same STRUCTURE, up to 3 nudged params
-    // (biased to one, biased to continuous), GUARANTEED to be NOT silent and to sound different from EVERY signature in
-    // `avoid` (the source AND every other row already on the grid — else subsequent hits converge to the same variant).
-    // As the loop struggles it escalates: more params tweaked + more discrete flips, to reach further into the space.
-    // Returns the tweaked chain + its Dice eval (sig + peak, reused for complexity); nil if no distinct+audible variant.
-    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R) -> (chain: [ProcessorSlot], run: (sig: [Int], peak: Int))? {
+    // (biased to one, biased to continuous), GUARANTEED to be NOT silent and to have a Dice FINGERPRINT unlike every one
+    // in `avoid` (the source AND every other row already on the grid — else subsequent hits converge). The fingerprint
+    // includes VELOCITY + GATE, so a subtle value tweak counts as distinct (not just note-pattern changes). As the loop
+    // struggles it escalates (more params, more discrete flips) to reach further. nil if no distinct+audible variant.
+    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R) -> [ProcessorSlot]? {
         var all: [(slot: Int, param: MacroControlParam)] = []
         for (i, slot) in base.enumerated() where !slot.bypassed {
             for p in macroParamsForProcessor(slot.type) { all.append((i, p)) }
@@ -110,8 +110,8 @@ enum BuildSceneLogic {
                 vals[tw.param.key] = mutateNudge(tw.param, vals[tw.param.key], &rng)
                 chain[tw.slot] = applyProcessorValues(vals, to: chain[tw.slot])
             }
-            let run = Dice.evalRun(chain)
-            if !run.sig.isEmpty && !avoid.contains(run.sig) { return (chain, run) }   // NOT silent + unlike everything already present
+            let fp = Dice.fingerprint(chain)
+            if !fp.isEmpty && !avoid.contains(fp) { return chain }   // NOT silent + unlike everything already present
         }
         return nil
     }

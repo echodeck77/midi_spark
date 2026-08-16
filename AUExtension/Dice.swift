@@ -5,14 +5,17 @@ import Foundation
 // OFFLINE through the real Router against a held chord and comparing the emitted notes. Foundation-only (no audio):
 // reuses the same Router / SnapshotBuilder the live engine uses. Seedable for tests; the app rolls with the system RNG.
 
-/// Records note ON/OFF events for offline chain evaluation — the output "signature" AND peak concurrent-voice count.
+/// Records note ON/OFF events for offline chain evaluation — the output "signature" (note+onset), the richer
+/// "fingerprint" (note+onset+velocity+gate), AND peak concurrent-voice count. ONs carry velocity; OFFs are kept
+/// (with note) so a gate change — which moves the OFF — is visible without fragile on/off pairing.
 final class DiceRecorder: MIDIEmitter {
-    private(set) var ons: [(note: UInt8, cable: UInt8, sample: Int64)] = []
+    private(set) var ons: [(note: UInt8, cable: UInt8, sample: Int64, vel: UInt8)] = []
+    private(set) var offs: [(note: UInt8, cable: UInt8, sample: Int64)] = []
     private(set) var events: [(on: Bool, cable: UInt8, sample: Int64)] = []   // for peak concurrency (density cap)
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         let st = b0 & 0xF0
-        if st == 0x90 && b2 > 0 { ons.append((b1, cable, sampleTime)); events.append((true, cable, sampleTime)) }
-        else if st == 0x80 || (st == 0x90 && b2 == 0) { events.append((false, cable, sampleTime)) }
+        if st == 0x90 && b2 > 0 { ons.append((b1, cable, sampleTime, b2)); events.append((true, cable, sampleTime)) }
+        else if st == 0x80 || (st == 0x90 && b2 == 0) { offs.append((b1, cable, sampleTime)); events.append((false, cable, sampleTime)) }
     }
     /// Peak simultaneous SOUNDING voices on emitter A (cable 1) — off-before-on at a tie so a restrike doesn't spike.
     var peakConcurrency: Int {
@@ -115,10 +118,13 @@ enum Dice {
     /// 2026-08-10: "70 voices from two rows"). The spec's "density-capped" bound. Dev-tunable.
     static let maxConcurrency = 12
 
-    /// One offline run of `chain` against a held chord (playhead frozen on the cell's column): returns the OUTPUT
-    /// SIGNATURE (emitter-A note-ons: note + onset bucket) AND the PEAK concurrent voices. Deterministic (the engine
-    /// derives everything from the beat), so two chains with the same signature are audibly identical here.
-    static func evalRun(_ chain: [ProcessorSlot]) -> (sig: [Int], peak: Int) {
+    static let evalTempo = 120.0, evalSR = 48_000.0            // the fixed probe conditions (see runRecorder)
+    static var evalPerBucket: Double { evalSR * 60.0 / evalTempo / 16.0 }   // samples per 1/16 beat
+
+    /// The shared OFFLINE PROBE: install `chain` as a single cell's machine, hold C-E-G at vel 100, freeze the playhead
+    /// on the column, run the REAL Router for 3 beats, and return the recorder. It's the actual engine's output for the
+    /// chain against a STANDARD input (so two chains compare on equal footing), not a capture of live playing.
+    static func runRecorder(_ chain: [ProcessorSlot]) -> DiceRecorder {
         var st = PluginState(colours: [Colour(colourID: "gold", type: .passgate)], scenes: [SceneState.empty()])
         st.colours[0].templateChain = chain.isEmpty
             ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
@@ -130,20 +136,43 @@ enum Dice {
         let box = SnapshotBuilder.build(from: st)
         let router = Router(); var diag = KernelDiag(); let e = DiceRecorder()
         let pool = NotePool(); for n: UInt8 in [60, 64, 67] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 4096   // big windows → few process calls (speed: this runs 100s of times per roll)
-        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
-        let perBucket = sr * 60.0 / tempo / 16.0
+        let frames: UInt32 = 4096   // big windows → few process calls (speed: this runs 100s of times per roll)
+        let wb = Double(frames) * evalTempo / 60.0 / evalSR; var beat = 0.0, ts = 0.0
         while beat < 3.0 {
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: evalTempo, sampleRate: evalSR,
                            timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += wb; ts += Double(frames)
         }
+        return e
+    }
+
+    /// The OUTPUT SIGNATURE (emitter-A note-ons: note + onset bucket) + peak concurrent voices. Note+onset only — two
+    /// chains with the same signature share a note PATTERN (used by the roll's all-contributing pruning + complexity).
+    static func evalRun(_ chain: [ProcessorSlot]) -> (sig: [Int], peak: Int) {
+        let e = runRecorder(chain)
         let sig = e.ons.filter { $0.cable == 1 }
-            .map { Int($0.note) * 100_000 + Int((Double($0.sample) / perBucket).rounded()) }
+            .map { Int($0.note) * 100_000 + Int((Double($0.sample) / evalPerBucket).rounded()) }
             .sorted()
         return (sig, e.peakConcurrency)
     }
     static func signature(_ chain: [ProcessorSlot]) -> [Int] { evalRun(chain).sig }
+
+    /// A RICHER fingerprint (Paul 2026-08-16): note + onset + VELOCITY + GATE, so value-only tweaks (a softer strike, a
+    /// shorter note) register as distinct — not just note-pattern changes. ONs carry note/onset/velocity; OFFs carry
+    /// note/off-time, so a gate change (which moves the OFF) shifts the off-tuple with no fragile on/off pairing.
+    static func fingerprint(_ chain: [ProcessorSlot]) -> [Int] {
+        let e = runRecorder(chain), pb = evalPerBucket
+        var out: [Int] = []
+        for on in e.ons where on.cable == 1 {
+            let onset = Int((Double(on.sample) / pb).rounded()), velB = min(7, Int(on.vel) / 16)   // 8 velocity levels
+            out.append(((Int(on.note) * 200 + onset) * 8 + velB) * 4 + 1)   // tag 1 = ON (note · onset · velocity)
+        }
+        for off in e.offs where off.cable == 1 {
+            let ob = Int((Double(off.sample) / pb).rounded())
+            out.append((Int(off.note) * 200 + ob) * 4 + 2)                  // tag 2 = OFF (its time encodes the gate)
+        }
+        return out.sorted()
+    }
 
     /// True iff bypassing slot `k` changes the output (i.e. the slot CONTRIBUTES). `sigFull` may be supplied to save a run.
     static func contributes(_ chain: [ProcessorSlot], slot k: Int, sigFull: [Int]? = nil) -> Bool {

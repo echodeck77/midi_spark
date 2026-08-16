@@ -41,30 +41,39 @@ final class BuildSceneLogicTests: XCTestCase {
 
     func testMutateProducesADistinctAudibleValueVariant() {
         let base = [ProcessorSlot(type: .arp)]          // an arp has params whose nudge shifts the output
-        let baseSig = Dice.signature(base)
+        let baseFP = Dice.fingerprint(base)
         var rng = DiceRNG(seed: 7)
-        guard let (mutated, run) = BuildSceneLogic.mutateChain(base, avoid: [baseSig], &rng) else {
+        guard let mutated = BuildSceneLogic.mutateChain(base, avoid: [baseFP], &rng) else {
             return XCTFail("mutate should find a distinct, audible variant of an arp")
         }
-        XCTAssertFalse(run.sig.isEmpty, "the variant is NOT silent")
-        XCTAssertNotEqual(run.sig, baseSig, "the variant sounds DIFFERENT from the source")
+        let fp = Dice.fingerprint(mutated)
+        XCTAssertFalse(fp.isEmpty, "the variant is NOT silent")
+        XCTAssertNotEqual(fp, baseFP, "the variant sounds DIFFERENT from the source")
         XCTAssertEqual(mutated.map(\.type), base.map(\.type), "value-only: the processor types are unchanged")
     }
 
-    // Subsequent MUTATE hits must not converge: a variant is rejected if it matches ANY avoided signature (the source
-    // plus every row already placed). Two mutations avoiding each other's output produce different signatures.
+    // Subsequent MUTATE hits must not converge: a variant is rejected if its fingerprint matches ANY avoided one (the
+    // source plus every row already placed). Two mutations avoiding each other's output produce different fingerprints.
     func testMutateAvoidsAlreadyPresentSignatures() {
         let base = [ProcessorSlot(type: .arp)]
         var rng = DiceRNG(seed: 3)
-        guard let first = BuildSceneLogic.mutateChain(base, avoid: [Dice.signature(base)], &rng) else { return XCTFail("first mutate failed") }
-        guard let second = BuildSceneLogic.mutateChain(base, avoid: [Dice.signature(base), first.run.sig], &rng) else { return XCTFail("second mutate failed") }
-        XCTAssertNotEqual(second.run.sig, first.run.sig, "the second hit avoids the first's output — no repeat")
-        XCTAssertFalse(second.run.sig.isEmpty)
+        guard let first = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) else { return XCTFail("first mutate failed") }
+        let firstFP = Dice.fingerprint(first)
+        guard let second = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base), firstFP], &rng) else { return XCTFail("second mutate failed") }
+        XCTAssertNotEqual(Dice.fingerprint(second), firstFP, "the second hit avoids the first's output — no repeat")
     }
 
     func testMutateReturnsNilForAnEmptyChain() {
         var rng = DiceRNG(seed: 1)
         XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng), "no slots → nothing to tweak")
+    }
+
+    // The richer fingerprint captures GATE (note duration) where the note+onset signature is blind to it.
+    func testFingerprintCapturesGateWhereSignatureIsBlind() {
+        var longGate = ProcessorSlot(type: .arp); longGate.params.gate = 0.9
+        var shortGate = ProcessorSlot(type: .arp); shortGate.params.gate = 0.25
+        XCTAssertEqual(Dice.signature([longGate]), Dice.signature([shortGate]), "note+onset signature ignores gate")
+        XCTAssertNotEqual(Dice.fingerprint([longGate]), Dice.fingerprint([shortGate]), "the fingerprint sees the shorter note (its OFF moves)")
     }
 
     // MARK: composeScene

@@ -1215,14 +1215,14 @@ extension DiagView {
     private func buildMutateRow(_ row: Int) {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         let base = buildColourChain(cid)
-        let baseRun = Dice.evalRun(base)                         // signature + complexity, computed ONCE
-        var avoid = [baseRun.sig]                                // don't reproduce the SOURCE …
+        let srcC = buildComplexity(base)                        // note-frequency + concurrency (for the lighter/darker tint)
+        var avoid = [Dice.fingerprint(base)]                    // don't reproduce the SOURCE (velocity+gate aware) …
         for r in 0..<8 where r != row {                         // … or ANY other row already on the grid (else repeats)
-            if let rid = buildRowColour(r) { avoid.append(Dice.signature(buildColourChain(rid))) }
+            if let rid = buildRowColour(r) { avoid.append(Dice.fingerprint(buildColourChain(rid))) }
         }
         var rng = SystemRandomNumberGenerator()
-        guard let (mutated, mutRun) = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { return }   // no distinct+audible variant found
-        let srcC = baseRun.sig.count * 100 + baseRun.peak, newC = mutRun.sig.count * 100 + mutRun.peak   // = buildComplexity
+        guard let mutated = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { return }   // no distinct+audible variant found
+        let newC = buildComplexity(mutated)
         let hue = buildSimilarHue(of: cid, lighter: newC < srcC, srcC: srcC, newC: newC)
         let newID = buildNewColour(hex: hue, machine: mutated)   // a NEW colour (never already placed) → no relocation
         if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }   // remember what this row displaces
