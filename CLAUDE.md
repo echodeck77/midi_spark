@@ -159,6 +159,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ WEAVE PHASE 2 LANDED — DRAWN + EUCLID + slower BASE + phase (2026-08-16, on `main`, PUSHED; `b615f3a`; iOS
+  builds, macOS 659 green). Completes WEAVE. Added: DRAWN (an authored rate per rank — 8-slot paint grid) · EUCLID
+  (rank r fills 2r+1 of M pulses → interlocking euclidean ensemble, bass sparse/top dense). BASE moved ArpRate→StepRate
+  (`weaveBaseStep`, reaches 2 bars; old phase-1 presets default). PHASE = RETRIG (restart each step; off capped at the
+  boundary) · FREE (global grid) · LEGATO (flows from the run's first column, reuses runStartColumn); FREE/LEGATO ring
+  past the step. Engine: `emitWeaveRow` picks the clock by mode + the origin by phase; new `emitWeaveStrike` helper.
+  EUCLID stays a per-column cycle (phase ignored). Fuzz randomizes mode(4)/phase(3)/drawn/euclid — no stuck notes.
+  **Outstanding processors remaining: SPLIT (the last one).**
 - **▶ WEAVE PROCESSOR LANDED — LADDER+HARMONIC (phase 1; 2026-08-16, on `main`, PUSHED; `ff81a15`; iOS builds, macOS
   655 green). The 18th ProcessorType + the FIRST driver-class add since the generators
   (`AcceptanceCriteria-weave-driver.md`): a rank-clocked polyrhythm DRIVER — each held note ticks on its own

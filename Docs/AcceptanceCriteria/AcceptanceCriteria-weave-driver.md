@@ -1,8 +1,8 @@
 # Acceptance Criteria — WEAVE (working name): the rank-clocked polyrhythm driver
 
-> ✅ BUILT — phase 1 (2026-08-16, `ff81a15`): the DRIVER + LADDER + HARMONIC modes, BASE/SPAN/GATE, chain-driver
-> fold. **DRAWN + EUCLID modes are phase 2** (the per-rank rate widget + per-rank euclidean — the WeaveMode enum has
-> room). The two chips (TAPE, DUR-BY-INTERVAL) and FREE/LEGATO phase remain deferred. v1: RETRIG only; audition sustains.
+> ✅ BUILT — all four modes (phase 1 `ff81a15` LADDER+HARMONIC; phase 2 `b615f3a` DRAWN + EUCLID + slower BASE
+> (StepRate, to 2 bars) + PHASE RETRIG/FREE/LEGATO). BASE·SPAN·GATE, chain-driver fold. Still deferred: the two chips
+> (TAPE, DUR-BY-INTERVAL); audition sustains rather than weaving + virtual-cell preview silent (the real render is complete).
 
 _Captured from the ferry `SPEC-weave-driver.md` (design-side Claude, Paul 2026-08-07, updated 2026-08-08 with the
 EUCLID mode §2). SPEC OF RECORD, NOT yet built. A new DRIVER-class processor (joins arp/ratchet/strum) — each held
