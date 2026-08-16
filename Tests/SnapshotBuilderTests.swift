@@ -253,6 +253,22 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(cell.procs.first?.type, .harmonize, "its templateChain is applied — the cell is NOT skipped")
     }
 
+    // A cell resolves its colour by the DOCUMENT-order index, NOT the canonical colourIDs position. With the colours
+    // held OUT of canonical order, the old `colourIDs.firstIndex ?? …` lookup read the wrong SnapColour (a silent
+    // wrong-machine bug latent behind any reorder). (Paul 2026-08-16)
+    func testColourResolvesByDocumentOrderNotCanonicalPosition() {
+        // Move "cyan" to document slot 0 (a real permutation — SWAP, so no duplicate colourID) and give it a distinct
+        // machine. The old `colourIDs.firstIndex ?? …` lookup would read cyan's CANONICAL slot (wrong SnapColour).
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        let cyanIdx = colourIDs.firstIndex(of: "cyan")!             // cyan's canonical position
+        cs.swapAt(0, cyanIdx)                                        // cyan → document slot 0; gold → cyan's old slot
+        cs[0].templateChain = [ProcessorSlot(type: .harmonize)]     // cyan (now at slot 0) gets a distinctive machine
+        let b = box(cs) { s in s.cells[0][0] = Cell(colourID: "cyan") }
+        let cell = b.cells[0]
+        XCTAssertEqual(Int(cell.colourIndex), 0, "the 'cyan' cell resolves to document slot 0, where cyan now lives")
+        XCTAssertEqual(cell.procs.first?.type, .harmonize, "it reads cyan's machine by document order, not the canonical-index colour")
+    }
+
     // MOD STEPS ingest: a <8-element pattern fills cyclically with a per-element 0…127 clamp; an EMPTY pattern is
     // guarded (keeps the default staircase). (coverage 2026-08-15)
     func testResolveModStepsWrapsClampsAndGuards() {

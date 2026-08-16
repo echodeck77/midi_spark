@@ -56,7 +56,10 @@ final class FuzzTests: XCTestCase {
                                       .euclid, .burst, .cascade, .drone, .shift, .humanize,   // the generators — hammered for no-stuck-notes across every edge
                                       .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
                                       .glide]   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
-        let ids = (0..<6).map { "c\($0)" }
+        // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
+        // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
+        // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
+        let ids = (0..<40).map { "c\($0)" }
         let colours = ids.map { Colour(colourID: $0, type: types[r.int(types.count)]) }
         var scene = SceneState.empty()
         let occupied = r.range(1, 40)
@@ -410,6 +413,8 @@ final class FuzzTests: XCTestCase {
             let s = "pinned \(what) seed 0x\(String(seed, radix: 16))"
             XCTAssertNil(res.boundsBad, s); XCTAssertEqual(res.soundingKeys, 0, s); XCTAssertTrue(res.quiescent, s)
         }
+        // NOTE: all three lists are empty, so this test is an intentional green no-op until a fuzz/chaos failure
+        // commissions a seed here. Don't mistake its passing for "the pinned seeds are exercised". (Paul 2026-08-16)
         let pinnedFuzz: [UInt32] = []            // (none yet)
         let pinnedTransport: [UInt32] = []       // (none yet)
         let pinnedSwap: [UInt32] = []            // (none yet)

@@ -318,49 +318,30 @@ extension DiagView {
     // staging/perform cell takes its PART-owned I/O + the colour's machine (or a staged variation chain). Paul 2026-08-15:
     // the MIDI CHAIN now ALSO rides this scene (a 1-row grid, every column active → raw, no part-grid column rules), so it
     // sounds ALONGSIDE the play grid instead of owning the render via a solo.
+    // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
         if laneMask != 0 { setLane(0) }                          // BUILD has NO column loop yet (its loop keys are a placeholder) — a stale PERFORM/EDIT lap would lock the audition to one column (Paul 2026-08-16). Never lap the workshop.
-        guard buildStagingPlaying || buildPerformPlaying || ddSolo else { au?.setBuildStagingScene(nil); return }
-        var s = SceneState.empty()
-        if buildPerformPlaying {                                 // THE PIECE — every deployed cell (one row per part)
-            for c in 0..<8 { for r in 0..<8 {
-                guard let cid = buildPerformCells[c][r], !buildPerformMute.contains(c * 8 + r), buildPerformActiveRung(c, r) else { continue }   // MUTED / non-selected rung → silent
-                var cell = Cell(colourID: cid, buses: buildPerformEmit[r].isEmpty ? [.a] : buildPerformEmit[r])
-                cell.inputReceiver = max(0, min(3, buildPerformRecv[r]))
-                cell.processors = buildPerformChain[c][r].isEmpty ? nil : buildPerformChain[c][r]
-                s.setCell(c, r, cell)
-            } }
+        var input = BuildSceneLogic.Input()
+        input.stagingPlaying = buildStagingPlaying
+        input.performPlaying = buildPerformPlaying
+        input.chainActive = ddSolo
+        input.performCells = buildPerformCells
+        input.performMute = buildPerformMute
+        input.performActiveRung = { self.buildPerformActiveRung($0, $1) }
+        input.performEmit = buildPerformEmit
+        input.performRecv = buildPerformRecv
+        input.performChain = buildPerformChain
+        input.stagingCells = buildStagingCells
+        input.stagingSel = buildStagingSel
+        input.partEmitters = buildPartEmitters
+        input.selReceiver = buildSelReceiver
+        input.rowChain = buildRowChain
+        if ddSolo, let cid = ddSelectedColourID {
+            input.chainColourID = cid
+            input.chainMachine = buildColourChain(cid)
         }
-        if buildStagingPlaying {                                 // THE PART — the staging selection, ALONGSIDE the piece
-            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
-            let recv = max(0, min(3, buildSelReceiver))
-            for c in 0..<8 {
-                let r = c < buildStagingSel.count ? buildStagingSel[c] : -1
-                guard r >= 0, r < 8, let cid = buildStagingCells[c][r] else { continue }
-                var cell = Cell(colourID: cid, buses: buses)
-                cell.inputReceiver = recv
-                cell.processors = r < buildRowChain.count && !buildRowChain[r].isEmpty ? buildRowChain[r] : nil
-                s.setCell(c, r, cell)                            // the audition sits in front on a slot collision
-            }
-        }
-        if ddSolo, let cid = ddSelectedColourID {                // THE MIDI CHAIN — the selected colour, RAW: its machine
-            let buses = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters   // on a 1-row grid, every FREE column active
-            let recv = max(0, min(3, buildSelReceiver))          // (so it plays each column, with NONE of the part's column rules)
-            let mach = buildColourChain(cid)                     // audible slots only; [] = a born-audible passthrough (raw MIDI)
-            // Prefer a fully-empty row; if the piece fills every row, fall back to the LEAST-occupied one and fill only its
-            // free columns — the preview goes gappy where the piece already sits, but only in the all-8-rows-full case (rare).
-            let occ = (0..<8).map { r in (0..<8).filter { s.cellAt($0, r) != nil }.count }   // occupied cells per row
-            if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
-                for c in 0..<8 where s.cellAt(c, row) == nil {
-                    var cell = Cell(colourID: cid, buses: buses)
-                    cell.inputReceiver = recv
-                    cell.processors = mach                       // explicit chain (even []) — never the legacy A-face arp fallback
-                    s.setCell(c, row, cell)
-                }
-            }
-        }
-        au?.setBuildStagingScene(s)
+        au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
     }
 
     // A colour's OWN machine (templateChain), audible slots only.
@@ -436,6 +417,7 @@ extension DiagView {
         for (_, c) in buildPlacedOrig { if let c = c { live.insert(c) } }
         if let p = buildPulseColourID { live.insert(p) }
         if let s = buildSelID { live.insert(s) }
+        for p in buildParts { if let s = p.selID { live.insert(s) } }               // C3 (Paul 2026-08-16): a part's STORED selection keeps its colour alive — else GC frees it and buildLoadPart selects a dead id
         let dead = Set(buildColourReg.keys).union(colourHueOverride.keys).subtracting(live)
         guard !dead.isEmpty else { return }
         for id in dead { buildColourReg[id] = nil; colourHueOverride[id] = nil }   // free ephemeral + variation hues
@@ -500,12 +482,7 @@ extension DiagView {
     // Keep the per-column selection VALID: a selection pointing at an empty cell falls back to the topmost stocked cell
     // in that column (the gentle default), or −1 if the column is empty. An explicit valid selection is preserved.
     private func buildReconcileStagingSel() {
-        for c in 0..<8 {
-            let r = buildStagingSel[c]
-            if r < 0 || r >= 8 || buildStagingCells[c][r] == nil {
-                buildStagingSel[c] = (0..<8).first { buildStagingCells[c][$0] != nil } ?? -1
-            }
-        }
+        buildStagingSel = BuildSceneLogic.reconcileStagingSel(buildStagingSel, cells: buildStagingCells)   // C1: an explicit −1 deselect is preserved, not resurrected
     }
 
     // Push the current staging grid to the engine IF the staging voice is live (call after any staging-grid edit).
@@ -765,7 +742,9 @@ extension DiagView {
     private func buildTogglePerformRung(_ c: Int, _ r: Int) {
         let sr = buildPerformStagingRow[r]; let part = buildPerformPart[r]
         guard sr >= 0, part >= 0, part < buildParts.count, c < buildParts[part].stagingSel.count else { return }
-        buildParts[part].stagingSel[c] = (buildParts[part].stagingSel[c] == sr) ? -1 : sr
+        let newSel = (buildParts[part].stagingSel[c] == sr) ? -1 : sr
+        buildParts[part].stagingSel[c] = newSel
+        if part == buildCurrentPart, c < buildStagingSel.count { buildStagingSel[c] = newSel }   // C2 (Paul 2026-08-16): keep the LIVE copy in sync, else the next buildSavePart clobbers this rung toggle
         buildPublishScene()
     }
     private var buildCurrentDeployed: Bool { buildCurrentPart < buildParts.count && buildParts[buildCurrentPart].deployed }

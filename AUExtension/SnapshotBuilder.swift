@@ -48,7 +48,7 @@ enum SnapshotBuilder {
             for r in 0..<Snap.rows {
                 guard c < scene.cells.count, r < scene.cells[c].count,
                       let cell = scene.cells[c][r],
-                      let colourIndex = colourIDs.firstIndex(of: cell.colourID) ?? colourIndexByID[cell.colourID] else { continue }
+                      let colourIndex = colourIndexByID[cell.colourID] else { continue }   // resolve by the DOCUMENT-order index (correct-by-construction); the old canonical-first lookup read the wrong SnapColour if colours were ever reordered (Paul 2026-08-16)
                 var sc = SnapCell()
                 sc.colourIndex = Int8(colourIndex)
                 sc.alt = cell.alt
@@ -90,7 +90,7 @@ enum SnapshotBuilder {
                 sc.chopAltMask = busBitmask(chp.altDest)
                 sc.chopActive = chp.mainMask != 0xFF || chp.altMask != 0 || chp.muteMask != 0
                 // CELL MACHINE (grid-chaining retired): a cell is always MIDI-IN — resolvedParent stays −1.
-                // `cell.inputRow` is now inert decode-only legacy (kept for old-doc/preset compat).
+                // `cell.inputRow` is RENDER-inert (grid-chaining retired) but IDENTITY-LIVE — it still feeds SealKey; don't delete it.
                 // delta §9 item 11: a MIDI-IN cell's source filter comes from the RECEIVER it subscribes
                 // to (channel, or match-nothing if the receiver is muted); with no receivers (or a row
                 // ref) fall back to the legacy per-cell filter. resolvedReceiver drives the UI band later.

@@ -323,9 +323,10 @@ struct Cell: Codable, Equatable {
     var bypassed: Bool = false
     var muted: Bool = false
     // v3.0 (delta §1/§2): the cell's single input reference. nil = MIDI IN; else the referenced row
-    // in the same column (any row; cycles legal-and-silent). Optional → old docs (no key) decode as
-    // nil and are filled by migrateLegacyRoutingIfNeeded(); the render path uses SnapCell's Int
-    // sentinel, not this.
+    // in the same column. ⚠ RENDER-INERT but IDENTITY-LIVE: grid-chaining is retired so the render path
+    // ignores this (resolvedParent is always −1), BUT it still feeds the cell's SEAL/twin identity hash
+    // (Derivations.SealKey) and the flow diagram — do NOT delete it as "dead" or every seal hash changes.
+    // Optional → old docs decode as nil, filled by migrateLegacyRoutingIfNeeded(). (Paul 2026-08-16)
     var inputRow: Int? = nil
     // v3.0 (delta §7): input-channel filter for a MIDI-IN cell. 0 = OMNI (default); 1–16 = only notes
     // arriving on that channel. Applies at the source boundary only (referenced parents aren't filtered).
