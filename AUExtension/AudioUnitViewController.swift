@@ -1352,7 +1352,7 @@ struct DiagView: View {
         return VStack(spacing: GridGeometry.vGap) {
             Color.clear.frame(width: 40, height: cellHeight)          // align past the column-key row
             ForEach(0..<8, id: \.self) { r in
-                Image(systemName: chevron).font(.system(size: 20, weight: .heavy))
+                 Image(systemName: chevron).font(.system(size: 20, weight: .heavy))
                     .foregroundColor(hue)
                     .frame(width: 40, height: cellHeight)
                     .background(RoundedRectangle(cornerRadius: 5).fill(hue.opacity(0.1)))

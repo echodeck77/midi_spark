@@ -1826,13 +1826,44 @@ final class DerivationsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: 20), 0.03125, "a deep rank can't tick per-sample")
     }
     func testWeaveEngineBassSlowerThanTop() {   // through the REAL Router (the probe holds C-E-G ascending)
-        var w = ProcessorSlot(type: .weave); w.params.weaveMode = .ladder; w.params.weaveBase = .r1_4; w.params.weaveSpan = 4
+        var w = ProcessorSlot(type: .weave); w.params.weaveMode = .ladder; w.params.weaveBaseStep = .r1_4; w.params.weaveSpan = 4
         var byNote: [UInt8: Int] = [:]
         for o in Dice.runRecorder([w]).ons.filter({ $0.cable == 1 }) { byNote[o.note, default: 0] += 1 }
         let notes = byNote.keys.sorted()   // ascending pitch = ascending rank
         XCTAssertEqual(notes.count, 3, "all three held notes weave (got \(notes))")
         if notes.count == 3 {
             XCTAssertLessThan(byNote[notes[0]]!, byNote[notes[2]]!, "the bass (rank 0) ticks slower than the top (rank 2)")
+        }
+    }
+    private func weaveOnsByNote(_ w: ProcessorSlot) -> [UInt8: Int] {
+        var byNote: [UInt8: Int] = [:]
+        for o in Dice.runRecorder([w]).ons.filter({ $0.cable == 1 }) { byNote[o.note, default: 0] += 1 }
+        return byNote
+    }
+    func testWeaveDrawnRankFollowsItsSlot() {   // phase 2: each rank's own authored rate
+        var w = ProcessorSlot(type: .weave); w.params.weaveMode = .drawn; w.params.weaveSpan = 4
+        w.params.weaveDrawn = [.r1_1, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8]   // rank 0 slow (4 beats), rank 1 fast (0.5)
+        let byNote = weaveOnsByNote(w); let notes = byNote.keys.sorted()
+        XCTAssertEqual(notes.count, 3)
+        if notes.count == 3 { XCTAssertLessThan(byNote[notes[0]]!, byNote[notes[1]]!, "DRAWN: the bass slot (slow) ticks fewer than rank 1 (fast)") }
+    }
+    func testWeaveEuclidBassSparserThanTop() {   // phase 2: rank r fills 2r+1 pulses → bass sparse, top dense
+        var w = ProcessorSlot(type: .weave); w.params.weaveMode = .euclid; w.params.weaveEuclidSteps = 8; w.params.weaveSpan = 4
+        let byNote = weaveOnsByNote(w); let notes = byNote.keys.sorted()
+        XCTAssertEqual(notes.count, 3)
+        if notes.count == 3 { XCTAssertLessThan(byNote[notes[0]]!, byNote[notes[2]]!, "EUCLID: bass fills fewer pulses than the top") }
+    }
+    func testWeaveSlowerBaseTicksLess() {   // phase 2: the slower StepRate range
+        func ons(_ base: StepRate) -> Int {
+            var w = ProcessorSlot(type: .weave); w.params.weaveMode = .ladder; w.params.weaveBaseStep = base; w.params.weaveSpan = 1
+            return Dice.runRecorder([w]).ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertLessThan(ons(.r2_1), ons(.r1_8), "a 2-bar bass clock ticks far fewer than a 1/8 clock")
+    }
+    func testWeaveAllPhasesSound() {   // phase 2: RETRIG · FREE · LEGATO all produce output (fuzz proves no stuck notes)
+        for ph in ArpPhase.allCases {
+            var w = ProcessorSlot(type: .weave); w.params.weaveMode = .ladder; w.params.weavePhase = ph
+            XCTAssertGreaterThan(Dice.runRecorder([w]).ons.filter { $0.cable == 1 }.count, 0, "\(ph) weave sounds")
         }
     }
 }

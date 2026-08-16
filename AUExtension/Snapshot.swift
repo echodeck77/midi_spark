@@ -134,8 +134,11 @@ struct SnapParams {
     var lenRotate: Int = 0               // rotate the slice pattern (0…7)
     // WEAVE — the rank-clocked polyrhythm driver. GATE is the shared `gate` field above.
     var weaveMode: WeaveMode = .ladder
-    var weaveBaseBeats: Double = 1.0     // the slowest/bass clock in beats (r1_4 = 1 beat)
+    var weaveBaseBeats: Double = 1.0     // the slowest/bass clock in beats (1/4 = 1 beat)
     var weaveSpan: Int = 4               // ranks that weave; extras join the top clock
+    var weavePhase: ArpPhase = .retrig   // clock origin: RETRIG (per step) · FREE (grid) · LEGATO (from the run's start)
+    var weaveDrawnBeats: [Double] = [2, 1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]   // DRAWN: resolved per-rank tick beats (0…7)
+    var weaveEuclidSteps: Int = 8        // EUCLID: cycle length M
 }
 
 struct SnapColour {

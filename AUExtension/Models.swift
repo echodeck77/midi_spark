@@ -83,7 +83,7 @@ enum LenState: String, Codable, CaseIterable { case pass = "PASS", mute = "MUTE"
 // WEAVE (working name; Paul 2026-08-07) — a rank-clocked polyrhythm DRIVER: each held note ticks on its own clock,
 // derived from its rank. MODE = the ratio law. LADDER: rank r = base÷2^r (1/4·1/8·1/16…). HARMONIC: rank r = (r+1)×base
 // (1:2:3:4 — pitch ratios as time ratios). (DRAWN + EUCLID modes are a phase-2 add — append-only enum.)
-enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic = "HARMONIC" }
+enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic = "HARMONIC", drawn = "DRAWN", euclid = "EUCLID" }
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -170,8 +170,11 @@ struct ColourParams: Codable, Equatable {
     // WEAVE (Paul 2026-08-07) — the rank-clocked polyrhythm driver. BASE = the slowest (bass) clock; MODE = the ratio
     // law; SPAN = how many ranks weave (extras join the top clock); GATE (reused) is shared. Append-only Optional.
     var weaveMode: WeaveMode? = .ladder
-    var weaveBase: ArpRate? = .r1_4     // the slowest / bass rank's clock (a rate division)
+    var weaveBaseStep: StepRate? = .r1_4   // the slowest / bass rank's clock (slow range 2/1…1/8). Was weaveBase:ArpRate — renamed for the slower range (old docs default)
     var weaveSpan: Int? = 4             // how many ranks get their own clock; notes beyond this join the top clock
+    var weavePhase: ArpPhase? = .retrig // RETRIG = restart each step · FREE = free-run the grid · LEGATO = the interlock flows from the run's start
+    var weaveDrawn: [StepRate]? = [.r1_2, .r1_4, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8]  // DRAWN: one rate per rank (0…7)
+    var weaveEuclidSteps: Int? = 8      // EUCLID: the cycle length M; rank r fills 2r+1 of M pulses (bass sparse → top dense)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

@@ -2052,31 +2052,70 @@ final class Router {
         let count = srcNotes.count
         guard count > 0 else { return }
         let span = max(1, min(count, p.weaveSpan))
-        let baseBeats = max(0.03125, p.weaveBaseBeats)
         let gateFrac = max(0.05, min(1.0, p.gate))
+        // PHASE → the clock origin. RETRIG restarts each column (off capped at the boundary); FREE runs the global grid;
+        // LEGATO flows from the run's first column. EUCLID is a per-column cycle, so it's always RETRIG.
+        let phase: ArpPhase = (p.weaveMode == .euclid) ? .retrig : p.weavePhase
+        let origin: Double, capAtCol: Bool
+        switch phase {
+        case .retrig: origin = colStart; capAtCol = true
+        case .free:   origin = 0;        capAtCol = false
+        case .legato:
+            let passStart = (colStart / cyc).rounded(.down) * cyc
+            let rs = cell.runStartColumn >= 0 ? Int(cell.runStartColumn) : Int(((colStart - passStart) / S).rounded(.down))
+            origin = passStart + Double(rs) * S; capAtCol = false
+        }
         for rank in 0..<count {
-            let sub = weaveRate(mode: p.weaveMode, baseBeats: baseBeats, rank: min(rank, span - 1))   // extras join the top clock
+            let clockRank = min(rank, span - 1)   // extras join the top clock
             let n = srcNotes[rank].note + transpose
             guard n >= 0 && n <= 127 else { continue }
-            let vel = max(1, srcNotes[rank].vel)
-            var j = 0
-            while true {
-                let tau = colStart + Double(j) * sub
-                if tau >= colEnd { break }
-                j += 1
-                guard tau >= mWinStart && tau < mWinEnd else { continue }
-                let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                let offT = sampleOf(musical: min(colEnd, tau + sub * gateFrac), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-                let tbm = chopMask(cell, m: tau, S: S, base: bm)
-                storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
-                if !emits { continue }
-                if hasDownstream {
-                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
-                                   velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                } else if tbm != 0 {
-                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+            let vel = srcNotes[rank].vel
+            if p.weaveMode == .euclid {            // each rank plays an interlocking euclidean pattern (bass sparse → top dense)
+                let M = max(2, min(16, p.weaveEuclidSteps))
+                let pat = euclidPattern(pulses: max(1, min(M, 2 * clockRank + 1)), steps: M, rotation: 0)
+                let sub = S / Double(M)
+                for stepI in 0..<M where pat[stepI] {
+                    let tau = colStart + Double(stepI) * sub
+                    guard tau >= mWinStart && tau < mWinEnd else { continue }
+                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: min(colEnd, tau + sub * gateFrac), bm: bm,
+                                    emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
+                                    beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
+                }
+            } else {                               // a regular per-rank clock (LADDER/HARMONIC formula, or DRAWN's authored rate)
+                let sub = (p.weaveMode == .drawn) ? max(0.03125, p.weaveDrawnBeats[min(clockRank, p.weaveDrawnBeats.count - 1)])
+                                                  : weaveRate(mode: p.weaveMode, baseBeats: max(0.03125, p.weaveBaseBeats), rank: clockRank)
+                let scanEnd = capAtCol ? min(mWinEnd, colEnd) : mWinEnd
+                var j = Int(((mWinStart - origin) / sub).rounded(.down)); if j < 0 { j = 0 }
+                while true {
+                    let tau = origin + Double(j) * sub
+                    if tau >= scanEnd { break }
+                    j += 1
+                    guard tau >= mWinStart else { continue }
+                    let off = capAtCol ? min(colEnd, tau + sub * gateFrac) : (tau + sub * gateFrac)
+                    emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: off, bm: bm,
+                                    emits: emits, hasDownstream: hasDownstream, chainDriver: chainDriver, windowEnd: windowEnd,
+                                    beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, cyc: cyc, out: out, diag: &diag)
                 }
             }
+        }
+    }
+
+    /// One WEAVE strike: convert the musical on/off to samples, store the seal artic, and emit (folding downstream when
+    /// chained, else direct). A method (not a nested closure) so it can take `diag` inout cleanly.
+    private func emitWeaveStrike(cell: SnapCell, row r: Int, note n: Int, vel: UInt8, tau: Double, off: Double, bm: UInt8,
+                                 emits: Bool, hasDownstream: Bool, chainDriver: Int, windowEnd: Int64, beatPos: Double,
+                                 beatsPerSample: Double, windowStart: Int64, S: Double, a: Double, cyc: Double,
+                                 out: MIDIEmitter?, diag: inout KernelDiag) {
+        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        let offT = sampleOf(musical: off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        let tbm = chopMask(cell, m: tau, S: S, base: bm)
+        storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
+        if !emits { return }
+        if hasDownstream {
+            emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
+                           velocity: max(1, vel), m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+        } else if tbm != 0 {
+            emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, vel), out: out, diag: &diag)
         }
     }
 

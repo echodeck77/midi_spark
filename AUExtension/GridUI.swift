@@ -1242,6 +1242,7 @@ struct ProcessorBox: View {
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
     @State private var lenPaint: LenState = .mute        // LENGTH: the brush — defaults to MUTE so it contrasts with the all-PASS slices (first tap carves a visible rest)
+    @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1610,19 +1611,49 @@ struct ProcessorBox: View {
             field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
                 setParam { $0.lenRotate = i } } }
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
-            field("MODE") { seg(WeaveMode.allCases.map(\.rawValue), sel: (p.weaveMode ?? .ladder).rawValue) { i in
+            let wmode = p.weaveMode ?? .ladder
+            field("MODE") { seg(WeaveMode.allCases.map(\.rawValue), sel: wmode.rawValue) { i in
                 setParam { $0.weaveMode = WeaveMode.allCases[i] } } }
-            Text((p.weaveMode ?? .ladder) == .ladder ? "LADDER — each rank up plays twice as fast (1/4·1/8·1/16…)"
-                                                      : "HARMONIC — rank n plays n× the bass (1:2:3:4 — rhythm as pitch ratio)")
-                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text(weaveModeBlurb(wmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            field("BASE — the bass rank's clock") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.weaveBase ?? .r1_4).rawValue) { i in
-                setParam { $0.weaveBase = ArpRate.allCases[i] } } }
+            if wmode == .ladder || wmode == .harmonic {
+                field("BASE — the bass rank's clock (higher ranks weave faster)") { seg(StepRate.allCases.map(\.rawValue), sel: (p.weaveBaseStep ?? .r1_4).rawValue) { i in
+                    setParam { $0.weaveBaseStep = StepRate.allCases[i] } } }
+            } else if wmode == .drawn {
+                field("RATE PER RANK — pick a rate below, then tap ranks") { HStack(spacing: 3) {
+                    ForEach(0..<8, id: \.self) { i in
+                        Text(weaveDrawnAt(p.weaveDrawn, i).rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                            .frame(maxWidth: .infinity).frame(height: 32)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.8)))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture { setParam { var s = $0.weaveDrawn ?? Array(repeating: StepRate.r1_8, count: 8); while s.count < 8 { s.append(.r1_8) }; s[i] = weaveBrush; $0.weaveDrawn = s } }
+                    }
+                } }
+                field("BRUSH — rank 0 = bass (left) … rank 7 (right)") { seg(StepRate.allCases.map(\.rawValue), sel: weaveBrush.rawValue) { i in weaveBrush = StepRate.allCases[i] } }
+            } else {   // euclid
+                field("STEPS (M)  \(p.weaveEuclidSteps ?? 8)  (bass fills 1, each rank up fills 2 more)") {
+                    Slider(value: bind(Double(p.weaveEuclidSteps ?? 8)) { v in setParam { $0.weaveEuclidSteps = Int(v.rounded()) } }, in: 2...16).tint(accent) }
+            }
+            field("PHASE — RETRIG restarts each step · FREE runs the grid · LEGATO flows from the hold") { seg(ArpPhase.allCases.map(\.rawValue), sel: (p.weavePhase ?? .retrig).rawValue) { i in
+                setParam { $0.weavePhase = ArpPhase.allCases[i] } } }
             field("SPAN — how many notes weave  (\(p.weaveSpan ?? 4))") { seg((1...8).map { "\($0)" }, sel: "\(p.weaveSpan ?? 4)") { i in
                 setParam { $0.weaveSpan = i + 1 } } }
             field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
         }
+    }
+
+    private func weaveModeBlurb(_ m: WeaveMode) -> String {
+        switch m {
+        case .ladder:   return "LADDER — each rank up plays twice as fast (÷2 per rank)"
+        case .harmonic: return "HARMONIC — rank n plays n× the bass (1:2:3:4 — rhythm as pitch ratio)"
+        case .drawn:    return "DRAWN — set each rank's own rate by hand below"
+        case .euclid:   return "EUCLID — each rank an interlocking euclidean pulse (bass sparse → top dense)"
+        }
+    }
+    private func weaveDrawnAt(_ arr: [StepRate]?, _ i: Int) -> StepRate {
+        let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .r1_8
     }
 
     private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)

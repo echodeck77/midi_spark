@@ -117,8 +117,11 @@ final class FuzzTests: XCTestCase {
         p.lenRotate = r.int(8)
     }
     private func applyRandomWeave(_ p: inout ColourParams, _ r: inout FuzzRNG) {
-        p.weaveMode = WeaveMode.allCases[r.int(WeaveMode.allCases.count)]   // LADDER + HARMONIC
-        p.weaveBase = ArpRate.allCases[r.int(ArpRate.allCases.count)]        // incl. the fastest bass clocks
+        p.weaveMode = WeaveMode.allCases[r.int(WeaveMode.allCases.count)]     // LADDER · HARMONIC · DRAWN · EUCLID
+        p.weaveBaseStep = StepRate.allCases[r.int(StepRate.allCases.count)]   // slow bass clocks
+        p.weavePhase = ArpPhase.allCases[r.int(ArpPhase.allCases.count)]      // RETRIG · FREE · LEGATO (FREE/LEGATO ring past the boundary)
+        p.weaveDrawn = (0..<8).map { _ in StepRate.allCases[r.int(StepRate.allCases.count)] }
+        p.weaveEuclidSteps = r.range(2, 16)
         p.weaveSpan = r.range(1, 8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {

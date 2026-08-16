@@ -191,8 +191,10 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     case .weave:
         return [bypass,
                 MacroControlParam(key: "weaveMode", label: "MODE", kind: .option(WeaveMode.allCases.map(\.rawValue))),
-                MacroControlParam(key: "weaveBase", label: "BASE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weaveBaseStep", label: "BASE", kind: .option(StepRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weavePhase", label: "PHASE", kind: .option(ArpPhase.allCases.map(\.rawValue))),
                 MacroControlParam(key: "weaveSpan", label: "SPAN", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "weaveEuclidSteps", label: "EUCLID N", kind: .stepper(lo: 2, hi: 16)),
                 gate]
     }
 }
@@ -254,8 +256,10 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "lenLong":      v[param.key] = p.lenLong ?? 0.7
         case "lenRotate":    v[param.key] = Double(p.lenRotate ?? 0)
         case "weaveMode":    v[param.key] = optionIndex(p.weaveMode)
-        case "weaveBase":    v[param.key] = optionIndex(p.weaveBase)
+        case "weaveBaseStep": v[param.key] = optionIndex(p.weaveBaseStep)
+        case "weavePhase":   v[param.key] = optionIndex(p.weavePhase)
         case "weaveSpan":    v[param.key] = Double(p.weaveSpan ?? 4)
+        case "weaveEuclidSteps": v[param.key] = Double(p.weaveEuclidSteps ?? 8)
         default: break
         }
     }
@@ -308,8 +312,10 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "lenLong":      s.params.lenLong = clamp(val, 0, 1)
         case "lenRotate":    s.params.lenRotate = clamp(Int(val.rounded()), 0, 7)
         case "weaveMode":    s.params.weaveMode = caseAt(val, WeaveMode.self)
-        case "weaveBase":    s.params.weaveBase = caseAt(val, ArpRate.self)
+        case "weaveBaseStep": s.params.weaveBaseStep = caseAt(val, StepRate.self)
+        case "weavePhase":   s.params.weavePhase = caseAt(val, ArpPhase.self)
         case "weaveSpan":    s.params.weaveSpan = clamp(Int(val.rounded()), 1, 8)
+        case "weaveEuclidSteps": s.params.weaveEuclidSteps = clamp(Int(val.rounded()), 2, 16)
         default: break
         }
     }

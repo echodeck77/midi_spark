@@ -629,6 +629,7 @@ func weaveRate(mode: WeaveMode, baseBeats: Double, rank: Int) -> Double {
     switch mode {
     case .ladder:   return max(0.03125, baseBeats / pow(2, Double(r)))
     case .harmonic: return max(0.03125, baseBeats / Double(r + 1))
+    case .drawn, .euclid: return max(0.03125, baseBeats)   // these modes drive their own clock in the emitter; this is only a fallback
     }
 }
 
