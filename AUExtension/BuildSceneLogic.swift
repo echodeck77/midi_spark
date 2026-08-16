@@ -87,27 +87,31 @@ enum BuildSceneLogic {
     /// it to the topmost stocked cell. Only a POSITIVE pick at a now-empty/out-of-range cell falls back (to the
     /// topmost stocked cell, or −1 if the column is empty).
     // MUTATE (Paul 2026-08-16): a VALUE-only variation of a processor chain — same STRUCTURE, up to 3 nudged params
-    // (biased to one, biased to continuous), GUARANTEED to sound different from the source AND not silent. Returns the
-    // tweaked chain + its Dice eval (signature + peak, reused for complexity); nil if no distinct+audible variant found.
-    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], baseSig: [Int], _ rng: inout R) -> (chain: [ProcessorSlot], run: (sig: [Int], peak: Int))? {
+    // (biased to one, biased to continuous), GUARANTEED to be NOT silent and to sound different from EVERY signature in
+    // `avoid` (the source AND every other row already on the grid — else subsequent hits converge to the same variant).
+    // As the loop struggles it escalates: more params tweaked + more discrete flips, to reach further into the space.
+    // Returns the tweaked chain + its Dice eval (sig + peak, reused for complexity); nil if no distinct+audible variant.
+    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], avoid: [[Int]], _ rng: inout R) -> (chain: [ProcessorSlot], run: (sig: [Int], peak: Int))? {
         var all: [(slot: Int, param: MacroControlParam)] = []
         for (i, slot) in base.enumerated() where !slot.bypassed {
             for p in macroParamsForProcessor(slot.type) { all.append((i, p)) }
         }
         guard !all.isEmpty else { return nil }
         let cont = all.filter { !$0.param.kind.isDiscrete }, disc = all.filter { $0.param.kind.isDiscrete }
-        for _ in 0..<12 {                                       // retry until distinct + audible (usually succeeds first try)
+        for attempt in 0..<24 {                                // retry until distinct + audible (escalating with each miss)
             var chain = base
             var contPool = cont.shuffled(using: &rng), discPool = disc.shuffled(using: &rng)
-            for _ in 0..<mutateCount(&rng) {                    // discrete flips are RARE — bias to continuous nudges
-                let useDiscrete = !discPool.isEmpty && (contPool.isEmpty || Double.random(in: 0..<1, using: &rng) < 0.2)
+            let count = mutateCount(&rng) + attempt / 6         // escalate breadth as the space gets crowded
+            let discChance = 0.2 + Double(attempt) * 0.03       // …and lean harder on note-changing discrete flips
+            for _ in 0..<count {
+                let useDiscrete = !discPool.isEmpty && (contPool.isEmpty || Double.random(in: 0..<1, using: &rng) < discChance)
                 guard let tw = (useDiscrete ? discPool.popLast() : (contPool.popLast() ?? discPool.popLast())) else { break }
                 var vals = processorValues(chain[tw.slot])
                 vals[tw.param.key] = mutateNudge(tw.param, vals[tw.param.key], &rng)
                 chain[tw.slot] = applyProcessorValues(vals, to: chain[tw.slot])
             }
             let run = Dice.evalRun(chain)
-            if !run.sig.isEmpty && run.sig != baseSig { return (chain, run) }   // sounds DIFFERENT and NOT silent
+            if !run.sig.isEmpty && !avoid.contains(run.sig) { return (chain, run) }   // NOT silent + unlike everything already present
         }
         return nil
     }

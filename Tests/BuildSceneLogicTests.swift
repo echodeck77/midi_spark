@@ -40,21 +40,31 @@ final class BuildSceneLogicTests: XCTestCase {
     // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
 
     func testMutateProducesADistinctAudibleValueVariant() {
-        let base = [ProcessorSlot(type: .arp)]          // an arp has continuous params (rate/octaves) whose nudge shifts the output
+        let base = [ProcessorSlot(type: .arp)]          // an arp has params whose nudge shifts the output
         let baseSig = Dice.signature(base)
         var rng = DiceRNG(seed: 7)
-        guard let (mutated, run) = BuildSceneLogic.mutateChain(base, baseSig: baseSig, &rng) else {
+        guard let (mutated, run) = BuildSceneLogic.mutateChain(base, avoid: [baseSig], &rng) else {
             return XCTFail("mutate should find a distinct, audible variant of an arp")
         }
         XCTAssertFalse(run.sig.isEmpty, "the variant is NOT silent")
         XCTAssertNotEqual(run.sig, baseSig, "the variant sounds DIFFERENT from the source")
-        XCTAssertEqual(mutated.count, base.count, "value-only: the chain structure (slot count) is unchanged")
         XCTAssertEqual(mutated.map(\.type), base.map(\.type), "value-only: the processor types are unchanged")
+    }
+
+    // Subsequent MUTATE hits must not converge: a variant is rejected if it matches ANY avoided signature (the source
+    // plus every row already placed). Two mutations avoiding each other's output produce different signatures.
+    func testMutateAvoidsAlreadyPresentSignatures() {
+        let base = [ProcessorSlot(type: .arp)]
+        var rng = DiceRNG(seed: 3)
+        guard let first = BuildSceneLogic.mutateChain(base, avoid: [Dice.signature(base)], &rng) else { return XCTFail("first mutate failed") }
+        guard let second = BuildSceneLogic.mutateChain(base, avoid: [Dice.signature(base), first.run.sig], &rng) else { return XCTFail("second mutate failed") }
+        XCTAssertNotEqual(second.run.sig, first.run.sig, "the second hit avoids the first's output — no repeat")
+        XCTAssertFalse(second.run.sig.isEmpty)
     }
 
     func testMutateReturnsNilForAnEmptyChain() {
         var rng = DiceRNG(seed: 1)
-        XCTAssertNil(BuildSceneLogic.mutateChain([], baseSig: [], &rng), "no slots → nothing to tweak")
+        XCTAssertNil(BuildSceneLogic.mutateChain([], avoid: [], &rng), "no slots → nothing to tweak")
     }
 
     // MARK: composeScene

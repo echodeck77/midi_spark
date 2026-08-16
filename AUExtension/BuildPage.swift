@@ -1216,8 +1216,12 @@ extension DiagView {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         let base = buildColourChain(cid)
         let baseRun = Dice.evalRun(base)                         // signature + complexity, computed ONCE
+        var avoid = [baseRun.sig]                                // don't reproduce the SOURCE …
+        for r in 0..<8 where r != row {                         // … or ANY other row already on the grid (else repeats)
+            if let rid = buildRowColour(r) { avoid.append(Dice.signature(buildColourChain(rid))) }
+        }
         var rng = SystemRandomNumberGenerator()
-        guard let (mutated, mutRun) = BuildSceneLogic.mutateChain(base, baseSig: baseRun.sig, &rng) else { return }   // no distinct+audible variant found
+        guard let (mutated, mutRun) = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { return }   // no distinct+audible variant found
         let srcC = baseRun.sig.count * 100 + baseRun.peak, newC = mutRun.sig.count * 100 + mutRun.peak   // = buildComplexity
         let hue = buildSimilarHue(of: cid, lighter: newC < srcC, srcC: srcC, newC: newC)
         let newID = buildNewColour(hex: hue, machine: mutated)   // a NEW colour (never already placed) → no relocation
