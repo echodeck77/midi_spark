@@ -787,7 +787,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1003,6 +1003,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .tutti:     return .tutti                            // SET-level chance — a per-step HOLD transform (SOLO/TUTTI), never a driver
     case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
     case .weave:     return .weave                            // DRIVER — each held note ticks on its own rank-derived clock (polyrhythm)
+    case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1181,6 +1182,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
     case .length:    return "ruler"                        // the measured duration
     case .weave:     return "square.stack.3d.up.fill"      // interlocking layers — the rank clocks
+    case .split:     return "square.split.2x1"             // keep a slice of the set
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
     case .echo:      return "repeat"                       // the tail
     case .euclid:    return "circle.grid.cross"            // the K-of-N grid

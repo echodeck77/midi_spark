@@ -432,6 +432,10 @@ final class Router {
         return false
     }
     private var strumProgress = [Int](repeating: 0, count: Snap.rows)   // strum notes emitted this column, per row
+    // SPLIT downstream ([driver→SPLIT]): the driver's-source-pool note/vel bounds, resolved once per cell in the row loop
+    // (where the live pool is in scope), then applied to every driven note in emitDriverNote.
+    private var splitGateActive = false
+    private var splitGateLo = 0, splitGateHi = 127, splitGateVF = 1, splitGateVC = 127
     private var prevForcedStep = Int.min   // last musical STEP seen while a column is HELD → re-arm strum each step (Paul 2026-08-15)
     private var harmNotes = [Int](repeating: 0, count: 4)               // HARMONIZE fan scratch (root + 3 voices)
     private var harmVels = [UInt8](repeating: 0, count: 4)
@@ -1178,7 +1182,7 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI = a per-step SET filter
+            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT = SET filters
             if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
@@ -1209,6 +1213,11 @@ final class Router {
                 let step = S > 0 ? Int((colStart / S).rounded()) : 0
                 return tuttiIsTutti(step: step, balance: treat.a.tuttiBalance) ? -1 : tuttiSoloRank(step: step, count: srcN, pick: treat.a.tuttiPick)
             }()
+            // SPLIT (standalone/hold): the subset window of the held set to keep (TOP/BOTTOM re-rank the live pool; RANGE absolute).
+            let splitWin: (start: Int, len: Int) = (mode == .split)
+                ? chordSplitWindow(count: srcN, split: treat.a.splitSet,
+                                   noteAt: { holdChain ? Int(chainScratch.srcAscending($0, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending($0, for: cell)) })
+                : (0, srcN)
             for k in 0..<srcN {
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
@@ -1217,6 +1226,7 @@ final class Router {
                 let vel = droneScale < 1.0 ? UInt8(max(1, min(127, Int((Double(vel0) * droneScale).rounded())))) : vel0   // DRONE scales by GATE
                 if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
                 if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
+                if mode == .split && (k < splitWin.start || k >= splitWin.start + splitWin.len || Int(vel0) < treat.a.splitVel.floor || Int(vel0) > treat.a.splitVel.ceil) { continue }   // SPLIT: keep the subset + vel band
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
@@ -1732,6 +1742,22 @@ final class Router {
             if driver >= 0 {
                 let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
                 var treatDrive = colour; treatDrive.a = driveP
+                // SPLIT downstream ([driver→SPLIT] = PUNCH HOLES): resolve its keep-window as NOTE bounds from the
+                // driver's SOURCE POOL (the held chord), so each driven note outside the subset becomes a rest.
+                splitGateActive = false
+                if let si = downstreamSplitIndex(cell, after: driver) {
+                    let ep = effectivePool(for: cell, live: pool)
+                    let cnt = ep.srcCount(for: cell)
+                    if cnt > 0 {
+                        let sp = cell.procs[si]
+                        let win = chordSplitWindow(count: cnt, split: sp.splitSet, noteAt: { Int(ep.srcAscending($0, for: cell)) })
+                        if win.len > 0 {
+                            splitGateLo = Int(ep.srcAscending(win.start, for: cell)); splitGateHi = Int(ep.srcAscending(win.start + win.len - 1, for: cell))
+                        } else { splitGateLo = 1; splitGateHi = 0 }   // empty subset → nothing passes
+                        splitGateVF = sp.splitVel.floor; splitGateVC = sp.splitVel.ceil
+                        splitGateActive = true
+                    }
+                }
                 switch driveP.type {
                 case .arp:
                     emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
@@ -1791,8 +1817,8 @@ final class Router {
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                              windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                              S: S, a: a, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
+            case .echo, .identity, .chance, .harmonize, .split:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. SPLIT filter) emit at the transition
             case .tutti:
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
                     emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
@@ -2249,6 +2275,12 @@ final class Router {
         }
         return -1
     }
+    /// The LAST non-bypassed SPLIT slot after `driver` (last-writer wins), or nil.
+    private func downstreamSplitIndex(_ cell: SnapCell, after driver: Int) -> Int? {
+        var found: Int? = nil, j = driver + 1
+        while j < cell.procs.count { if !cell.slotBypass[j] && cell.procs[j].type == .split { found = j }; j += 1 }
+        return found
+    }
     private func isDriverType(_ t: ProcessorType) -> Bool {
         switch t {
         case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave: return true
@@ -2401,6 +2433,15 @@ final class Router {
                 dst.noteOn(UInt8(base), velocity: bv, channel: 0)
                 for iv in ivs where iv != 0 { let v = base + Int(iv); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
             }
+        case .split:                                           // set-membership filter — RE-POOL when upstream of a driver
+            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
+            let win = chordSplitWindow(count: cCnt, split: p.splitSet, noteAt: { Int(src.srcAscending($0, filter: 0, cableMask: 0b1111)) })
+            let vf = p.splitVel.floor, vc = p.splitVel.ceil
+            for k in max(0, win.start)..<min(cCnt, win.start + win.len) {
+                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                let v = Int(src.velocity(n))
+                if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
+            }
         default:                                               // identity / open passgate / ratchet / strum → pass through
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
         }
@@ -2464,6 +2505,9 @@ final class Router {
                     // MOD/GLIDE are note-transparent in the fold — their output is emitted separately (v1: [driver→GLIDE] plays the driver).
                 } else if cell.procs[j].type == .length {
                     lenP = cell.procs[j]   // note-transparent SET-wise; its gate override lands on the final emit (below)
+                } else if cell.procs[j].type == .split {
+                    // SPLIT downstream is a per-note MEMBERSHIP filter against the driver's pool — applied at the final emit
+                    // via the row-loop-resolved gate (splitGate*), not as a set transform here (src is a single note).
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -2498,6 +2542,7 @@ final class Router {
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
+            if splitGateActive && (Int(n) < splitGateLo || Int(n) > splitGateHi || Int(cur.velocity(n)) < splitGateVF || Int(cur.velocity(n)) > splitGateVC) { continue }   // SPLIT punch-hole → rest
             emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd,
                      velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
         }

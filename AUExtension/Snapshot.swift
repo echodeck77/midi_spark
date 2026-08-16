@@ -139,6 +139,9 @@ struct SnapParams {
     var weavePhase: ArpPhase = .retrig   // clock origin: RETRIG (per step) · FREE (grid) · LEGATO (from the run's start)
     var weaveDrawnBeats: [Double] = [2, 1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]   // DRAWN: resolved per-rank tick beats (0…7)
     var weaveEuclidSteps: Int = 8        // EUCLID: cycle length M
+    // SPLIT — a set-membership filter (chord-split + velocity window).
+    var splitSet = ChordSplit()
+    var splitVel = VelWindow()
 }
 
 struct SnapColour {

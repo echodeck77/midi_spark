@@ -58,7 +58,8 @@ final class FuzzTests: XCTestCase {
                                       .glide,   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
                                       .tutti,   // SET-level chance — per-step SOLO/TUTTI subset; hammered for no-stuck-notes across every edge
                                       .length,  // per-slice GATE override — its re-articulator + downstream override hammered for no-stuck-notes
-                                      .weave]   // rank-clocked polyrhythm DRIVER — per-rank clocks hammered for no-stuck-notes across every edge
+                                      .weave,   // rank-clocked polyrhythm DRIVER — per-rank clocks hammered for no-stuck-notes across every edge
+                                      .split]   // set-membership filter — re-pool / punch-holes / hold, hammered across placements
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -68,6 +69,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&c.paramsA, &r) }   // exercise the per-slice cadence
             if c.type == .length && r.chance(0.5) { applyRandomLengthPattern(&c.paramsA, &r) }
             if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
+            if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
             return c
         }
         var scene = SceneState.empty()
@@ -83,6 +85,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&s.params, &r) }
                     if s.type == .length && r.chance(0.5) { applyRandomLengthPattern(&s.params, &r) }
                     if s.type == .weave && r.chance(0.6) { applyRandomWeave(&s.params, &r) }
+                    if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
                     return s
                 }
             }
@@ -123,6 +126,10 @@ final class FuzzTests: XCTestCase {
         p.weaveDrawn = (0..<8).map { _ in StepRate.allCases[r.int(StepRate.allCases.count)] }
         p.weaveEuclidSteps = r.range(2, 16)
         p.weaveSpan = r.range(1, 8)
+    }
+    private func applyRandomSplit(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.splitSet = ChordSplit(mode: SplitMode.allCases[r.int(SplitMode.allCases.count)], n: r.range(1, 6), note: r.int(128), high: r.chance(0.5))
+        let f = r.range(1, 127); p.splitVel = VelWindow(floor: f, ceil: r.range(f, 127))   // incl. empty/full windows
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

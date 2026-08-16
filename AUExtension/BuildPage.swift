@@ -587,7 +587,7 @@ extension DiagView {
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
     // every part's cast. Each carries a single-processor machine at that type's default settings.
-    static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .weave, .echo, .strum, .chance, .tutti, .length, .harmonize, .drone]
+    static let buildDefaultTypes: [ProcessorType] = [.arp, .ratchet, .euclid, .weave, .echo, .strum, .chance, .split, .tutti, .length, .harmonize, .drone]
     // Mint a FRESH set of 8 default colours for a PART — its OWN ephemeral copies (unique IDs, canonical hues), so a
     // colour is NEVER shared between parts. Editing one part's default doesn't touch another's. (Paul 2026-08-15)
     func buildFreshDefaultCast() -> [String] {

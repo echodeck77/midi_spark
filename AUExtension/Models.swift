@@ -21,6 +21,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case tutti = "TUTTI"       // SET-level chance (CHANCE's cousin): per step SOLO (one note) or TUTTI (the full set); a HOLD transform, never a driver
     case length = "LENGTH"     // per-slice GATE override (DURATION axis; CHOP routes · LENGTH shapes): PASS/MUTE/SHORT/LONG across 8 slices
     case weave = "WEAVE"       // rank-clocked polyrhythm DRIVER: each held note ticks on its own rank-derived clock (one chord → an interlocking ensemble)
+    case split = "SPLIT"       // set-membership filter: keep a subset of the chord (TOP/BOTTOM n · RANGE · vel window). Re-pools before a driver, punches holes after one
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -175,6 +176,9 @@ struct ColourParams: Codable, Equatable {
     var weavePhase: ArpPhase? = .retrig // RETRIG = restart each step · FREE = free-run the grid · LEGATO = the interlock flows from the run's start
     var weaveDrawn: [StepRate]? = [.r1_2, .r1_4, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8, .r1_8]  // DRAWN: one rate per rank (0…7)
     var weaveEuclidSteps: Int? = 8      // EUCLID: the cycle length M; rank r fills 2r+1 of M pulses (bass sparse → top dense)
+    // SPLIT (Paul 2026-08-05) — a set-membership filter, reusing the chord-split + velocity-window model. Append-only.
+    var splitSet: ChordSplit? = ChordSplit()   // ALL · TOP n · BOTTOM n · RANGE (pool-relative except RANGE)
+    var splitVel: VelWindow? = VelWindow()     // pass only notes with velocity in [floor, ceil]
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

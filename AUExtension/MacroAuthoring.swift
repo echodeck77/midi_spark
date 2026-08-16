@@ -196,6 +196,14 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "weaveSpan", label: "SPAN", kind: .stepper(lo: 1, hi: 8)),
                 MacroControlParam(key: "weaveEuclidSteps", label: "EUCLID N", kind: .stepper(lo: 2, hi: 16)),
                 gate]
+    case .split:
+        return [bypass,
+                MacroControlParam(key: "splitMode", label: "SPLIT", kind: .option(SplitMode.allCases.map(\.rawValue))),
+                MacroControlParam(key: "splitN", label: "N", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "splitNote", label: "RANGE NOTE", kind: .stepper(lo: 0, hi: 127)),
+                MacroControlParam(key: "splitHigh", label: "RANGE SIDE", kind: .toggle),
+                MacroControlParam(key: "splitVFloor", label: "VEL FLOOR", kind: .stepper(lo: 1, hi: 127)),
+                MacroControlParam(key: "splitVCeil", label: "VEL CEIL", kind: .stepper(lo: 1, hi: 127))]
     }
 }
 
@@ -260,6 +268,12 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "weavePhase":   v[param.key] = optionIndex(p.weavePhase)
         case "weaveSpan":    v[param.key] = Double(p.weaveSpan ?? 4)
         case "weaveEuclidSteps": v[param.key] = Double(p.weaveEuclidSteps ?? 8)
+        case "splitMode":    v[param.key] = optionIndex(p.splitSet?.mode)
+        case "splitN":       v[param.key] = Double(p.splitSet?.n ?? 2)
+        case "splitNote":    v[param.key] = Double(p.splitSet?.note ?? 60)
+        case "splitHigh":    v[param.key] = (p.splitSet?.high ?? true) ? 1 : 0
+        case "splitVFloor":  v[param.key] = Double(p.splitVel?.floor ?? 1)
+        case "splitVCeil":   v[param.key] = Double(p.splitVel?.ceil ?? 127)
         default: break
         }
     }
@@ -316,6 +330,12 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "weavePhase":   s.params.weavePhase = caseAt(val, ArpPhase.self)
         case "weaveSpan":    s.params.weaveSpan = clamp(Int(val.rounded()), 1, 8)
         case "weaveEuclidSteps": s.params.weaveEuclidSteps = clamp(Int(val.rounded()), 2, 16)
+        case "splitMode":    s.params.splitSet = { var c = s.params.splitSet ?? ChordSplit(); c.mode = caseAt(val, SplitMode.self); return c }()
+        case "splitN":       s.params.splitSet = { var c = s.params.splitSet ?? ChordSplit(); c.n = clamp(Int(val.rounded()), 1, 8); return c }()
+        case "splitNote":    s.params.splitSet = { var c = s.params.splitSet ?? ChordSplit(); c.note = clamp(Int(val.rounded()), 0, 127); return c }()
+        case "splitHigh":    s.params.splitSet = { var c = s.params.splitSet ?? ChordSplit(); c.high = val >= 0.5; return c }()
+        case "splitVFloor":  s.params.splitVel = { var w = s.params.splitVel ?? VelWindow(); w.floor = clamp(Int(val.rounded()), 1, 127); return w }()
+        case "splitVCeil":   s.params.splitVel = { var w = s.params.splitVel ?? VelWindow(); w.ceil = clamp(Int(val.rounded()), 1, 127); return w }()
         default: break
         }
     }

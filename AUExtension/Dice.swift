@@ -350,7 +350,7 @@ enum Dice {
         case .arp: return "ARP"; case .ratchet: return "RTC"; case .strum: return "STR"; case .passgate: return "GATE"
         case .chance: return "CHN"; case .harmonize: return "HRM"; case .echo: return "ECHO"; case .euclid: return "EUC"
         case .burst: return "BST"; case .cascade: return "CSC"; case .drone: return "DRN"; case .shift: return "SHF"
-        case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; case .weave: return "WVE"; default: return "PROC"
+        case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; case .weave: return "WVE"; case .split: return "SPL"; default: return "PROC"
         }
     }
 }

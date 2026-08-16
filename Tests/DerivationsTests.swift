@@ -1866,4 +1866,39 @@ final class DerivationsTests: XCTestCase {
             XCTAssertGreaterThan(Dice.runRecorder([w]).ons.filter { $0.cable == 1 }.count, 0, "\(ph) weave sounds")
         }
     }
+
+    // MARK: - SPLIT (Paul 2026-08-05): set-membership filter — the three placements
+
+    func testSplitStandaloneKeepsSubset() {   // a held chord filtered to its subset (through the real Router)
+        func notes(_ set: ChordSplit) -> Set<UInt8> {
+            var s = ProcessorSlot(type: .split); s.params.splitSet = set
+            return Set(Dice.runRecorder([s]).ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        XCTAssertEqual(notes(ChordSplit(mode: .all)).count, 3, "ALL keeps the whole chord")
+        XCTAssertEqual(notes(ChordSplit(mode: .top, n: 1)).count, 1, "TOP 1 keeps one note")
+        XCTAssertEqual(notes(ChordSplit(mode: .top, n: 2)).count, 2, "TOP 2 keeps two")
+        XCTAssertEqual(notes(ChordSplit(mode: .bottom, n: 1)).count, 1, "BOTTOM 1 keeps one note")
+        if let t = notes(ChordSplit(mode: .top, n: 1)).first, let b = notes(ChordSplit(mode: .bottom, n: 1)).first {
+            XCTAssertGreaterThan(t, b, "TOP 1 sits above BOTTOM 1")
+        }
+    }
+    func testSplitVelWindowFiltersByVelocity() {
+        var lo = ProcessorSlot(type: .split); lo.params.splitVel = VelWindow(floor: 1, ceil: 50)
+        XCTAssertEqual(Dice.runRecorder([lo]).ons.filter { $0.cable == 1 }.count, 0, "vel window [1,50] blocks the vel-100 chord")
+        var hi = ProcessorSlot(type: .split); hi.params.splitVel = VelWindow(floor: 90, ceil: 127)
+        XCTAssertGreaterThan(Dice.runRecorder([hi]).ons.filter { $0.cable == 1 }.count, 0, "vel window [90,127] passes it")
+    }
+    func testSplitRePoolBeforeArp() {   // [SPLIT TOP 1 → ARP]: the arp only walks the top note (pedal)
+        var sp = ProcessorSlot(type: .split); sp.params.splitSet = ChordSplit(mode: .top, n: 1)
+        let notes = Set(Dice.runRecorder([sp, ProcessorSlot(type: .arp)]).ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertEqual(notes.count, 1, "the arp pedals the single top note")
+    }
+    func testSplitPunchHolesAfterArp() {   // [ARP → SPLIT TOP 1]: the arp walks all; only top-note visits sound
+        let arp = ProcessorSlot(type: .arp)
+        var sp = ProcessorSlot(type: .split); sp.params.splitSet = ChordSplit(mode: .top, n: 1)
+        let full = Dice.runRecorder([arp]).ons.filter { $0.cable == 1 }.count
+        let holed = Dice.runRecorder([arp, sp]).ons.filter { $0.cable == 1 }
+        XCTAssertLessThan(holed.count, full, "downstream SPLIT punches holes — fewer notes than the bare arp")
+        XCTAssertEqual(Set(holed.map { $0.note }).count, 1, "only the top note survives the holes")
+    }
 }

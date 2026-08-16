@@ -1382,6 +1382,7 @@ struct ProcessorBox: View {
         case .tutti:     return "per step: one note (SOLO) or the whole chord (TUTTI)"
         case .length:    return "shape how long each note sounds, per slice"
         case .weave:     return "each held note pulses on its own clock — a polyrhythm"
+        case .split:     return "keep only part of the chord (top / bottom / range / velocity)"
         }
     }
 
@@ -1641,6 +1642,23 @@ struct ProcessorBox: View {
                 setParam { $0.weaveSpan = i + 1 } } }
             field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
+        case .split:   // set-membership filter — keep a subset of the chord (before a driver = re-pool · after = punch holes)
+            let sm = p.splitSet?.mode ?? .all
+            field("SPLIT") { seg(SplitMode.allCases.map(\.rawValue), sel: sm.rawValue) { i in
+                setParam { var c = $0.splitSet ?? ChordSplit(); c.mode = SplitMode.allCases[i]; $0.splitSet = c } } }
+            if sm == .top || sm == .bottom {
+                field("N — how many notes  (\(p.splitSet?.n ?? 2))") { seg((1...6).map { "\($0)" }, sel: "\(p.splitSet?.n ?? 2)") { i in
+                    setParam { var c = $0.splitSet ?? ChordSplit(); c.n = i + 1; $0.splitSet = c } } }
+            } else if sm == .range {
+                field("SPLIT NOTE  \(p.splitSet?.note ?? 60)") {
+                    Slider(value: bind(Double(p.splitSet?.note ?? 60)) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.note = Int(v.rounded()); $0.splitSet = c } }, in: 0...127).tint(accent) }
+                field("SIDE") { seg(["≥ SPLIT", "< SPLIT"], sel: (p.splitSet?.high ?? true) ? "≥ SPLIT" : "< SPLIT") { i in
+                    setParam { var c = $0.splitSet ?? ChordSplit(); c.high = (i == 0); $0.splitSet = c } } }
+            }
+            field("VEL FLOOR  \(p.splitVel?.floor ?? 1)") {
+                Slider(value: bind(Double(p.splitVel?.floor ?? 1)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.floor = min(Int(v.rounded()), w.ceil); $0.splitVel = w } }, in: 1...127).tint(accent) }
+            field("VEL CEIL  \(p.splitVel?.ceil ?? 127)") {
+                Slider(value: bind(Double(p.splitVel?.ceil ?? 127)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.ceil = max(Int(v.rounded()), w.floor); $0.splitVel = w } }, in: 1...127).tint(accent) }
         }
     }
 

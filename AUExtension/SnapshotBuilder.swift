@@ -291,6 +291,8 @@ enum SnapshotBuilder {
         if let v = p.weavePhase { out.weavePhase = v }
         if let v = p.weaveDrawn { var s = v; while s.count < 8 { s.append(.r1_8) }; out.weaveDrawnBeats = Array(s.prefix(8)).map { max(0.03125, $0.beats) } }
         if let v = p.weaveEuclidSteps { out.weaveEuclidSteps = clamp(v, 2, 16) }
+        if var v = p.splitSet { v.n = clamp(v.n, 1, 8); v.note = clamp(v.note, 0, 127); out.splitSet = v }
+        if var v = p.splitVel { v.floor = clamp(v.floor, 1, 127); v.ceil = clamp(v.ceil, v.floor, 127); out.splitVel = v }
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
