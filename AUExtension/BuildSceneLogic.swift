@@ -102,7 +102,7 @@ enum BuildSceneLogic {
             var chain = base
             var contPool = cont.shuffled(using: &rng), discPool = disc.shuffled(using: &rng)
             let count = mutateCount(&rng) + attempt / 6         // escalate breadth as the space gets crowded
-            let discChance = 0.2 + Double(attempt) * 0.03       // …and lean harder on note-changing discrete flips
+            let discChance = 0.5 + Double(attempt) * 0.02       // EQUAL footing note-pattern vs subtle (Paul 2026-08-16); leans discrete only when struggling
             for _ in 0..<count {
                 let useDiscrete = !discPool.isEmpty && (contPool.isEmpty || Double.random(in: 0..<1, using: &rng) < discChance)
                 guard let tw = (useDiscrete ? discPool.popLast() : (contPool.popLast() ?? discPool.popLast())) else { break }
