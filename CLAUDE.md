@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ WEAVE PROCESSOR LANDED — LADDER+HARMONIC (phase 1; 2026-08-16, on `main`, PUSHED; `ff81a15`; iOS builds, macOS
+  655 green). The 18th ProcessorType + the FIRST driver-class add since the generators
+  (`AcceptanceCriteria-weave-driver.md`): a rank-clocked polyrhythm DRIVER — each held note ticks on its own
+  rank-derived clock (bass slow…top fast; one chord → an interlocking ensemble, re-derived per chord). MODE: LADDER
+  (base÷2^r) · HARMONIC ((r+1)×base). BASE (bass clock) · SPAN (ranks that weave; extras join the top clock) · GATE
+  (shared). DRAWN + EUCLID modes deferred (phase 2; enum has room). Driver integration: added to `isDriverType` + both
+  dispatch sites (chain-driver switch + single-slot CellMode switch); new `emitWeaveRow` modelled on emitGeneratorRow
+  (compose-at-colStart, per-rank window-scan = RETRIG; NOT iterateTicks-per-rank — its row-keyed dedup would corrupt
+  across ranks, the one pitfall the map flagged); folds downstream via emitDriverNote. Pure `weaveRate` (Derivations).
+  v1 gaps (flagged): audition falls to chord-hold (not the weave) + virtual-cell preview silent — the real render
+  path is complete. NOT in dice rosters. **Outstanding processors remaining: SPLIT (+ WEAVE phase-2 DRAWN/EUCLID).**
+  Built via a driver-architecture mapping agent — see [[midispark-add-processor-surface]] (drivers add isDriverType +
+  2 dispatch switches + audition/preview beyond the standard surface).**
 - **▶ LENGTH PROCESSOR LANDED (2026-08-16, on `main`, PUSHED; `3d28fc6`; iOS builds, macOS 651 green). The 17th
   ProcessorType (`AcceptanceCriteria-length-processor.md`): per-slice GATE override — 8 slices of the step, each PASS
   (sustain/tie) · MUTE (rest) · SHORT (staccato) · LONG (re-attacked ring), + SHORT/LONG sliders + ROTATE. Paul ruled
