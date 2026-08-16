@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TUTTI PROCESSOR LANDED — both modes (2026-08-16, on `main`, PUSHED; COIN `a780e19` + PATTERN `793808a`; iOS
+  builds, macOS 645 green). The 16th ProcessorType (`AcceptanceCriteria-tutti-processor.md`): SET-level chance,
+  CHANCE's cousin. ONE processor, MODE radio. **COIN**: one seeded roll per STEP → TUTTI (full chord) or SOLO (one
+  note by PICK LOW/HIGH/RANDOM/CYCLE); BALANCE is live-macro-foldable; seeded from the column-step index (loop-exact).
+  **PATTERN**: an 8-slice authored set-shape row (ALL/LOW/HIGH/TOP2/BOT2/LOW+8/ALL−8/REST), walking the bar at RATE,
+  ROTATE strides it. Architecture: TUTTI is a HOLD transform, NEVER a driver — COIN emits at the column transition
+  (emitColumnHolds) and [TUTTI→ARP] reshapes the pool (applyStage); PATTERN-standalone was the dual-cadence RISK
+  (it emits rhythm per slice) so a single-slot PATTERN routes to a new tick emitter `emitTuttiPatternRow` on the
+  generator emitArtic lifecycle — fuzz-proven no-stuck-notes across every edge. Pure primitives in Derivations
+  (tuttiIsTutti/tuttiSoloRank/tuttiSliceOf/tuttiSliceRanks). UI: ProcessorBox `.tutti` face (COIN slider+PICK ·
+  PATTERN pick-then-paint slice grid+RATE+ROTATE — palette still settling per spec, cull on device). Built via 2
+  parallel engine-mapping agents (Router/CellMode dispatch + slice-engine reality). Outstanding processors remaining:
+  WEAVE (driver), LENGTH, SPLIT (`Docs/AcceptanceCriteria/`).**
 - **▶ DOCS STALENESS SWEEP LANDED (2026-08-16, on `main`, PUSHED; `0743796`; iOS builds, macOS 634 green). Audited the
   whole doc corpus (4 parallel agents, verified against code) and fixed drift: CLAUDE.md vocab/invariants (colour cap →
   ID-based+ephemeral; +400+i macro address; dropped 2 dead .mermaid refs); README (600+ tests, 15 procs, tab shell,

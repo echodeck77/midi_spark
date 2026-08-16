@@ -1,3 +1,7 @@
+> ✅ BUILT (2026-08-16): COIN `a780e19` + PATTERN `793808a`. §1 COIN + §2 PATTERN + §3's one-processor/MODE-radio
+> interface all shipped. Note vs spec: PATTERN standalone emits per-slice rhythm via a dedicated tick emitter
+> (TUTTI stays a non-driver otherwise); the slice palette is the settling set (cheap to cull on device).
+
 # SPEC → Code — TUTTI (working name; Paul, 2026-08-13: "50% a
 # single note, 50% the full chord — in front of an arp, or alone")
 
