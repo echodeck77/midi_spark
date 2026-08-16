@@ -157,6 +157,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ CODEBASE REVIEW + its low-risk/high-value action bucket LANDED (2026-08-16, on `main`, PUSHED; macOS 626 green,
+  iOS Debug+Release build). `Docs/codebase-review-2026-08-16.md` (`1558c02`) = a whole-repo review (7 parallel
+  subsystem deep-reads → purpose · clarity · refactor · test gaps · start-again, a confirmed/latent bug table, a
+  test-strategy plan, a prioritized action list). Then executed its 'Do now' bucket (`ad878f1` + `10ae391`): **B1**
+  SnapshotBuilder resolves cells by the DOCUMENT-order index alone (`colourIndexByID`) — dropped the canonical-first
+  lookup that read the wrong SnapColour under any colour reorder (+`testColourResolvesByDocumentOrderNotCanonical…`);
+  **B2** corrected the `Cell.inputRow` 'inert' comments (render-inert but IDENTITY-LIVE via SealKey — don't delete);
+  **C1** `buildReconcileStagingSel` no longer resurrects an explicit −1 deselect (now pure `BuildSceneLogic.reconcile-
+  StagingSel`, tested); **C2** `buildTogglePerformRung` syncs `buildStagingSel` when the part is current so `buildSave-
+  Part` can't clobber a multi-rung selection; **C3** `buildGCColours` adds each part's stored `selID` to the liveset;
+  **item 3** NEW `AUExtension/BuildSceneLogic.swift` — `composeScene` + `reconcileStagingSel` pulled out of `build-
+  PublishScene` (BUILD's first unit-testable core; +9 `BuildSceneLogicTests`; `buildPublishScene` is now a thin
+  gather-and-publish shell); **fuzz** `randomDoc` widened to 40 colours (was 6) so cells reach index ≥16/≥33 — the
+  ephemeral/override-table corner where both recent bugs lived was never fuzzed; **the dead morph `t` axis DELETED**
+  (11 effective* sigs + 7 emit sigs + 52 call sites + 5 `t=0.0` locals + test sites + the truly-dead `Colour.morphByType`
+  — behaviour-preserving, `t` was always 0). DEFERRED (flagged, NOT low-risk): the `cellAudible` predicate dedup — the
+  five emit-path guards have INTENTIONAL variations (some include `busMask==0`, MOD splits the solo test), so collapsing
+  them would change behaviour. The review's medium/large items (BuildModel, colour-owned routing, design-system, split
+  `Router.process`, persisted-DTO) remain open in `Docs/codebase-review-2026-08-16.md` §12.**
 - **▶ THE BUILD PAGE — workshop-voice: quantized palette selection · stop-per-section · CHAIN-VIA-SCENE (2026-08-15,
   on `main`, PUSHED; iOS builds; DEVICE ear owed). Three device-driven asks on how the SHOP sections play. **QUANTIZED
   PALETTE SELECTION** (`990cba1`): choosing a different colour while the chain audition plays swaps the AUDIO on the
