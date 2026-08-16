@@ -1187,7 +1187,7 @@ extension DiagView {
         }
         if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }   // remember what THIS row displaces
         buildSetRow(row, to: cid)
-        for c in 0..<8 where !buildColumnHasSelection(c) { buildStagingSel[c] = row }   // auto-select only where the column has no pick
+        for c in 0..<8 { buildStagingSel[c] = row }              // the WHOLE new row becomes selected immediately (Paul 2026-08-16)
         buildStagingSyncIfPlaying()
     }
 
