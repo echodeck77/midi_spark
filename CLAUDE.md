@@ -180,7 +180,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   false positive in a doc-comment); **M3** preset/cell SAVE arms an OVERWRITE? confirm on `PresetStore.exists` so a
   same-(sanitized-)name save no longer silently clobbers (+sanitize-collision test). **SETTLED for later (Paul
   2026-08-16, memory `midispark-unassigned-part-persistence`):** the ONE BUILD unassigned part must be SAVED WITH THE
-  SCENE (the C4 persistence item) — not yet built; needs the ephemeral-colour-travel question answered first. The
+  document (Paul: option A 'saving = committing'; per-scene deferred). **BUILT (`190b5bd`):** `BuildPart` moved to
+  `AUExtension/BuildModel.swift` (Codable+Equatable); `PluginState.buildUnassigned: BuildUnassignedData?` (additive)
+  bundles the part + its ephemeral colours (machine + hue) + id-counter; saved via `fullState` (session-side
+  `pendingBuildUnassigned` folded into the encode copy), captured READ-ONLY from the poll (`buildPersistTick`) + the
+  tab hook, restored once via `consumeBuildUnassigned`. +round-trip test. STILL OPEN: the DEPLOYED play grid doesn't
+  persist yet (ties into the scenes work), and 'exactly one unassigned part' isn't a hard invariant yet. The
   review's medium/large items (BuildModel, colour-owned routing, full control-primitive migration, split `Router.process`,
   persisted-DTO) remain open in `Docs/codebase-review-2026-08-16.md` §12.**
 - **▶ THE BUILD PAGE — workshop-voice: quantized palette selection · stop-per-section · CHAIN-VIA-SCENE (2026-08-15,
