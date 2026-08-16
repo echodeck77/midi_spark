@@ -64,7 +64,7 @@ enum Dice {
     static let shaperTypes: [ProcessorType] =                       // upstream: a MOVING root / voicing (slow) — must
         Array(repeating: .arp, count: 3) + Array(repeating: .euclid, count: 2) +   // change the source, so NO drone (it just
         Array(repeating: .chance, count: 2) + [.harmonize, .tutti]                   // re-sustains the held chord → doesn't contribute upstream)
-    static let postFoldTypes: [ProcessorType] = [.chance, .chance, .harmonize, .tutti]   // per-tick/step HOLD transforms only (a driver here would BECOME the driver)
+    static let postFoldTypes: [ProcessorType] = [.chance, .chance, .harmonize, .tutti]   // per-tick/step HOLD transforms (a driver here would BECOME the driver). NOT length: the dice only rolls DParam values, so a rolled LENGTH = default all-PASS = a no-op
     static let slowRates: [ArpRate] = [.r1_4, .r1_8, .r1_8t]
     static let fastRates: [ArpRate] = [.r1_16, .r1_16t, .r1_32]
 
@@ -350,7 +350,7 @@ enum Dice {
         case .arp: return "ARP"; case .ratchet: return "RTC"; case .strum: return "STR"; case .passgate: return "GATE"
         case .chance: return "CHN"; case .harmonize: return "HRM"; case .echo: return "ECHO"; case .euclid: return "EUC"
         case .burst: return "BST"; case .cascade: return "CSC"; case .drone: return "DRN"; case .shift: return "SHF"
-        case .humanize: return "HUM"; case .tutti: return "TUT"; default: return "PROC"
+        case .humanize: return "HUM"; case .tutti: return "TUT"; case .length: return "LEN"; default: return "PROC"
         }
     }
 }

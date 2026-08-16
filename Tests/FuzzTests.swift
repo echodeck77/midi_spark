@@ -56,7 +56,8 @@ final class FuzzTests: XCTestCase {
                                       .euclid, .burst, .cascade, .drone, .shift, .humanize,   // the generators — hammered for no-stuck-notes across every edge
                                       .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
                                       .glide,   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
-                                      .tutti]   // SET-level chance — per-step SOLO/TUTTI subset; hammered for no-stuck-notes across every edge
+                                      .tutti,   // SET-level chance — per-step SOLO/TUTTI subset; hammered for no-stuck-notes across every edge
+                                      .length]  // per-slice GATE override — its re-articulator + downstream override hammered for no-stuck-notes
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -64,6 +65,7 @@ final class FuzzTests: XCTestCase {
         let colours = ids.map { id -> Colour in
             var c = Colour(colourID: id, type: types[r.int(types.count)])
             if c.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&c.paramsA, &r) }   // exercise the per-slice cadence
+            if c.type == .length && r.chance(0.5) { applyRandomLengthPattern(&c.paramsA, &r) }
             return c
         }
         var scene = SceneState.empty()
@@ -77,6 +79,7 @@ final class FuzzTests: XCTestCase {
                 cell.processors = (0..<n).map { _ -> ProcessorSlot in
                     var s = ProcessorSlot(type: types[r.int(types.count)])
                     if s.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&s.params, &r) }
+                    if s.type == .length && r.chance(0.5) { applyRandomLengthPattern(&s.params, &r) }
                     return s
                 }
             }
@@ -103,6 +106,12 @@ final class FuzzTests: XCTestCase {
         p.tuttiSlices = (0..<8).map { _ in TuttiSlice.allCases[r.int(TuttiSlice.allCases.count)] }   // incl. REST + octave shifts
         p.tuttiRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]                                 // incl. the fastest rates
         p.tuttiRotate = r.int(8)
+    }
+    private func applyRandomLengthPattern(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.lenSlices = (0..<8).map { _ in LenState.allCases[r.int(LenState.allCases.count)] }   // incl. MUTE cuts + SHORT/LONG
+        p.lenShort = Double(r.range(5, 95)) / 100
+        p.lenLong = Double(r.range(0, 100)) / 100                                                // incl. LONG rings-to-step-end
+        p.lenRotate = r.int(8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

@@ -281,6 +281,10 @@ enum SnapshotBuilder {
         if let v = p.tuttiSlices { var s = v; while s.count < 8 { s.append(.all) }; out.tuttiSlices = Array(s.prefix(8)) }
         if let v = p.tuttiRate { out.tuttiSliceBeats = max(0.03125, v.beats) }
         if let v = p.tuttiRotate { out.tuttiRotate = ((v % 8) + 8) % 8 }
+        if let v = p.lenSlices { var s = v; while s.count < 8 { s.append(.pass) }; out.lenSlices = Array(s.prefix(8)) }
+        if let v = p.lenShort { out.lenShort = clamp(v, 0.05, 0.95) }
+        if let v = p.lenLong { out.lenLong = clamp(v, 0, 1) }
+        if let v = p.lenRotate { out.lenRotate = ((v % 8) + 8) % 8 }
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }

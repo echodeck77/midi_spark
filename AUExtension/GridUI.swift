@@ -1241,6 +1241,7 @@ struct ProcessorBox: View {
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
+    @State private var lenPaint: LenState = .mute        // LENGTH: the brush — defaults to MUTE so it contrasts with the all-PASS slices (first tap carves a visible rest)
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1378,6 +1379,7 @@ struct ProcessorBox: View {
         case .mod:       return "a shaped CC on the emitters (sounds no notes)"
         case .glide:     return "one sliding voice — steps glide, leaps re-strike"
         case .tutti:     return "per step: one note (SOLO) or the whole chord (TUTTI)"
+        case .length:    return "shape how long each note sounds, per slice"
         }
     }
 
@@ -1575,6 +1577,37 @@ struct ProcessorBox: View {
                 field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
                     setParam { $0.tuttiRotate = i } } }
             }
+        case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG drawn as bars (how long the note sounds in the slice)
+            field("PAINT — pick a length, then tap the slices") { HStack(spacing: 4) {
+                ForEach(LenState.allCases, id: \.self) { st in
+                    let on = (lenPaint == st)
+                    lenGlyph(st, tint: on ? .black : accent)
+                        .frame(maxWidth: .infinity).frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : accent.opacity(0.14)))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white : .clear, lineWidth: 2))
+                        .contentShape(Rectangle()).onTapGesture { lenPaint = st }
+                }
+            } }
+            Text("brush:  \(lenName(lenPaint))")
+                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            field("SLICES — the step, left → right") { HStack(spacing: 4) {
+                ForEach(0..<8, id: \.self) { i in
+                    let cur = lenSliceAt(p.lenSlices, i)
+                    lenGlyph(cur, tint: cur == .mute ? .white.opacity(0.35) : .black)
+                        .frame(maxWidth: .infinity).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(cur == .mute ? Color.white.opacity(0.06) : accent.opacity(0.8)))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                        .contentShape(Rectangle())
+                        .onTapGesture { setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = lenPaint; $0.lenSlices = s } }
+                }
+            } }
+            field("SHORT gate  \(Int((p.lenShort ?? 0.4) * 100))% of a slice") {
+                Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) }
+            field("LONG length  \(Int((p.lenLong ?? 0.7) * 100))%  (25% … step end)") {
+                Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
+            field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
+                setParam { $0.lenRotate = i } } }
         }
     }
 
@@ -1624,6 +1657,37 @@ struct ProcessorBox: View {
                 if oct != 0 { Image(systemName: oct > 0 ? "arrow.up" : "arrow.down").font(.system(size: 8, weight: .heavy)).foregroundColor(tint) }
             }
         }
+    }
+
+    private func lenName(_ s: LenState) -> String {
+        switch s {
+        case .pass:  return "PASS — the chord keeps sounding (sustain)"
+        case .mute:  return "MUTE — silence (a rest)"
+        case .short: return "SHORT — a staccato stab"
+        case .long:  return "LONG — a re-attacked long note"
+        }
+    }
+    private func lenSliceAt(_ arr: [LenState]?, _ i: Int) -> LenState {   // safe read (a loaded doc may carry <8)
+        let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .pass
+    }
+    /// LENGTH glyph — a bar showing how long the note sounds in the slice: MUTE a dot (silent), SHORT a short bar with an
+    /// attack tick, LONG a full bar with an attack tick, PASS a dim full bar (sustained, no re-attack).
+    @ViewBuilder private func lenGlyph(_ s: LenState, tint: Color) -> some View {
+        HStack(spacing: 1) {
+            switch s {
+            case .mute:
+                Spacer(minLength: 0); Circle().fill(tint.opacity(0.6)).frame(width: 4, height: 4); Spacer(minLength: 0)
+            case .short:
+                Rectangle().fill(Color.white).frame(width: 2, height: 12)
+                RoundedRectangle(cornerRadius: 1).fill(tint).frame(width: 10, height: 8); Spacer(minLength: 0)
+            case .long:
+                Rectangle().fill(Color.white).frame(width: 2, height: 12)
+                RoundedRectangle(cornerRadius: 1).fill(tint).frame(maxWidth: .infinity).frame(height: 8)
+            case .pass:
+                RoundedRectangle(cornerRadius: 1).fill(tint.opacity(0.45)).frame(maxWidth: .infinity).frame(height: 8)
+            }
+        }
+        .padding(.horizontal, 4)
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
     private func grid16(sel: Int, _ set: @escaping (Int) -> Void) -> some View {

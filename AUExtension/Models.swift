@@ -19,6 +19,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case mod = "MOD"           // CC GENERATOR (delta "THE MOD PROCESSOR") — a beat-derived shaped CC on the cell's emitters; sounds NO notes
     case glide = "GLIDE"       // notes→PITCH-BEND translator — one mono sliding voice; steps GLIDE, leaps ARTICULATE
     case tutti = "TUTTI"       // SET-level chance (CHANCE's cousin): per step SOLO (one note) or TUTTI (the full set); a HOLD transform, never a driver
+    case length = "LENGTH"     // per-slice GATE override (DURATION axis; CHOP routes · LENGTH shapes): PASS/MUTE/SHORT/LONG across 8 slices
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -74,6 +75,10 @@ enum TuttiSlice: String, Codable, CaseIterable {
     case all = "ALL", low = "LOW", high = "HIGH", top2 = "TOP2", bot2 = "BOT2",
          lowOct = "LOW+8", allDownOct = "ALL−8", rest = "REST"
 }
+// LENGTH (working name; Paul 2026-08-05) — per-slice GATE override. Four DISTINCT states: PASS = the chord stays
+// present/sustained (ties, no re-attack) · MUTE = silence (a rest) · SHORT = a staccato stab · LONG = a re-attacked
+// long note. Painted across 8 slices of the step; standalone it carves a held chord, downstream it overrides gates.
+enum LenState: String, Codable, CaseIterable { case pass = "PASS", mute = "MUTE", short = "SHORT", long = "LONG" }
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -151,6 +156,12 @@ struct ColourParams: Codable, Equatable {
     var tuttiSlices: [TuttiSlice]? = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 slice set-shapes
     var tuttiRate: ArpRate? = .r1_8     // PATTERN: slices per window (reuses the arp rate divisions)
     var tuttiRotate: Int? = 0           // PATTERN: rotate the slice pattern along the bar (0…7)
+    // LENGTH (Paul 2026-08-05) — 8 slices of the STEP (like CHOP), each PASS/MUTE/SHORT/LONG, plus two gate lengths +
+    // ROTATE. Default all-PASS = the chord sustains. Append-only Optional (old docs decode nil → defaults).
+    var lenSlices: [LenState]? = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
+    var lenShort: Double? = 0.4         // SHORT gate = 5…95% of ONE slice (staccato)
+    var lenLong: Double? = 0.7          // LONG length 0…1 → 25% of a slice … the STEP end (rings across slices)
+    var lenRotate: Int? = 0             // rotate the slice pattern (0…7)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

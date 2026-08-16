@@ -183,6 +183,11 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "tuttiMode", label: "MODE", kind: .option(TuttiMode.allCases.map(\.rawValue))),
                 MacroControlParam(key: "tuttiBalance", label: "SOLO↔TUTTI", kind: .continuous(lo: 0, hi: 1)),
                 MacroControlParam(key: "tuttiPick", label: "PICK", kind: .option(TuttiPick.allCases.map(\.rawValue)))]
+    case .length:
+        return [bypass,
+                MacroControlParam(key: "lenShort", label: "SHORT", kind: .continuous(lo: 0.05, hi: 0.95)),
+                MacroControlParam(key: "lenLong", label: "LONG", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "lenRotate", label: "ROTATE", kind: .stepper(lo: 0, hi: 7))]
     }
 }
 
@@ -239,6 +244,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "tuttiMode":    v[param.key] = optionIndex(p.tuttiMode)
         case "tuttiBalance": v[param.key] = p.tuttiBalance ?? 0.5
         case "tuttiPick":    v[param.key] = optionIndex(p.tuttiPick)
+        case "lenShort":     v[param.key] = p.lenShort ?? 0.4
+        case "lenLong":      v[param.key] = p.lenLong ?? 0.7
+        case "lenRotate":    v[param.key] = Double(p.lenRotate ?? 0)
         default: break
         }
     }
@@ -287,6 +295,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "tuttiMode":    s.params.tuttiMode = caseAt(val, TuttiMode.self)
         case "tuttiBalance": s.params.tuttiBalance = clamp(val, 0, 1)
         case "tuttiPick":    s.params.tuttiPick = caseAt(val, TuttiPick.self)
+        case "lenShort":     s.params.lenShort = clamp(val, 0.05, 0.95)
+        case "lenLong":      s.params.lenLong = clamp(val, 0, 1)
+        case "lenRotate":    s.params.lenRotate = clamp(Int(val.rounded()), 0, 7)
         default: break
         }
     }

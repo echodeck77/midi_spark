@@ -1766,4 +1766,47 @@ final class DerivationsTests: XCTestCase {
             XCTAssertEqual(Int(lo) - Int(l), 12, "LOW+8 sounds an octave above LOW")
         } else { XCTFail("LOW / LOW+8 should each sound one note") }
     }
+
+    // MARK: - LENGTH (Paul 2026-08-05): per-slice GATE override — the event model + downstream gate
+
+    func testLengthAllPassIsOneSustain() {
+        let e = lengthColumnEvents(slices: Array(repeating: .pass, count: 8), rotate: 0, shortFrac: 0.4, longFrac: 0.7, colStart: 0, S: 4)
+        XCTAssertEqual(e.count, 1, "all-PASS = one sustained note")
+        XCTAssertEqual(e[0].on, 0, accuracy: 1e-9)
+        XCTAssertEqual(e[0].off, 4, accuracy: 1e-9, "sustains to the step end")
+    }
+    func testLengthAllMuteIsSilent() {
+        XCTAssertTrue(lengthColumnEvents(slices: Array(repeating: .mute, count: 8), rotate: 0, shortFrac: 0.4, longFrac: 0.7, colStart: 0, S: 4).isEmpty)
+    }
+    func testLengthAllShortIsEightStabs() {
+        let e = lengthColumnEvents(slices: Array(repeating: .short, count: 8), rotate: 0, shortFrac: 0.5, longFrac: 0.7, colStart: 0, S: 8)   // sliceLen = 1
+        XCTAssertEqual(e.count, 8, "8 staccato strikes")
+        XCTAssertEqual(e[0].on, 0, accuracy: 1e-9); XCTAssertEqual(e[0].off, 0.5, accuracy: 1e-9, "SHORT gate = 0.5 of a 1-beat slice")
+        XCTAssertEqual(e[1].on, 1, accuracy: 1e-9)
+    }
+    func testLengthLongTiesThroughPassCutByMute() {
+        // LONG at 0 (rings to step end), PASS 1–2 (tie), MUTE 3 (cut), PASS 4–7 (resume, sustain to end)
+        let s: [LenState] = [.long, .pass, .pass, .mute, .pass, .pass, .pass, .pass]
+        let e = lengthColumnEvents(slices: s, rotate: 0, shortFrac: 0.4, longFrac: 1.0, colStart: 0, S: 8)
+        XCTAssertEqual(e.count, 2)
+        XCTAssertEqual(e[0].on, 0, accuracy: 1e-9); XCTAssertEqual(e[0].off, 3, accuracy: 1e-9, "LONG rings through PASS, cut at the MUTE (slice 3)")
+        XCTAssertEqual(e[1].on, 4, accuracy: 1e-9); XCTAssertEqual(e[1].off, 8, accuracy: 1e-9, "PASS resumes after the rest, sustains to end")
+    }
+    func testLengthGateForDownstream() {
+        XCTAssertEqual(lengthGateFor(.mute, onset: 0, shortFrac: 0.4, longFrac: 0.7, S: 8), .drop)
+        XCTAssertEqual(lengthGateFor(.pass, onset: 0, shortFrac: 0.4, longFrac: 0.7, S: 8), .keep)
+        if case .overrideOff(let o) = lengthGateFor(.short, onset: 0, shortFrac: 0.5, longFrac: 0.7, S: 8) {
+            XCTAssertEqual(o, 0.5, accuracy: 1e-9, "SHORT downstream off = onset + 0.5·sliceLen(=1)")
+        } else { XCTFail("SHORT should override the off") }
+    }
+    func testLengthEngineMuteSilentAndShortReArticulates() {   // through the REAL Router (the probe holds C-E-G)
+        func ons(_ slices: [LenState]) -> Int {
+            var s = ProcessorSlot(type: .length); s.params.lenSlices = slices; s.params.lenShort = 0.4; s.params.lenLong = 0.7
+            return Dice.runRecorder([s]).ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(ons(Array(repeating: .mute, count: 8)), 0, "all-MUTE → silence")
+        let pass = ons(Array(repeating: .pass, count: 8)), short = ons(Array(repeating: .short, count: 8))
+        XCTAssertGreaterThan(pass, 0, "all-PASS → the chord sounds")
+        XCTAssertGreaterThan(short, pass, "all-SHORT re-strikes every slice → more note-ons than the tied PASS sustain")
+    }
 }

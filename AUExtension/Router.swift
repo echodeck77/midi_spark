@@ -1789,6 +1789,10 @@ final class Router {
                                         pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                                         windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
                 }
+            case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
+                emitLengthRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                              pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .silent:
                 break   // closed passgate → nothing this window
             }
@@ -2051,7 +2055,7 @@ final class Router {
                 if !emits { continue }
                 if hasDownstream {   // fold the post-driver stages onto each generated note (a downstream passgate/harmonize/…)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT,
-                                   windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, pass: diag.pass, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else if tbm != 0 {
                     emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
                 }
@@ -2206,6 +2210,40 @@ final class Router {
         }
     }
 
+    /// LENGTH (standalone): re-articulate the held chord per the painted 8-slice gate. Events (on/off beats) are the
+    /// pure `lengthColumnEvents` (PASS ties, MUTE rests + cuts, SHORT staccato, LONG rings) — this just strikes ALL
+    /// source notes at each event with its off. Not a driver; single-slot LENGTH reaches here via the tick loop.
+    /// No stuck notes: finite offs capped at the step end, through the same emitArtic lifecycle the generators use.
+    private func emitLengthRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+                               pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
+                               windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                               out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard S > 0 else { return }
+        let p = colour.a
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        var srcNotes: [(note: Int, vel: UInt8)] = []
+        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+        guard !srcNotes.isEmpty else { return }
+        var col = columnStart(mWinStart, S)
+        while col < mWinEnd {
+            let events = lengthColumnEvents(slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: S)
+            for e in events where e.on >= mWinStart && e.on < mWinEnd {
+                let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                let tbm = chopMask(cell, m: e.on, S: S, base: bm)
+                for sn in srcNotes {
+                    let n = sn.note + transpose
+                    guard n >= 0 && n <= 127 else { continue }
+                    storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
+                    if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, sn.vel), out: out, diag: &diag) }
+                }
+            }
+            col += S
+        }
+    }
+
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
     /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
     /// probability, harmonize expands to voices, an ARP mid-chain collapses the set to its one note at m.
@@ -2295,7 +2333,7 @@ final class Router {
     /// after composeChainSet has produced the driver's source (chainScratch is no longer needed by this tick).
     private func emitDriverNote(_ note: Int, cell: SnapCell, driver: Int, bm: UInt8,
                                 onSample: Int64, offSample: Int64, windowEnd: Int64, velocity: UInt8,
-                                m: Double, S: Double, cycleBeats: Double, pass: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
+                                m: Double, S: Double, cycleBeats: Double, beatsPerSample: Double, pass: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard note >= 0 && note <= 127 else { return }
         if driver >= cell.procs.count - 1 {                       // driver IS the tail → no post-stages
             emitChop(note, cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: velocity, m: m, S: S, out: out, diag: &diag)
@@ -2311,6 +2349,7 @@ final class Router {
         // MUTE drops it (echoes only). (v1: echo's chain POSITION no longer changes the tail's content — it always
         // echoes the final set; per-repeat-as-it-fires processing is the deeper "hand the tails" work.)
         var echoP: SnapParams? = nil
+        var lenP: SnapParams? = nil   // LENGTH downstream (last-writer wins): overrides each onset's gate by its slice
         var j = driver + 1
         while j < cell.procs.count {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
@@ -2318,6 +2357,8 @@ final class Router {
                     echoP = cell.procs[j]   // hold the params; the tails register once the fold completes (below)
                 } else if cell.procs[j].type == .mod || cell.procs[j].type == .glide {
                     // MOD/GLIDE are note-transparent in the fold — their output is emitted separately (v1: [driver→GLIDE] plays the driver).
+                } else if cell.procs[j].type == .length {
+                    lenP = cell.procs[j]   // note-transparent SET-wise; its gate override lands on the final emit (below)
                 } else {
                     let mode = cellMode(type: cell.procs[j].type, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
                     nxt.reset()
@@ -2326,6 +2367,19 @@ final class Router {
                 }
             }
             j += 1
+        }
+        // LENGTH downstream: replace THIS onset's gate by the slice it lands in — MUTE drops the note (+ its echoes),
+        // PASS keeps the driver's own gate, SHORT/LONG override the off. The off-beat → sample conversion is linear
+        // in `beatsPerSample` (gate offs, not onsets, so intra-column swing warp is negligible here).
+        var offOut = offSample
+        if let lp = lenP {
+            let sIdx = ((chopSlice(m, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
+            let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
+            switch lengthGateFor(st, onset: m, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
+            case .drop:                cur.reset(); cur.rebuildSorted()   // MUTE → no note, no echoes
+            case .keep:                break
+            case .overrideOff(let ob): offOut = onSample + Int64((max(0, ob - m) / beatsPerSample).rounded())
+            }
         }
         if let ep = echoP {   // echo the fully-processed set (all downstream stages applied)
             // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
@@ -2339,8 +2393,8 @@ final class Router {
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
-            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offSample, windowEnd: windowEnd,
-                     velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity
+            emitChop(Int(n), cell: cell, bm: bm, onSample: onSample, offSample: offOut, windowEnd: windowEnd,
+                     velocity: max(1, cur.velocity(n)), m: m, S: S, out: out, diag: &diag)   // per-note carried velocity (offOut = LENGTH-overridden gate)
         }
     }
     /// Register an echo tail for ONE tick note ([ARP→ECHO]) at beat `onset`. v1 tick-echo is SYNCED-delay only (the
@@ -2418,7 +2472,7 @@ final class Router {
                 // §cell-edit F CHOP + the chain's post-driver stages fold onto each arp note (e.g. a downstream passgate).
                 if chainDriver >= 0 {
                     emitDriverNote(noteValue, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
-                                   windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: srcVel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else {
                     emitChop(noteValue, cell: cell, bm: bm, onSample: onTime, offSample: offTime, windowEnd: windowEnd,
                              velocity: srcVel, m: mTickBeat, S: S, out: out, diag: &diag)
@@ -2462,7 +2516,7 @@ final class Router {
                     if emits {
                         let vel = ratchetVelocity(base: max(1, Int(chainScratch.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // ramp the inherited velocity
                         emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,   // raw bm — emitChop applies the slice
-                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
+                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                     }
                 }
             } else {
@@ -2521,7 +2575,7 @@ final class Router {
             if emits {
                 if chainDriver >= 0 {   // fold each strummed note through the stages AFTER the strum (e.g. a downstream passgate)
                     emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offSample,
-                                   windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, pass: diag.pass, out: out, diag: &diag)
+                                   windowEnd: windowEnd, velocity: vel, m: onsetMusical, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 } else {
                     emitArtic(note: UInt8(n), busMask: bm, onSample: onT, offSample: offSample,
                               windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)

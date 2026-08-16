@@ -558,6 +558,67 @@ func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: 
     }
 }
 
+// MARK: - LENGTH (Paul 2026-08-05): per-slice GATE override — 8 slices of the STEP, PASS/MUTE/SHORT/LONG
+
+/// The note-on events (musical on/off beats) for ONE column's 8 slices — the STANDALONE re-articulator. PASS
+/// sustains/TIES (no re-attack while ringing; resumes with a fresh sustain after silence), MUTE silences (and cuts a
+/// ringing note), SHORT is staccato (5–95% of a slice), LONG rings (0.25 slice … the STEP end). Pure + window-
+/// independent (recomputed per column from `colStart`); every off is capped at the column end (nothing rings past the
+/// step — the envelope law). `rotate` shifts which painted slice maps to which time-slice.
+func lengthColumnEvents(slices: [LenState], rotate: Int, shortFrac: Double, longFrac: Double,
+                        colStart: Double, S: Double) -> [(on: Double, off: Double)] {
+    guard S > 0, !slices.isEmpty else { return [] }
+    let sliceLen = S / 8
+    let colEnd = colStart + S
+    let sf = max(0.05, min(0.95, shortFrac)), lf = max(0.0, min(1.0, longFrac))
+    let eps = sliceLen * 1e-6
+    var events: [(on: Double, off: Double)] = []
+    var lastIdx = -1
+    var lastOff = -Double.greatestFiniteMagnitude
+    for s in 0..<8 {
+        let tau = colStart + Double(s) * sliceLen
+        let sliceEnd = tau + sliceLen
+        let state = slices[((s + rotate) % slices.count + slices.count) % slices.count]
+        switch state {
+        case .mute:
+            if lastOff > tau + eps { events[lastIdx].off = tau; lastOff = tau }        // cut a ringing note at the rest
+        case .short:
+            if lastOff > tau + eps { events[lastIdx].off = tau }                       // a re-attack cuts the prior ring
+            let off = min(colEnd, tau + sf * sliceLen)
+            events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+        case .long:
+            if lastOff > tau + eps { events[lastIdx].off = tau }
+            let longLen = 0.25 * sliceLen + lf * max(0, (colEnd - tau) - 0.25 * sliceLen)
+            let off = min(colEnd, tau + longLen)
+            events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+        case .pass:
+            if lastOff >= tau - eps {                                                  // still ringing → TIE (extend, no re-attack)
+                let newOff = min(colEnd, max(lastOff, sliceEnd)); events[lastIdx].off = newOff; lastOff = newOff
+            } else {                                                                   // silence behind → resume, sustained
+                let off = min(colEnd, sliceEnd); events.append((tau, off)); lastIdx = events.count - 1; lastOff = off
+            }
+        }
+    }
+    return events
+}
+
+/// LENGTH — the per-onset gate decision for the DOWNSTREAM case (LENGTH after a driver: each existing onset gets its
+/// gate replaced by the slice it lands in — no new notes). MUTE = drop, PASS = keep the driver's own off, SHORT/LONG =
+/// a new off beat (capped at the step end). Pure.
+enum LengthGate: Equatable { case drop, keep, overrideOff(Double) }
+func lengthGateFor(_ state: LenState, onset: Double, shortFrac: Double, longFrac: Double, S: Double) -> LengthGate {
+    guard S > 0 else { return .keep }
+    let colStart = columnStart(onset, S), colEnd = colStart + S, sliceLen = S / 8
+    switch state {
+    case .mute: return .drop
+    case .pass: return .keep
+    case .short: return .overrideOff(min(colEnd, onset + max(0.05, min(0.95, shortFrac)) * sliceLen))
+    case .long:
+        let lf = max(0.0, min(1.0, longFrac))
+        return .overrideOff(min(colEnd, onset + 0.25 * sliceLen + lf * max(0, (colEnd - onset) - 0.25 * sliceLen)))
+    }
+}
+
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
 /// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads
@@ -712,7 +773,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -926,6 +987,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .mod:       return .silent                          // CC GENERATOR — sounds NO notes (its CC is emitted separately)
     case .glide:     return .silent                          // notes→pitch-bend — its ONE mono voice is emitted separately (emitColumnGlide)
     case .tutti:     return .tutti                            // SET-level chance — a per-step HOLD transform (SOLO/TUTTI), never a driver
+    case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1102,6 +1164,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .strum:     return "fanblades.fill"              // the fan
     case .chance:    return "die.face.5.fill"             // the die
     case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
+    case .length:    return "ruler"                        // the measured duration
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
     case .echo:      return "repeat"                       // the tail
     case .euclid:    return "circle.grid.cross"            // the K-of-N grid
