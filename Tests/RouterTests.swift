@@ -456,6 +456,24 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 3, "the 3-note chord revealed one note at a time")
         assertNothingLeftSounding(e)
     }
+    func testCascadePlaysOnlyPopulatedColumnsProportionally() {
+        // Ground truth for Paul's "only column N matters" report (2026-08-16): a cascade cell sounds ONLY in its own
+        // column (the render row-loop keys on the active column's cells; cascade notes gate to their column boundary,
+        // never adopted), so a sparse scene plays proportionally — the whole equals the sum of its columns. No inversion.
+        func cascadeCols(_ cols: [Int]) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade); c.paramsA.rate = .r1_8; return c }) {
+                for c in cols { $0.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }
+            }
+        }
+        func ons(_ cols: [Int]) -> Int {
+            let e = RecordingEmitter()
+            run(cascadeCols(cols), chord([60, 64, 67]), beats: 8, into: e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let all = ons(Array(0..<8)); let onlyC2 = ons([2]); let allButC2 = ons([0, 1, 3, 4, 5, 6, 7])
+        XCTAssertEqual(all, onlyC2 + allButC2, "cascade sounds where the cells are — the whole = the sum of the columns")
+        XCTAssertGreaterThan(allButC2, onlyC2, "7 populated columns emit more than 1 — the engine never inverts")
+    }
     func testDroneHoldsTheChordAsAPad() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .drone)
             c.paramsA.gate = 0.6; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
