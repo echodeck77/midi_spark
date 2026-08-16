@@ -174,8 +174,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   (11 effective* sigs + 7 emit sigs + 52 call sites + 5 `t=0.0` locals + test sites + the truly-dead `Colour.morphByType`
   — behaviour-preserving, `t` was always 0). DEFERRED (flagged, NOT low-risk): the `cellAudible` predicate dedup — the
   five emit-path guards have INTENTIONAL variations (some include `busMask==0`, MOD splits the solo test), so collapsing
-  them would change behaviour. The review's medium/large items (BuildModel, colour-owned routing, design-system, split
-  `Router.process`, persisted-DTO) remain open in `Docs/codebase-review-2026-08-16.md` §12.**
+  them would change behaviour. **Then the 'Do soon' first slice (`c1955e2`):** a **design kit** (`AUExtension/DesignKit.swift`
+  — `UI.cyan/amber/red/green/editHue/ink` tokens, migrated across 10 files, values unchanged; + a reusable `PillToggle`
+  for incremental adoption); **M2** the one broken manual anchor `#tab-bar` (added to `manual-skeleton.md`; `#id` was a
+  false positive in a doc-comment); **M3** preset/cell SAVE arms an OVERWRITE? confirm on `PresetStore.exists` so a
+  same-(sanitized-)name save no longer silently clobbers (+sanitize-collision test). **SETTLED for later (Paul
+  2026-08-16, memory `midispark-unassigned-part-persistence`):** the ONE BUILD unassigned part must be SAVED WITH THE
+  SCENE (the C4 persistence item) — not yet built; needs the ephemeral-colour-travel question answered first. The
+  review's medium/large items (BuildModel, colour-owned routing, full control-primitive migration, split `Router.process`,
+  persisted-DTO) remain open in `Docs/codebase-review-2026-08-16.md` §12.**
 - **▶ THE BUILD PAGE — workshop-voice: quantized palette selection · stop-per-section · CHAIN-VIA-SCENE (2026-08-15,
   on `main`, PUSHED; iOS builds; DEVICE ear owed). Three device-driven asks on how the SHOP sections play. **QUANTIZED
   PALETTE SELECTION** (`990cba1`): choosing a different colour while the chain audition plays swaps the AUDIO on the
