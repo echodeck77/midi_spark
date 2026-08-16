@@ -1240,7 +1240,7 @@ struct ProcessorBox: View {
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
-    @State private var tuttiPaint: TuttiSlice = .all     // TUTTI PATTERN: the shape currently loaded on the brush
+    @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1545,22 +1545,34 @@ struct ProcessorBox: View {
                 field("PICK  (which note carries a SOLO step)") { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
-                field("PAINT  (pick a shape, then tap slices)") { seg(TuttiSlice.allCases.map(tuttiGlyph), sel: tuttiGlyph(tuttiPaint)) { i in
-                    tuttiPaint = TuttiSlice.allCases[i] } }
-                field("SLICES  (the pattern walks the bar at RATE)") { HStack(spacing: 4) {
+                // PAINT palette — each chip DRAWS the chord shape (dots = which notes sound); tap to load the brush.
+                field("PAINT — pick a shape, then tap the slices below") { HStack(spacing: 4) {
+                    ForEach(TuttiSlice.allCases, id: \.self) { st in
+                        let on = (tuttiPaint == st)
+                        tuttiShapeIcon(st, tint: on ? .black : accent)
+                            .frame(maxWidth: .infinity).frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : accent.opacity(0.14)))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white : .clear, lineWidth: 2))
+                            .contentShape(Rectangle()).onTapGesture { tuttiPaint = st }
+                    }
+                } }
+                Text("brush:  \(tuttiName(tuttiPaint))")   // names the loaded shape in plain English (learn by picking)
+                    .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                field("SLICES — the bar plays these left → right at RATE") { HStack(spacing: 4) {
                     ForEach(0..<8, id: \.self) { i in
                         let cur = tuttiSliceAt(p.tuttiSlices, i)
-                        Text(tuttiGlyph(cur)).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                            .foregroundColor(cur == .rest ? .white.opacity(0.4) : .black)
-                            .frame(maxWidth: .infinity).frame(height: 38)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(cur == .rest ? Color.white.opacity(0.08) : accent.opacity(0.85)))
+                        tuttiShapeIcon(cur, tint: cur == .rest ? .white.opacity(0.35) : .black)
+                            .frame(maxWidth: .infinity).frame(height: 40)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(cur == .rest ? Color.white.opacity(0.06) : accent.opacity(0.85)))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))   // reads as a tappable cell
                             .contentShape(Rectangle())
                             .onTapGesture { setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = tuttiPaint; $0.tuttiSlices = s } }
                     }
                 } }
-                field("RATE  (slices per bar)") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
+                field("RATE — how many slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
-                field("ROTATE  \(p.tuttiRotate ?? 0)") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
+                field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
                     setParam { $0.tuttiRotate = i } } }
             }
         }
@@ -1569,11 +1581,48 @@ struct ProcessorBox: View {
     private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .all
     }
-    /// TUTTI PATTERN slice glyph — a compact label for the painter/row (the palette is settling; states are cheap to cull).
-    private func tuttiGlyph(_ s: TuttiSlice) -> String {
+    /// TUTTI PATTERN — the shape's plain-English name (the caption teaches the vocabulary without a legend).
+    private func tuttiName(_ s: TuttiSlice) -> String {
         switch s {
-        case .all: return "ALL"; case .low: return "LO"; case .high: return "HI"; case .top2: return "T2"
-        case .bot2: return "B2"; case .lowOct: return "L+8"; case .allDownOct: return "A−8"; case .rest: return "·"
+        case .all:        return "ALL — the whole chord"
+        case .low:        return "LOW — the bottom note"
+        case .high:       return "HIGH — the top note"
+        case .top2:       return "TOP 2 — the two highest notes"
+        case .bot2:       return "BOT 2 — the two lowest notes"
+        case .lowOct:     return "LOW +8ᵛᵃ — bottom note, an octave up"
+        case .allDownOct: return "ALL −8ᵛᵃ — whole chord, an octave down"
+        case .rest:       return "REST — a silent slice"
+        }
+    }
+    /// TUTTI PATTERN — DRAW the chord shape: 3 stacked dots (top = high note … bottom = low), filled = sounds; an
+    /// arrow marks an octave shift; REST is a dash. Language-free, so T2/B2/L+8 don't need decoding.
+    private func tuttiShapeFill(_ s: TuttiSlice) -> (fill: [Bool], oct: Int) {   // [low, mid, high] filled + octave shift
+        switch s {
+        case .all:        return ([true, true, true], 0)
+        case .low:        return ([true, false, false], 0)
+        case .high:       return ([false, false, true], 0)
+        case .top2:       return ([false, true, true], 0)
+        case .bot2:       return ([true, true, false], 0)
+        case .lowOct:     return ([true, false, false], 1)
+        case .allDownOct: return ([true, true, true], -1)
+        case .rest:       return ([false, false, false], 0)
+        }
+    }
+    @ViewBuilder private func tuttiShapeIcon(_ s: TuttiSlice, tint: Color) -> some View {
+        let (fill, oct) = tuttiShapeFill(s)
+        if s == .rest {
+            Text("—").font(.system(size: 13, weight: .heavy)).foregroundColor(tint)
+        } else {
+            HStack(spacing: 2) {
+                VStack(spacing: 2) {
+                    ForEach([2, 1, 0], id: \.self) { i in   // top → bottom = high → low
+                        Circle().fill(fill[i] ? tint : .clear)
+                            .overlay(Circle().stroke(tint.opacity(fill[i] ? 0 : 0.45), lineWidth: 1))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                if oct != 0 { Image(systemName: oct > 0 ? "arrow.up" : "arrow.down").font(.system(size: 8, weight: .heavy)).foregroundColor(tint) }
+            }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
