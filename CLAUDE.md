@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ LENGTH PROCESSOR LANDED (2026-08-16, on `main`, PUSHED; `3d28fc6`; iOS builds, macOS 651 green). The 17th
+  ProcessorType (`AcceptanceCriteria-length-processor.md`): per-slice GATE override — 8 slices of the step, each PASS
+  (sustain/tie) · MUTE (rest) · SHORT (staccato) · LONG (re-attacked ring), + SHORT/LONG sliders + ROTATE. Paul ruled
+  ONE unified 4-state grid (no mode switch) covering all three uses: trance-gate a held chord (PASS+MUTE), step-rhythm
+  (SHORT/LONG+MUTE), gate-shape an arp downstream. Dual-nature like TUTTI PATTERN: STANDALONE re-articulates via
+  `emitLengthRow` + the pure `lengthColumnEvents` (tie/cut look-ahead, offs capped at the step); DOWNSTREAM overrides
+  each onset's gate in the per-note fold `emitDriverNote` (last-writer; MUTE drops/PASS keeps/SHORT·LONG override —
+  `beatsPerSample` threaded for the off-beat→sample conversion), NOT applyStage (no durations there). SHORT+LONG are
+  foldable MacroParams. UI: ProcessorBox `.length` face (drawn bars + brush caption; brush defaults to MUTE). NOT in
+  the dice rosters (rolled LENGTH = all-PASS no-op — this seed-perturbed DiceTests until removed). Outstanding
+  processors remaining: WEAVE (driver) + SPLIT.**
 - **▶ TUTTI PROCESSOR LANDED — both modes (2026-08-16, on `main`, PUSHED; COIN `a780e19` + PATTERN `793808a`; iOS
   builds, macOS 645 green). The 16th ProcessorType (`AcceptanceCriteria-tutti-processor.md`): SET-level chance,
   CHANCE's cousin. ONE processor, MODE radio. **COIN**: one seeded roll per STEP → TUTTI (full chord) or SOLO (one

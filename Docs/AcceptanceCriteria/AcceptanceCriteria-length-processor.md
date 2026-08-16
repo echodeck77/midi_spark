@@ -1,5 +1,10 @@
 # AcceptanceCriteria — LENGTH (working name): the per-slice GATE-OVERRIDE processor (captured 2026-08-05)
 
+> ✅ BUILT (2026-08-16, `3d28fc6`). Ruled as ONE unified 4-state grid (PASS/MUTE/SHORT/LONG, no mode switch) —
+> PASS sustains/ties, MUTE rests, SHORT staccato, LONG re-attacked ring. Standalone re-articulates the held chord;
+> downstream overrides each onset's gate by its slice. LENGTH-ROTATE shipped. (The 8×3 SHORT/LONG/MUTE grid became a
+> single-row 4-state paint grid, since PASS earned first-class status as the sustain/tie.)
+
 **STATUS: CAPTURED, NOT BUILT.** From `SPEC-length-processor`. The articulation family's DURATION axis (CHOP routes ·
 GROOVE touches · LENGTH decides how long notes live). Kin widget: the shipped CHOP 8×3 grid, reused wholesale.
 
