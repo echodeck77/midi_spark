@@ -89,6 +89,7 @@ targets:
       - path: AUExtension/Router.swift      # the render engine — now Foundation-only, unit-testable
       - path: AUExtension/PresetStore.swift  # PRESETS v1 — name sanitize + document round-trip (pure surface)
       - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
+      - path: AUExtension/BuildSelfTest.swift # in-app MIDI-output self-tests — validated off-device by the meta-test
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

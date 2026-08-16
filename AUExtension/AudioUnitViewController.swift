@@ -275,8 +275,9 @@ struct DiagView: View {
     @State var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set
     @State var emitterFootSolo: UInt8 = 0  // emitter strip: the foot SOLO button set (OR'd into the derived mask)
     @State var emitterOctave: [Int] = [0, 0, 0, 0]   // emitter strip: per-emitter output ±octave nudge (ephemeral)
-    @State var showDevLoader = false                 // dev-build: the hidden T-session loader overlay is showing
+    @State var showDevLoader = false                 // dev-build: the hidden MIDI self-test overlay is showing
     #if DEBUG
+    @State var selfTestResults: [SelfTestResult] = []  // the in-app MIDI-output self-tests, run on the dev overlay
     @State private var chaos = ChaosDriver()          // Layer 2 CHAOS MODE (debug-only): seeded control-surface fuzzer
     @State private var chaosSeed: UInt32 = 0
     @State private var chaosOn = false
@@ -1591,12 +1592,12 @@ struct DiagView: View {
             Color.black.opacity(0.72).ignoresSafeArea().onTapGesture { showDevLoader = false }
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("DEV — TEST SESSIONS").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                    Text("DEV — MIDI SELF-TESTS").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
                     Spacer()
                     Text("✕").font(.system(size: 16, weight: .heavy)).foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 8).contentShape(Rectangle()).onTapGesture { showDevLoader = false }
                 }
-                devLoader
+                buildSelfTestView
                 stuckNoteMonitor
                 chaosRow
             }
@@ -1652,21 +1653,45 @@ struct DiagView: View {
     }
     #endif
 
-    var devLoader: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("TEST SESSIONS (dev)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-            ScrollView(.horizontal, showsIndicators: false) {
-              HStack(spacing: 6) {
-                ForEach(Array(TestSessions.all.enumerated()), id: \.offset) { _, s in
-                    Button(s.id) { load(s) }
-                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .foregroundColor(s.id == loadedID ? .black : .white.opacity(0.75))
-                        .padding(.vertical, 5).padding(.horizontal, 8)
-                        .background(RoundedRectangle(cornerRadius: 4)
-                            .fill(s.id == loadedID ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.08)))
-                }
-              }
+    // The IN-APP MIDI self-tests (Paul 2026-08-16) — replaces the T-session loader. Runs the BuildSelfTest suite
+    // offline against the real engine and lists PASS/FAIL; a failure shows its expected-vs-got detail. RE-RUN re-runs.
+    @ViewBuilder var buildSelfTestView: some View {
+        #if DEBUG
+        let green = Color(red: 0.15, green: 0.88, blue: 0.55)
+        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+        let results = selfTestResults
+        let passed = results.filter { $0.passed }.count
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
+                Text(results.isEmpty ? "RUNNING…" : "\(passed)/\(results.count) PASS")
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(results.isEmpty ? .white.opacity(0.5) : (passed == results.count ? green : red))
+                Button("RE-RUN") { selfTestResults = BuildSelfTest.runAll() }
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.black).padding(.vertical, 4).padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color(red: 0.15, green: 0.88, blue: 0.94)))
+                Spacer()
             }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(results) { r in
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(r.passed ? "✓" : "✗").font(.system(size: 12, weight: .heavy)).foregroundColor(r.passed ? green : red)
+                                Text(r.name).font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.82))
+                            }
+                            if !r.passed {
+                                Text(r.detail).font(.system(size: 8, weight: .regular, design: .monospaced))
+                                    .foregroundColor(red).padding(.leading, 18)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 320)
         }
+        .frame(maxWidth: 520)
+        .onAppear { if selfTestResults.isEmpty { selfTestResults = BuildSelfTest.runAll() } }
+        #endif
     }
 }
