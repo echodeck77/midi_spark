@@ -166,7 +166,6 @@ struct Colour: Codable, Equatable {
     // Per-TYPE stash of TRANSPOSE (spec revision): each processor type keeps its own transpose, so
     // switching type never leaks a pitch. Optional → v2 docs decode as nil (all-zero).
     var transposeByType: [Int]? = nil
-    var morphByType: [Double]? = nil   // LEGACY: morph is now a single per-Colour scalar (toward partner), not per-type
     // §9 item 1 the ON TRIGGER SYSTEM (GUI iteration 1, 2026-07-26): per-Colour trigger assignments,
     // STORED INERT — no engine execution yet. Optional so pre-ON docs decode as nil → OnConfig() defaults.
     var on: OnConfig? = nil

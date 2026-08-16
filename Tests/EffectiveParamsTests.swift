@@ -364,38 +364,38 @@ final class EffectiveParamsTests: XCTestCase {
 
     /// RATCHET repeats quantize to the nearest LEGAL count in [2,3,4,6,8], first-wins on a tie.
     func testEffectiveRepeatsQuantizesToLegalCount() {
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 2 }, t: 0), 2)
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 5 }, t: 0), 4, "5 is equidistant 4/6 → first (4) wins")
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 7 }, t: 0), 6, "7 is equidistant 6/8 → first (6) wins")
-        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 8 }, t: 0), 8)
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 2 }), 2)
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 5 }), 4, "5 is equidistant 4/6 → first (4) wins")
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 7 }), 6, "7 is equidistant 6/8 → first (6) wins")
+        XCTAssertEqual(effectiveRepeats(snapColour { $0.count = 8 }), 8)
     }
 
     /// The scalar effective* helpers saturate at their native bounds — no trap, no off-by-one in the voice switch.
     func testEffectiveScalarClamps() {
-        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 9 }, t: 0), 4, "octaves clamp 1…4")
-        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 0 }, t: 0), 1)
+        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 9 }), 4, "octaves clamp 1…4")
+        XCTAssertEqual(effectiveOctaves(snapColour { $0.octaves = 0 }), 1)
         // harmIntervals voice select: 0/1 pick .0/.1, any other index picks .2; each clamps ±24.
         let c = snapColour { $0.harmIntervals = (100, -100, 7) }
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 0, t: 0), 24)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 1, t: 0), -24)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 2, t: 0), 7)
-        XCTAssertEqual(effectiveHarmInterval(c, voice: 99, t: 0), 7, "an out-of-range voice falls to the 3rd interval")
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 0), 24)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 1), -24)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 2), 7)
+        XCTAssertEqual(effectiveHarmInterval(c, voice: 99), 7, "an out-of-range voice falls to the 3rd interval")
         // rateIndex saturates into the arpRateBeats ladder rather than trapping.
-        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = 127 }, t: 0), Snap.arpRateBeats.last!)
-        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = -5 }, t: 0), Snap.arpRateBeats.first!)
+        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = 127 }), Snap.arpRateBeats.last!)
+        XCTAssertEqual(effectiveRateBeats(snapColour { $0.rateIndex = -5 }), Snap.arpRateBeats.first!)
     }
 
     /// The unit-range render-side reads saturate at their floors/ceilings (the render thread's last line of defence
     /// even though `resolve` already clamps on ingest): ramp/spread/probability ∈ [0,1], harmVelScale ∈ [0.1,1].
     func testEffectiveUnitRangeScalarsClamp() {
-        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = 2 }, t: 0), 1)
-        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = -1 }, t: 0), 0)
-        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = 5 }, t: 0), 1)
-        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = -0.5 }, t: 0), 0)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }, t: 0), 1)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }, t: 0), 0)
-        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = 5 }, t: 0), 1)
-        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }, t: 0), 0.1, "the floor is 0.1, not 0")
+        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = 2 }), 1)
+        XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = -1 }), 0)
+        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = 5 }), 1)
+        XCTAssertEqual(effectiveSpread(snapColour { $0.spread = -0.5 }), 0)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }), 1)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }), 0)
+        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = 5 }), 1)
+        XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
     }
 
     // MARK: laneValue — guard + wrap + all-bypass-smooth edges

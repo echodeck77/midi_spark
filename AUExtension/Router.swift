@@ -1092,15 +1092,15 @@ final class Router {
     /// HARMONIZE emit (§3): expand `base` (post-transpose) into root + up to 3 interval voices and
     /// emit each with its velocity (root full, added voices scaled). Optionally stores artics so a
     /// downstream mirror sees the full expanded set. Shared by the MIDI-IN hold and the mirror path.
-    private func emitHarmony(base: Int, colour: SnapColour, t: Double, baseVel: UInt8, row: Int,
+    private func emitHarmony(base: Int, colour: SnapColour, baseVel: UInt8, row: Int,
                              storeArtics: Bool, busMask: UInt8,
                              on: Int64, off: Int64, beat: Double,
                              windowEnd: Int64, sustain: Bool = false, out: MIDIEmitter?,
                              diag: inout KernelDiag) {
-        let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
-                  Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
-                  Int8(effectiveHarmInterval(colour, voice: 2, t: t)))
-        let scale = effectiveHarmVelScale(colour, t: t)
+        let iv = (Int8(effectiveHarmInterval(colour, voice: 0)),
+                  Int8(effectiveHarmInterval(colour, voice: 1)),
+                  Int8(effectiveHarmInterval(colour, voice: 2)))
+        let scale = effectiveHarmVelScale(colour)
         let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
                                   vel: baseVel, velScale: scale, vels: &harmVels)
         for i in 0..<cnt {
@@ -1169,20 +1169,19 @@ final class Router {
             if !onSceneAudible(colour.on, pass: pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
             let altFlag = cell.alt != tapFlipped(column, r)          // §9 ON TAP flip — this cell's voice-identity face
             currentAlt = altFlag                                     // §2 stamp fresh voices' face identity
-            let t = 0.0                                              // morph removed
             // CELL MACHINE: a HOLD-TAIL chain holds the TAIL slot's transform of every upstream stage's composed
             // set; a plain cell holds its head-only treatment of the source.
             let holdChain = isHoldTailChain(cell)
             let tailIdx = cell.procs.count - 1
             var treat = colour; let treatP = holdChain ? cell.procs[tailIdx] : cell.proc
             treat.a = treatP
-            let mode = cellMode(type: effectiveType(treat, t: t),
+            let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
-                                passMask: effectivePassMask(treat, t: t), pass: pass)
+                                passMask: effectivePassMask(treat), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone else { continue }   // DRONE = a legato chord-hold (user 2026-08-10)
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
-            let prob = (mode == .chance) ? effectiveProbability(treat, t: t) : 1
+            let prob = (mode == .chance) ? effectiveProbability(treat) : 1
             let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
@@ -1210,7 +1209,7 @@ final class Router {
                 let vel = droneScale < 1.0 ? UInt8(max(1, min(127, Int((Double(vel0) * droneScale).rounded())))) : vel0   // DRONE scales by GATE
                 if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
                 if mode == .harmonize {
-                    emitHarmony(base: n, colour: treat, t: t, baseVel: vel, row: r, storeArtics: false,
+                    emitHarmony(base: n, colour: treat, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
                                 windowEnd: windowEnd, sustain: soloSustain, out: out, diag: &diag)   // PLAY: THIS CELL — harmonize holds sustain + adopt too
                 } else if legato {
@@ -1705,14 +1704,13 @@ final class Router {
             if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
             // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
             let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
-            let t = 0.0   // morph removed — the render reads the head params directly
             let transpose = colourTranspose(ci, colour)
                           + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
             var treat = colour; treat.a = cell.proc
-            let mode = cellMode(type: effectiveType(treat, t: t), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(treat, t: t), pass: diag.pass)
+            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(treat), pass: diag.pass)
             let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
             // DRONE = a legato chord-hold (user 2026-08-10): a SINGLE-SLOT drone sustains via emitColumnHolds (adopts
             // across adjacent drone columns, closes where no drone re-holds it), NOT the per-tick generator — skip it
@@ -1727,19 +1725,19 @@ final class Router {
                 var treatDrive = colour; treatDrive.a = driveP
                 switch driveP.type {
                 case .arp:
-                    emitArpRow(cell: cell, row: r, colour: treatDrive, t: t, transpose: transpose,
+                    emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
                                emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                chainDriver: driver, out: out, diag: &diag)
                 case .ratchet:
-                    emitRatchetRow(cell: cell, row: r, colour: treatDrive, t: t, transpose: transpose,
+                    emitRatchetRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
                                    emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                    windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                    beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
                                    chainDriver: driver, out: out, diag: &diag)
                 case .strum:
-                    emitStrumRow(cell: cell, row: r, colour: treatDrive, t: t, transpose: transpose, emits: emits,
+                    emitStrumRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
                                  pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                                  beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
                 case .euclid, .burst, .cascade, .drone, .shift, .humanize:   // GENERATORS as chain drivers (user 2026-08-09)
@@ -1756,17 +1754,17 @@ final class Router {
 
             switch mode {
             case .arp:
-                emitArpRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose,
+                emitArpRow(cell: cell, row: r, colour: treat, transpose: transpose,
                            emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                            windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                            beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .ratchet:
-                emitRatchetRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose,
+                emitRatchetRow(cell: cell, row: r, colour: treat, transpose: transpose,
                                emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
                                windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
                                beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
             case .strum:
-                emitStrumRow(cell: cell, row: r, colour: treat, t: t, transpose: transpose, emits: emits,
+                emitStrumRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
                              pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                              beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
             case .euclid, .burst, .cascade, .drone, .shift, .humanize:
@@ -2301,7 +2299,7 @@ final class Router {
 
     /// ARP (§3): index the input each tick — MIDI IN → filtered source pool; referencing → the parent's
     /// CURRENT sounding note by derivation, octave-arped by this cell (delta §1 "arpeggiate the arpeggio").
-    private func emitArpRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+    private func emitArpRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                             emits: Bool, box: SnapshotBox, pool: NotePool,
                             effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                             windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
@@ -2309,15 +2307,15 @@ final class Router {
                             out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        var arpBeats = effectiveRateBeats(colour, t: t)
-        let gate = effectiveGate(colour, t: t)
-        let octaves = effectiveOctaves(colour, t: t)
+        var arpBeats = effectiveRateBeats(colour)
+        let gate = effectiveGate(colour)
+        let octaves = effectiveOctaves(colour)
         if colour.a.arpFit {   // FIT (user 2026-08-11): one full pool traversal = one beat, so the cycle stays constant as the chord grows
             let n = max(1, pool.srcCount(for: cell))
             arpBeats = max(0.03125, 1.0 / Double(n * octaves))
         }
         if arpBeats <= 0 { arpBeats = 0.25 }
-        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = arpBeats }
+        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = arpBeats }
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -2359,7 +2357,7 @@ final class Router {
 
     /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
     /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
-    private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+    private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                                 emits: Bool, box: SnapshotBox, pool: NotePool,
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
@@ -2367,10 +2365,10 @@ final class Router {
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let repeats = effectiveRepeats(colour, t: t)
-        let ramp = effectiveRamp(colour, t: t)
+        let repeats = effectiveRepeats(colour)
+        let ramp = effectiveRamp(colour)
         let sub = S / Double(repeats)                          // one repeat every `sub` beats
-        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = sub }
+        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = sub }
 
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
@@ -2414,20 +2412,20 @@ final class Router {
 
     /// STRUM (§3): stagger the source chord's onsets over `spread` beats from the column start, held to the
     /// boundary. Emitted per-window as each onset arrives (strumProgress, reset per column) — each note fires once.
-    private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, t: Double, transpose: Int,
+    private func emitStrumRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                               emits: Bool, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                               beatsPerSample: Double, S: Double, a: Double, chainDriver: Int = -1,
                               out: MIDIEmitter?, diag: inout KernelDiag) {
         let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let spread = effectiveSpread(colour, t: t)
+        let spread = effectiveSpread(colour)
         let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
         let colStart = columnStart(musicalOf(beatPos, stepBeats: S, a: a), S)
         let cycleBeats = Double(Snap.cols) * S
         // CELL MACHINE: a STRUM chain DRIVER staggers the composed set of the stages BEFORE it (derived once at colStart).
         if chainDriver >= 0 { composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cycleBeats) }
         let count = chainDriver >= 0 ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : pool.srcCount(for: cell)   // §7 source filter
-        if r == diag.activeCellRow { diag.effMorphGold = t; diag.effRateBeats = spread }
+        if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = spread }
         guard count > 0 else { return }
 
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos,       // held to boundary
@@ -2475,13 +2473,12 @@ final class Router {
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
         let clockBeat = Double(windowStart - auditionStartSample) * beatsPerSample
-        let t = 0.0   // morph removed
         let transpose = colourTranspose(ci, colour)
         previewMode = true; defer { previewMode = false }
-        guard effectiveType(colour, t: t) == .arp else { return }
-        var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
-        let gate = effectiveGate(colour, t: t)
-        let octaves = effectiveOctaves(colour, t: t)
+        guard effectiveType(colour) == .arp else { return }
+        var arpBeats = effectiveRateBeats(colour); if arpBeats <= 0 { arpBeats = 0.25 }
+        let gate = effectiveGate(colour)
+        let octaves = effectiveOctaves(colour)
         auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
                       windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
             let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
@@ -2502,13 +2499,12 @@ final class Router {
                                cycleBeats: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard ci >= 0, ci < box.colours.count, busMask != 0, pool.count > 0 else { return }
         let colour = box.colours[ci]
-        let t = 0.0                                       // morph removed
         let transpose = colourTranspose(ci, colour)
         let vr = 0                                        // virtual tick-dedup row (grid-chaining retired: always source-fed)
         let f = UInt8(clamping: filter)
         previewMode = true; defer { previewMode = false }
-        let mode = cellMode(type: effectiveType(colour, t: t), bypassed: false,
-                            passMask: effectivePassMask(colour, t: t), pass: diag.pass)
+        let mode = cellMode(type: effectiveType(colour), bypassed: false,
+                            passMask: effectivePassMask(colour), pass: diag.pass)
 
         // Virtual-cell COLUMN TRANSITION: truncate its voices at the boundary, reset per-column state, and
         // (chord-hold types on SOURCE input) emit the treated held chord sustained to the column boundary.
@@ -2522,7 +2518,7 @@ final class Router {
             previewPrevColumn = effColumn
             lastTick[vr] = -1; strumProgress[vr] = 0
             if mode == .identity || mode == .chance || mode == .harmonize {
-                previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, colour: colour, t: t,
+                previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, colour: colour,
                                  transpose: transpose, filter: f, busMask: busMask, mNow: mNow, beatPos: beatPos,
                                  beatsPerSample: beatsPerSample, S: S, a: a, windowStart: windowStart,
                                  windowEnd: windowEnd, pool: pool, out: out, diag: &diag)
@@ -2531,9 +2527,9 @@ final class Router {
 
         switch mode {
         case .arp:
-            var arpBeats = effectiveRateBeats(colour, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
-            let gate = effectiveGate(colour, t: t)
-            let octaves = effectiveOctaves(colour, t: t)
+            var arpBeats = effectiveRateBeats(colour); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(colour)
+            let octaves = effectiveOctaves(colour)
             iterateTicks(row: vr, effColumn: effColumn, sub: arpBeats, gateFraction: gate, beatPos: beatPos,
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                 let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
@@ -2544,8 +2540,8 @@ final class Router {
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
             }
         case .ratchet:
-            let repeats = effectiveRepeats(colour, t: t)
-            let ramp = effectiveRamp(colour, t: t)
+            let repeats = effectiveRepeats(colour)
+            let ramp = effectiveRamp(colour)
             let sub = S / Double(max(1, repeats))
             iterateTicks(row: vr, effColumn: effColumn, sub: sub, gateFraction: 0.6, beatPos: beatPos,
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
@@ -2561,7 +2557,7 @@ final class Router {
                 }
             }
         case .strum:
-            let spread = effectiveSpread(colour, t: t)
+            let spread = effectiveSpread(colour)
             let curve = colour.a.curve, tilt = colour.a.velTilt, dir = colour.a.strumDir
             let count = pool.srcCount(filter: f)   // STRUM is source-based (no row-feed, matching the real loop)
             if count > 0 {
@@ -2589,14 +2585,14 @@ final class Router {
 
     /// The virtual cell's CHORD-HOLD (identity / open-passgate / CHANCE / HARMONIZE on SOURCE input): the
     /// per-cell body of `emitColumnHolds`, emitted once at the column transition, sustained to the boundary.
-    private func previewChordHold(isChance: Bool, isHarmonize: Bool, colour: SnapColour, t: Double, transpose: Int,
+    private func previewChordHold(isChance: Bool, isHarmonize: Bool, colour: SnapColour, transpose: Int,
                                   filter: UInt8, busMask: UInt8, mNow: Double, beatPos: Double, beatsPerSample: Double,
                                   S: Double, a: Double, windowStart: Int64, windowEnd: Int64, pool: NotePool,
                                   out: MIDIEmitter?, diag: inout KernelDiag) {
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        let prob = isChance ? effectiveProbability(colour, t: t) : 1
+        let prob = isChance ? effectiveProbability(colour) : 1
         let srcN = pool.srcCount(filter: filter)
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, filter: filter)
@@ -2605,7 +2601,7 @@ final class Router {
             if isChance && !chancePasses(beat: colStart, note: n, probability: prob) { continue }
             let vel = max(1, pool.velocity(sn))   // inherit the source velocity
             if isHarmonize {
-                emitHarmony(base: n, colour: colour, t: t, baseVel: vel, row: 0, storeArtics: false,
+                emitHarmony(base: n, colour: colour, baseVel: vel, row: 0, storeArtics: false,
                             busMask: busMask, on: onSample, off: offSample, beat: colStart, windowEnd: windowEnd, out: out, diag: &diag)
             } else {
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onSample, offSample: offSample, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
@@ -2649,14 +2645,13 @@ final class Router {
         let auditionBeat = Double(windowStart - auditionStartSample) * beatsPerSample   // free phase clock
         let windowBeats = Double(frameCount) * beatsPerSample
         let windowEnd = windowStart + Int64(frameCount)
-        let t = 0.0   // morph removed
         let transpose = colourTranspose(ci, colour)
 
-        switch effectiveType(treat, t: t) {
+        switch effectiveType(treat) {
         case .arp:
-            var arpBeats = effectiveRateBeats(treat, t: t); if arpBeats <= 0 { arpBeats = 0.25 }
-            let gate = effectiveGate(treat, t: t)
-            let octaves = effectiveOctaves(treat, t: t)
+            var arpBeats = effectiveRateBeats(treat); if arpBeats <= 0 { arpBeats = 0.25 }
+            let gate = effectiveGate(treat)
+            let octaves = effectiveOctaves(treat)
             auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let pick = arpPick(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
@@ -2667,8 +2662,8 @@ final class Router {
                           windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
             }
         case .ratchet:
-            let repeats = effectiveRepeats(treat, t: t)
-            let ramp = effectiveRamp(treat, t: t)
+            let repeats = effectiveRepeats(treat)
+            let ramp = effectiveRamp(treat)
             let sub = S / Double(max(1, repeats))
             auditionTicks(sub: sub, gateFraction: 0.6, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
@@ -2686,12 +2681,12 @@ final class Router {
         case .strum:
             // STRUM: roll the held chord in over `spread` beats from the hold (its own onset per note),
             // then sustain — the audition clock drives the roll; reconcile tracks live key changes.
-            auditionStrum(cell: cell, colour: treat, pool: pool, transpose: transpose, t: t,
+            auditionStrum(cell: cell, colour: treat, pool: pool, transpose: transpose,
                           auditionBeat: auditionBeat, windowEnd: windowEnd, out: out, diag: &diag)
         default:
             // chord-hold types (passgate all-open / chance / harmonize): sustain the treated chord,
             // reconciled to the live held source each window (v2).
-            auditionChordHold(cell: cell, colour: treat, pool: pool, transpose: transpose, t: t,
+            auditionChordHold(cell: cell, colour: treat, pool: pool, transpose: transpose,
                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
     }
@@ -2702,11 +2697,11 @@ final class Router {
     /// hold-change / transport-start). passgate is forced all-open; chance seeds on the hold (beat 0) so
     /// each note is deterministically in or out for the whole hold; harmonize expands to its voices.
     private func auditionChordHold(cell: SnapCell, colour: SnapColour, pool: NotePool,
-                                   transpose: Int, t: Double, windowStart: Int64, windowEnd: Int64,
+                                   transpose: Int, windowStart: Int64, windowEnd: Int64,
                                    out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
-        let type = effectiveType(colour, t: t)
-        let prob = (type == .chance) ? effectiveProbability(colour, t: t) : 1
+        let type = effectiveType(colour)
+        let prob = (type == .chance) ? effectiveProbability(colour) : 1
         let srcN = pool.srcCount(for: cell)         // §7 source filter, forced source
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, for: cell)
@@ -2715,11 +2710,11 @@ final class Router {
             let bv = max(1, pool.velocity(sn))   // inherit the source velocity
             switch type {
             case .harmonize:
-                let iv = (Int8(effectiveHarmInterval(colour, voice: 0, t: t)),
-                          Int8(effectiveHarmInterval(colour, voice: 1, t: t)),
-                          Int8(effectiveHarmInterval(colour, voice: 2, t: t)))
+                let iv = (Int8(effectiveHarmInterval(colour, voice: 0)),
+                          Int8(effectiveHarmInterval(colour, voice: 1)),
+                          Int8(effectiveHarmInterval(colour, voice: 2)))
                 let cnt = harmonizeVoices(base: base, intervals: iv, into: &harmNotes,
-                                          vel: bv, velScale: effectiveHarmVelScale(colour, t: t), vels: &harmVels)
+                                          vel: bv, velScale: effectiveHarmVelScale(colour), vels: &harmVels)
                 for j in 0..<cnt where harmNotes[j] >= 0 && harmNotes[j] <= 127 {
                     auditionDesired[harmNotes[j]] = true; auditionVel[harmNotes[j]] = harmVels[j]
                 }
@@ -2737,10 +2732,10 @@ final class Router {
     /// first hold rolls the chord; thereafter it sustains and reconcile tracks live key changes. No
     /// columns here, so direction uses pass 0 and notes never auto-release (offSample .max).
     private func auditionStrum(cell: SnapCell, colour: SnapColour, pool: NotePool,
-                               transpose: Int, t: Double, auditionBeat: Double,
+                               transpose: Int, auditionBeat: Double,
                                windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
-        let spread = effectiveSpread(colour, t: t)
+        let spread = effectiveSpread(colour)
         let count = pool.srcCount(for: cell)
         for j in 0..<count {
             guard auditionBeat >= strumOffset(index: j, count: count, spread: spread, curve: colour.a.curve, normalize: colour.a.strumSpreadNorm)

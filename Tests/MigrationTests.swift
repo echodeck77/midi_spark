@@ -260,12 +260,10 @@ final class MigrationTests: XCTestCase {
         d.formatVersion = 3
         d.busEnabled = [true, false, true, false]
         d.colours[0].transposeByType = [1, 2, 3, 4, 5, 6]
-        d.colours[0].morphByType = [0, 0.25, 0.5, 0.75, 1, 0]
         d.claimEmitter = 2                          // §6a CLAIM (a7) — persisted
         let reloaded = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(d))
         XCTAssertEqual(reloaded.busEnabled, [true, false, true, false])
         XCTAssertEqual(reloaded.colours[0].transposeByType, [1, 2, 3, 4, 5, 6])
-        XCTAssertEqual(reloaded.colours[0].morphByType, [0, 0.25, 0.5, 0.75, 1, 0])
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
     }
 

@@ -292,25 +292,25 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
 // per-cell chain slot via the `treat.a = head` injection SnapColour. (The retired a→b interpolation, tiers,
 // and morphMaster #300 are history — Codable fields + the param address stay reserved per CLAUDE.md.)
 @inline(__always)
-func effectiveType(_ c: SnapColour, t: Double) -> ProcessorType { c.a.type }
+func effectiveType(_ c: SnapColour) -> ProcessorType { c.a.type }
 
 @inline(__always)
-func effectivePassMask(_ c: SnapColour, t: Double) -> UInt8 { c.a.passMask }
+func effectivePassMask(_ c: SnapColour) -> UInt8 { c.a.passMask }
 
 @inline(__always)
-func effectiveRateBeats(_ c: SnapColour, t: Double) -> Double {
+func effectiveRateBeats(_ c: SnapColour) -> Double {
     Snap.arpRateBeats[max(0, min(Snap.arpRateBeats.count - 1, Int(c.a.rateIndex)))]
 }
 
 @inline(__always)
-func effectiveGate(_ c: SnapColour, t: Double) -> Double { c.a.gate }
+func effectiveGate(_ c: SnapColour) -> Double { c.a.gate }
 
 @inline(__always)
-func effectiveOctaves(_ c: SnapColour, t: Double) -> Int { max(1, min(4, Int(c.a.octaves))) }
+func effectiveOctaves(_ c: SnapColour) -> Int { max(1, min(4, Int(c.a.octaves))) }
 
 // RATCHET (§3): repeats per step — quantized to a LEGAL count (2/3/4/6/8).
 @inline(__always)
-func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
+func effectiveRepeats(_ c: SnapColour) -> Int {
     let v = Double(c.a.count), legal = [2, 3, 4, 6, 8]
     var best = legal[0], bestD = Double.greatestFiniteMagnitude
     for L in legal { let d = abs(Double(L) - v); if d < bestD { bestD = d; best = L } }
@@ -318,16 +318,16 @@ func effectiveRepeats(_ c: SnapColour, t: Double) -> Int {
 }
 
 @inline(__always)
-func effectiveRamp(_ c: SnapColour, t: Double) -> Double { clamp(c.a.ramp, 0, 1) }
+func effectiveRamp(_ c: SnapColour) -> Double { clamp(c.a.ramp, 0, 1) }
 
 @inline(__always)
-func effectiveSpread(_ c: SnapColour, t: Double) -> Double { clamp(c.a.spread, 0, 1) }
+func effectiveSpread(_ c: SnapColour) -> Double { clamp(c.a.spread, 0, 1) }
 
 @inline(__always)
-func effectiveProbability(_ c: SnapColour, t: Double) -> Double { clamp(c.a.probability, 0, 1) }
+func effectiveProbability(_ c: SnapColour) -> Double { clamp(c.a.probability, 0, 1) }
 
 @inline(__always)
-func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
+func effectiveHarmInterval(_ c: SnapColour, voice: Int) -> Int {
     let a: Int
     switch voice {
     case 0: a = Int(c.a.harmIntervals.0)
@@ -338,4 +338,4 @@ func effectiveHarmInterval(_ c: SnapColour, voice: Int, t: Double) -> Int {
 }
 
 @inline(__always)
-func effectiveHarmVelScale(_ c: SnapColour, t: Double) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }
+func effectiveHarmVelScale(_ c: SnapColour) -> Double { clamp(c.a.harmVelScale, 0.1, 1) }
