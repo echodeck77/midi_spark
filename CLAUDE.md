@@ -159,6 +159,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ INDEPENDENT-ORACLE ACCEPTANCE TESTS for ALL 19 processors LANDED (2026-08-16, on `main`, PUSHED; `4f5954d`; macOS
+  737 green). Per Paul: expected output computed FROM THE CONCEPT (spec + music theory), written WITHOUT reading the
+  engine, checked against the REAL Router over a representative+boundary matrix (74 cases). Harness `Tests/AcceptanceTests.swift`
+  → `Accept.onsA/notesA(chain, chord:)` — like Dice.runRecorder but the held chord is a PARAMETER (vary pitches+velocities).
+  Files: Acceptance{Arp,RatchetStrum,Generators,TuttiLength,Weave,GatesSpecial}Tests.swift (+ harmonize/split exemplars in
+  AcceptanceTests.swift). Built by 6 parallel agents forbidden from reading Router/Derivations. Assertions are S-INDEPENDENT
+  (sets · first-N order · relative counts/ratios), so they survive the probe's step width. Seeded ones (chance/humanize/
+  tutti-COIN) → properties; mod → note-silence only (CC uncaptured). RESULT: engine agreed EVERYWHERE except one — BURST
+  'front-loading' was an oracle MISCONCEPTION (only front-loads under a decel curve; curve=0 even), corrected oracle-side.
+  NO engine bugs surfaced. See [[midispark-acceptance-oracle-tests]].**
 - **▶ SPLIT PROCESSOR LANDED — the LAST outstanding processor (2026-08-16, on `main`, PUSHED; `877227c`; iOS builds,
   macOS 663 green). The 19th ProcessorType (`AcceptanceCriteria-split-processor.md`): a set-membership filter (keep a
   subset — ALL/TOP n/BOTTOM n/RANGE + a per-note VEL window). Chain position = two musics: [SPLIT→ARP] RE-POOL (the
