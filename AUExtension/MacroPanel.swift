@@ -16,8 +16,8 @@ struct MacroPanel: View {
     @State private var draft = ""
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
 
     private var range: Range<Int> {
         switch bank { case .slider: return 0..<8; case .button: return 8..<16; case .timeline: return 16..<24 }

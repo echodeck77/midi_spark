@@ -53,6 +53,9 @@ enum PresetStore {
     /// host's `presetState(for:)` can hand them straight back to the fullState setter. nil if the file is missing.
     static func rawData(for name: String) -> Data? { try? Data(contentsOf: fileURL(for: name)) }
     static func delete(_ name: String) { try? FileManager.default.removeItem(at: fileURL(for: name)) }
+    /// Whether a preset already exists under `name` (its SANITIZED filename) — the browser arms an overwrite confirm
+    /// on it, so a save never silently clobbers a same-named (or same-sanitized, e.g. "My/Rig"↔"MyRig") preset.
+    static func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: fileURL(for: name).path) }
 
     /// User preset names (no extension), case-insensitively sorted.
     static func list() -> [String] {
@@ -89,6 +92,7 @@ enum CellLibraryStore {
         return decode(data)
     }
     static func delete(_ name: String) { try? FileManager.default.removeItem(at: fileURL(for: name)) }
+    static func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: fileURL(for: name).path) }   // browser arms an overwrite confirm
     /// Saved cell names (no extension), case-insensitively sorted.
     static func list() -> [String] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []

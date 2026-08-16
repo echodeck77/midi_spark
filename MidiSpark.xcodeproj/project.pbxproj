@@ -34,6 +34,7 @@
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
+		6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
 		700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8624A489A951D42AFB805E16 /* RackMatrix.swift */; };
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
 		7AD33AA1CDEEF7C6738C5EF3 /* ReceiverConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB91B3A150364793E11406C1 /* ReceiverConfigView.swift */; };
@@ -107,6 +108,7 @@
 		1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactoryTests.swift; sourceTree = "<group>"; };
+		1FE84D11C4695B381242AD6D /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		20AB7B8688724B64F843182A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
 		31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoring.swift; sourceTree = "<group>"; };
@@ -236,6 +238,7 @@
 				948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */,
 				D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */,
 				B685D12DF249234FFBB1055E /* Derivations.swift */,
+				1FE84D11C4695B381242AD6D /* DesignKit.swift */,
 				88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */,
 				4C3D05D84CB3BB7FF47E7851 /* Dice.swift */,
 				D9CFDBBF6EDAEF5051E4DD83 /* DragDropPage.swift */,
@@ -414,6 +417,7 @@
 				1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */,
 				E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */,
 				8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */,
+				6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */,
 				8CC40A50AE903C00870E629A /* Diag.swift in Sources */,
 				A71376B370E076CCB3B3A89E /* Dice.swift in Sources */,
 				D65F68826CE914624ED051EF /* DragDropPage.swift in Sources */,

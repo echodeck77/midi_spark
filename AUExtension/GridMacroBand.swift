@@ -14,7 +14,7 @@ struct GridMacroSlider: View {
 
     @State private var v: Double = 0
     @GestureState private var dragging = false
-    private let hue = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let hue = UI.cyan
     private var thick: CGFloat { max(5, height * 0.14) }         // fader width scales with size
 
     var body: some View {
@@ -52,7 +52,7 @@ struct GridMacroButton: View {
     let onSet: (Int, Double) -> Void
 
     @State private var on = false
-    private let hue = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let hue = UI.amber
 
     var body: some View {
         VStack(spacing: 2) {

@@ -131,7 +131,7 @@ func colourColor(_ id: String) -> Color? {
     return colourIDs.firstIndex(of: id).map { Color(hex: colourHexes[$0]) }
 }
 
-private let accentCyan = Color(red: 0.15, green: 0.88, blue: 0.94)   // playhead / PERFORM accent
+private let accentCyan = UI.cyan   // playhead / PERFORM accent
 
 // v56 theme tokens (mockup `T`): cell recess, edges, dim ink.
 private let cellBg = Color(hex: 0x0B0D11)
@@ -396,7 +396,7 @@ struct GridView: View {
         .overlay {                                          // §10 ROUTE candidates > §11 PLACE border > SELECT ring > verb glow
             let pos = GridPos(col: col, row: row)
             if routeIn.contains(pos) {                      // a source above → tap makes it this cell's INPUT
-                routeLabel("IN", Color(red: 0.15, green: 0.88, blue: 0.94))
+                routeLabel("IN", UI.cyan)
             } else if routeOut.contains(pos) {              // a cell below → tap makes it an OUTPUT of the focus
                 routeLabel("OUT", Color(red: 0.35, green: 0.92, blue: 0.50))
             } else if whiteBorder.contains(pos) {
@@ -638,7 +638,7 @@ struct SoundMark: Equatable { let vel: Double; let col: Int8 }
 /// §6a THE WITHHELD TELL: a `withheld` mark (a note CLAIM fully suppressed) draws HOLLOW (a stroked outline
 /// in the source hue) + a small amber CLAIM tick, fading a touch slower — suppression made visible, not silent.
 func velMarkLayer(_ marks: [VelMark], now: Date, hueFor: @escaping (Int8) -> Color) -> some View {
-    let claimAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    let claimAmber = UI.amber
     return GeometryReader { g in
         ForEach(Array(marks.enumerated()), id: \.offset) { _, m in
             let op = max(0, 1 - now.timeIntervalSince(m.born) / (m.withheld ? 0.4 : 0.25))
@@ -799,7 +799,7 @@ struct ReceiversView: View {
         .onTapGesture { onRouteIn(i) }
     }
 
-    private let soloHue = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let soloHue = UI.amber
 
     // (THRU pip retired 2026-08-03 — BYPASS replaced it in the header; `thruReceiver`/`onSetThru` stay wired but
     // the strip no longer surfaces the passthrough radio.)
@@ -809,7 +809,7 @@ struct ReceiversView: View {
     // and the latch KEYS|CHORD mode live on the RECEIVERS tab now.)
     private func performFeatures(_ i: Int) -> some View {
         let muted = r(i).muted, soloed = bit(soloMask, i), excluded = soloMask != 0 && !soloed
-        let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+        let cyan = UI.cyan
         return HStack(spacing: 3) {
             latchArm(i).frame(maxWidth: .infinity)     // the padlock arm — SAME width as the solo/mute column (user 2026-08-05)
             VStack(spacing: 3) {
@@ -892,8 +892,8 @@ struct OutputsView: View {
     // Live fader value per emitter WHILE its slider is touched (nil = released → engine springs back).
     @State private var faderVel: [Int?] = [nil, nil, nil, nil]
     @State private var rackLongFired = false                          // a RACK long-press opened the matrix → the release must not also toggle
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
     private let letters = ["A", "B", "C", "D"]             // emitters A–D (box title MIDI OUTPUT disambiguates from inputs)
     private let controlHeight: CGFloat = 78   // the EDIT stepper / PERFORM fader region — identical both modes
 
@@ -1119,9 +1119,9 @@ struct MasterView: View {
     var onVelOverride: (Int?) -> Void = { _ in }
 
     @State private var faderVel: Int? = nil
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
+    private let red = UI.red
     static let controlHeight: CGFloat = 92
 
     var body: some View {
@@ -1846,7 +1846,7 @@ func mosaicShapePath(_ s: MosaicShape, in r: CGRect) -> Path {
     }
 }
 
-private let stagingCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+private let stagingCyan = UI.cyan
 
 /// A 0→1→0 breathing fraction for the staging pulses (chip, empty-cell border, placed-cell fill) — one
 /// cosine so every pulse shares the same rhythm. `period` in seconds.

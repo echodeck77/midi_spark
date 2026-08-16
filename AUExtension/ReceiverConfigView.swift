@@ -22,9 +22,9 @@ struct ReceiverConfigView: View {
     let onChanged: () -> Void
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let green = Color(red: 0.35, green: 0.92, blue: 0.5)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
+    private let green = UI.green
     private func bit(_ mask: UInt8, _ i: Int) -> Bool { mask & (1 << UInt8(i)) != 0 }
     private func hue(_ i: Int) -> Color { i < receiverHues.count ? receiverHues[i] : ink.opacity(0.85) }
     private func rec(_ i: Int) -> Receiver { i < receivers.count ? receivers[i] : Receiver() }

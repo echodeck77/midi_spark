@@ -12,6 +12,14 @@ final class PresetStoreTests: XCTestCase {
         XCTAssertEqual(PresetStore.sanitize("../../etc/passwd"), "etcpasswd", "no directory traversal survives")
     }
 
+    // sanitize() is many-to-one, so distinct names can map to the SAME filename → a save would silently clobber.
+    // The browser now arms an OVERWRITE? confirm on PresetStore.exists (which keys on the sanitized name), so this
+    // collision is surfaced, not silent. (Paul 2026-08-16, M3)
+    func testSanitizeCollisionMapsDistinctNamesToOneFilename() {
+        XCTAssertEqual(PresetStore.sanitize("My/Rig"), PresetStore.sanitize("MyRig"), "the slash is stripped → same filename")
+        XCTAssertEqual(PresetStore.sanitize("A:B"), PresetStore.sanitize("AB"))
+    }
+
     func testSanitizeNeverEmpty() {
         XCTAssertEqual(PresetStore.sanitize(""), "Untitled")
         XCTAssertEqual(PresetStore.sanitize("///"), "Untitled", "a name that sanitizes to nothing falls back")

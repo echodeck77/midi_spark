@@ -51,9 +51,9 @@ enum Verb: String, CaseIterable {
     var hue: Color {
         switch self {
         case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
-        case .delete: return Color(red: 0.98, green: 0.35, blue: 0.30)   // red — destructive
+        case .delete: return UI.red   // red — destructive
         case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet — capture
-        case .paste:  return Color(red: 0.98, green: 0.72, blue: 0.12)   // amber — stamp
+        case .paste:  return UI.amber   // amber — stamp
         }
     }
 }
@@ -207,7 +207,7 @@ struct DiagView: View {
     // MODE ROW — the edit-page column loop drives the SAME `laneMask` as PERFORM (one engine field, one UI mirror);
     // BUG FIX 2026-08-05: no separate `editLoopMask`, so the loop survives the EDIT↔GRID page switch.
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
-    static let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — deep single-cell edit (distinct from the 5 verbs)
+    static let editHue = UI.editHue   // orchid — deep single-cell edit (distinct from the 5 verbs)
     @State var busChannels: [Int] = [1, 2, 3, 4]
     @State var busEnabled: [Bool] = [true, true, true, true]   // delta §6a
     @State var claimMask: UInt8 = 0                           // delta §6a CLAIM v2: the multi-claim mask (bits A–D)
@@ -571,7 +571,7 @@ struct DiagView: View {
         ladderMode = on; au?.setLadderMode(on)
         if on { heldVerb = nil; syncSingleModeActivation() }   // entering SINGLE mid-edit: apply activation to the current selection
     }
-    let sceneAmberHue = Color(red: 0.98, green: 0.72, blue: 0.12)   // HOLD's latch hue
+    let sceneAmberHue = UI.amber   // HOLD's latch hue
     let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
     func onVerbEngaged(_ v: Verb) {
         editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
@@ -1580,7 +1580,7 @@ struct DiagView: View {
             Text("PANICS \(d.panics)").font(.system(size: 9, weight: .heavy, design: .monospaced))
                 .foregroundColor(panicked ? .black : .white.opacity(0.55))
                 .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 3).fill(panicked ? Color(red: 0.98, green: 0.35, blue: 0.3) : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 3).fill(panicked ? UI.red : Color.clear))
             Spacer()
         }
     }
@@ -1612,7 +1612,7 @@ struct DiagView: View {
     // renders live. The seed shows on screen (SEED LAW) + is written to a per-session dump so an .ips pairs with it.
     @ViewBuilder var chaosRow: some View {
         #if DEBUG
-        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+        let red = UI.red
         HStack(spacing: 8) {
             if chaosOn {
                 chaosBtn("⏹ STOP", active: true) { chaos.stop(); chaosOn = false }
@@ -1625,7 +1625,7 @@ struct DiagView: View {
                     Text("R\(r + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
                         .foregroundColor(on ? .black : .white.opacity(0.5))
                         .frame(width: 26, height: 22)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? Color(red: 0.15, green: 0.88, blue: 0.94) : Color.white.opacity(0.08)))
+                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? UI.cyan : Color.white.opacity(0.08)))
                         .contentShape(Rectangle()).onTapGesture { chaosRecvMask ^= (1 << UInt8(r)) }
                 }
                 chaosBtn(chaosEditMode ? "EDIT" : "PERF", active: chaosEditMode) { chaosEditMode.toggle() }   // what chaos fuzzes
@@ -1638,7 +1638,7 @@ struct DiagView: View {
     }
     #if DEBUG
     private func chaosBtn(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
-        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+        let red = UI.red
         return Button(label, action: tap)
             .font(.system(size: 10, weight: .heavy, design: .monospaced))
             .foregroundColor(active ? .black : red)
@@ -1658,7 +1658,7 @@ struct DiagView: View {
     @ViewBuilder var buildSelfTestView: some View {
         #if DEBUG
         let green = Color(red: 0.15, green: 0.88, blue: 0.55)
-        let red = Color(red: 0.98, green: 0.35, blue: 0.3)
+        let red = UI.red
         let results = selfTestResults
         let passed = results.filter { $0.passed }.count
         VStack(alignment: .leading, spacing: 5) {
@@ -1669,7 +1669,7 @@ struct DiagView: View {
                 Button("RE-RUN") { selfTestResults = BuildSelfTest.runAll() }
                     .font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(.black).padding(.vertical, 4).padding(.horizontal, 10)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color(red: 0.15, green: 0.88, blue: 0.94)))
+                    .background(RoundedRectangle(cornerRadius: 4).fill(UI.cyan))
                 Spacer()
             }
             ScrollView(showsIndicators: false) {

@@ -15,10 +15,11 @@ struct PresetBrowser: View {
 
     @State private var newName = ""
     @State private var confirmDelete: String? = nil
+    @State private var confirmOverwrite = false   // SAVE onto an existing name arms an OVERWRITE? confirm (no silent clobber)
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
     private var trimmed: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -40,12 +41,17 @@ struct PresetBrowser: View {
                         .textInputAutocapitalization(.words).autocorrectionDisabled()
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.08)))
-                    Text("SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .onChange(of: newName) { _ in confirmOverwrite = false }   // editing the name disarms the overwrite confirm
+                    Text(confirmOverwrite ? "OVERWRITE?" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced))
                         .foregroundColor(trimmed.isEmpty ? ink.opacity(0.3) : .black)
                         .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(trimmed.isEmpty ? ink.opacity(0.08) : amber))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(trimmed.isEmpty ? ink.opacity(0.08) : (confirmOverwrite ? UI.red : amber)))
                         .contentShape(Rectangle())
-                        .onTapGesture { if !trimmed.isEmpty { onSave(trimmed); newName = "" } }
+                        .onTapGesture {
+                            guard !trimmed.isEmpty else { return }
+                            if !confirmOverwrite && PresetStore.exists(trimmed) { confirmOverwrite = true; return }   // first tap on an existing name arms the confirm
+                            onSave(trimmed); newName = ""; confirmOverwrite = false
+                        }
                 }
                 .padding(.bottom, 12)
                 Divider().overlay(ink.opacity(0.12)).padding(.bottom, 8)
@@ -107,7 +113,7 @@ struct PresetBrowser: View {
                 .font(.system(size: arming ? 9 : 12, weight: .heavy, design: .monospaced))
                 .foregroundColor(arming ? .black : ink.opacity(0.5))
                 .padding(.horizontal, arming ? 6 : 4).padding(.vertical, arming ? 3 : 0)
-                .background(RoundedRectangle(cornerRadius: 4).fill(arming ? Color(red: 0.98, green: 0.35, blue: 0.3) : .clear))
+                .background(RoundedRectangle(cornerRadius: 4).fill(arming ? UI.red : .clear))
                 .contentShape(Rectangle())
                 .onTapGesture { if arming { onDelete(name); confirmDelete = nil } else { confirmDelete = name } }
         }
@@ -130,9 +136,10 @@ struct CellBrowser: View {
 
     @State private var newName = ""
     @State private var confirmDelete: String? = nil
+    @State private var confirmOverwrite = false   // SAVE onto an existing cell name arms an OVERWRITE? confirm
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
     private var trimmed: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -152,12 +159,17 @@ struct CellBrowser: View {
                         .textInputAutocapitalization(.words).autocorrectionDisabled().disabled(!canSave)
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.08)))
+                        .onChange(of: newName) { _ in confirmOverwrite = false }
                     let ready = canSave && !trimmed.isEmpty
-                    Text("SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    Text(confirmOverwrite ? "OVERWRITE?" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced))
                         .foregroundColor(ready ? .black : ink.opacity(0.3))
                         .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(ready ? amber : ink.opacity(0.08)))
-                        .contentShape(Rectangle()).onTapGesture { if ready { onSave(trimmed); newName = "" } }
+                        .background(RoundedRectangle(cornerRadius: 6).fill(ready ? (confirmOverwrite ? UI.red : amber) : ink.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture {
+                            guard ready else { return }
+                            if !confirmOverwrite && CellLibraryStore.exists(trimmed) { confirmOverwrite = true; return }
+                            onSave(trimmed); newName = ""; confirmOverwrite = false
+                        }
                 }.padding(.bottom, 12)
                 Divider().overlay(ink.opacity(0.12)).padding(.bottom, 8)
 

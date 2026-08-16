@@ -19,9 +19,9 @@ struct CogPage: View {
     let onClose: () -> Void
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
-    private let green = Color(red: 0.35, green: 0.92, blue: 0.5)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
+    private let green = UI.green
 
     var body: some View {
         ZStack {
@@ -101,7 +101,7 @@ struct CogPage: View {
         Text("\(label) \(v)").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(alert ? .black : ink.opacity(0.55))
             .padding(.horizontal, alert ? 5 : 0).padding(.vertical, alert ? 1 : 0)
-            .background(RoundedRectangle(cornerRadius: 3).fill(alert ? Color(red: 0.98, green: 0.35, blue: 0.3) : .clear))
+            .background(RoundedRectangle(cornerRadius: 3).fill(alert ? UI.red : .clear))
     }
 
     // MARK: controls

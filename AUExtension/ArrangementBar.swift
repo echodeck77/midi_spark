@@ -51,10 +51,10 @@ struct ArrangementBar: View {
     @State private var showClock = false              // LAYOUT v2: the header clock chip's popover (STEP + SWING)
     private let stepLabels = ["2/1", "1/1", "1/2", "1/2.", "1/4", "1/8"]
 
-    private let sceneAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let sceneAmber = UI.amber
     private let ladderGreen = Color(red: 0.25, green: 0.82, blue: 0.55)   // GRID SINGLE mode (matches DiagView.ladderHue)
-    private let barCyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let editHue = Color(red: 0.95, green: 0.47, blue: 0.85)   // orchid — the EDIT segment (matches DiagView.editHue)
+    private let barCyan = UI.cyan
+    private let editHue = UI.editHue   // orchid — the EDIT segment (matches DiagView.editHue)
     private let sceneStripSpace = "sceneStripRow"     // one name for the chip-row coordinate space + its drag gesture
 
     var body: some View {

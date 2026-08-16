@@ -285,7 +285,7 @@ extension FlowView {
                 let a = cellCenter(p.col, p.row, grid); let bow: CGFloat = sr > fc.row ? -34 : 34
                 hops.append((a, ctr, CGPoint(x: (a.x+ctr.x)/2 + bow, y: (a.y+ctr.y)/2), -1, -1, p.hue)) }   // reference: PARENT's colour
             for bus in fc.buses { let bpt = emitPt(bus); hops.append((ctr, bpt, CGPoint(x: (ctr.x+bpt.x)/2 + CGFloat(bus-1)*8, y: (ctr.y+bpt.y)/2), bus, -1, fc.hue)) }
-            let claimAmber = Color(red: 0.98, green: 0.72, blue: 0.12)
+            let claimAmber = UI.amber
             for h in hops {
                 // A silent cell's OUTPUT hop (a cycle that never emits) draws its guide edge FAINTLY but flies
                 // NO comets — it must not look like notes reach the emitter. The loop/reference hops still flow.
@@ -559,7 +559,7 @@ enum RouteRenderer {
     /// Draw an edge + its running comet (or a hollow amber FIZZLE when withheld). `phase` 0…1 drives the comet.
     static func edge(_ ctx: GraphicsContext, _ a: CGPoint, _ b: CGPoint, hue: Color, playing: Bool,
                      phase: Double, withheld: Bool) {
-        let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+        let amber = UI.amber
         ctx.stroke(path(a, b), with: .color(hue.opacity(withheld ? 0.12 : 0.3)), lineWidth: 1)
         guard playing else { return }
         let control = cp(a, b)

@@ -57,8 +57,8 @@ struct RackMatrix: View {
     let onClose: () -> Void
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
-    private let amber = Color(red: 0.98, green: 0.72, blue: 0.12)
+    private let cyan = UI.cyan
+    private let amber = UI.amber
     private let letters = ["A", "B", "C", "D"]
     private func bit(_ m: UInt8, _ i: Int) -> Bool { m & (1 << UInt8(i)) != 0 }
     private func at(_ a: [Int], _ i: Int, _ d: Int) -> Int { i < a.count ? a[i] : d }

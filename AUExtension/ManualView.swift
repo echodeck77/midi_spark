@@ -4,7 +4,9 @@ import SwiftUI
 // Native SwiftUI (ScrollViewReader anchor-scroll — no WKWebView); the content is the bundled manual markdown.
 
 /// Tracks the doc-anchor of the last-touched control. NOT @Published — read lazily when the "?" opens, so a touch
-/// never triggers a re-render (the AuditionBox-style silent reference). Controls report via `.helpAnchor("#id")`.
+/// never triggers a re-render (the AuditionBox-style silent reference). Controls report via `.helpAnchor("#anchor")`
+/// where "#anchor" matches a `{#anchor}` id in Docs/manual/manual-skeleton.md — keep the two in sync (an anchor with
+/// no matching id silently opens the manual at the top).
 final class HelpTracker: ObservableObject {
     var lastAnchor: String = ""   // the anchor id WITHOUT the leading '#', e.g. "recv-live"
 }
@@ -77,7 +79,7 @@ struct ManualView: View {
     let onClose: () -> Void
 
     private let ink = Color.white
-    private let cyan = Color(red: 0.15, green: 0.88, blue: 0.94)
+    private let cyan = UI.cyan
 
     var body: some View {
         VStack(spacing: 0) {
