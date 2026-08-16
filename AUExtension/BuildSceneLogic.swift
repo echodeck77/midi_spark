@@ -86,6 +86,48 @@ enum BuildSceneLogic {
     /// deliberately silenced this column) is PRESERVED — the old code treated −1 like an invalid pick and resurrected
     /// it to the topmost stocked cell. Only a POSITIVE pick at a now-empty/out-of-range cell falls back (to the
     /// topmost stocked cell, or −1 if the column is empty).
+    // MUTATE (Paul 2026-08-16): a VALUE-only variation of a processor chain — same STRUCTURE, up to 3 nudged params
+    // (biased to one, biased to continuous), GUARANTEED to sound different from the source AND not silent. Returns the
+    // tweaked chain + its Dice eval (signature + peak, reused for complexity); nil if no distinct+audible variant found.
+    static func mutateChain<R: RandomNumberGenerator>(_ base: [ProcessorSlot], baseSig: [Int], _ rng: inout R) -> (chain: [ProcessorSlot], run: (sig: [Int], peak: Int))? {
+        var all: [(slot: Int, param: MacroControlParam)] = []
+        for (i, slot) in base.enumerated() where !slot.bypassed {
+            for p in macroParamsForProcessor(slot.type) { all.append((i, p)) }
+        }
+        guard !all.isEmpty else { return nil }
+        let cont = all.filter { !$0.param.kind.isDiscrete }, disc = all.filter { $0.param.kind.isDiscrete }
+        for _ in 0..<12 {                                       // retry until distinct + audible (usually succeeds first try)
+            var chain = base
+            var contPool = cont.shuffled(using: &rng), discPool = disc.shuffled(using: &rng)
+            for _ in 0..<mutateCount(&rng) {                    // discrete flips are RARE — bias to continuous nudges
+                let useDiscrete = !discPool.isEmpty && (contPool.isEmpty || Double.random(in: 0..<1, using: &rng) < 0.2)
+                guard let tw = (useDiscrete ? discPool.popLast() : (contPool.popLast() ?? discPool.popLast())) else { break }
+                var vals = processorValues(chain[tw.slot])
+                vals[tw.param.key] = mutateNudge(tw.param, vals[tw.param.key], &rng)
+                chain[tw.slot] = applyProcessorValues(vals, to: chain[tw.slot])
+            }
+            let run = Dice.evalRun(chain)
+            if !run.sig.isEmpty && run.sig != baseSig { return (chain, run) }   // sounds DIFFERENT and NOT silent
+        }
+        return nil
+    }
+    static func mutateCount<R: RandomNumberGenerator>(_ rng: inout R) -> Int {
+        let r = Double.random(in: 0..<1, using: &rng); return r < 0.65 ? 1 : (r < 0.90 ? 2 : 3)   // ≈65/25/10% one/two/three
+    }
+    // A bounded nudge of one param value by its kind: continuous ±10–15% of range; discrete a single step / flip.
+    static func mutateNudge<R: RandomNumberGenerator>(_ p: MacroControlParam, _ v: Double?, _ rng: inout R) -> Double {
+        let cur = v ?? 0
+        switch p.kind {
+        case .continuous(let lo, let hi):
+            let delta = (hi - lo) * Double.random(in: 0.10...0.15, using: &rng) * (Bool.random(using: &rng) ? 1 : -1)
+            return min(hi, max(lo, cur + delta))
+        case .toggle: return cur >= 0.5 ? 0 : 1
+        case .option(let labels): let n = max(1, labels.count); return Double((Int(cur.rounded()) + (Bool.random(using: &rng) ? 1 : n - 1)) % n)
+        case .stepper(let lo, let hi): return Double(min(hi, max(lo, Int(cur.rounded()) + (Bool.random(using: &rng) ? 1 : -1))))
+        case .mask(let bits): return Double(Int(cur.rounded()) ^ (1 << Int.random(in: 0..<max(1, bits), using: &rng)))
+        }
+    }
+
     static func reconcileStagingSel(_ sel: [Int], cells: [[String?]]) -> [Int] {
         (0..<8).map { c in
             let r = c < sel.count ? sel[c] : -1

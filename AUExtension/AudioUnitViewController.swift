@@ -88,10 +88,9 @@ struct DiagView: View {
     // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
-    @State var buildVerb: BuildVerb? = .place   // BUILD lands with PLACE armed (user 2026-08-12)
+    @State var buildRowMode: BuildRowMode = .select   // part grid: what the left row buttons do (SELECT · PLACE · MUTATE) — Paul 2026-08-16
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
-    @State var buildStagingMode: BuildGridMode = .play   // the staging grid DEFAULTS to PLAY (Paul 2026-08-15 — one colour per row, sequence chosen vertically)
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)

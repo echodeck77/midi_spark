@@ -37,6 +37,26 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(out, Array(repeating: -1, count: 8), "no stocked cell anywhere → every column resolves to silent")
     }
 
+    // MARK: mutateChain (the MUTATE row action — value-only, guaranteed distinct + audible)
+
+    func testMutateProducesADistinctAudibleValueVariant() {
+        let base = [ProcessorSlot(type: .arp)]          // an arp has continuous params (rate/octaves) whose nudge shifts the output
+        let baseSig = Dice.signature(base)
+        var rng = DiceRNG(seed: 7)
+        guard let (mutated, run) = BuildSceneLogic.mutateChain(base, baseSig: baseSig, &rng) else {
+            return XCTFail("mutate should find a distinct, audible variant of an arp")
+        }
+        XCTAssertFalse(run.sig.isEmpty, "the variant is NOT silent")
+        XCTAssertNotEqual(run.sig, baseSig, "the variant sounds DIFFERENT from the source")
+        XCTAssertEqual(mutated.count, base.count, "value-only: the chain structure (slot count) is unchanged")
+        XCTAssertEqual(mutated.map(\.type), base.map(\.type), "value-only: the processor types are unchanged")
+    }
+
+    func testMutateReturnsNilForAnEmptyChain() {
+        var rng = DiceRNG(seed: 1)
+        XCTAssertNil(BuildSceneLogic.mutateChain([], baseSig: [], &rng), "no slots → nothing to tweak")
+    }
+
     // MARK: composeScene
 
     func testNothingPlayingReturnsNil() {

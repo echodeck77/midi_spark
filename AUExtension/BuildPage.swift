@@ -57,8 +57,10 @@ private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a 
 private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
-enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" }
-enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (styled like PART 1 ▾)
+enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (play grid only now; the part grid's EDIT mode was retired 2026-08-16)
+// The part grid's ROW-BUTTON mode (Paul 2026-08-16): a radio that changes what the left row buttons DO — SELECT the
+// whole row's rung · PLACE the selected colour · MUTATE a value-tweaked variant of it.
+enum BuildRowMode: String, CaseIterable { case select = "SELECT", place = "PLACE", mutate = "MUTATE" }
 enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
 
 // BuildPart / BuildUnassignedData moved to BuildModel.swift (now persisted + test-target-visible).
@@ -440,7 +442,6 @@ extension DiagView {
         }
         buildReconcileStagingSel()                                            // keep each column's pick valid after the reshuffle
         buildDeletedRows.removeAll()
-        buildStagingMode = .play                                              // auto-shift to PLAY mode
         buildSelectStagingVoice()                                             // play the staging grid (publishes the scene)
     }
 
@@ -1061,11 +1062,15 @@ extension DiagView {
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
-            buildGridModeRadio($buildStagingMode) { buildStagingMode = .play; buildGridPopup = 0 }   // eye → full-screen staging grid (play mode)
+            HStack(spacing: 6) {                                  // EDIT mode retired for the part grid (Paul 2026-08-16) — just the full-screen zoom remains
+                Image(systemName: "eye").font(.system(size: 13, weight: .semibold)).foregroundColor(buildCyan)
+                    .padding(.horizontal, 10).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
+                    .contentShape(Rectangle()).onTapGesture { buildGridPopup = 0 }
+                Spacer(minLength: 0)
+            }
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
-            AnyView(buildStagingVerbBox(gridW: gridW))
-                .opacity(buildStagingMode == .play ? 0.35 : 1)    // PLAY mode disables the editing verbs
-                .allowsHitTesting(buildStagingMode == .edit)
+            AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE row-mode radio (always live)
             Spacer(minLength: 0)
             AnyView(buildPopulate(gridW: gridW))                  // bottom of the centre column, above the footer
         }
@@ -1092,9 +1097,12 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a row button …
-                if buildStagingMode == .edit, buildVerb == .delete { buildDeleteStagingRow(row) }   // (edit + DELETE → clear the row; 2nd press restores)
-                else { buildStampRow(row) }                                                 // else → SET the row to the selected colour (one colour per row)
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a row button → do the current ROW MODE
+                switch buildRowMode {
+                case .select: buildSelectRow(row)                                           // select the whole row's rung
+                case .place:  buildStampRow(row)                                            // write the selected colour across the row
+                case .mutate: buildMutateRow(row)                                           // a value-tweaked variant of the selected colour
+                }
             }
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
@@ -1122,11 +1130,9 @@ extension DiagView {
         }
     }
 
-    // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; the SELECTED
-    // colour when PLACE is armed (so you can see where a place lands); otherwise none.
+    // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; otherwise none.
     private func buildStagingStroke(c: Int, r: Int, stocked: Bool) -> Color {
         if buildStagingSel[c] == r { return .white }   // the selected (playing) rung — WHITE even when unpopulated (Paul 2026-08-15)
-        if buildStagingMode == .edit && buildVerb == .place { return buildSelHue }   // place cue only when EDIT + PLACE
         return .clear
     }
 
@@ -1137,29 +1143,10 @@ extension DiagView {
             buildPulseColourID = id
             buildPulseChain = (r < buildRowChain.count && !buildRowChain[r].isEmpty) ? buildRowChain[r] : []
         }
-        if buildStagingMode == .play {                            // PLAY mode → SELECT / DESELECT one rung per column (populated or NOT — Paul 2026-08-15)
-            buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the selected rung → deselect (column silent); else select it (any rung)
-            buildStagingSyncIfPlaying()
-            return                                                // early return → no reconcile, so an explicit −1 sticks
-        }
-        switch buildVerb {
-        case .place:
-            guard let cid = ddSelectedColourID else { break }
-            let key = c * 8 + r
-            if buildStagingCells[c][r] == cid, let orig = buildPlacedOrig[key] {   // 2nd tap → revert to what the cell held before
-                buildStagingCells[c][r] = orig
-                buildPlacedOrig.removeValue(forKey: key)
-            } else {                                                                // 1st tap → remember the original, then place
-                buildPlacedOrig.updateValue(buildStagingCells[c][r], forKey: key)  // updateValue (not subscript) so a nil original is KEPT, not dropped
-                buildStagingCells[c][r] = cid
-                buildStagingSel[c] = r                                             // a newly placed cell becomes the SELECTED (playing) cell for its column
-            }
-        case .delete: buildStagingCells[c][r] = nil; buildPlacedOrig.removeValue(forKey: c * 8 + r)
-        default: break
-        }
-        if r < buildRowChain.count { buildRowChain[r] = [] }   // a manual edit turns a STAGED variation row back into a normal row
-        buildReconcileStagingSel()                             // a revert/delete may have emptied the selected cell → fall back
-        buildStagingSyncIfPlaying()                             // reflect the edit in the live staging audio
+        // A cell tap always SELECTS / DESELECTS one rung per column (populated or NOT — Paul 2026-08-15). EDIT mode is
+        // retired; the row BUTTONS carry the place/mutate actions now (buildRowMode). (Paul 2026-08-16)
+        buildStagingSel[c] = (buildStagingSel[c] == r) ? -1 : r   // tap the selected rung → deselect (column silent); else select it
+        buildStagingSyncIfPlaying()
     }
 
     private func buildRowColour(_ r: Int) -> String? { r >= 0 && r < 8 ? (0..<8).compactMap { buildStagingCells[$0][r] }.first : nil }
@@ -1191,30 +1178,37 @@ extension DiagView {
         buildStagingSyncIfPlaying()
     }
 
-    // DELETE verb + a staging ROW button: first press empties every cell in the row (settings cleared); a second
-    // press RESTORES the row to exactly what it held. (user 2026-08-12)
-    private func buildDeleteStagingRow(_ row: Int) {
+    // SELECT mode: make this row the selected rung in EVERY column — the whole-row equivalent of tapping a cell.
+    private func buildSelectRow(_ row: Int) {
         guard row >= 0, row < 8 else { return }
-        if let saved = buildDeletedRows[row] {                 // 2nd press → restore
-            for c in 0..<8 { buildStagingCells[c][row] = c < saved.count ? saved[c] : nil }
-            buildDeletedRows[row] = nil
-        } else {                                                // 1st press → save + clear
-            buildDeletedRows[row] = (0..<8).map { buildStagingCells[$0][row] }
-            for c in 0..<8 { buildStagingCells[c][row] = nil }
-        }
-        buildReconcileStagingSel()                             // emptied/restored cells → refresh each column's selection
+        for c in 0..<8 { buildStagingSel[c] = row }
         buildStagingSyncIfPlaying()
     }
+
+    // MUTATE mode (Paul 2026-08-16): create (empty) / replace (populated) row R with a VALUE-tweaked variant of the
+    // SELECTED palette colour — same processor structure, up to 3 nudged values (biased to one), GUARANTEED to sound
+    // different from the source and NOT silent (Dice signature), tinted a lighter/darker tone of the source by complexity.
+    private func buildMutateRow(_ row: Int) {
+        guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
+        let base = buildColourChain(cid)
+        let baseRun = Dice.evalRun(base)                         // signature + complexity, computed ONCE
+        var rng = SystemRandomNumberGenerator()
+        guard let (mutated, mutRun) = BuildSceneLogic.mutateChain(base, baseSig: baseRun.sig, &rng) else { return }   // no distinct+audible variant found
+        let srcC = baseRun.sig.count * 100 + baseRun.peak, newC = mutRun.sig.count * 100 + mutRun.peak   // = buildComplexity
+        let hue = buildSimilarHue(of: cid, lighter: newC < srcC, srcC: srcC, newC: newC)
+        let newID = buildNewColour(hex: hue, machine: mutated)   // a NEW colour (never already placed) → no relocation
+        if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }   // remember what this row displaces
+        buildSetRow(row, to: newID)
+        for c in 0..<8 { buildStagingSel[c] = row }              // select the whole new row (like PLACE)
+        buildStagingSyncIfPlaying()
+    }
+
 
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
     @ViewBuilder private func buildStagingVerbBox(gridW: CGFloat) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 6) { buildVerbBtn(.place); buildVerbBtn(.move); buildVerbBtn(.delete) }
-            HStack(spacing: 6) {
-                buildActionBtn("CLEAR ALL")                        // clear the staging grid
-                buildActionBtn("MUTATE")
-                buildActionBtn("🎲 RE-ROLL")                        // re-roll the variation ladder (distinct from the column's 🎲)
-            }
+            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.place); buildRowModeBtn(.mutate) }   // the ROW-BUTTON mode radio
+            HStack(spacing: 6) { buildBlankSlot(); buildBlankSlot(); buildBlankSlot() }   // reserved — left blank for now (Paul 2026-08-16)
         }
         .padding(8)
         .frame(width: gridW)                                       // match the verb box to the grid above it
@@ -1258,9 +1252,9 @@ extension DiagView {
                             RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.11))   // §0 MUTED: neutral row rail (matches the loop keys)
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.55)))
+                                .overlay(buildRowButtonIcon())      // icon reflects the ROW MODE (chevron · target · mutate) — Paul 2026-08-16
                                 .contentShape(Rectangle())
-                                .onTapGesture { onRow?(base + r) }  // press → fill that whole grid row
+                                .onTapGesture { onRow?(base + r) }  // press → run the current row mode on that grid row
                         }
                     }
                 }
@@ -1510,7 +1504,7 @@ extension DiagView {
         }
     }
 
-    // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like buildActionBtn).
+    // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like a fill button).
     @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(pink ? buildPink : Color.white)                                 // §0 MUTED: pink is a WHISPER (ink + edge on neutral), not a slab
@@ -1579,22 +1573,31 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture { action?() }
     }
-    @ViewBuilder private func buildActionBtn(_ s: String, pink: Bool = false) -> some View {
-        Text(s).font(.system(size: 9, weight: .heavy, design: .monospaced)).multilineTextAlignment(.center)
-            .foregroundColor(pink ? Color.black : Color.white).tracking(0.5)
-            .frame(maxWidth: .infinity).frame(minHeight: 38)
-            .background(RoundedRectangle(cornerRadius: 9).fill(pink ? buildPink : buildCell))
-    }
-    // the spring-held workbench verb (iteration 4). Skeleton: a tap arms/disarms it (the real gesture is hold→release).
-    @ViewBuilder private func buildVerbBtn(_ v: BuildVerb) -> some View {
-        let armed = buildVerb == v
-        Text(v.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
+    // The SELECT · PLACE · MUTATE radio — a pure radio (always one active) that changes what the left row buttons DO.
+    @ViewBuilder private func buildRowModeBtn(_ m: BuildRowMode) -> some View {
+        let armed = buildRowMode == m
+        Text(m.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(armed ? Color.black : Color.white)
             .frame(maxWidth: .infinity).frame(minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))   // §0: armed keeps the cyan fill; idle mutes to a whisper
             .contentShape(Rectangle())
-            .onTapGesture { buildVerb = armed ? nil : v }
+            .onTapGesture { buildRowMode = m }
+    }
+    // The left row-button icon for the current mode: a chevron (SELECT), the TARGET (PLACE) or a wand (MUTATE); the
+    // latter two carry the SELECTED palette colour so you see what a press will lay down. (Paul 2026-08-16)
+    @ViewBuilder private func buildRowButtonIcon() -> some View {
+        switch buildRowMode {
+        case .select: Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.55))
+        case .place:  Image(systemName: "scope").font(.system(size: 13, weight: .medium)).foregroundColor(buildSelHue)
+        case .mutate: Image(systemName: "wand.and.stars").font(.system(size: 12, weight: .medium)).foregroundColor(buildSelHue)
+        }
+    }
+    // A reserved (inert) button slot — the second verb-box row is blank for now (Paul 2026-08-16).
+    @ViewBuilder private func buildBlankSlot() -> some View {
+        Color.clear.frame(maxWidth: .infinity).frame(minHeight: 36)
+            .background(RoundedRectangle(cornerRadius: 9).fill(buildCell.opacity(0.4)))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildEdge.opacity(0.5), lineWidth: 1))
     }
     @ViewBuilder private func buildBox(_ title: String, _ ch: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
