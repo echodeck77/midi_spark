@@ -535,6 +535,29 @@ func chopSlice(_ mBeat: Double, columnBeats S: Double) -> Int {
     return min(7, max(0, Int(frac * 8)))
 }
 
+/// TUTTI PATTERN — the GLOBAL slice index of an onset at `mBeat`, at `sliceBeats` per slice (so an authored pattern
+/// walks continuously across columns rather than resetting). A pure function of musical position → replay-exact.
+func tuttiSliceOf(_ mBeat: Double, sliceBeats: Double) -> Int {
+    guard sliceBeats > 0 else { return 0 }
+    return Int((mBeat / sliceBeats).rounded(.down))
+}
+
+/// TUTTI PATTERN — the ascending-rank indices a slice STATE emits + their octave shift (semitones). `count` = the
+/// held set size (rank 0 = lowest … count−1 = highest). REST → none; the ±oct variants shift the emitted pitch. Pure.
+func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: Int) {
+    guard count > 0 else { return ([], 0) }
+    switch state {
+    case .all:        return (Array(0..<count), 0)
+    case .low:        return ([0], 0)
+    case .high:       return ([count - 1], 0)
+    case .top2:       return (count >= 2 ? [count - 2, count - 1] : [0], 0)
+    case .bot2:       return (count >= 2 ? [0, 1] : [0], 0)
+    case .lowOct:     return ([0], 12)
+    case .allDownOct: return (Array(0..<count), -12)
+    case .rest:       return ([], 0)
+    }
+}
+
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
 /// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads

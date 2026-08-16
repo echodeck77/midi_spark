@@ -61,7 +61,11 @@ final class FuzzTests: XCTestCase {
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
         let ids = (0..<40).map { "c\($0)" }
-        let colours = ids.map { Colour(colourID: $0, type: types[r.int(types.count)]) }
+        let colours = ids.map { id -> Colour in
+            var c = Colour(colourID: id, type: types[r.int(types.count)])
+            if c.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&c.paramsA, &r) }   // exercise the per-slice cadence
+            return c
+        }
         var scene = SceneState.empty()
         let occupied = r.range(1, 40)
         for _ in 0..<occupied {
@@ -70,7 +74,11 @@ final class FuzzTests: XCTestCase {
             if r.chance(0.7) { cell.inputReceiver = r.int(4) }        // most cells subscribe to a receiver
             if r.chance(0.4) {                                        // some carry a short chain
                 let n = r.range(1, 3)
-                cell.processors = (0..<n).map { _ in ProcessorSlot(type: types[r.int(types.count)]) }
+                cell.processors = (0..<n).map { _ -> ProcessorSlot in
+                    var s = ProcessorSlot(type: types[r.int(types.count)])
+                    if s.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&s.params, &r) }
+                    return s
+                }
             }
             scene.cells[col][row] = cell
         }
@@ -89,6 +97,12 @@ final class FuzzTests: XCTestCase {
             return rv
         }
         return st
+    }
+    private func applyRandomTuttiPattern(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.tuttiMode = .pattern
+        p.tuttiSlices = (0..<8).map { _ in TuttiSlice.allCases[r.int(TuttiSlice.allCases.count)] }   // incl. REST + octave shifts
+        p.tuttiRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]                                 // incl. the fastest rates
+        p.tuttiRotate = r.int(8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

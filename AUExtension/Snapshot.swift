@@ -124,6 +124,9 @@ struct SnapParams {
     var tuttiMode: TuttiMode = .coin
     var tuttiBalance: Double = 0.5       // COIN: P(TUTTI) per step, 0…1
     var tuttiPick: TuttiPick = .low      // COIN: which rank a SOLO step keeps
+    var tuttiSlices: [TuttiSlice] = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 authored slice shapes
+    var tuttiSliceBeats: Double = 0.5    // PATTERN: slice width in beats (from tuttiRate)
+    var tuttiRotate: Int = 0             // PATTERN: rotate the 8-slice pattern along the bar (0…7)
 }
 
 struct SnapColour {

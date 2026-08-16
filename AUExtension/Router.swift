@@ -1179,6 +1179,7 @@ final class Router {
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
             guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI = a per-step SET filter
+            if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(treat) : 1
@@ -1780,8 +1781,14 @@ final class Router {
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .tutti:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. TUTTI) emit at the transition
+            case .echo, .identity, .chance, .harmonize:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
+            case .tutti:
+                if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
+                    emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                                        pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+                }
             case .silent:
                 break   // closed passgate → nothing this window
             }
@@ -2162,6 +2169,43 @@ final class Router {
         return nil
     }
 
+    /// TUTTI PATTERN (standalone): render the held set as an authored SHAPE per slice, clocked at the slice rate — a
+    /// per-slice re-articulator. TUTTI is not a driver; only a single-slot PATTERN cell reaches here (a chain routes
+    /// its driver/hold instead). The 8-slice pattern walks GLOBALLY (ROTATE offsets it) so it strides the bar. No stuck
+    /// notes: every strike carries an explicit off sample through emitArtic, the same lifecycle the generators use.
+    private func emitTuttiPatternRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+                                     pool: NotePool, beatPos: Double, windowBeats: Double, windowStart: Int64,
+                                     windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                                     out: MIDIEmitter?, diag: inout KernelDiag) {
+        let p = colour.a
+        let sub = max(0.03125, p.tuttiSliceBeats)
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        var srcNotes: [(note: Int, vel: UInt8)] = []
+        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+        let count = srcNotes.count
+        guard count > 0 else { return }
+        let gStart = Int((mWinStart / sub).rounded(.down)), gEnd = Int((mWinEnd / sub).rounded(.down))
+        guard gEnd >= gStart else { return }
+        for g in gStart...gEnd {
+            let tau = Double(g) * sub
+            guard tau >= mWinStart && tau < mWinEnd else { continue }
+            let idx = (((g + p.tuttiRotate) % 8) + 8) % 8
+            let (ranks, oct) = tuttiSliceRanks(idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
+            guard !ranks.isEmpty else { continue }                 // REST → silent slice
+            let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            let offT = sampleOf(musical: tau + sub * 0.9, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            let tbm = chopMask(cell, m: tau, S: S, base: bm)
+            for rank in ranks where rank >= 0 && rank < count {
+                let n = srcNotes[rank].note + transpose + oct
+                guard n >= 0 && n <= 127 else { continue }
+                storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
+                if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, srcNotes[rank].vel), out: out, diag: &diag) }
+            }
+        }
+    }
+
     /// Transform note set `src` → `dst` (dst pre-reset) by ONE stage at beat m — a pure, window-independent
     /// derivation: identity/gate/ratchet/strum pass the set, a closed gate empties it, chance drops by
     /// probability, harmonize expands to voices, an ARP mid-chain collapses the set to its one note at m.
@@ -2186,16 +2230,25 @@ final class Router {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
                 if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: p.probability, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
-        case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step (COIN)
+        case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step/slice
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
-            var solo = -1                                       // −1 = TUTTI (whole set passes)
             if p.tuttiMode == .coin {
+                var solo = -1                                   // −1 = TUTTI (whole set passes)
                 let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
                 if !tuttiIsTutti(step: step, balance: p.tuttiBalance) { solo = tuttiSoloRank(step: step, count: cCnt, pick: p.tuttiPick) }
-            }                                                  // PATTERN: phase 2 — pass the set through for now
-            for k in 0..<cCnt where solo < 0 || k == solo {
-                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0)
+                for k in 0..<cCnt where solo < 0 || k == solo {
+                    let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                    dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0)
+                }
+            } else {                                            // PATTERN: the authored slice shape at beat m
+                let sub = max(0.03125, p.tuttiSliceBeats)
+                let idx = (((tuttiSliceOf(m, sliceBeats: sub) + p.tuttiRotate) % 8) + 8) % 8
+                let (ranks, oct) = tuttiSliceRanks(idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: cCnt)
+                for rank in ranks where rank >= 0 && rank < cCnt {
+                    let n = src.srcAscending(rank, filter: 0, cableMask: 0b1111)
+                    let shifted = Int(n) + oct
+                    if shifted >= 0 && shifted <= 127 { dst.noteOn(UInt8(shifted), velocity: max(1, src.velocity(n)), channel: 0) }
+                }
             }
         case .harmonize:
             let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]

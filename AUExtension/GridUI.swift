@@ -1240,6 +1240,7 @@ struct ProcessorBox: View {
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
+    @State private var tuttiPaint: TuttiSlice = .all     // TUTTI PATTERN: the shape currently loaded on the brush
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1544,10 +1545,35 @@ struct ProcessorBox: View {
                 field("PICK  (which note carries a SOLO step)") { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
-                field("PATTERN") { Text("the 8-slice set-shape row — arriving in phase 2")
-                    .font(.system(size: 13, design: .monospaced)).foregroundColor(.white.opacity(0.45))
-                    .frame(maxWidth: .infinity, alignment: .leading) }
+                field("PAINT  (pick a shape, then tap slices)") { seg(TuttiSlice.allCases.map(tuttiGlyph), sel: tuttiGlyph(tuttiPaint)) { i in
+                    tuttiPaint = TuttiSlice.allCases[i] } }
+                field("SLICES  (the pattern walks the bar at RATE)") { HStack(spacing: 4) {
+                    ForEach(0..<8, id: \.self) { i in
+                        let cur = tuttiSliceAt(p.tuttiSlices, i)
+                        Text(tuttiGlyph(cur)).font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundColor(cur == .rest ? .white.opacity(0.4) : .black)
+                            .frame(maxWidth: .infinity).frame(height: 38)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(cur == .rest ? Color.white.opacity(0.08) : accent.opacity(0.85)))
+                            .contentShape(Rectangle())
+                            .onTapGesture { setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = tuttiPaint; $0.tuttiSlices = s } }
+                    }
+                } }
+                field("RATE  (slices per bar)") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
+                    setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
+                field("ROTATE  \(p.tuttiRotate ?? 0)") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
+                    setParam { $0.tuttiRotate = i } } }
             }
+        }
+    }
+
+    private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)
+        let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .all
+    }
+    /// TUTTI PATTERN slice glyph — a compact label for the painter/row (the palette is settling; states are cheap to cull).
+    private func tuttiGlyph(_ s: TuttiSlice) -> String {
+        switch s {
+        case .all: return "ALL"; case .low: return "LO"; case .high: return "HI"; case .top2: return "T2"
+        case .bot2: return "B2"; case .lowOct: return "L+8"; case .allDownOct: return "A−8"; case .rest: return "·"
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

@@ -1729,4 +1729,41 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(fullNotes.count, 3, "balance 1 → TUTTI → the whole held C-E-G sounds (got \(fullNotes.sorted()))")
         XCTAssertTrue(soloNotes.isSubset(of: fullNotes), "the SOLO note is one of the held set")
     }
+
+    // MARK: - TUTTI PATTERN (phase 2): per-slice set-shapes
+
+    func testTuttiSliceRanksShapes() {
+        XCTAssertEqual(tuttiSliceRanks(.all, count: 3).ranks, [0, 1, 2])
+        XCTAssertEqual(tuttiSliceRanks(.low, count: 3).ranks, [0])
+        XCTAssertEqual(tuttiSliceRanks(.high, count: 3).ranks, [2])
+        XCTAssertEqual(tuttiSliceRanks(.top2, count: 3).ranks, [1, 2])
+        XCTAssertEqual(tuttiSliceRanks(.bot2, count: 3).ranks, [0, 1])
+        XCTAssertEqual(tuttiSliceRanks(.top2, count: 1).ranks, [0], "a singleton is degenerate → rank 0")
+        XCTAssertEqual(tuttiSliceRanks(.rest, count: 3).ranks, [], "REST → silence")
+        XCTAssertEqual(tuttiSliceRanks(.lowOct, count: 3).octave, 12, "LOW+8 shifts up an octave")
+        XCTAssertEqual(tuttiSliceRanks(.allDownOct, count: 3).octave, -12, "ALL−8 shifts down an octave")
+        XCTAssertEqual(tuttiSliceRanks(.all, count: 0).ranks, [], "empty set → nothing")
+    }
+    func testTuttiSliceOfWalksGlobally() {
+        XCTAssertEqual(tuttiSliceOf(0.0, sliceBeats: 0.5), 0)
+        XCTAssertEqual(tuttiSliceOf(0.5, sliceBeats: 0.5), 1)
+        XCTAssertEqual(tuttiSliceOf(1.25, sliceBeats: 0.5), 2)
+        XCTAssertEqual(tuttiSliceOf(4.0, sliceBeats: 0.5), 8, "keeps counting (wraps to the 8-array via %8 downstream)")
+        XCTAssertEqual(tuttiSliceOf(1.0, sliceBeats: 0), 0, "guards sliceBeats > 0")
+    }
+    func testTuttiPatternShapesEmitExpectedNotes() {   // through the REAL Router (all 8 slices = one state → shape-independent of the clock)
+        func notes(_ state: TuttiSlice) -> Set<UInt8> {
+            var s = ProcessorSlot(type: .tutti); s.params.tuttiMode = .pattern
+            s.params.tuttiSlices = Array(repeating: state, count: 8); s.params.tuttiRate = .r1_8
+            return Set(Dice.runRecorder([s]).ons.filter { $0.cable == 1 }.map { $0.note })
+        }
+        XCTAssertEqual(notes(.all).count, 3, "ALL → the whole held C-E-G")
+        XCTAssertEqual(notes(.high).count, 1, "HIGH → one note")
+        XCTAssertEqual(notes(.low).count, 1, "LOW → one note")
+        XCTAssertEqual(notes(.top2).count, 2, "TOP2 → two notes")
+        XCTAssertEqual(notes(.rest), [], "REST → silence")
+        if let l = notes(.low).first, let lo = notes(.lowOct).first {
+            XCTAssertEqual(Int(lo) - Int(l), 12, "LOW+8 sounds an octave above LOW")
+        } else { XCTFail("LOW / LOW+8 should each sound one note") }
+    }
 }
