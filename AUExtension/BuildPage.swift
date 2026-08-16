@@ -349,7 +349,8 @@ extension DiagView {
     func buildSyncColours() { au?.setBuildEphemeralColours(buildColourReg.map { (id: $0.key, machine: $0.value) }) }
     // Allocate a NEW colour carrying `machine` + a custom hue: a free DOCUMENT slot if one remains, else an unlimited
     // EPHEMERAL colour ("b<n>"). Returns its id. (Paul 2026-08-15 — lifts the 16-slot cap.)
-    private func buildNewColour(hex: UInt32, machine: [ProcessorSlot]) -> String {
+    private func buildNewColour(hex rawHex: UInt32, machine: [ProcessorSlot]) -> String {
+        let hex = buildUniqueHue(rawHex)                                     // RULE: no two colours share a hue (Paul 2026-08-16)
         if let j = buildFirstUndefinedGlobal() {
             let id = colourIDs[j]
             ddCreateColour(j); au?.withChainColour(id) { $0 = machine }; refreshFromDocument()
@@ -376,6 +377,29 @@ extension DiagView {
     private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
     // The base hue of a colour (its override if any, else its palette hex).
     private func buildBaseHex(_ id: String) -> UInt32 { colourHueOverride[id] ?? colourIDs.firstIndex(of: id).map { colourHexes[$0] } ?? 0x808080 }
+    // No two colours may share a hue (Paul 2026-08-16): if `hex` is already taken, nudge it to the nearest distinct
+    // shade — stops two MUTATE variants of one source landing on the identical lighter/darker tone.
+    private func buildUniqueHue(_ hex: UInt32) -> UInt32 {
+        var used = Set(colourHueOverride.values); used.formUnion(colourHexes)
+        var h = hex, n = 0
+        while used.contains(h) && n < 96 { n += 1; h = buildPerturbHex(hex, by: n) }
+        return h
+    }
+    private func buildPerturbHex(_ h: UInt32, by d: Int) -> UInt32 {
+        func ch(_ shift: Int) -> UInt32 { let c = Int((h >> shift) & 0xFF); return UInt32(max(0, min(255, c + (c < 128 ? d : -d)))) }   // push each channel toward its extreme by an increasing step
+        return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+    }
+    // Perceived darkness of a hex — used to invert a row button's background when its coloured icon would vanish.
+    private func buildIsDark(_ hex: UInt32) -> Bool {
+        let r = Double((hex >> 16) & 0xFF), g = Double((hex >> 8) & 0xFF), b = Double(hex & 0xFF)
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0 < 0.45
+    }
+    // The row button's background: normally the muted rail; but in PLACE/MUTATE, if the SELECTED colour (the icon
+    // colour) is DARK, invert to a light button so the icon still reads. (Paul 2026-08-16)
+    private var buildRowButtonFill: Color {
+        if buildRowMode != .select, let cid = ddSelectedColourID, buildIsDark(buildBaseHex(cid)) { return Color.white.opacity(0.9) }
+        return Color.white.opacity(0.11)
+    }
     // A NEW hue near `source` — lighter (mix toward white) or darker (toward black), with a floor so it's always distinguishable.
     private func buildSimilarHue(of source: String, lighter: Bool, srcC: Int, newC: Int) -> UInt32 {
         let amount = min(0.6, abs(Double(srcC - newC)) / 400.0 + 0.18)        // ≥0.18 so siblings are always tellable apart
@@ -1249,7 +1273,7 @@ extension DiagView {
                     let base = bands.prefix(idx).reduce(0, +)      // absolute grid-row offset for this band
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { r in
-                            RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.11))   // §0 MUTED: neutral row rail (matches the loop keys)
+                            RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
                                 .overlay(buildRowButtonIcon())      // icon reflects the ROW MODE (chevron · target · mutate) — Paul 2026-08-16
