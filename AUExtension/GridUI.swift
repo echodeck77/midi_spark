@@ -1650,7 +1650,7 @@ struct ProcessorBox: View {
                 field("N — how many notes  (\(p.splitSet?.n ?? 2))") { seg((1...6).map { "\($0)" }, sel: "\(p.splitSet?.n ?? 2)") { i in
                     setParam { var c = $0.splitSet ?? ChordSplit(); c.n = i + 1; $0.splitSet = c } } }
             } else if sm == .range {
-                field("SPLIT NOTE  \(p.splitSet?.note ?? 60)") {
+                field("SPLIT NOTE  \(midiNoteName(UInt8(max(0, min(127, p.splitSet?.note ?? 60)))))") {
                     Slider(value: bind(Double(p.splitSet?.note ?? 60)) { v in setParam { var c = $0.splitSet ?? ChordSplit(); c.note = Int(v.rounded()); $0.splitSet = c } }, in: 0...127).tint(accent) }
                 field("SIDE") { seg(["≥ SPLIT", "< SPLIT"], sel: (p.splitSet?.high ?? true) ? "≥ SPLIT" : "< SPLIT") { i in
                     setParam { var c = $0.splitSet ?? ChordSplit(); c.high = (i == 0); $0.splitSet = c } } }
