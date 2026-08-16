@@ -214,6 +214,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "velTilt":      v[param.key] = p.velTilt ?? 0
         case "probability":  v[param.key] = p.probability ?? 1
         case "harmVelScale": v[param.key] = p.harmVelScale ?? 0.8
+        case "euclidPulses": v[param.key] = Double(p.euclidPulses ?? 5)
+        case "euclidSteps":  v[param.key] = Double(p.euclidSteps ?? 8)
+        case "euclidRot":    v[param.key] = Double(p.euclidRot ?? 0)
         case "harm0":        v[param.key] = Double(p.harmIntervals?[safe: 0] ?? 0)
         case "harm1":        v[param.key] = Double(p.harmIntervals?[safe: 1] ?? 0)
         case "harm2":        v[param.key] = Double(p.harmIntervals?[safe: 2] ?? 0)
@@ -255,6 +258,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "velTilt":      s.params.velTilt = clamp(val, -1, 1)
         case "probability":  s.params.probability = clamp(val, 0, 1)
         case "harmVelScale": s.params.harmVelScale = clamp(val, 0.1, 1)
+        case "euclidPulses": s.params.euclidPulses = clamp(Int(val.rounded()), 1, 16)
+        case "euclidSteps":  s.params.euclidSteps = clamp(Int(val.rounded()), 2, 16)
+        case "euclidRot":    s.params.euclidRot = clamp(Int(val.rounded()), 0, 15)
         case "harm0", "harm1", "harm2":
             let idx = Int(param.key.suffix(1)) ?? 0
             var h = s.params.harmIntervals ?? [0, 0, 0]; while h.count < 3 { h.append(0) }

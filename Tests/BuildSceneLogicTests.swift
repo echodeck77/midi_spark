@@ -142,4 +142,17 @@ final class BuildSceneLogicTests: XCTestCase {
         let chainRow = (0..<8).first { r in r != 0 && r != 3 && s.cellAt(0, r)?.colourID == "cyan" }
         XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with both")
     }
+    // Regression (Paul 2026-08-16): MUTATE on a EUCLID gave only ONE variant then went dead — its euclidPulses/Steps/Rot
+    // params were advertised but NOT wired into processorValues/applyProcessorValues, so the only working tweak was the
+    // bypass toggle. With them wired, repeated MUTATE yields many distinct variants.
+    func testMutateEuclidYieldsManyDistinctVariants() {
+        var eu = ProcessorSlot(type: .euclid); eu.params.euclidPulses = 5; eu.params.euclidSteps = 8
+        let base = [eu]
+        var avoid = [Dice.fingerprint(base)]
+        var rng = DiceRNG(seed: 5)
+        var n = 0
+        for _ in 0..<8 { guard let m = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { break }; avoid.append(Dice.fingerprint(m)); n += 1 }
+        XCTAssertGreaterThanOrEqual(n, 5, "euclid must yield many distinct variants (was 1 — the unwired-param bug)")
+    }
+
 }

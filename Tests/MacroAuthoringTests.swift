@@ -96,6 +96,34 @@ final class MacroAuthoringTests: XCTestCase {
         }
     }
 
+    // Every param a processor ADVERTISES (macroParamsForProcessor) must be READABLE by processorValues AND WRITABLE by
+    // applyProcessorValues — a changed value must survive the round-trip. The euclid MUTATE bug (Paul 2026-08-16) was
+    // exactly this: euclidPulses/Steps/Rot were advertised but fell through to `default: break`, so a tweak did nothing
+    // and MUTATE could only ever toggle bypass (one variant, then dead). This guards EVERY type against that class.
+    func testEveryAdvertisedParamIsGettableAndSettable() {
+        for type in ProcessorType.allCases {
+            let slot = ProcessorSlot(type: type)
+            let vals = processorValues(slot)
+            for p in macroParamsForProcessor(type) {
+                guard let cur = vals[p.key] else {
+                    XCTFail("\(type).\(p.key) is advertised but NOT readable by processorValues"); continue
+                }
+                let alt: Double                                   // a DIFFERENT legal value
+                switch p.kind {
+                case .continuous(let lo, let hi): alt = (cur - lo) > (hi - cur) ? lo : hi   // the far end
+                case .toggle:                     alt = cur >= 0.5 ? 0 : 1
+                case .option(let labels):         alt = Double((Int(cur.rounded()) + 1) % max(1, labels.count))
+                case .stepper(_, let hi):         alt = cur < Double(hi) ? cur + 1 : cur - 1
+                case .mask:                       alt = Double(Int(cur.rounded()) ^ 1)
+                }
+                if alt == cur { continue }                        // only one legal value → nothing to prove
+                var changed = vals; changed[p.key] = alt
+                let back = processorValues(applyProcessorValues(changed, to: slot))
+                XCTAssertEqual(back[p.key] ?? .nan, alt, accuracy: 1e-6, "\(type).\(p.key): a CHANGE must survive applyProcessorValues (it's advertised but unwired)")
+            }
+        }
+    }
+
     // §7 the ALTERNATIVE set persists on the slot (additive Optional → old docs decode nil).
     func testProcessorAltPersistsAndOldDocDecodesNil() throws {
         var slot = ProcessorSlot(type: .arp)
