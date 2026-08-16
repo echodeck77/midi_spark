@@ -1755,6 +1755,11 @@ final class Router {
                                      pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                      S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                case .weave:
+                    emitWeaveRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
                 default: break
                 }
                 continue
@@ -1781,6 +1786,11 @@ final class Router {
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, out: out, diag: &diag)
+            case .weave:
+                emitWeaveRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                             pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                             S: S, a: a, out: out, diag: &diag)
             case .echo, .identity, .chance, .harmonize:
                 break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
             case .tutti:
@@ -2014,6 +2024,62 @@ final class Router {
 
     // MARK: - GENERATORS (user 2026-08-08) — EUCLID · BURST · CASCADE, single-slot tick emitters. Each computes its
     // strike beats for the current column and emits those landing in this window (half-open, so each fires once).
+    /// WEAVE (Paul 2026-08-07): the rank-clocked polyrhythm DRIVER. Each held note (ascending rank) ticks on its OWN
+    /// clock — `weaveRate(mode, base, rank)` — so one chord becomes an interlocking ensemble (bass slow … top fast).
+    /// Modelled on emitGeneratorRow: compose the source at colStart, then window-scan EACH rank's clock from colStart
+    /// (RETRIG for free; no shared per-row tick state, so per-rank scans don't collide). SPAN ranks weave; extras join
+    /// the top (fastest weaving) clock. As a chain driver each struck note folds downstream via emitDriverNote.
+    private func emitWeaveRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
+                              emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
+                              windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                              cycleBeats: Double = 0, chainDriver: Int = -1, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard S > 0 else { return }
+        let pool = effectivePool(for: cell, live: livePool)   // receiver LATCH: the frozen chord if armed
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let p = colour.a
+        let cyc = cycleBeats > 0 ? cycleBeats : Double(Snap.cols) * S
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        let colStart = columnStart(mWinStart, S), colEnd = colStart + S
+        let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
+        var srcNotes: [(note: Int, vel: UInt8)] = []
+        if chainDriver > 0 {
+            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
+            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); srcNotes.append((Int(n), chainScratch.velocity(n))) }
+        } else {
+            for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+        }
+        let count = srcNotes.count
+        guard count > 0 else { return }
+        let span = max(1, min(count, p.weaveSpan))
+        let baseBeats = max(0.03125, p.weaveBaseBeats)
+        let gateFrac = max(0.05, min(1.0, p.gate))
+        for rank in 0..<count {
+            let sub = weaveRate(mode: p.weaveMode, baseBeats: baseBeats, rank: min(rank, span - 1))   // extras join the top clock
+            let n = srcNotes[rank].note + transpose
+            guard n >= 0 && n <= 127 else { continue }
+            let vel = max(1, srcNotes[rank].vel)
+            var j = 0
+            while true {
+                let tau = colStart + Double(j) * sub
+                if tau >= colEnd { break }
+                j += 1
+                guard tau >= mWinStart && tau < mWinEnd else { continue }
+                let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                let offT = sampleOf(musical: min(colEnd, tau + sub * gateFrac), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                let tbm = chopMask(cell, m: tau, S: S, base: bm)
+                storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
+                if !emits { continue }
+                if hasDownstream {
+                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onT, offSample: offT, windowEnd: windowEnd,
+                                   velocity: vel, m: tau, S: S, cycleBeats: cyc, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
+                } else if tbm != 0 {
+                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            }
+        }
+    }
+
     private func emitGeneratorRow(mode: CellMode, cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
                                   emits: Bool, pool livePool: NotePool, effColumn: Int, beatPos: Double, windowBeats: Double,
                                   windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
@@ -2146,7 +2212,7 @@ final class Router {
     }
     private func isDriverType(_ t: ProcessorType) -> Bool {
         switch t {
-        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize: return true
+        case .arp, .ratchet, .strum, .euclid, .burst, .cascade, .drone, .shift, .humanize, .weave: return true
         default: return false
         }
     }

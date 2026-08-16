@@ -132,6 +132,10 @@ struct SnapParams {
     var lenShort: Double = 0.4           // SHORT gate = 5…95% of one slice
     var lenLong: Double = 0.7            // LONG length 0…1 → 25% of a slice … the step end
     var lenRotate: Int = 0               // rotate the slice pattern (0…7)
+    // WEAVE — the rank-clocked polyrhythm driver. GATE is the shared `gate` field above.
+    var weaveMode: WeaveMode = .ladder
+    var weaveBaseBeats: Double = 1.0     // the slowest/bass clock in beats (r1_4 = 1 beat)
+    var weaveSpan: Int = 4               // ranks that weave; extras join the top clock
 }
 
 struct SnapColour {

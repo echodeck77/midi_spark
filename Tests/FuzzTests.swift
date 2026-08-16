@@ -57,7 +57,8 @@ final class FuzzTests: XCTestCase {
                                       .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
                                       .glide,   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
                                       .tutti,   // SET-level chance — per-step SOLO/TUTTI subset; hammered for no-stuck-notes across every edge
-                                      .length]  // per-slice GATE override — its re-articulator + downstream override hammered for no-stuck-notes
+                                      .length,  // per-slice GATE override — its re-articulator + downstream override hammered for no-stuck-notes
+                                      .weave]   // rank-clocked polyrhythm DRIVER — per-rank clocks hammered for no-stuck-notes across every edge
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -66,6 +67,7 @@ final class FuzzTests: XCTestCase {
             var c = Colour(colourID: id, type: types[r.int(types.count)])
             if c.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&c.paramsA, &r) }   // exercise the per-slice cadence
             if c.type == .length && r.chance(0.5) { applyRandomLengthPattern(&c.paramsA, &r) }
+            if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
             return c
         }
         var scene = SceneState.empty()
@@ -80,6 +82,7 @@ final class FuzzTests: XCTestCase {
                     var s = ProcessorSlot(type: types[r.int(types.count)])
                     if s.type == .tutti && r.chance(0.5) { applyRandomTuttiPattern(&s.params, &r) }
                     if s.type == .length && r.chance(0.5) { applyRandomLengthPattern(&s.params, &r) }
+                    if s.type == .weave && r.chance(0.6) { applyRandomWeave(&s.params, &r) }
                     return s
                 }
             }
@@ -112,6 +115,11 @@ final class FuzzTests: XCTestCase {
         p.lenShort = Double(r.range(5, 95)) / 100
         p.lenLong = Double(r.range(0, 100)) / 100                                                // incl. LONG rings-to-step-end
         p.lenRotate = r.int(8)
+    }
+    private func applyRandomWeave(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.weaveMode = WeaveMode.allCases[r.int(WeaveMode.allCases.count)]   // LADDER + HARMONIC
+        p.weaveBase = ArpRate.allCases[r.int(ArpRate.allCases.count)]        // incl. the fastest bass clocks
+        p.weaveSpan = r.range(1, 8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

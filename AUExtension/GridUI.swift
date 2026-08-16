@@ -1380,6 +1380,7 @@ struct ProcessorBox: View {
         case .glide:     return "one sliding voice — steps glide, leaps re-strike"
         case .tutti:     return "per step: one note (SOLO) or the whole chord (TUTTI)"
         case .length:    return "shape how long each note sounds, per slice"
+        case .weave:     return "each held note pulses on its own clock — a polyrhythm"
         }
     }
 
@@ -1608,6 +1609,19 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
             field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
                 setParam { $0.lenRotate = i } } }
+        case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
+            field("MODE") { seg(WeaveMode.allCases.map(\.rawValue), sel: (p.weaveMode ?? .ladder).rawValue) { i in
+                setParam { $0.weaveMode = WeaveMode.allCases[i] } } }
+            Text((p.weaveMode ?? .ladder) == .ladder ? "LADDER — each rank up plays twice as fast (1/4·1/8·1/16…)"
+                                                      : "HARMONIC — rank n plays n× the bass (1:2:3:4 — rhythm as pitch ratio)")
+                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            field("BASE — the bass rank's clock") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.weaveBase ?? .r1_4).rawValue) { i in
+                setParam { $0.weaveBase = ArpRate.allCases[i] } } }
+            field("SPAN — how many notes weave  (\(p.weaveSpan ?? 4))") { seg((1...8).map { "\($0)" }, sel: "\(p.weaveSpan ?? 4)") { i in
+                setParam { $0.weaveSpan = i + 1 } } }
+            field("GATE \(Int((p.gate ?? 0.6) * 100))%") {
+                Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
         }
     }
 

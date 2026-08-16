@@ -619,6 +619,19 @@ func lengthGateFor(_ state: LenState, onset: Double, shortFrac: Double, longFrac
     }
 }
 
+// MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
+
+/// The tick spacing (beats per tick) for `rank` (0 = bass) at a MODE and BASE clock. LADDER halves per rank
+/// (base÷2^r → 1/4·1/8·1/16…); HARMONIC divides by rank+1 ((r+1)× as fast → 1:2:3:4, pitch ratios as time ratios).
+/// Pure; clamped to a sane floor so a deep rank can't tick per-sample. Replay-exact (a function of rank + base only).
+func weaveRate(mode: WeaveMode, baseBeats: Double, rank: Int) -> Double {
+    let r = max(0, rank)
+    switch mode {
+    case .ladder:   return max(0.03125, baseBeats / pow(2, Double(r)))
+    case .harmonic: return max(0.03125, baseBeats / Double(r + 1))
+    }
+}
+
 /// §cell-edit D — the contiguous [start, len) window of the ASCENDING source list a chord-split selects.
 /// ALL = the whole list; TOP n = the n highest (a suffix); BOTTOM n = the n lowest (a prefix); RANGE = the
 /// notes on one side of `split.note` (HIGH = the ≥split suffix, LOW = the <split prefix). `noteAt(i)` reads
@@ -773,7 +786,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -988,6 +1001,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .glide:     return .silent                          // notes→pitch-bend — its ONE mono voice is emitted separately (emitColumnGlide)
     case .tutti:     return .tutti                            // SET-level chance — a per-step HOLD transform (SOLO/TUTTI), never a driver
     case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
+    case .weave:     return .weave                            // DRIVER — each held note ticks on its own rank-derived clock (polyrhythm)
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1165,6 +1179,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .chance:    return "die.face.5.fill"             // the die
     case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
     case .length:    return "ruler"                        // the measured duration
+    case .weave:     return "square.stack.3d.up.fill"      // interlocking layers — the rank clocks
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
     case .echo:      return "repeat"                       // the tail
     case .euclid:    return "circle.grid.cross"            // the K-of-N grid

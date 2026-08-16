@@ -188,6 +188,12 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "lenShort", label: "SHORT", kind: .continuous(lo: 0.05, hi: 0.95)),
                 MacroControlParam(key: "lenLong", label: "LONG", kind: .continuous(lo: 0, hi: 1)),
                 MacroControlParam(key: "lenRotate", label: "ROTATE", kind: .stepper(lo: 0, hi: 7))]
+    case .weave:
+        return [bypass,
+                MacroControlParam(key: "weaveMode", label: "MODE", kind: .option(WeaveMode.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weaveBase", label: "BASE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weaveSpan", label: "SPAN", kind: .stepper(lo: 1, hi: 8)),
+                gate]
     }
 }
 
@@ -247,6 +253,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "lenShort":     v[param.key] = p.lenShort ?? 0.4
         case "lenLong":      v[param.key] = p.lenLong ?? 0.7
         case "lenRotate":    v[param.key] = Double(p.lenRotate ?? 0)
+        case "weaveMode":    v[param.key] = optionIndex(p.weaveMode)
+        case "weaveBase":    v[param.key] = optionIndex(p.weaveBase)
+        case "weaveSpan":    v[param.key] = Double(p.weaveSpan ?? 4)
         default: break
         }
     }
@@ -298,6 +307,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "lenShort":     s.params.lenShort = clamp(val, 0.05, 0.95)
         case "lenLong":      s.params.lenLong = clamp(val, 0, 1)
         case "lenRotate":    s.params.lenRotate = clamp(Int(val.rounded()), 0, 7)
+        case "weaveMode":    s.params.weaveMode = caseAt(val, WeaveMode.self)
+        case "weaveBase":    s.params.weaveBase = caseAt(val, ArpRate.self)
+        case "weaveSpan":    s.params.weaveSpan = clamp(Int(val.rounded()), 1, 8)
         default: break
         }
     }

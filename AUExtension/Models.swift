@@ -20,6 +20,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case glide = "GLIDE"       // notes→PITCH-BEND translator — one mono sliding voice; steps GLIDE, leaps ARTICULATE
     case tutti = "TUTTI"       // SET-level chance (CHANCE's cousin): per step SOLO (one note) or TUTTI (the full set); a HOLD transform, never a driver
     case length = "LENGTH"     // per-slice GATE override (DURATION axis; CHOP routes · LENGTH shapes): PASS/MUTE/SHORT/LONG across 8 slices
+    case weave = "WEAVE"       // rank-clocked polyrhythm DRIVER: each held note ticks on its own rank-derived clock (one chord → an interlocking ensemble)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -79,6 +80,10 @@ enum TuttiSlice: String, Codable, CaseIterable {
 // present/sustained (ties, no re-attack) · MUTE = silence (a rest) · SHORT = a staccato stab · LONG = a re-attacked
 // long note. Painted across 8 slices of the step; standalone it carves a held chord, downstream it overrides gates.
 enum LenState: String, Codable, CaseIterable { case pass = "PASS", mute = "MUTE", short = "SHORT", long = "LONG" }
+// WEAVE (working name; Paul 2026-08-07) — a rank-clocked polyrhythm DRIVER: each held note ticks on its own clock,
+// derived from its rank. MODE = the ratio law. LADDER: rank r = base÷2^r (1/4·1/8·1/16…). HARMONIC: rank r = (r+1)×base
+// (1:2:3:4 — pitch ratios as time ratios). (DRAWN + EUCLID modes are a phase-2 add — append-only enum.)
+enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic = "HARMONIC" }
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -162,6 +167,11 @@ struct ColourParams: Codable, Equatable {
     var lenShort: Double? = 0.4         // SHORT gate = 5…95% of ONE slice (staccato)
     var lenLong: Double? = 0.7          // LONG length 0…1 → 25% of a slice … the STEP end (rings across slices)
     var lenRotate: Int? = 0             // rotate the slice pattern (0…7)
+    // WEAVE (Paul 2026-08-07) — the rank-clocked polyrhythm driver. BASE = the slowest (bass) clock; MODE = the ratio
+    // law; SPAN = how many ranks weave (extras join the top clock); GATE (reused) is shared. Append-only Optional.
+    var weaveMode: WeaveMode? = .ladder
+    var weaveBase: ArpRate? = .r1_4     // the slowest / bass rank's clock (a rate division)
+    var weaveSpan: Int? = 4             // how many ranks get their own clock; notes beyond this join the top clock
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

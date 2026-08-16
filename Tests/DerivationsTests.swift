@@ -1809,4 +1809,30 @@ final class DerivationsTests: XCTestCase {
         XCTAssertGreaterThan(pass, 0, "all-PASS → the chord sounds")
         XCTAssertGreaterThan(short, pass, "all-SHORT re-strikes every slice → more note-ons than the tied PASS sustain")
     }
+
+    // MARK: - WEAVE (Paul 2026-08-07): rank-clocked polyrhythm driver
+
+    func testWeaveRateLadderHalvesPerRank() {
+        XCTAssertEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: 0), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: 1), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: 2), 0.25, accuracy: 1e-9)
+    }
+    func testWeaveRateHarmonicDividesByRankPlusOne() {
+        XCTAssertEqual(weaveRate(mode: .harmonic, baseBeats: 1.2, rank: 0), 1.2, accuracy: 1e-9)
+        XCTAssertEqual(weaveRate(mode: .harmonic, baseBeats: 1.2, rank: 1), 0.6, accuracy: 1e-9)
+        XCTAssertEqual(weaveRate(mode: .harmonic, baseBeats: 1.2, rank: 2), 0.4, accuracy: 1e-9)
+    }
+    func testWeaveRateFloorClamped() {
+        XCTAssertGreaterThanOrEqual(weaveRate(mode: .ladder, baseBeats: 1.0, rank: 20), 0.03125, "a deep rank can't tick per-sample")
+    }
+    func testWeaveEngineBassSlowerThanTop() {   // through the REAL Router (the probe holds C-E-G ascending)
+        var w = ProcessorSlot(type: .weave); w.params.weaveMode = .ladder; w.params.weaveBase = .r1_4; w.params.weaveSpan = 4
+        var byNote: [UInt8: Int] = [:]
+        for o in Dice.runRecorder([w]).ons.filter({ $0.cable == 1 }) { byNote[o.note, default: 0] += 1 }
+        let notes = byNote.keys.sorted()   // ascending pitch = ascending rank
+        XCTAssertEqual(notes.count, 3, "all three held notes weave (got \(notes))")
+        if notes.count == 3 {
+            XCTAssertLessThan(byNote[notes[0]]!, byNote[notes[2]]!, "the bass (rank 0) ticks slower than the top (rank 2)")
+        }
+    }
 }
