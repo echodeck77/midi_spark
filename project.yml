@@ -91,6 +91,7 @@ targets:
       - path: AUExtension/Dice.swift         # THE DICE — chain generation + offline (Router-based) evaluation
       - path: AUExtension/BuildSelfTest.swift # in-app MIDI-output self-tests — validated off-device by the meta-test
       - path: AUExtension/BuildSceneLogic.swift # pure BUILD scene composition + staging reconcile — unit-tested
+      - path: AUExtension/BuildModel.swift    # BuildPart + BuildUnassignedData — the persisted workshop types
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

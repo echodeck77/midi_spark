@@ -1195,10 +1195,22 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setPreviewOverlay(col: Int, row: Int, under: Cell?) { previewOverlay = (col, row, under) }
     func clearPreviewOverlay() { previewOverlay = nil }
 
+    // BUILD pushes its single UNASSIGNED workshop part here (via setBuildUnassigned) so `fullState` saves it with the
+    // document. Session-only side-field — the stored `document` is never mutated by it (the encode copy carries it).
+    private var pendingBuildUnassigned: BuildUnassignedData? = nil
+    func setBuildUnassigned(_ d: BuildUnassignedData?) { pendingBuildUnassigned = d }
+    /// On load, hand BUILD the restored part ONCE (then clear it from the document so it isn't re-restored).
+    func consumeBuildUnassigned() -> BuildUnassignedData? {
+        let u = document.buildUnassigned
+        if u != nil { document.buildUnassigned = nil }   // not render-relevant → no rebuild; a plain one-shot transport
+        return u
+    }
+
     public override var fullState: [String: Any]? {
         get {
             var state = super.fullState ?? [:]
-            let encodeDoc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
+            var encodeDoc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
+            encodeDoc.buildUnassigned = pendingBuildUnassigned   // BUILD's half-built piece travels with the save (Paul 2026-08-16)
             if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
         }

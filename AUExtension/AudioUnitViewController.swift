@@ -940,7 +940,10 @@ struct DiagView: View {
             editArmed = (tab == .build)
             if tab != .grid { heldVerb = nil }
             if tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS MACHINE) — only clear it when leaving BUILD
-            if tab == .build { buildSeedCastIfNeeded(); buildEnsureCastSelection() }   // open BUILD with the part's cast selection (§2)
+            if tab == .build {
+                if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u); buildCastSeeded = true }   // a saved half-built piece → restore it before seeding defaults
+                buildSeedCastIfNeeded(); buildEnsureCastSelection()   // open BUILD with the part's cast selection (§2)
+            }
             if tab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // BUILD lands on PLAY THIS MACHINE → SOLO the machine (never the whole grid)
         }
         .onChange(of: editArmed) { on in
@@ -975,6 +978,7 @@ struct DiagView: View {
         }
         .onReceive(timer) { _ in
             guard let au else { return }
+            buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
             #if DEBUG
             if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
             #endif

@@ -267,6 +267,30 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.claimEmitter, 2, "CLAIM survives save/reload")
     }
 
+    // BUILD's single UNASSIGNED part is saved with the document (Paul 2026-08-16) — the part + its ephemeral colours
+    // (machine + hue) + the id counter round-trip; a document without the field decodes as nil (no migration break).
+    func testBuildUnassignedPartRoundTripsAndDefaultsNil() throws {
+        var plain = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        let plainBack = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(plain))
+        XCTAssertNil(plainBack.buildUnassigned, "an old/plain document has no unassigned part")
+
+        var part = BuildPart()
+        part.stagingCells[0][3] = "b17"; part.stagingSel[0] = 3; part.cast = ["b17"]; part.selID = "b17"
+        part.receiver = 2; part.emitters = [.a, .c]; part.rowChain[3] = [ProcessorSlot(type: .harmonize)]
+        var ephemeral = Colour(colourID: "b17", type: .arp); ephemeral.defined = true; ephemeral.templateChain = [ProcessorSlot(type: .cascade)]
+        plain.buildUnassigned = BuildUnassignedData(part: part, colours: [ephemeral], hues: ["b17": 0x2288EE], idCounter: 17)
+
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(plain))
+        let u = try XCTUnwrap(back.buildUnassigned, "the unassigned part survives save/reload")
+        XCTAssertEqual(u.part.stagingCells[0][3], "b17")
+        XCTAssertEqual(u.part.stagingSel[0], 3)
+        XCTAssertEqual(u.part.emitters, [.a, .c])
+        XCTAssertEqual(u.part.rowChain[3].first?.type, .harmonize)
+        XCTAssertEqual(u.colours.first?.templateChain?.first?.type, .cascade, "its ephemeral colour's machine travels")
+        XCTAssertEqual(u.hues["b17"], 0x2288EE, "its custom hue travels")
+        XCTAssertEqual(u.idCounter, 17)
+    }
+
     /// The RACK + modulation additive-Optional document fields (curve/fence/mono/pocket/conversation gates,
     /// rackEnabled, turnsPerNote, ladderMode, masterMute) all survive a JSON round-trip. Invariant 5 (schema
     /// stability): these shipped over the last few days and had no round-trip lock.

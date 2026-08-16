@@ -61,22 +61,7 @@ enum BuildVerb: String { case place = "PLACE", move = "MOVE", delete = "DELETE" 
 enum BuildGridMode: String { case play = "PLAY", edit = "EDIT" }   // the per-grid PLAY/EDIT radio (styled like PART 1 ▾)
 enum BuildFill { case none, cell, grid }   // header playhead fill period: none · one step (.cell) · the whole loop (.grid)
 
-// A PART — the workshop-level unit of the BUILD lifecycle (unassigned → built → staged → deployed). It owns its own
-// staging grid + variations, its cast selection, and its PART-OWNED I/O (one input door + a set of output emitters,
-// shared across every colour/cell of the part). `deployed` christens it (PART n) on first assignment to the play grid.
-// (design ferry AcceptanceCriteria-part-lifecycle-io, 2026-08-12)
-struct BuildPart {
-    var stagingCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)
-    var stagingSel: [Int] = Array(repeating: -1, count: 8)
-    var rowChain: [[ProcessorSlot]] = Array(repeating: [], count: 8)
-    var rowShade: [Double] = Array(repeating: 0, count: 8)
-    var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
-    var selID: String? = nil          // the cast selection BY ID (supports ephemeral colours)
-    var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store (begins clean)
-    var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
-    var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
-    var deployed: Bool = false        // christened (PART n) once deployed to the play grid
-}
+// BuildPart / BuildUnassignedData moved to BuildModel.swift (now persisted + test-target-visible).
 
 extension DiagView {
 
@@ -530,6 +515,49 @@ extension DiagView {
         buildPulseColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
+    }
+
+    // ── PERSISTENCE (Paul 2026-08-16): the single UNASSIGNED part is saved with the document ("saving = committing").
+    // CAPTURE is READ-ONLY (never touches @State, so it's safe to call from the 4 Hz poll): the live workshop if the
+    // current part is the unassigned one, else the stored unassigned part. Bundles the EPHEMERAL colours it references
+    // (machine + hue) so it reconstructs on load; canonical document colours are always present, so they aren't bundled.
+    func buildCaptureUnassigned() -> BuildUnassignedData? {
+        let part: BuildPart
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count, !buildParts[buildCurrentPart].deployed {
+            var p = BuildPart()                                 // the live workshop IS the unassigned part — freshest from @State
+            p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel; p.rowChain = buildRowChain
+            p.rowShade = buildRowShade; p.rowUnder = buildRowUnder; p.selID = buildSelID
+            p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.deployed = false
+            part = p
+        } else if let stored = buildParts.first(where: { !$0.deployed }) {
+            part = stored                                       // viewing a deployed part → the unassigned one is stored
+        } else { return nil }
+        guard part.stagingCells.contains(where: { $0.contains { $0 != nil } }) else { return nil }   // no content yet → nothing to save
+        var ids = Set(part.cast)                                // every colour the part could reference
+        ids.formUnion(part.stagingCells.flatMap { $0.compactMap { $0 } })
+        ids.formUnion(part.rowUnder.compactMap { $0 })
+        if let s = part.selID { ids.insert(s) }
+        let ephemeral = ids.filter { buildColourReg[$0] != nil }.sorted()
+        let colours = ephemeral.map { id -> Colour in var c = Colour(colourID: id, type: .arp); c.defined = true; c.templateChain = buildColourReg[id]; return c }
+        var hues: [String: UInt32] = [:]; for id in ephemeral { if let h = colourHueOverride[id] { hues[id] = h } }
+        return BuildUnassignedData(part: part, colours: colours, hues: hues, idCounter: buildIDCounter)
+    }
+    // RESTORE the saved unassigned part on load: re-register its ephemeral colours + hues, lift the id counter past
+    // them (so new colours don't collide), then place it as the single unassigned part and load it into the workshop.
+    func buildRestoreUnassigned(_ u: BuildUnassignedData) {
+        for c in u.colours { buildColourReg[c.colourID] = c.templateChain ?? [] }
+        for (id, hue) in u.hues { colourHueOverride[id] = hue }
+        buildIDCounter = max(buildIDCounter, u.idCounter)
+        buildSyncColours()
+        var part = u.part; part.deployed = false
+        if let i = buildParts.firstIndex(where: { !$0.deployed }) { buildParts[i] = part; buildLoadPart(i) }
+        else { buildParts.append(part); buildLoadPart(buildParts.count - 1) }
+    }
+    // The per-poll persistence tick (BUILD active only): restore a just-loaded part ONCE, then keep the save-state current.
+    func buildPersistTick() {
+        guard activeTab == .build else { return }
+        if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u) }   // a host load happened while on BUILD
+        au?.setBuildUnassigned(buildCaptureUnassigned())                         // keep fullState's copy fresh
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
