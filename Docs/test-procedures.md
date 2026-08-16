@@ -14,8 +14,10 @@ land; when asking the human to test, quote the relevant procedure by name.
   testing fan-out). The monitor is the truth for timing/pairing claims.
 - MidiSpark's plugin UI open. (The in-plugin diagnostics panel was REMOVED at the
   GUI reconcile — the AUM MIDI monitor is now the sole source of truth for
-  voice/pairing/timing claims. Test sessions load from the DEV LOADER, which shows
-  in the plugin UI in **portrait** only.)
+  voice/pairing/timing claims. The in-app one-tap T-session loader was REPLACED by
+  the developer SELF-TEST panel: a ~1.2s long-press on the "8×8 STATE" logotype now
+  opens the DEV — MIDI SELF-TESTS overlay (BuildSelfTest.runAll() PASS/FAIL +
+  the stuck-note monitor + CHAOS), DEBUG builds only.)
 
 ## Bridge regression (run after ANY kernel change) — 2 minutes
 
@@ -27,7 +29,14 @@ Hold a chord, transport playing:
 - B4 Sync torture: tempo change mid-hold, loop a bar, relocate — no drift,
   no stuck notes. Stop with keys held — no stuck notes.
 
-## Canned test sessions (loaded from the DEV LOADER — portrait plugin UI)
+## Canned test sessions (T1–T17)
+
+**LOADER IS HISTORICAL (2026-08-16):** the in-app one-tap T1–T17 loader is GONE — the
+~1.2s long-press on the "8×8 STATE" logotype now opens the developer SELF-TEST panel
+(DEV — MIDI SELF-TESTS: BuildSelfTest.runAll() PASS/FAIL + the stuck-note monitor),
+NOT the T-session overlay. The T1–T17 grids below (still authored by hand in
+`TestSessions.swift`) remain a valid device-verification curriculum, but you build the
+grid by hand now — there is no in-app one-tap loader for them.
 
 **NUMBERING AUTHORITY: the repo.** `TestSessions.swift` carries T1–T17
 (processor + migration coverage beyond this document). The repo's numbering WINS — map
@@ -113,6 +122,14 @@ sampling — musically indistinguishable). Repatch row 0 back to MIDI IN
 live: clean transition.
 
 ## Perform layer (P-series) — §6.1/6.2, mode + live tap
+
+**HISTORICAL (2026-08-16): the EDIT·PERFORM gating premise below is VOID.** The
+EDIT·PERFORM header toggle is GONE — surfaces are now tabs (BUILD · GRID · MIDI IN ·
+MIDI OUT · MACROS · AUTOMATION), there is no PERFORM mode, and the mode-gating +
+live-ALT-flip-on-tap the P-series exercises no longer exist (the perform feature is
+undecided pending a revised spec). P1–P4 are kept as a historical record only. **P5
+(audition) STANDS and is not part of the gating premise** — it is a transport-STOPPED
+press-and-hold, independent of any mode; run it as written.
 
 Interaction tests, not canned grids — build on any occupied scene (scene 14 ALT
 EGO is designed for P2). Header carries the EDIT·PERFORM toggle; in PERFORM a cell
@@ -248,9 +265,10 @@ supplies all numbers that panel used to.)
 ## STRIP PASS — the MIDI INPUT + MIDI OUTPUT strips + CLAIM (2026-07-26)
 
 The combined device pass for the receiver strip, the emitter strip, and the CLAIM
-gate that unblocks the emitter role family (leak% / FLATTEN / ALT). Load a canned rig
-via the HIDDEN DEV LOADER (long-press the "8×8 STATE" logotype ~1.2s → the T-session
-overlay + the VOICES/HELD/ECHO/PANICS monitor; DEBUG builds only). **Golden rule: if
+gate that unblocks the emitter role family (leak% / FLATTEN / ALT). Build the rig by
+hand (the in-app one-tap T-session loader is GONE — the ~1.2s long-press on the
+"8×8 STATE" logotype now opens the DEV — MIDI SELF-TESTS panel: BuildSelfTest.runAll()
+PASS/FAIL + the VOICES/HELD/ECHO/PANICS stuck-note monitor; DEBUG builds only). **Golden rule: if
 PANICS > 0 or a note hangs, record exactly what triggered it — a stuck-note bug.**
 
 - **SP-CLAIM (the gate — run first):** two cells, same pitches, different emitters
@@ -277,7 +295,8 @@ page is GONE — the emitter roles (CLAIM/DUCK/ALT) moved off the strip into a m
 button, and a new per-emitter gate (RACK on/off) decides whether that emitter's armed treatments apply at all.
 Only three treatments are wired this pass (OWNS=claim · KEY=duck · TURNS=alt); the rest are dimmed seats.
 
-Reuse the STRIP-PASS rig via the HIDDEN DEV LOADER (long-press the "8×8 STATE" logotype ~1.2s). Two cells of the
+Build the STRIP-PASS rig by hand (the in-app one-tap T-session loader is GONE — the ~1.2s long-press on the
+"8×8 STATE" logotype now opens the DEV — MIDI SELF-TESTS panel, not the T-session overlay). Two cells of the
 SAME pitches on DIFFERENT emitters (held chord → A, arp of the same notes → B) is the workhorse for OWNS/KEY.
 **Golden rule unchanged: if PANICS > 0 or a note hangs, record exactly what triggered it — a stuck-note bug.**
 Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must never strand a voice.
@@ -288,11 +307,13 @@ Toggle RACK/treatments both STOPPED and mid-HOLD and mid-PLAY; a gate flip must 
 - **RK-TOGGLE (the RACK button grammar):** a short TAP flips RACK lit↔outlined (does NOT open the matrix); a
   LONG-PRESS (~0.5s) opens the matrix (and must NOT also flip the toggle on release). Confirm both, on every
   emitter.
-- **RK-GEO (drawn INSIDE the grid — the headline layout ask):** with the matrix open, the **chevron column-key
-  row stays visible above it** and **both L/R row-select rails stay visible beside it** (only the 8×8 cell body is
-  replaced). The receiver strips, emitter strips, verbs, and master stay LIVE around it. Then confirm all three
-  close paths: **DONE**, the **PERFORM/EDIT toggle**, and a **scene switch** each dismiss the matrix. Flag if the
-  chevron row or either rail disappears, or the panel spills past the cell area.
+- **RK-GEO (a FULL-PAGE tab — the layout ask):** EMITTERS is now its OWN full-page tab (`rackMatrixView`) — the
+  matrix is NOT drawn inside the grid. Open it: a **LONG-PRESS on a MIDI OUTPUT strip's RACK button** jumps to the
+  EMITTERS (MIDI OUT) tab, which shows the matrix as a full page. There is **no in-grid matrix** — the chevron
+  column-key row, the L/R row-select rails, and the 8×8 cell body belong to the GRID tab and are not framing the
+  matrix here. Leave it by switching tabs; **DONE returns to the GRID tab**. There is **no in-grid dismiss, no
+  PERFORM/EDIT toggle close path, and no scene-switch dismiss**. Flag if the matrix does not fill the page or any
+  control is clipped/cramped.
 - **RK-OWNS (live — equals old CLAIM):** open the matrix; in the OVER OTHERS family, tap OWNS ON for A. While A
   holds a pitch, that pitch on B is withheld (A owns it). Turn A's LEAK knob up → B bleeds back at reduced
   velocity (the shadow), 0% = silent. Same intent as SP-CLAIM; monitor B for the suppression/shadow.

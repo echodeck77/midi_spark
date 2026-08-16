@@ -1,3 +1,5 @@
+> SUPERSEDED by AcceptanceCriteria-build-page-iteration-6.md §9 (2026-08-16): the PLACE·MOVE·DELETE verb roster + EDIT view described below were tombstoned; the part grid now uses the SELECT·PLACE·MUTATE row-mode radio and a cell tap is a rung pick. Kept as historical record.
+
 # INSTRUCTIONS → Code — BUILD PAGE ITERATION 3 (Paul, 2026-08-11)
 # Supersedes iteration 2's §3 (the bar-absorption is REJECTED —
 # "at the bottom it just looks wrong, and the cast doesn't have

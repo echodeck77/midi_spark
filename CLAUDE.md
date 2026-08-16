@@ -77,7 +77,6 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - `Docs/ui-port-guide.md` — mockup→SwiftUI mapping, design tokens (the 16 Colour
   hexes are canonical), gesture map, and the REVISED order of work (a grid
   slice exists; reconcile, don't rebuild).
-- `Docs/midispark-architecture.mermaid`, `Docs/midispark-domain-model.mermaid` — runtime + schema maps.
 - `BRIDGE_NOTES.md` — snapshot bridge design + hear-it tests.
 - GUI mockups — **the built plugin is the living reference for SHIPPED features**;
   mockups are the behavioural spec for UNBUILT ones. `Docs/midispark-preview-v59.html`
@@ -93,7 +92,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   TALL toggle is a browser preview affordance — never port it.
 
 ## Vocabulary (spec §1 — enforced, including in code comments and UI strings)
-- **Colour** = the treatment (type + params + A/B states + morph). 16 of them. Never "preset".
+- **Colour** = the treatment (type + params + its machine/chain). ID-based: the 16 canonical
+  palette defaults PLUS unlimited ephemeral colours (`buildColourReg` registry + `colourHueOverride`
+  + GC). The old fixed-16 cap is gone. (A/B states + morph are decode-only zombies — render-dead.) Never "preset".
 - **Cell** = one Colour placed at a grid position with its own wiring/state.
 - **Preset** = ONLY the host-level fullState document. Nothing inside the app uses this word.
 - **Emitter** = a bus A–D as the user-facing concept (its cable + its channel stamp).
@@ -120,7 +121,8 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
    (cable, channel, note) — five cables once ALL lands (spec §7 collision
    policy + delta §7b).
 5. **Parameter addresses are STABLE forever:** 0 stepRate · 1 swing · 100+i transpose ·
-   200+i morph · 300 morphMaster. Add new addresses; never renumber or reuse.
+   200+i morph · 300 morphMaster · 400+i macro (the 8-slider automatable bank).
+   Add new addresses; never renumber or reuse.
 6. Host parameter changes arrive via TWO routes: tree setValue (observer → snapshot) and
    render-side `.parameter/.parameterRamp` events (kernel override table, cleared on each
    new snapshot generation). Keep both paths working.

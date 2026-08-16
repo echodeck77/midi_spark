@@ -21,12 +21,13 @@ Blessed term in caps; ✂ = variants killed on sight.
   removed from the app entirely (`b90783b`); every creation arrives
   confirmed. "GHOST" remains engine-reserved — no UI ever calls a cell a
   ghost.]
-- **COLOUR** (16) — a treatment: name + PROCESSOR + settings (+ ALT pair).
+- **COLOUR** — a treatment (16 canonical + unlimited ephemeral, ID-keyed):
+  name + PROCESSOR + settings (+ ALT pair).
   ✂ "preset" (reserved for the future library), "patch", "slot".
 - **PROCESSOR** — the type inside a Colour (ARP, RATCHET…). Its params =
   **SETTINGS**. ✂ "engine", "effect", "mode" (for types).
 - **ALT** — a Colour's partner; **MORPH** — the glide between a compatible
-  pair. **PALETTE** — the 16-chip picker.
+  pair. **PALETTE / CAST** — the colour picker (canonical + ephemeral swatches).
 - **THE STAMP** — the ONE clipboard/template object (written by commits,
   COPY, staging edits; read by paste, drag-create, staging).
   ✂ "session template", "clipboard", "buffer" — one object, one name.
@@ -38,9 +39,11 @@ Blessed term in caps; ✂ = variants killed on sight.
 
 ## THE ARRANGEMENT LAYER — theatre
 - **SCENE** (16) — an arrangement unit (the music; the RIG is the document).
-- **THE STRIP** — the scene slots. **STAGING** — the create/configure
-  session (flashing SELECTED SET; user-ratified name). ✂ "cell edit mode"
-  as a synonym — staging IS the mode's name.
+- **THE STRIP** — the scene slots. **STAGING** — BUILD's centre PART grid
+  (`buildStagingCells`/`buildStagingSel`): the 8×8 workshop surface where a
+  part's rungs are picked before it deploys to THE PIECE. ✂ "the staging
+  session" — staging is now the GRID, not a mode. (The old cell-edit
+  configure-session sense, if still needed, is **THE CELL SESSION**.)
 - **NOTES** — a scene's/document's text. **THE SONG** — you know the one.
 - **ON** — the trigger system (ON TAP / HOLD / ARRIVE / LEAVE / SCENE).
 
@@ -58,8 +61,30 @@ voice, voice table, GHOST (a CLAIM reservation voice — why cells can't be
 ## The desk & modes
 - **THE DESK** — the panel column(s): PALETTE/COLOUR box, PROCESSOR
   (selector + SETTINGS), RECEIVERS, EMITTERS panels. 
-- **EDIT / PERFORM** — the two faces. **HOLD** — the global latch.
-  **THE TIME MACHINE** — working title (rename at shipping).
+- **THE TABS** — the surfaces are tabs, one permanent address each:
+  BUILD · GRID · MIDI IN · MIDI OUT · MACROS · AUTOMATION (`AppTab`). ✂ the
+  retired "EDIT / PERFORM" toggle + "the two faces" — there are no faces now.
+  **HOLD** — the global latch. **THE TIME MACHINE** — working title (rename
+  at shipping).
+
+## THE BUILD PAGE — the workshop (primary UI vocabulary)
+- **BUILD** — the workshop page; the default landing tab where parts are
+  authored. ✂ "the build mode", "the setup page".
+- **PART** — an I/O group of cells authored together (its receiver door + its
+  CAST). The ONE unassigned part saves with the document.
+- **RUNG** — the selected cell per column (the per-column pick). Code says
+  "row"/"rung" loosely; **rung** is canonical for the per-column pick — ✂
+  "row" for this sense.
+- **CAST** — a part's colour palette (canonical + ephemeral swatches; = the
+  PALETTE, part-scoped).
+- **PIECE** — "THE PIECE" = the play grid / the whole song. ✂ "the perform
+  grid" as its name.
+- **MUTATE** (row-mode) — MINTS a value-tweaked variant colour. ⚠ two senses:
+  row-mode MUTATE **mints** a new variant; the dice-family MUTATE **walks in
+  place** (a bounded nudge, no new colour) — keep them distinct.
+- **SELECT · PLACE · MUTATE** — the row-mode radio (`BuildRowMode`): SELECT =
+  whole-row rung pick · PLACE = stamp the colour across the row · MUTATE =
+  mint a variant. (A cell tap is a rung PICK, never a placement.)
 
 ## Style rules
 1. One name per thing; variants are typos. 2. Metaphors never cross layers

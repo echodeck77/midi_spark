@@ -191,10 +191,11 @@ TEACHES: chain depth; tapping every stage; TIME as arrangement (step 1/1).
 ## 13 · TWO ROOMS
 GLOBAL: step 1/2, swing 50. BUS CHANNELS: A=1, B=2, C=3, D=10.
 SOUNDS: the full rig, plus D explicitly = a DRUM synth listening on ch10.
-COLOURS: gold = ARP UP 1/16 · wine = ARP AS-PLAYED 1/2 T−24 gate 100 ·
-azure = ARP UP-DN 1/16T T+12 · bronze = RATCHET ×3 1/8.
+COLOURS: gold = ARP UP 1/16 · wine = ARP AS-PLAYED 1/4 T−24 gate 100
+(1/4 is the slowest arp rate the engine offers — the earlier "1/2" was unattainable) ·
+azure = ARP UP-DN 1/16T T+12 · slate = RATCHET ×3 1/8.
 GRID: C1–C8 R1 gold ⇐MIDI →A · C1–C8 R2 wine ⇐MIDI →B ·
-C3,C7 R3 azure ⇐MIDI →C · C4,C8 R4 bronze ⇐R1 →D.
+C3,C7 R3 azure ⇐MIDI →C · C4,C8 R4 slate ⇐R1 →D.
 PLAY: big chord, both hands, and let the ROUTING be the performance: this
 scene is for touring the mixer.
 LISTEN: four destinations, four jobs — keys, a tectonic bass drone, sparkle
@@ -205,6 +206,9 @@ channel. TEACHES: emitters/channels/cables; the All output; the wire as a
 place music lives.
 
 ## 14 · ALT EGO
+> ⚠ NOTE (2026-08): A/B-state morph was REMOVED from the render — an ALT flip now only
+> re-strikes the voice, selecting no parameters. This scene's B-state lesson (and scene 16's)
+> is currently INERT until/unless a morph layer returns. Kept as authored for the round-trip.
 GLOBAL: step 1/2, swing 50. SOUNDS: A voice, B pulse-adjacent (the CHANCE
 cells on B want a patch that speaks fast — a plucked perc or muted stab).
 COLOURS (all with designed B states):
@@ -247,7 +251,7 @@ COLOURS: violet = ARP UP 1/16, 2 oct, LEGATO (no buses) ·
 gold = ARP UP 1/16 (B: 1/32) · vermilion = RATCHET ×3 1/16 (B: ×4) ·
 magenta = CHANCE 60% · wine = PASS every 2nd, T−12, gate 100 ·
 azure = ARP UP-DN 1/16T, T+12, FREE · teal = PASS gate 100 ·
-mint = HARMONIZE T+7.
+mint = HARMONIZE +4/+7 (a major-triad pad), T+7.
 GRID:
 C1–C4 R1 violet ⇐MIDI — the LEGATO lead engine, one phrase over four columns
 C1–C4 R2 gold ⇐R1 →A · C1–C4 R3 wine ⇐MIDI →B
@@ -255,7 +259,7 @@ C5,C6 R1 violet ⇐MIDI (second run) · C5,C6 R2 magenta ⇐R1 →A
 C5–C8 R4 azure ⇐MIDI →C (the drifting shimmer, FREE)
 C7,C8 R1 gold ⇐MIDI →A · C7,C8 R2 vermilion ⇐R1 →A (the build)
 C2,C6 R6 teal ⇐MIDI →D · C4,C8 R6 mint ⇐MIDI →D (the pad room — mint
-HARMONIZEs at +7, so D breathes in fifths)
+HARMONIZEs into a major triad (+4/+7), so D breathes as a chord)
 PLAY: Am9, held for four full passes; lift to Fmaj7 as pass four turns; TAP
 ALT on C7,C8 for the final bar; hold column key 8 to stutter out.
 LISTEN: a four-bar piece from one held chord — a legato lead over a

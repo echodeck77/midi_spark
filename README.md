@@ -14,14 +14,14 @@ spec for unbuilt ones — currently the §5 rev 2 CELL EDITOR, the §6a
 channel-strip perform face, and undo/redo (CLAUDE.md a5–a7; v60 predates
 these revs — the delta wins).
 
-> Status in one line: the v3.0 graph-routing migration is DONE; all six processors,
-> channels/outputs, graph routing, the full GUI reconcile, the perform layer, and
-> audition (all types) are built and DEVICE-VERIFIED, with a 111-test off-device suite
-> covering the render engine itself. PERFORM v2 is landing: the §5b LAP
-> (device-verified), the §6a toggles, and the a7 emitter channel strips
-> (velocity override + LED ladders + CLAIM) are built. Next wave: the §6d
-> six-panel layout, the cell editor, undo, receivers, colour-pairs, ON. See CLAUDE.md; do not code
-> from this README.
+> Status in one line: the v3.0 graph-routing migration is DONE; fifteen processor
+> types, channels/outputs, graph routing, receivers (with LATCH + controller routing),
+> macros (with the authoring flow), the RACK, and audition (all types) are built and
+> DEVICE-VERIFIED, with a 600+-test off-device suite covering the render engine itself.
+> The UI is now a TAB shell (BUILD · GRID · MIDI IN · MIDI OUT · MACROS · AUTOMATION);
+> the BUILD page is the primary workshop and default landing tab — it superseded the old
+> DRAG&DROP + PROCESSORS/cell-edit pages. A/B-state morph was removed from the render.
+> See CLAUDE.md for live status; do not code from this README.
 
 ## Setup — Path A (recommended): XcodeGen
 
@@ -52,9 +52,11 @@ Smoke test (scaffold-era acceptance 1–3 still apply): instantiate under MIDI
 Processors, route outputs to synths and a keyboard to the input, passthrough
 when stopped, host-locked playing behaviour with zero drift across tempo
 changes / loops / relocations, no stuck notes on stop. Full device
-verification lives in `Docs/test-procedures.md` (canned sessions loaded from the
-DEV LOADER in the portrait plugin UI — the in-plugin diagnostics panel was removed;
-the AUM MIDI monitor is the source of truth; the repo's T-numbering is authoritative).
+verification lives in `Docs/test-procedures.md` (the large in-plugin diagnostics panel
+was reduced to a compact dev stuck-note monitor, and the canned T-session loader was
+replaced by the developer self-test panel — long-press the "8×8 STATE" logotype; for
+MIDI verification the AUM monitor is the source of truth; the repo's T-numbering is
+authoritative).
 
 If the plugin doesn't appear in AUM: reboot the iPad once (AU registration
 cache), confirm the extension's Info.plist made it into the build, and that
@@ -67,14 +69,14 @@ project.yml                          XcodeGen definition (targets, embed, signin
 App/                                 Container app (registers the extension; instructions screen; AppIcon)
 AUExtension/
   Info.plist                         aumi declaration: type/subtype/manufacturer, MIDI tag
-  MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames (ALL + A–D), 35-parameter tree (STABLE
+  MidiSparkAudioUnit.swift           AUAudioUnit: midiOutputNames (ALL + A–D), parameter tree (STABLE
                                      addresses: 0 stepRate, 1 swing, 100+i transpose, 200+i morph,
-                                     300 morphMaster), fullState = host Preset (§1); setColourType
+                                     300 morphMaster, 400+i macro ×8), fullState = host Preset (§1); setColourType
   Kernel.swift                       INPUT side + render boundary: transport/context derivation, incoming
                                      MIDI (source pool + passthrough + CC), param events, audition
                                      suppression → Router; hosts LiveMIDIEmitter (the one AudioToolbox user)
   Router.swift                       OUTPUT side (§2/§7), Foundation-only: grid columns, v3.0 GRAPH routing
-                                     (receiver-picked references, reroute, cycles), all six processors,
+                                     (receiver-picked references, reroute, cycles), all 15 processor types,
                                      fan-out, the voice table + 5-cable collision refcount, AUDITION
   Emission.swift                     The MIDIEmitter seam (delta §7b): Router emits through this, not
                                      AudioToolbox → the whole engine unit-tests off-device
@@ -86,11 +88,13 @@ AUExtension/
   Diag.swift                         KernelDiag (pure) — render-side counters threaded through the pass
   Models.swift                       Spec §9 schema: Colour / Cell / SceneState / PluginState, Codable
   GridUI.swift                       The 8×8 grid + palette + PROCESSOR box + OUTPUTS (SwiftUI-only)
+  BuildPage.swift                    THE BUILD PAGE — the primary workshop + default tab (cast / part-staging /
+                                     PLAY grid / chain footer; SELECT·PLACE·MUTATE row modes; ephemeral colours)
   SceneFactory.swift                 The sixteen factory scenes (Foundation-only; Docs/factory-scenes.md)
-  TestSessions.swift                 T1–T17 canned patches, loaded from the DEV LOADER (portrait UI)
-  AudioUnitViewController.swift      Extension UI host: the grid / responsive DESK / scene strip (4 Hz
-                                     poll drives the playheads; no diagnostics panel)
-Tests/                               Off-device unit tests (macOS MidiSparkTests target, 111 tests over the
+  TestSessions.swift                 T1–T17 canned patches (the in-app loader is retired; now dev-only)
+  AudioUnitViewController.swift      Extension UI host: the TAB shell (BUILD·GRID·MIDI IN·MIDI OUT·MACROS·
+                                     AUTOMATION) / grid / responsive DESK (4 Hz poll drives the playheads)
+Tests/                               Off-device unit tests (macOS MidiSparkTests target, 600+ tests over the
                                      pure core AND the render engine — first line of verification; green
                                      through every commit)
 Docs/                                Specs, migration plan, test playbook, factory scenes, UI guide, mockups

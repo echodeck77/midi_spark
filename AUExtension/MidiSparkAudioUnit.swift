@@ -883,7 +883,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     //   1            swing (50…75)
     //   100 + i      transpose per colour i (−24…+24)
     //   200 + i      morph per colour i (0…1)          ← the macro (§3.2)
-    //   300          MORPH MASTER (0…1)                ← #35, reserved & functional (§13.5)
+    //   300          MORPH MASTER (0…1)                ← reserved-only (NON-functional; A/B morph removed from render)
     //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
     //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
     //                                                     spec §5). A future transposeB must pick a base ≥ 500.

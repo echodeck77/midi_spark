@@ -1,3 +1,5 @@
+> PARTLY SUPERSEDED by AcceptanceCriteria-build-page-iteration-6.md §9 (2026-08-16): the verb/placement grammar below predates the SELECT·PLACE·MUTATE row-mode radio and the rows-only / cell-tap-is-a-pick laws. The PLAY-grid PLAY/EDIT-view details still hold; the staging verb pipeline does not.
+
 # BUILD PAGE — COMPREHENSIVE GIVEN/WHEN/THEN + USABILITY GOTCHAS
 # design-side Claude · 2026-08-12 · incorporates the eleven rulings
 # ⚠ = a gotcha with its mitigation. This is the wiring contract.

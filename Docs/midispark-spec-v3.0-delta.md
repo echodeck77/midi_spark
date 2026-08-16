@@ -2,8 +2,12 @@
 
 STATUS: AUTHORITATIVE. This delta supersedes the listed sections of
 `midispark-spec-v2.8.md`. Where this document is silent, v2.8 stands unchanged
-(colours/cells/presets, processors, morph/ALT, swing, QUANT, performance layers,
-engine snapshot architecture, collision policy, parameters, MORPH desk).
+(colours/cells/presets, processors, swing, QUANT, performance layers,
+engine snapshot architecture, collision policy, parameters).
+**NOTE (2026-08): A/B state + MORPH were subsequently REMOVED from the render** — the
+MORPH desk, param 300, and the A→B fader no longer function; `cell.alt` is now only a
+voice-identity bit. This preamble previously listed morph/ALT/MORPH-desk as "unchanged";
+that is no longer true. See the SUPERSEDED banner at the top of v2.8.
 **§10 (THREAD FOLD, 2026-07-28) is the newest layer** — the ratified rulings + build log from the
 verb-rebuild / strips / boundary-adoption thread; where it and an earlier section differ, §10 wins.
 Reference implementation of the UI: `Docs/midispark-preview-v60.html`

@@ -36,8 +36,10 @@ enum SceneFactory {
                 c.paramsA.gate = gate; c.paramsA.phase = phase
             }
         }
-        // delta item 8: alt* helpers author the Colour's own procB. typeB = A's type ⇒ a FULL morph glide,
-        // so the B face is LIVE (before item 8 these wrote paramsB with no typeB, leaving B inert).
+        // delta item 8: alt* helpers author the Colour's own procB (paramsB + typeB). NOTE (2026-08): A/B morph
+        // was REMOVED from the render — paramsB/typeB are now DECODE-ONLY, so these B faces no longer sound (an ALT
+        // flip only re-strikes the voice, selecting no parameters). Kept for document round-trip; scenes 14/16's
+        // B-state lessons are currently inert until/unless a morph layer returns.
         func altArp(_ id: String, pattern: ArpPattern? = nil, rate: ArpRate? = nil, oct: Int? = nil) {
             edit(id) { c in
                 c.typeB = .arp

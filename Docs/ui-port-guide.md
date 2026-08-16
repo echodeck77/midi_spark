@@ -1,5 +1,14 @@
 # UI port guide — mockup v60 → SwiftUI
 
+> **HISTORICAL — SUPERSEDED.** This guide maps the v56–v61 mockup lineage to the
+> PRE-BUILD desk UI: the retired EDIT/PERFORM toggle and the three-box
+> COLOUR·PROCESSOR·EMITTERS cell desk (+ the cell-edit/PROCESSORS page). That UI
+> is gone. The current shell is the TAB era — BUILD · GRID · MIDI IN · MIDI OUT ·
+> MACROS · AUTOMATION — with the BUILD page as the default landing surface and the
+> primary workshop. For the live reference, use the BUILD mock
+> (`Docs/mockup-build-three-grids-landscape.html` if present), NOT v59/v60. The
+> body below is kept as historical record of the desk-era mapping.
+
 The reference implementation is `Docs/midispark-preview-v60.html` (React, runs
 in any browser; v60 adds the §6a emitter-toggle panel behaviour). A first grid slice EXISTS in the repo built to an earlier
 generation — reconciliation, not greenfield, is the task (see the migration
@@ -20,6 +29,10 @@ gold #FFC53D · orange #FF7A1A · vermilion #FF4B33 · wine #C2244B · magenta #
 blush #FFA8B8 · purple #B44DFF · violet #7A3DF0 · indigo #5566FF · azure #38A6FF ·
 cyan #25E0F0 · teal #148F80 · mint #7BF2CE · green #2ECC5E · chartreuse #C6F23D ·
 bronze #C9A227
+
+NOTE: these 16 are the canonical palette DEFAULTS — ephemeral colours now carry
+runtime hues via `colourHueOverride` and aren't in this table (16 is no longer
+the universe).
 
 **State hues** (§6.5 — hue + motion + location): white = select/isolate/step-lock ·
 coral = mute · amber = bypass & EDIT accent · lime = solo · cyan = alt/apply &

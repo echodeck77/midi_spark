@@ -4,6 +4,24 @@
 
 This is the complete, self-contained specification, consolidating revisions v2.0–v2.8 into one document with the v2.7 terminology sweep applied throughout (StackArp → MidiSpark; the colour-level object is a **Colour**, never a "preset"). It supersedes and replaces the delta documents. Behavioural content is identical to the v2.4 core + v2.5 §12 + v2.6 §13 + v2.7 + v2.8 chain.
 
+> **⚠ SUPERSEDED SINCE v2.8 — read this before trusting any section (code is ground truth).**
+> `midispark-spec-v3.0-delta.md` supersedes the routing + visual-language sections; the following
+> ALSO changed since and were never folded back into either body:
+> - **A/B state + MORPH are removed from the render.** §§3.1–3.2, §7, §8, and all of §13 (the MORPH
+>   desk) describe a live A→B fader — it no longer exists. `cell.alt` survives only as a voice-identity
+>   bit (forces a re-strike, selects NO parameters); `paramsB` / `typeB` are decode-only legacy keys.
+> - **Param 300 (MORPH MASTER) is reserved-only, not functional** (§8 / §13.5 claim "functional now").
+> - **Five MIDI outputs, not four:** All + Emit A–D (delta §7b). §1.2 / §7 / §8 / §11's "four" is stale.
+> - **Fifteen processor types, not the six in §3:** + ECHO, EUCLID, BURST, CASCADE, DRONE, SHIFT,
+>   HUMANIZE, MOD, GLIDE. (§12's predicted future roster — SCALE/RANGE/WINDOW/… — is NOT what shipped.)
+> - **CC/LFO generators shipped** (MOD, GLIDE): §12.10's "out of scope, not deferred" was revisited and
+>   reversed (delta §9 item 6).
+> - **Per-receiver LATCH exists** (KEYS/CHORD/PIANO): §2.5's "no latch in this version" is false.
+> - **Channel is filter-in / stamp-out** (inputChannel / busChannels); §2.6's per-Colour OUT CH / INHERIT
+>   is gone. CC/PB/AT pass to All + Emit A (not "bus A only"), plus per-door controller routing.
+> - **The cell face is the SEAL / MOSAIC glyph**; §5's rails / lanes / morph-ring wiring visual is retired
+>   (delta §4). QUANT (§6.8) is specced but not implemented.
+
 ---
 
 ## 0. The governing invariants

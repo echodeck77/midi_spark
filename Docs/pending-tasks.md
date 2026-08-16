@@ -3,26 +3,27 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-07-29._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-16._
 
-## ◐ IN PROGRESS (2026-08-05) — MACROS (phase 2 track, branch `feat/macros`)
-Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. iOS builds,
-438 green; commit refs in CLAUDE.md status; **device pass owed**; NOT on `main`.
+## ★ DONE (2026-08-05/06) — MACROS (phase 2 track)
+Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. `feat/macros`
+MERGED to `main` 2026-08-05; the canonical MACRO AUTHORING FLOW landed 2026-08-06. Commit refs in CLAUDE.md status.
 - [x] M0 state model · M1 offset term (base ⊕ Σ value×delta, folded at build; seals stable) + tests · M2 the 8
   slider macros as automatable AU params · M3 the MACROS tab panel (BTN|SLD|TML; sliders drive values + padlock) ·
   **M4 A/B authoring** (the [AB] popup on the Edit page's CHAIN header → live B demonstration → bind delta to a
-  SLIDER macro; base restored to A on close). **MACROS ARE USABLE END-TO-END.** Device pass owed.
+  SLIDER macro; base restored to A on close). **MACROS ARE USABLE END-TO-END.**
 - [x] BUTTON bank completed end-to-end (values via a direct document setter for 8–23; [AB] popup SLD|BTN selector).
 - [x] OUTPUT group done end-to-end: the offset extended to the per-emitter role amounts (LEAK/DUCK/CURVE/POCKET,
   MacroEmitterTarget, folded in the builder) + the [AB] popup's CHAIN|OUTPUT selector + OUTPUT authoring.
+
+## Open within macros (forward)
 - [ ] INPUT group — the source shaping. **Underspecified**: the panel spec lists INPUT as a group but doesn't name
   its continuous targets. Candidates: the velocity window (floor/ceil) · the note range (lo/hi). Needs a pick before
   building (SnapCell-field fold + an INPUT group in the popup).
-- [ ] Deferred within macros: TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time
-  TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time per-column path, which replaces M1's
-  bake-at-build for lanes) · BUTTON/TIMELINE binding + mover-eligibility live-dim · the A↔B morph-audition slider ·
-  the CC rail · the perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) · announce/
-  ghost-thumb tells.
+- [ ] TIMELINE bank (lane editor + per-column STEP|SMOOTH|BYPASS + the render-time per-column path, which replaces
+  M1's bake-at-build for lanes) · BUTTON/TIMELINE binding + mover-eligibility live-dim · the A↔B morph-audition
+  slider · the CC rail · the perform-surface panel in the GRID top band (part of the phase-2 GRID redesign) ·
+  announce/ghost-thumb tells.
 
 ## ★ DONE (2026-08-05) — LAYOUT v2 tab shell (phase 1)
 Spec of record: **`Docs/AcceptanceCriteria/layout-v2-tabs.md`**; plan `~/.claude/plans/resilient-imagining-truffle.md`.
@@ -45,12 +46,13 @@ commit refs in CLAUDE.md "Current status":
   `deleteCell` dedup (`181bf7c`).
 
 ## A. Blocked on the user (need a decision before building)
-- [ ] **Accent-colour dedup (refactor B1)** — the two accent hues are redefined ~35× under ~14 local names
-  (`cyan`/`barCyan`/`sceneAmber`/`amber`/`claimAmber`/`soloHue`/…). Canonicalise to `Color.accentCyan`/`accentAmber`
-  once (all SwiftUI-only files → import-safe). **BLOCKER:** `FlowView.swift`'s cyan is `Color(red:0.145,g:0.878,
-  b:0.941)` — a real ~0.005 near-miss of the canonical `0.15/0.88/0.94`; needs a ruling (unify to canonical, or keep
-  FlowView's tuned-for-dark-canvas value). Same open question for FlowView's lighter receiver-hue palette vs
-  `receiverHues`.
+- [~] **Accent-colour dedup (refactor B1)** — MIGRATION IN PROGRESS. A `DesignKit.swift` token layer LANDED
+  2026-08-16 (`enum UI`: cyan/amber/red/green/editHue/ink, values unchanged, migrated across ~10 files). BUT it's
+  PARTIAL: the cyan literal still appears ~18×, amber ~16×, `editHue` is defined twice, and `FlowView.swift` still
+  hardcodes a divergent receiver-hue array. **REMAINING OPEN DECISIONS:** `FlowView.swift`'s cyan is
+  `Color(red:0.145,g:0.878,b:0.941)` — a real ~0.005 near-miss of the canonical `0.15/0.88/0.94`, still unruled
+  (unify to canonical, or keep FlowView's tuned-for-dark-canvas value); and the same call on FlowView's divergent
+  lighter receiver-hue array vs `receiverHues`.
 - [ ] **midiNoteName convention** — the shared `midiNoteName` is 0-based (note 60 = "C5"); `RackMatrix.noteName` is
   `n/12−1` (note 60 = "C4"), so FENCE labels read an octave below the receiver RANGE labels. `midiNoteName`'s doc
   says it exists "so naming can't drift". Pick the canonical convention (C4=60 is the common MIDI one) → unify (a
@@ -82,21 +84,21 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   S/M/L; sites = processor boxes · macro page MAIN/ALT · library · manual · receivers. §2 THE EYE = a header-bar
   inspect toggle → cell-tap opens the window popup. Needs a pure `scheduleAhead(...)` derive-ahead + the `NoteWindow`
   view. Larger feature; §3 LONG WINDOW / RACK VARIANT flagged futures.
-- [ ] **MACRO AUTHORING FLOW (canonical)** (Paul + design 2026-08-06, spec `AcceptanceCriteria-macro-authoring.md`)
-  — a GENERIC control-group authoring page (MAIN/ALT instances → TEST slider+button → ADD-TO-MACRO assignment view),
-  hosted by a control-group registry so processors · receivers · emitters · rack all reuse it. Sparse relative
-  deltas (the M1 offset model — already built); host-adaptive transactions (staged vs live); mover eligibility
-  (discrete→buttons only); ALT persists per group; first-assign sets spring/toggle then locks it. **RETIRES**
-  `MacroBindPopup` (M4 `[AB]`). KEEPS the offset engine (M1) + AU params (M2) + MACROS tab (M3). Large multi-phase
-  UI+model feature — PLAN drafted (see the spec's Relationship/Open-questions + the ferry reply); needs Paul's
-  answers on the registry shape + ALT-persistence storage before building, then device passes. A future MACRO MAIN
-  TAB (management surface) is separate + later.
-- [ ] **CONTROLLER ROUTING v1** (design ruling 2026-08-06, spec `AcceptanceCriteria-controller-routing.md`) —
-  per-door cog mask CONTROLLERS→[A·B·C·D] (default all-live); forward matching CC/PB/AT/PC to each selected emitter
-  RE-STAMPED to its channel; supersedes the hardwired `passthroughCableMask`. **CC123/120 = pool/latch FLUSH +
-  forward** (all-notes-off must release us). **UMP legacy parity where cheap** (system/SysEx pass). BEND-ownership
-  rule reserved for the future per-emitter bend stage. Render-input-path + a DEVICE ear-check — captured, not built
-  blind. Model seam: `Receiver.controllerMask: UInt8?` (nil ⇒ 0b1111).
+- [x] **MACRO AUTHORING FLOW (canonical)** (Paul + design 2026-08-06, spec `AcceptanceCriteria-macro-authoring.md`;
+  **LANDED 2026-08-06 — `MacroBindPopup` removed**) — a GENERIC control-group authoring page (MAIN/ALT instances →
+  TEST slider+button → ADD-TO-MACRO assignment view), hosted by a control-group registry so processors · receivers ·
+  emitters · rack all reuse it. Sparse relative deltas (the M1 offset model — already built); host-adaptive
+  transactions (staged vs live); mover eligibility (discrete→buttons only); ALT persists per group; first-assign sets
+  spring/toggle then locks it. KEPT the offset engine (M1) + AU params (M2) + MACROS tab (M3). **Residue still open:**
+  the receiver / emitter / rack authoring domains (only the processor domain shipped) + the discrete-param binding
+  path (only the 7 foldable continuous keys reach the engine). A future MACRO MAIN TAB (management surface) is
+  separate + later.
+- [x] **CONTROLLER ROUTING v1** (design ruling 2026-08-06, spec `AcceptanceCriteria-controller-routing.md`;
+  **LANDED 2026-08-10 — `Receiver.controllerMask` exists**) — per-door cog mask CONTROLLERS→[A·B·C·D] (default
+  all-live); forward matching CC/PB/AT/PC to each selected emitter RE-STAMPED to its channel; supersedes the
+  hardwired `passthroughCableMask`. **CC123/120 = pool/latch FLUSH + forward** (all-notes-off must release us).
+  **UMP legacy parity where cheap** (system/SysEx pass). BEND-ownership rule reserved for the future per-emitter
+  bend stage. Model seam: `Receiver.controllerMask: UInt8?` (nil ⇒ 0b1111).
 - [x] **MPE toggle + auto-detect RETIRED** (design ruling 2026-08-06, on `main`) — the RECEIVERS-tab MPE toggle
   (`ReceiverConfigView.mpeRow`) + the write-only auto-detect (`mpeSeenAt`) are gone (manual-honesty law: the UI
   stopped promising what nothing reads). `Receiver.mpeMerge` stays Codable + `setReceiverMpeMerge`/`mpeLikely`
@@ -112,14 +114,18 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   callbacks/helpers. Strips are single-face forever. _(Separate future: `GridView.editing` — the grid's own
   cell-editor mode — is untouched.)_ Device-verify: the strips look/behave unchanged (perform face only).
 - [~] **CELL EDIT** (spec `Docs/AcceptanceCriteria/AcceptanceCriteria-cell-edit.md`; user-chosen phased build).
+  **⚠ BANNER (2026-08-13): the PROCESSORS / cell-edit page was RETIRED — BUILD supersedes it; `editSpikePage` is now
+  unreachable dead code.** So the whole block below is HISTORICAL: the crash bug is MOOT (the page can't be reached),
+  and every open sub-item here needs TRIAGE — folded-into-BUILD, wanted-elsewhere, or dropped. Detail kept for the
+  record; do not treat the `[ ]`/`[~]` marks below as live forward work until triaged.
   Decisions locked: start with the station skeleton; **triggers stay Colour-side** (no per-cell schema change).
   **LAYOUT (evolving): design-side revised B to a full-page takeover (2026-07-31); the USER then overrode that —
   the page REPLACES THE GRID in its slot (via `gridBlock`, like FLOW) while receivers/emitters/strips/desk/arr-bar
   stay visible + reachable. Spec B on file still says full-takeover — ferry the user's grid-slot override to
   design-side.** Content/model/engine/tests unaffected by all this layout churn.
-  **OPEN BUG: crash on tapping the TRIGGERS section (device, first Cell-Edit device run). No logic error on that
-  path (collapsed rows are plain text) → suspect a SwiftUI transition/nesting crash; the grid-slot move may have
-  cleared it. Awaiting device retest + a crash log to confirm/pinpoint.**
+  **~~OPEN BUG~~ MOOT (page RETIRED 2026-08-13, unreachable): crash on tapping the TRIGGERS section (device, first
+  Cell-Edit device run). No logic error on that path (collapsed rows are plain text) → suspected a SwiftUI
+  transition/nesting crash; the grid-slot move may have cleared it. No longer reachable, so no retest needed.**
   - [x] **Phase 1 — station skeleton + full-page rework** (off-device): EDIT = a 6th TOGGLE (out of the `Verb`
     enum); tap re-points + suppresses the trigger fire. **Re-architected to the full-page takeover**: `cellEditPage`
     replaces the whole grid layout when a cell is pointed; pinned breadcrumb (scene · column · 8-dot minimap ·
@@ -175,9 +181,10 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [ ] **Live preset previews** · **SCROLL+TEACH** (both deferred-flagged).
 - [ ] **Tag `v0.7-gui`** (user tags manually).
 - [ ] **CAPTURED via ferry 2026-08-07 (specs of record, NOT built — design-side Claude, Paul's asks):**
-  - [ ] **GLIDE processor** (`AcceptanceCriteria-glide-processor.md`) — notes→pitchbend: first note = anchor, each
-    next = a bend ramp (mono sliding voice); RANGE handshake; out-of-range RE-ANCHOR (steps glide, leaps articulate)
-    or CLAMP; params TIME/RANGE/PRIORITY. Shares BEND's expression scheduler + channel-ownership plumbing.
+  - [x] **GLIDE processor** (`AcceptanceCriteria-glide-processor.md`; **LANDED 2026-08-10 — `ProcessorType.glide` +
+    `GlidePriority` exist**) — notes→pitchbend: first note = anchor, each next = a bend ramp (mono sliding voice);
+    RANGE handshake; out-of-range RE-ANCHOR (steps glide, leaps articulate) or CLAMP; params TIME/RANGE/PRIORITY.
+    Shares BEND's expression scheduler + channel-ownership plumbing.
   - [ ] **WEAVE driver** (`AcceptanceCriteria-weave-driver.md`) — a rank-clocked polyrhythm DRIVER (arp/rtc/strum
     family; last-driver rule): each pool member ticks on its own rank-derived clock. MODE = LADDER / HARMONIC★ /
     DRAWN; params BASE/GATE/SPAN. Two chips: TAPE (rate×2 → +12) · DUR-BY-INTERVAL (leap → length). Pure per-rank.
@@ -204,6 +211,18 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   off leaves a stuck wire note. Suspect the close-vs-reemit ordering at a column boundary or a refcount imbalance
   amplified by harmonize's fan-out (4× voices vs identity's 1×). Repro on device, then trace `emitHarmony` →
   `emitArtic`/`openVoice` refcount across a column transition + a live interval change while a chord sustains.
+
+## F. Codebase-review carry-over (§12, 2026-08-16)
+The currently-open medium/large work captured in `Docs/codebase-review-2026-08-16.md §12` (and CLAUDE.md status) that
+this file otherwise omits — one line each, see the review for detail:
+- [ ] **BuildModel / ColourRegistry extraction + BUILD selection unification** — pull BUILD's model out of the view.
+- [ ] **Colour-owned routing** (the "four steers ①") — lift buses/receiver/chop off `Cell` onto `Colour`.
+- [ ] **Split `Router.process`** — the ~35-arg monolith.
+- [ ] **Persisted-DTO / working-model split** — separate the on-disk document from the live working model.
+- [ ] **Total macro model** — discrete-delta bake (bug M1: discrete-param macros don't fold yet).
+- [ ] **RACK engine tests** — fence / mono / pocket / conversation / curve are untested.
+- [ ] **Unassigned-BUILD-part persistence follow-ups** — the deployed play-grid isn't persisted yet, and "exactly
+  one unassigned part" isn't a hard invariant.
 
 ---
 _Done this thread (moved off the list): /btw ①②③ · adoption · strips session-faces/LATCH/DUCK/SPACE-FILL/receiver-marks · verbs reverted to pills · CONTROLS single-face · §10 spec fold. **2026-07-29 wave:** /btw ④⑤⑥ · STROKES · MIXED-SET · DELETE-sever · multi-cell routing + SRC/DEST look · desk re-point · sticky routing · verbs-no-latch · routing refactor+tests. See CLAUDE.md status for commit refs._
