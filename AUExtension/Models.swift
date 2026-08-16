@@ -18,6 +18,7 @@ enum ProcessorType: String, Codable, CaseIterable {
     case humanize = "HUMANIZE" // GENERATOR — seeded per-note timing + velocity jitter, replay-safe (reuses spread = amount)
     case mod = "MOD"           // CC GENERATOR (delta "THE MOD PROCESSOR") — a beat-derived shaped CC on the cell's emitters; sounds NO notes
     case glide = "GLIDE"       // notes→PITCH-BEND translator — one mono sliding voice; steps GLIDE, leaps ARTICULATE
+    case tutti = "TUTTI"       // SET-level chance (CHANCE's cousin): per step SOLO (one note) or TUTTI (the full set); a HOLD transform, never a driver
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -64,6 +65,15 @@ enum TapAction: String, Codable, CaseIterable {
     case alt = "ALT", byp = "BYP", mute = "MUTE"
 }
 enum Quant: String, Codable { case off = "OFF", step = "STEP", pass = "PASS" }                              // §6.8
+// TUTTI (working name; Paul 2026-08-13) — set-level chance, CHANCE's correlated cousin. MODE = COIN | PATTERN.
+enum TuttiMode: String, Codable, CaseIterable { case coin = "COIN", pattern = "PATTERN" }
+// COIN: which note survives a SOLO step, by pitch rank. CYCLE walks the solo across steps.
+enum TuttiPick: String, Codable, CaseIterable { case low = "LOW", high = "HIGH", random = "RANDOM", cycle = "CYCLE" }
+// PATTERN: per-slice set-shape. Octave variants are first-class; REST = the slice is silent.
+enum TuttiSlice: String, Codable, CaseIterable {
+    case all = "ALL", low = "LOW", high = "HIGH", top2 = "TOP2", bot2 = "BOT2",
+         lowOct = "LOW+8", allDownOct = "ALL−8", rest = "REST"
+}
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -132,6 +142,15 @@ struct ColourParams: Codable, Equatable {
     var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth
     var glidePriority: GlidePriority? = .last   // which held note the mono voice tracks
     var glideReanchor: Bool? = true     // out-of-range target → RE-ANCHOR (fresh note-on) · false = CLAMP to the range
+    // TUTTI (working name; Paul 2026-08-13) — set-level chance. ONE processor, a MODE radio. COIN: per step a seeded
+    // roll (BALANCE = P(TUTTI)) → SOLO (one PICK-chosen note) or TUTTI (the whole set). PATTERN (phase 2): 8 authored
+    // slice states render the held set as a shape per slice. Append-only Optional (old docs decode nil → defaults).
+    var tuttiMode: TuttiMode? = .coin
+    var tuttiBalance: Double? = 0.5     // COIN: P(TUTTI) per step 0…1 (0 = always SOLO, 1 = always the full chord)
+    var tuttiPick: TuttiPick? = .low    // COIN: which note carries a SOLO step, by rank
+    var tuttiSlices: [TuttiSlice]? = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 slice set-shapes
+    var tuttiRate: ArpRate? = .r1_8     // PATTERN: slices per window (reuses the arp rate divisions)
+    var tuttiRotate: Int? = 0           // PATTERN: rotate the slice pattern along the bar (0…7)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

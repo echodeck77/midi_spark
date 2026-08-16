@@ -1178,7 +1178,7 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone else { continue }   // DRONE = a legato chord-hold (user 2026-08-10)
+            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI = a per-step SET filter
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
             let prob = (mode == .chance) ? effectiveProbability(treat) : 1
@@ -1201,6 +1201,13 @@ final class Router {
             let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
             if holdChain { composeChainSet(cell: cell, pool: cellPool, upto: tailIdx - 1, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S) }
             let srcN = holdChain ? chainScratch.srcCount(filter: 0, cableMask: 0b1111) : cellPool.srcCount(for: cell)   // §7 source filter
+            // TUTTI: one seeded roll per STEP decides the whole set — TUTTI (−1 = every rank passes) or SOLO (only the
+            // PICK-chosen rank). The step index is derived from musical position (colStart/S) so it's loop-consistent.
+            let tuttiSolo: Int = {
+                guard mode == .tutti, treat.a.tuttiMode == .coin else { return -1 }   // PATTERN (phase 2) passes through
+                let step = S > 0 ? Int((colStart / S).rounded()) : 0
+                return tuttiIsTutti(step: step, balance: treat.a.tuttiBalance) ? -1 : tuttiSoloRank(step: step, count: srcN, pick: treat.a.tuttiPick)
+            }()
             for k in 0..<srcN {
                 let base = holdChain ? Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)) : Int(cellPool.srcAscending(k, for: cell))
                 let n = base + transpose
@@ -1208,6 +1215,7 @@ final class Router {
                 let vel0 = max(1, holdChain ? chainScratch.velocity(UInt8(base)) : cellPool.velocity(UInt8(base)))   // inherit the source velocity (user 2026-08-09)
                 let vel = droneScale < 1.0 ? UInt8(max(1, min(127, Int((Double(vel0) * droneScale).rounded())))) : vel0   // DRONE scales by GATE
                 if mode == .chance && !chancePassesPool(beat: colStart, note: n, rank: k, count: srcN, probability: prob, tilt: treat.a.chanceTilt, constantDensity: treat.a.chanceDensity) { continue }   // POOL-AWARE chance (user 2026-08-11)
+                if mode == .tutti && tuttiSolo >= 0 && k != tuttiSolo { continue }   // TUTTI SOLO step: only the PICK-chosen rank sounds
                 if mode == .harmonize {
                     emitHarmony(base: n, colour: treat, baseVel: vel, row: r, storeArtics: false,
                                 busMask: hbm, on: onSample, off: offSample, beat: colStart,
@@ -1772,8 +1780,8 @@ final class Router {
                                  pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                                  windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                                  S: S, a: a, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types emit at the transition
+            case .echo, .identity, .chance, .harmonize, .tutti:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. TUTTI) emit at the transition
             case .silent:
                 break   // closed passgate → nothing this window
             }
@@ -2178,6 +2186,17 @@ final class Router {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
                 if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: p.probability, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
+        case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step (COIN)
+            let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
+            var solo = -1                                       // −1 = TUTTI (whole set passes)
+            if p.tuttiMode == .coin {
+                let step = S > 0 ? Int((columnStart(m, S) / S).rounded()) : 0
+                if !tuttiIsTutti(step: step, balance: p.tuttiBalance) { solo = tuttiSoloRank(step: step, count: cCnt, pick: p.tuttiPick) }
+            }                                                  // PATTERN: phase 2 — pass the set through for now
+            for k in 0..<cCnt where solo < 0 || k == solo {
+                let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0)
+            }
         case .harmonize:
             let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
@@ -2517,7 +2536,7 @@ final class Router {
             }
             previewPrevColumn = effColumn
             lastTick[vr] = -1; strumProgress[vr] = 0
-            if mode == .identity || mode == .chance || mode == .harmonize {
+            if mode == .identity || mode == .chance || mode == .harmonize || mode == .tutti {
                 previewChordHold(isChance: mode == .chance, isHarmonize: mode == .harmonize, colour: colour,
                                  transpose: transpose, filter: f, busMask: busMask, mNow: mNow, beatPos: beatPos,
                                  beatsPerSample: beatsPerSample, S: S, a: a, windowStart: windowStart,

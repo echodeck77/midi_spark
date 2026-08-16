@@ -1376,6 +1376,7 @@ struct ProcessorBox: View {
         case .humanize:  return "seeded per-note timing + velocity jitter"
         case .mod:       return "a shaped CC on the emitters (sounds no notes)"
         case .glide:     return "one sliding voice — steps glide, leaps re-strike"
+        case .tutti:     return "per step: one note (SOLO) or the whole chord (TUTTI)"
         }
     }
 
@@ -1534,6 +1535,19 @@ struct ProcessorBox: View {
                 Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) }
             field("PRIORITY") { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
             field("OUT OF RANGE") { seg(["RE-ANCHOR", "CLAMP"], sel: (p.glideReanchor ?? true) ? "RE-ANCHOR" : "CLAMP") { i in setParam { $0.glideReanchor = (i == 0) } } }
+        case .tutti:    // SET-level chance — one MODE radio; COIN now, PATTERN in phase 2
+            field("MODE") { seg(TuttiMode.allCases.map(\.rawValue), sel: (p.tuttiMode ?? .coin).rawValue) { i in
+                setParam { $0.tuttiMode = TuttiMode.allCases[i] } } }
+            if (p.tuttiMode ?? .coin) == .coin {
+                field("SOLO  ◂  \(Int((p.tuttiBalance ?? 0.5) * 100))%  ▸  TUTTI") {   // the slider IS the idea
+                    Slider(value: bind(p.tuttiBalance ?? 0.5) { v in setParam { $0.tuttiBalance = v } }, in: 0...1).tint(accent) }
+                field("PICK  (which note carries a SOLO step)") { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
+                    setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
+            } else {
+                field("PATTERN") { Text("the 8-slice set-shape row — arriving in phase 2")
+                    .font(.system(size: 13, design: .monospaced)).foregroundColor(.white.opacity(0.45))
+                    .frame(maxWidth: .infinity, alignment: .leading) }
+            }
         }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.

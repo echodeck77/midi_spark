@@ -55,7 +55,8 @@ final class FuzzTests: XCTestCase {
         let types: [ProcessorType] = [.arp, .ratchet, .passgate, .strum, .chance, .harmonize, .echo,   // echo exercises the tail ring across edges
                                       .euclid, .burst, .cascade, .drone, .shift, .humanize,   // the generators — hammered for no-stuck-notes across every edge
                                       .mod,   // the CC generator — emits CC (no notes); its column-exit resets ride every edge
-                                      .glide]   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
+                                      .glide,   // notes→pitch-bend — its mono sustained voice must close on every flush (no stuck notes)
+                                      .tutti]   // SET-level chance — per-step SOLO/TUTTI subset; hammered for no-stuck-notes across every edge
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)

@@ -689,7 +689,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -902,6 +902,7 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .humanize:  return .humanize                       // GENERATOR — seeded jitter
     case .mod:       return .silent                          // CC GENERATOR — sounds NO notes (its CC is emitted separately)
     case .glide:     return .silent                          // notes→pitch-bend — its ONE mono voice is emitted separately (emitColumnGlide)
+    case .tutti:     return .tutti                            // SET-level chance — a per-step HOLD transform (SOLO/TUTTI), never a driver
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -957,6 +958,32 @@ func chancePassesPool(beat: Double, note: Int, rank: Int, count: Int, probabilit
         p = max(0, min(1, p + tilt * (f - 0.5)))
     }
     return chancePasses(beat: beat, note: note, probability: p)
+}
+
+// MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
+
+/// Whether a step is TUTTI (the whole set passes) vs SOLO (one note). DETERMINISTIC per STEP — a pure hash of the
+/// step INDEX only (no per-note term), so the whole set shares one fate and it's loop-consistent like `chancePasses`.
+/// `step` is the column-step index derived from musical position (replay-exact); `balance` = P(TUTTI).
+@inline(__always)
+func tuttiIsTutti(step: Int, balance: Double) -> Bool {
+    if balance >= 1 { return true }
+    if balance <= 0 { return false }
+    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0xD1B54A32D192ED03)   // step-only seed, salted apart from chance
+    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < balance
+}
+
+/// The surviving rank on a SOLO step, by PICK, over `count` ascending ranks (0 = LOW … count−1 = HIGH). LOW/HIGH are
+/// fixed; RANDOM is a seeded per-step pick; CYCLE walks the solo one rank per step. Pure + deterministic per `step`.
+@inline(__always)
+func tuttiSoloRank(step: Int, count: Int, pick: TuttiPick) -> Int {
+    guard count > 1 else { return 0 }
+    switch pick {
+    case .low:    return 0
+    case .high:   return count - 1
+    case .random: return Int(splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x9E3779B97F4A7C15) % UInt64(count))
+    case .cycle:  return ((step % count) + count) % count
+    }
 }
 
 // MARK: - STRUM (§3): stagger a chord's onsets over `spread`, with a timing curve and velocity tilt
@@ -1051,6 +1078,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .passgate:  return "rectangle.split.3x1"         // the gate
     case .strum:     return "fanblades.fill"              // the fan
     case .chance:    return "die.face.5.fill"             // the die
+    case .tutti:     return "die.face.6.fill"             // the set-die (SOLO vs the whole band)
     case .harmonize: return "circle.hexagongrid.fill"     // the bloom
     case .echo:      return "repeat"                       // the tail
     case .euclid:    return "circle.grid.cross"            // the K-of-N grid

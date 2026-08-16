@@ -1674,4 +1674,59 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(glideBend14(semitones: 1, range: 0), 16383, "frac clamps to +1 → full up")
         XCTAssertEqual(glideBend14(semitones: -5, range: 0), 1, "frac clamps to −1 → full down")
     }
+
+    // MARK: - TUTTI (Paul 2026-08-13): SET-level chance primitives — pure, per-step, replay-exact
+
+    func testTuttiBalanceEdges() {
+        for s in 0..<50 {
+            XCTAssertFalse(tuttiIsTutti(step: s, balance: 0), "balance 0 → always SOLO")
+            XCTAssertTrue(tuttiIsTutti(step: s, balance: 1), "balance 1 → always TUTTI")
+        }
+    }
+    func testTuttiRollDeterministic() {   // same step → same fate every call (loop the host → the same steps re-roll identically)
+        let a = (0..<64).map { tuttiIsTutti(step: $0, balance: 0.5) }
+        let b = (0..<64).map { tuttiIsTutti(step: $0, balance: 0.5) }
+        XCTAssertEqual(a, b, "the per-step roll is a pure function of the step index")
+    }
+    func testTuttiBalanceRoughDistribution() {
+        let half = Double((0..<2000).filter { tuttiIsTutti(step: $0, balance: 0.5) }.count) / 2000
+        XCTAssert(half > 0.4 && half < 0.6, "balance 0.5 → ~half the steps TUTTI (got \(half))")
+        let low = Double((0..<2000).filter { tuttiIsTutti(step: $0, balance: 0.2) }.count) / 2000
+        XCTAssert(low < 0.32, "balance 0.2 → mostly SOLO (got \(low))")
+    }
+    func testTuttiSoloPickLowHigh() {
+        XCTAssertEqual(tuttiSoloRank(step: 7, count: 4, pick: .low), 0, "LOW = bottom rank")
+        XCTAssertEqual(tuttiSoloRank(step: 7, count: 4, pick: .high), 3, "HIGH = top rank")
+        for pick in TuttiPick.allCases { XCTAssertEqual(tuttiSoloRank(step: 3, count: 1, pick: pick), 0, "a singleton is degenerate → rank 0") }
+    }
+    func testTuttiSoloCycleWalks() {
+        XCTAssertEqual((0..<9).map { tuttiSoloRank(step: $0, count: 3, pick: .cycle) },
+                       [0,1,2,0,1,2,0,1,2], "CYCLE walks the solo one rank per step, wrapping")
+    }
+    func testTuttiSoloRandomInRangeAndVaries() {
+        var seen = Set<Int>()
+        for s in 0..<200 {
+            let r = tuttiSoloRank(step: s, count: 5, pick: .random)
+            XCTAssert(r >= 0 && r < 5, "RANDOM rank in [0,count)")
+            seen.insert(r)
+        }
+        XCTAssert(seen.count >= 3, "RANDOM visits multiple ranks (got \(seen.count) distinct)")
+    }
+    func testTuttiMacroParamsRoundTrip() {   // the euclid lesson: advertised params must survive the get→set round-trip
+        var slot = ProcessorSlot(type: .tutti)
+        slot.params.tuttiMode = .pattern; slot.params.tuttiBalance = 0.8; slot.params.tuttiPick = .cycle
+        let back = applyProcessorValues(processorValues(slot), to: ProcessorSlot(type: .tutti))
+        XCTAssertEqual(back.params.tuttiMode, .pattern)
+        XCTAssertEqual(back.params.tuttiBalance ?? 0, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(back.params.tuttiPick, .cycle)
+    }
+    func testTuttiEngineSoloEmitsOneTuttiEmitsAll() {   // through the REAL Router (the offline probe holds C-E-G)
+        var solo = ProcessorSlot(type: .tutti); solo.params.tuttiMode = .coin; solo.params.tuttiBalance = 0; solo.params.tuttiPick = .low
+        let soloNotes = Set(Dice.runRecorder([solo]).ons.filter { $0.cable == 1 }.map { $0.note })
+        var full = ProcessorSlot(type: .tutti); full.params.tuttiMode = .coin; full.params.tuttiBalance = 1
+        let fullNotes = Set(Dice.runRecorder([full]).ons.filter { $0.cable == 1 }.map { $0.note })
+        XCTAssertEqual(soloNotes.count, 1, "balance 0 → SOLO → exactly one note sounds (got \(soloNotes.sorted()))")
+        XCTAssertEqual(fullNotes.count, 3, "balance 1 → TUTTI → the whole held C-E-G sounds (got \(fullNotes.sorted()))")
+        XCTAssertTrue(soloNotes.isSubset(of: fullNotes), "the SOLO note is one of the held set")
+    }
 }

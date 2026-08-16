@@ -275,6 +275,9 @@ enum SnapshotBuilder {
         if let v = p.probability { out.probability = clamp(v, 0, 1) }
         if let v = p.chanceTilt { out.chanceTilt = clamp(v, -1, 1) }
         if let v = p.chanceDensity { out.chanceDensity = v }
+        if let v = p.tuttiMode { out.tuttiMode = v }
+        if let v = p.tuttiBalance { out.tuttiBalance = clamp(v, 0, 1) }
+        if let v = p.tuttiPick { out.tuttiPick = v }
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }

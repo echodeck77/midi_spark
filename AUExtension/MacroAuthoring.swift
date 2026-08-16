@@ -178,6 +178,11 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "glideRange", label: "RANGE", kind: .stepper(lo: 1, hi: 48)),
                 MacroControlParam(key: "glidePriority", label: "PRIORITY", kind: .option(GlidePriority.allCases.map(\.rawValue))),
                 MacroControlParam(key: "glideReanchor", label: "OUT OF RANGE", kind: .toggle)]
+    case .tutti:
+        return [bypass,
+                MacroControlParam(key: "tuttiMode", label: "MODE", kind: .option(TuttiMode.allCases.map(\.rawValue))),
+                MacroControlParam(key: "tuttiBalance", label: "SOLO↔TUTTI", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "tuttiPick", label: "PICK", kind: .option(TuttiPick.allCases.map(\.rawValue)))]
     }
 }
 
@@ -231,6 +236,9 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "glideRange":    v[param.key] = Double(p.glideRange ?? 2)
         case "glidePriority": v[param.key] = optionIndex(p.glidePriority)
         case "glideReanchor": v[param.key] = (p.glideReanchor ?? true) ? 1 : 0
+        case "tuttiMode":    v[param.key] = optionIndex(p.tuttiMode)
+        case "tuttiBalance": v[param.key] = p.tuttiBalance ?? 0.5
+        case "tuttiPick":    v[param.key] = optionIndex(p.tuttiPick)
         default: break
         }
     }
@@ -276,6 +284,9 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "glideRange":    s.params.glideRange = clamp(Int(val.rounded()), 1, 48)
         case "glidePriority": s.params.glidePriority = caseAt(val, GlidePriority.self)
         case "glideReanchor": s.params.glideReanchor = val >= 0.5
+        case "tuttiMode":    s.params.tuttiMode = caseAt(val, TuttiMode.self)
+        case "tuttiBalance": s.params.tuttiBalance = clamp(val, 0, 1)
+        case "tuttiPick":    s.params.tuttiPick = caseAt(val, TuttiPick.self)
         default: break
         }
     }

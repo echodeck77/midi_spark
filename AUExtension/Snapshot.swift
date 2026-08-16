@@ -120,6 +120,10 @@ struct SnapParams {
     var glideRange: Int = 2              // ± bend range, semitones
     var glidePriority: GlidePriority = .last
     var glideReanchor: Bool = true       // out-of-range → re-anchor (else clamp)
+    // TUTTI (set-level chance). COIN uses balance+pick; PATTERN slice fields land in phase 2.
+    var tuttiMode: TuttiMode = .coin
+    var tuttiBalance: Double = 0.5       // COIN: P(TUTTI) per step, 0…1
+    var tuttiPick: TuttiPick = .low      // COIN: which rank a SOLO step keeps
 }
 
 struct SnapColour {
@@ -244,7 +248,7 @@ final class SnapshotBox {
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
 
 /// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
-enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax }
+enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax, tuttiBalance }
 
 /// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
 /// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
@@ -255,7 +259,7 @@ struct MacroMod { let macro: Int; let param: MacroParam; let delta: Double }
 /// seals — which read the document, not this — stay stable, and value 0 ⇒ home (no offset). Clamps match `resolve`.
 func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapParams {
     guard !mods.isEmpty else { return p }
-    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dMin = 0.0, dMax = 0.0
+    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dMin = 0.0, dMax = 0.0, dTutti = 0.0
     for m in mods {
         let v = (m.macro >= 0 && m.macro < values.count) ? values[m.macro] : 0
         let off = v * m.delta
@@ -270,6 +274,7 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
         case .harmVelScale: dHarm += off
         case .modMin:       dMin += off
         case .modMax:       dMax += off
+        case .tuttiBalance: dTutti += off
         }
     }
     var r = p
@@ -282,6 +287,7 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
     if dHarm != 0 { r.harmVelScale = clamp(r.harmVelScale + dHarm, 0.1, 1) }
     if dMin != 0 { r.modMin = clamp(r.modMin + Int(dMin.rounded()), 0, 127) }
     if dMax != 0 { r.modMax = clamp(r.modMax + Int(dMax.rounded()), 0, 127) }
+    if dTutti != 0 { r.tuttiBalance = clamp(r.tuttiBalance + dTutti, 0, 1) }   // live-automatable SOLO↔TUTTI
     return r
 }
 
