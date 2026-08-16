@@ -90,7 +90,7 @@ extension DiagView {
     // ── LANDSCAPE: three EQUAL columns (palette · staging · play) over the full-width machinery strip ──────────────
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
-        let leftW = max(1, avail / 3 * 0.8)                        // the MACHINE column is 20% narrower than an equal third
+        let leftW = max(1, avail / 3 * 0.968)                      // the MACHINE column, widened twice by 10% off the original 0.8×-of-a-third
         let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
         // the PERFORM grid is widest: LEFT part buttons + 8 grid cells + RIGHT per-row buttons = 10 cells (+ 9 gaps).
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 10))
@@ -100,11 +100,10 @@ extension DiagView {
                 // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
                 // demangler's stack (SIGSEGV opening BUILD). AnyView is a nominal type the demangler won't recurse
                 // through — each column's type is instantiated separately + bounded.
-                AnyView(buildPaletteColumn(colW: leftW).frame(width: leftW, alignment: .center))
+                AnyView(buildPaletteColumn(colW: leftW, cell: cell).frame(width: leftW, alignment: .center))
                 AnyView(buildStagingColumn(cell: cell).frame(width: gridColW, alignment: .center))
                 AnyView(buildPlayColumn(cell: cell).frame(width: gridColW, alignment: .center))
-            }
-            AnyView(buildMachinery())
+            }   // each column now carries its OWN button box, directly below its grid (built inside the column)
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -113,10 +112,9 @@ extension DiagView {
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 10))
         VStack(spacing: 12) {
-            AnyView(buildPaletteColumn(colW: size.width - 20))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow)
+            AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
             AnyView(buildStagingColumn(cell: cell))
             AnyView(buildPlayColumn(cell: cell))
-            AnyView(buildMachinery())
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -125,22 +123,76 @@ extension DiagView {
     // IMPORTANT: keep this VStack SHALLOW — the INPUT/CAST/OUTPUT groups are SEPARATE opaque sub-views. A single
     // deeply-nested SwiftUI view type here makes the Swift runtime's type-metadata demangler recurse until it
     // overflows the stack when the AU instantiates the view → SIGSEGV the moment BUILD opens (device crash 2026-08-11).
-    @ViewBuilder private func buildPaletteColumn(colW: CGFloat) -> some View {
-        let castW = max(160, colW - 4)                            // the receivers/cast/emitters/midi-select FILL the column width
+    @ViewBuilder private func buildPaletteColumn(colW: CGFloat, cell: CGFloat) -> some View {
+        let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; header responds immediately, MIDI switch quantized
-            AnyView(buildPartHeader())                            // TOP: part · receivers · midi-select · octave
-            AnyView(buildInputSection(castW: castW))
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; pairs with the grids' column button
+            AnyView(buildPartHeader())                            // the part selector — pairs (roughly) with the grids' mode radios
+            AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
+            AnyView(buildFooterBox(labels: ["🎲 RANDOMIZE", "MUTATE", "PLACE", "", "", ""]))   // the control box, directly below the processor section (button 3 = PLACE)
             Spacer(minLength: 0)
-            AnyView(buildCastSection(castW: castW))               // CENTRE: the cast, vertically centred between the two
-            Spacer(minLength: 0)
-            AnyView(buildOutputSection(castW: castW))             // BOTTOM (above the footer): MIDI OUT + the emitters
+            AnyView(buildBottomPlaceholder("RECEIVERS"))          // bottom of the left column — the receivers rebuild lands here
         }
         .frame(maxWidth: .infinity, alignment: .center)
         // §1 THE THREAD (colour-architecture): a thin selected-hue edge down the LEFT column → it reads with the
-        // footer chain (also hue-framed) as ONE object — the machine's anatomy, input → thread → chain → output.
-        // Alpha is a starting point; Paul tunes on glass.
+        // chain (also hue-framed) as ONE object — the machine's anatomy. Alpha is a starting point; Paul tunes on glass.
         .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(buildSelHue.opacity(0.55)).frame(width: 2).padding(.vertical, 6) }
+    }
+
+    // The 8×8-equivalent machine block. An INVISIBLE, untouchable header row lands the cast one cell down, on the
+    // grids' DATA top (matching their loop-key row) rather than their header. Then the cast (rows 1–4) and the
+    // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
+    @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
+        VStack(spacing: BuildGeom.castGap) {
+            Color.clear.frame(height: cell)                       // the invisible header row (mirrors the grids' loop-key row — untouchable)
+            AnyView(buildCastSection(castW: castW, cell: cell))   // rows 1–4: the cast (8×4)
+            AnyView(buildProcessorBlock(castW: castW, cell: cell))// rows 5–8: the chain as a 4×2 of 2×2-cell boxes
+        }
+    }
+
+    // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
+    // 5·6·7·8 with NO connectors. Empty slots read as their number (1–8); populated show the processor type.
+    @ViewBuilder private func buildProcessorBlock(castW: CGFloat, cell: CGFloat) -> some View {
+        let chain = selectedColourChain()
+        let gap = BuildGeom.castGap
+        let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
+        let boxW = swW * 2 + gap                                   // 2 cast columns wide
+        let boxH = cell * 2 + gap                                  // 2 cast rows tall
+        VStack(spacing: gap) {
+            ForEach(0..<2, id: \.self) { r in
+                HStack(spacing: gap) {
+                    ForEach(0..<4, id: \.self) { c in
+                        buildProcBox(r * 4 + c, chain: chain, w: boxW, h: boxH)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat) -> some View {
+        let populated = i < chain.count && !buildIsEmptySlot(chain[i])
+        let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
+        Group {
+            if populated {
+                Text(chain[i].type.rawValue)
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.black)
+                    .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
+                    .frame(width: bw, height: bh)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(buildSelHue))
+                    .overlay { if chain[i].bypassed { RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.45)) } }
+            } else {
+                Text("\(i + 1)")                                   // the slot NUMBER — prominent (big + black weight)
+                    .font(.system(size: min(bh * 0.6, 26), weight: .black, design: .monospaced))
+                    .foregroundColor(Color(white: 0.62))
+                    .frame(width: bw, height: bh)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
+            }
+        }
+        .frame(width: w, height: h)                               // … centred in the full cell footprint
+        .contentShape(Rectangle())
+        .onTapGesture { if populated { buildEditSlot = i } else { buildAddSlot = i } }
     }
 
     @ViewBuilder private func buildInputSection(castW: CGFloat) -> some View {
@@ -195,9 +247,9 @@ extension DiagView {
         refreshFromDocument()
     }
 
-    @ViewBuilder private func buildCastSection(castW: CGFloat) -> some View {
+    @ViewBuilder private func buildCastSection(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            buildCastPalette(castW: castW)
+            buildCastPalette(castW: castW, cell: cell)
         }
     }
 
@@ -957,9 +1009,9 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
     }
 
-    @ViewBuilder private func buildCastPalette(castW: CGFloat) -> some View {
+    @ViewBuilder private func buildCastPalette(castW: CGFloat, cell: CGFloat) -> some View {
         let cols = 8                                                // 8×4 grid (original proportions); defaults sit in the top-left 4×2 block
-        let swatch = (castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols)   // 8 swatches fill the column width
+        let swW = (castW - BuildGeom.castGap * CGFloat(cols - 1)) / CGFloat(cols)   // 8 swatches fill the column width
         let pulseSlot: Int? = {                                    // where the pulsing candidate lives (Paul 2026-08-14)
             guard let pid = buildPulseColourID else { return nil }
             if let existing = buildPartCast.firstIndex(of: pid) {  // already in the palette → pulse THAT slot, never a phantom new one …
@@ -971,7 +1023,7 @@ extension DiagView {
             ForEach(0..<4, id: \.self) { row in
                 HStack(spacing: BuildGeom.castGap) {
                     ForEach(0..<cols, id: \.self) { col in
-                        buildCastSlot(row * cols + col, swatch: swatch, pulseSlot: pulseSlot)
+                        buildCastSlot(row * cols + col, swW: swW, swH: cell, pulseSlot: pulseSlot)   // rows sit at GRID-cell height so the cast aligns with the two grids
                     }
                 }
             }
@@ -989,7 +1041,7 @@ extension DiagView {
     }
 
     // One cast slot (of the 4×4 palette). DEFAULTS fill top-left, adds fill bottom-right (see buildCastMemberAt).
-    @ViewBuilder private func buildCastSlot(_ i: Int, swatch: CGFloat, pulseSlot: Int?) -> some View {
+    @ViewBuilder private func buildCastSlot(_ i: Int, swW: CGFloat, swH: CGFloat, pulseSlot: Int?) -> some View {
         if i == pulseSlot, let pid = buildPulseColourID {          // the PULSING candidate → tap to commit (SELECT it; never a duplicate)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let phase = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)   // pulse the colour in/out over black
@@ -997,7 +1049,7 @@ extension DiagView {
                     RoundedRectangle(cornerRadius: 6).fill(Color.black)
                     RoundedRectangle(cornerRadius: 6).fill(colourColor(pid) ?? buildCell).opacity(0.15 + 0.85 * phase)
                 }
-                .frame(width: swatch, height: swatch)
+                .frame(width: swW, height: swH)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))   // a NEUTRAL border — pulsing is NOT the selected/targeted state
                 .contentShape(Rectangle())
                 .onTapGesture { buildCommitPulse() }
@@ -1005,17 +1057,17 @@ extension DiagView {
         } else if let m = buildCastMemberAt(i) {                   // a MEMBER of the cast — TAP selects, LONG-PRESS adds
             let id = buildPartCast[m]
             RoundedRectangle(cornerRadius: 6).fill(colourColor(id) ?? buildCell)
-                .frame(width: swatch, height: swatch)
+                .frame(width: swW, height: swH)
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: [3]))
                     .opacity(id == ddSelectedColourID ? 1 : 0))
-                .overlay { if id == ddSelectedColourID { buildTargetMark(swatch * 0.6) } }   // THE TARGET rides the selected cast cell
+                .overlay { if id == ddSelectedColourID { buildTargetMark(min(swW, swH) * 0.6) } }   // THE TARGET rides the selected cast cell
                 .contentShape(Rectangle())
                 .onTapGesture { buildSelectID(id) }
                 .onLongPressGesture(minimumDuration: 0.4) { buildAddCastColour() }   // ANY button can ADD a colour — via long press (Paul 2026-08-14)
         } else {                                                   // an EMPTY slot — a "+" that ADDS on LONG PRESS (every button can add)
             RoundedRectangle(cornerRadius: 6).fill(buildCell)
-                .frame(width: swatch, height: swatch)
+                .frame(width: swW, height: swH)
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
                 .contentShape(Rectangle())
@@ -1094,9 +1146,9 @@ extension DiagView {
                 Spacer(minLength: 0)
             }
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
-            AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE row-mode radio (always live)
+            AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE box IS this column's button box (a 3×2: verbs + reserved blanks)
             Spacer(minLength: 0)
-            AnyView(buildPopulate(gridW: gridW))                  // bottom of the centre column, above the footer
+            AnyView(buildBottomPlaceholder("EMITTER SELECT"))    // bottom of the middle column — the emitter toggle select
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1241,7 +1293,8 @@ extension DiagView {
         }
         .padding(8)
         .frame(width: gridW)                                       // match the verb box to the grid above it
-        .background(RoundedRectangle(cornerRadius: 10).fill(buildPanel))
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))   // the outline that matches the left/right button boxes
     }
 
     // A part boundary. It occupies exactly ONE inter-cell gap so the grid stays uniformly spaced; the LINE is drawn
@@ -1349,8 +1402,10 @@ extension DiagView {
                 }
                 AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
             })
-            AnyView(buildEmitters(cell: cell))                   // EMITTERS fill from below the grid DOWN TO the M/S buttons
-            AnyView(buildEmitterMuteSolo(cell: cell))            // per-emitter MUTE/SOLO — the emitters now reach it (no gap)
+            // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
+            AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
+            Spacer(minLength: 0)
+            AnyView(buildBottomPlaceholder("EMITTER OUT"))       // bottom of the right column — the main emitter output
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1533,6 +1588,66 @@ extension DiagView {
         }
     }
 
+    // A 3×2 button box that sits beneath a column. All three (processor · staging · play) are built by this one
+    // function → identical styling + button size; only the column width differs. `labels` fills row-major; an empty
+    // string renders a blank placeholder button. RANDOMIZE is wired live; everything else is a stub for now.
+    @ViewBuilder private func buildFooterBox(labels: [String]) -> some View {
+        VStack(spacing: BuildGeom.cellGap) {
+            ForEach(0..<2, id: \.self) { r in
+                HStack(spacing: BuildGeom.cellGap) {
+                    ForEach(0..<3, id: \.self) { c in
+                        let idx = r * 3 + c
+                        buildFooterBoxBtn(idx < labels.count ? labels[idx] : "")
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+
+    @ViewBuilder private func buildFooterBoxBtn(_ label: String) -> some View {
+        let empty = label.isEmpty
+        let live = label.contains("RANDOMIZE")
+        let isPlace = label == "PLACE"
+        let armed = isPlace && buildRowMode == .place            // PLACE reflects the SAME mode the verb box drives
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+                .foregroundColor(armed ? .black : (live ? buildPink : .white))
+                .lineLimit(1).minimumScaleFactor(0.5)
+            if isPlace { Image(systemName: "chevron.right").font(.system(size: 10, weight: .black)).foregroundColor(buildSelHue) }   // the PLACE chevron, in the SELECTED colour
+        }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)   // FIXED height (min==max) — a flexible box competes with the column's Spacer and stretches to the screen bottom
+        .background(RoundedRectangle(cornerRadius: 8).fill(armed ? buildCyan : buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(live ? buildPink.opacity(0.55) : buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isPlace { buildRowMode = .place }                 // arm PLACE — identical to the verb-box PLACE
+            else { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any OTHER button leaves PLACE mode
+        }
+    }
+
+    // PLACE is armed by the PLACE button / the verb-box radio; clicking any button that ISN'T a grid row selector
+    // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
+    private func buildExitPlaceMode() { if buildRowMode == .place { buildRowMode = .select } }
+
+    // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
+    // the styling (panel fill + edge outline + fixed height) matches the button boxes so all columns read alike.
+    @ViewBuilder private func buildBottomPlaceholder(_ title: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52)   // fixed height (min==max) → no stretch, consistent across columns
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+
     // a fixed-width footer button (the footer uses a Spacer, so these can't be maxWidth-fill like a fill button).
     @ViewBuilder private func buildFooterBtn(_ label: String, pink: Bool = false, action: (() -> Void)? = nil) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -1576,7 +1691,7 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? buildCyan : buildEdge, lineWidth: 1))   // §0: the voice keeps the accent; idle mutes
         .opacity(enabled ? 1 : 0.35)                             // DISABLED → greyed out (Paul 2026-08-15)
         .contentShape(Rectangle())
-        .onTapGesture { if enabled { action?() } }
+        .onTapGesture { if enabled { buildExitPlaceMode(); action?() } }   // a transport button is not a row selector → leaves PLACE mode
         .allowsHitTesting(enabled)
     }
 
@@ -1607,7 +1722,7 @@ extension DiagView {
         let armed = buildRowMode == m
         Text(m.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(armed ? Color.black : Color.white)
-            .frame(maxWidth: .infinity).frame(minHeight: 36)
+            .frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)   // FIXED height — else the verb box stretches to the page bottom (competes with the Spacer)
             .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))   // §0: armed keeps the cyan fill; idle mutes to a whisper
             .contentShape(Rectangle())
@@ -1624,7 +1739,7 @@ extension DiagView {
     }
     // A reserved (inert) button slot — the second verb-box row is blank for now (Paul 2026-08-16).
     @ViewBuilder private func buildBlankSlot() -> some View {
-        Color.clear.frame(maxWidth: .infinity).frame(minHeight: 36)
+        Color.clear.frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)   // FIXED height — matches the row buttons; keeps the verb box compact
             .background(RoundedRectangle(cornerRadius: 9).fill(buildCell.opacity(0.4)))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildEdge.opacity(0.5), lineWidth: 1))
     }
