@@ -1228,6 +1228,7 @@ extension DiagView {
         if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }   // remember what this row displaces
         buildSetRow(row, to: newID)
         for c in 0..<8 { buildStagingSel[c] = row }              // select the whole new row (like PLACE)
+        buildPulseColourID = newID; buildPulseChain = mutated    // a new colour PULSES in the palette as a "create me" candidate (Paul 2026-08-16)
         buildStagingSyncIfPlaying()
     }
 
