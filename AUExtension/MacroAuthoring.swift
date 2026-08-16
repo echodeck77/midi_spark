@@ -121,8 +121,14 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 gate]
     case .ratchet:
         return [bypass,
+                MacroControlParam(key: "rtcMode", label: "MODE", kind: .option(RatchetMode.allCases.map(\.rawValue))),
                 MacroControlParam(key: "count", label: "REPEATS", kind: .stepper(lo: 2, hi: 8)),
                 MacroControlParam(key: "ramp", label: "RAMP", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "rtcChance", label: "CHANCE", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "rtcCountLo", label: "COUNT LO", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "rtcCountHi", label: "COUNT HI", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "rtcRate", label: "SLICE RATE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "rtcRotate", label: "ROTATE", kind: .stepper(lo: 0, hi: 7)),
                 gate]
     case .strum:
         return [bypass,
@@ -235,6 +241,12 @@ func processorValues(_ slot: ProcessorSlot) -> [String: Double] {
         case "gate":         v[param.key] = p.gate ?? 0.6
         case "count":        v[param.key] = Double(p.count ?? 3)
         case "ramp":         v[param.key] = p.ramp ?? 0.5
+        case "rtcMode":      v[param.key] = optionIndex(p.rtcMode)
+        case "rtcChance":    v[param.key] = p.rtcChance ?? 0.5
+        case "rtcCountLo":   v[param.key] = Double(p.rtcCountLo ?? 2)
+        case "rtcCountHi":   v[param.key] = Double(p.rtcCountHi ?? 4)
+        case "rtcRate":      v[param.key] = optionIndex(p.rtcRate)
+        case "rtcRotate":    v[param.key] = Double(p.rtcRotate ?? 0)
         case "spread":       v[param.key] = p.spread ?? 0.1
         case "curve":        v[param.key] = p.curve ?? 0
         case "velTilt":      v[param.key] = p.velTilt ?? 0
@@ -296,6 +308,12 @@ func applyProcessorValues(_ v: [String: Double], to slot: ProcessorSlot) -> Proc
         case "gate":         s.params.gate = clamp(val, 0.05, 1)
         case "count":        s.params.count = clamp(Int(val.rounded()), 2, 8)
         case "ramp":         s.params.ramp = clamp(val, 0, 1)
+        case "rtcMode":      s.params.rtcMode = caseAt(val, RatchetMode.self)
+        case "rtcChance":    s.params.rtcChance = clamp(val, 0, 1)
+        case "rtcCountLo":   s.params.rtcCountLo = clamp(Int(val.rounded()), 1, 8)
+        case "rtcCountHi":   s.params.rtcCountHi = clamp(Int(val.rounded()), 1, 8)
+        case "rtcRate":      s.params.rtcRate = caseAt(val, ArpRate.self)
+        case "rtcRotate":    s.params.rtcRotate = clamp(Int(val.rounded()), 0, 7)
         case "spread":       s.params.spread = clamp(val, 0, 1)
         case "curve":        s.params.curve = clamp(val, -1, 1)
         case "velTilt":      s.params.velTilt = clamp(val, -1, 1)

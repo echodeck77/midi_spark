@@ -1901,4 +1901,35 @@ final class DerivationsTests: XCTestCase {
         XCTAssertLessThan(holed.count, full, "downstream SPLIT punches holes — fewer notes than the bare arp")
         XCTAssertEqual(Set(holed.map { $0.note }).count, 1, "only the top note survives the holes")
     }
+
+    // MARK: - RATCHET MODE (Paul 2026-08-16 ferry): ALL · COIN · PATTERN
+
+    func testRtcCoinEdgesAndDeterminism() {
+        for s in 0..<40 {
+            XCTAssertFalse(rtcCoinRatchets(step: s, chance: 0), "chance 0 → always plain")
+            XCTAssertTrue(rtcCoinRatchets(step: s, chance: 1), "chance 1 → always ratchet")
+            let c = rtcCoinCount(step: s, lo: 2, hi: 4); XCTAssert(c >= 2 && c <= 4, "count in [lo,hi]")
+        }
+        XCTAssertEqual((0..<40).map { rtcCoinRatchets(step: $0, chance: 0.5) }, (0..<40).map { rtcCoinRatchets(step: $0, chance: 0.5) }, "seeded/replay-exact")
+        XCTAssertEqual(rtcCoinCount(step: 7, lo: 3, hi: 3), 3, "lo==hi → fixed count")
+    }
+    func testRtcCoinChanceScalesDensity() {   // through the real Router
+        func rtc(_ chance: Double) -> ProcessorSlot {
+            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .coin; s.params.rtcChance = chance; s.params.rtcCountLo = 4; s.params.rtcCountHi = 4; return s
+        }
+        let plain = Accept.onsA([rtc(0)]).count, burst = Accept.onsA([rtc(1)]).count
+        XCTAssertGreaterThan(burst, plain, "COIN chance=1 (all bursts) emits more than chance=0 (all plain)")
+        XCTAssertGreaterThan(plain, 0, "chance=0 still sounds — a plain hit each step")
+        XCTAssertEqual(Accept.notesA([rtc(1)]), [60, 64, 67], "the whole chord bursts")
+    }
+    func testRtcPatternSliceCountsScaleDensity() {
+        func pat(_ counts: [Int]) -> ProcessorSlot {
+            var s = ProcessorSlot(type: .ratchet); s.params.rtcMode = .pattern; s.params.rtcSlices = counts; s.params.rtcRate = .r1_8; return s
+        }
+        let plain = Accept.onsA([pat(Array(repeating: 0, count: 8))]).count   // every slice a plain single hit
+        let dense = Accept.onsA([pat(Array(repeating: 4, count: 8))]).count    // every slice a 4-roll
+        XCTAssertGreaterThan(dense, plain, "PATTERN all-4 emits more than all-plain")
+        XCTAssertGreaterThan(plain, 0, "plain slices still sound")
+        XCTAssertEqual(Accept.notesA([pat(Array(repeating: 3, count: 8))]), [60, 64, 67], "the chord sounds")
+    }
 }

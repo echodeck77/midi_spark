@@ -70,6 +70,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .length && r.chance(0.5) { applyRandomLengthPattern(&c.paramsA, &r) }
             if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
             if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
+            if c.type == .ratchet && r.chance(0.5) { applyRandomRtc(&c.paramsA, &r) }
             return c
         }
         var scene = SceneState.empty()
@@ -86,6 +87,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .length && r.chance(0.5) { applyRandomLengthPattern(&s.params, &r) }
                     if s.type == .weave && r.chance(0.6) { applyRandomWeave(&s.params, &r) }
                     if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
+                    if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
                     return s
                 }
             }
@@ -130,6 +132,14 @@ final class FuzzTests: XCTestCase {
     private func applyRandomSplit(_ p: inout ColourParams, _ r: inout FuzzRNG) {
         p.splitSet = ChordSplit(mode: SplitMode.allCases[r.int(SplitMode.allCases.count)], n: r.range(1, 6), note: r.int(128), high: r.chance(0.5))
         let f = r.range(1, 127); p.splitVel = VelWindow(floor: f, ceil: r.range(f, 127))   // incl. empty/full windows
+    }
+    private func applyRandomRtc(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN
+        p.rtcChance = Double(r.range(0, 100)) / 100
+        let lo = r.range(1, 8); p.rtcCountLo = lo; p.rtcCountHi = r.range(lo, 8)
+        p.rtcSlices = (0..<8).map { _ in [0, 2, 3, 4][r.int(4)] }             // incl. plain (0) + rolls
+        p.rtcRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
+        p.rtcRotate = r.int(8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

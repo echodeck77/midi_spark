@@ -619,6 +619,26 @@ func lengthGateFor(_ state: LenState, onset: Double, shortFrac: Double, longFrac
     }
 }
 
+// MARK: - RATCHET COIN (Paul 2026-08-16): a seeded per-STEP roll — ratchet-or-plain, and the burst count
+
+/// Whether this STEP ratchets (vs a plain single hit). DETERMINISTIC per step index (a hash — loop-consistent,
+/// replay-exact, salted apart from CHANCE/TUTTI). `chance` = P(ratchet).
+@inline(__always)
+func rtcCoinRatchets(step: Int, chance: Double) -> Bool {
+    if chance >= 1 { return true }
+    if chance <= 0 { return false }
+    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0xA5A5A5A5A5A5A5A5)
+    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < chance
+}
+/// The burst count for a ratcheting step, a seeded pick in [lo, hi] (clamped, lo≤hi). Deterministic per step.
+@inline(__always)
+func rtcCoinCount(step: Int, lo: Int, hi: Int) -> Int {
+    let l = max(1, min(lo, hi)), h = max(l, max(lo, hi))
+    if l == h { return l }
+    let x = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x2545F4914F6CDD1D &+ 0x1234567898765432)
+    return l + Int(x % UInt64(h - l + 1))
+}
+
 // MARK: - WEAVE (Paul 2026-08-07): a rank-clocked polyrhythm driver — each rank ticks on its own clock
 
 /// The tick spacing (beats per tick) for `rank` (0 = bass) at a MODE and BASE clock. LADDER halves per rank

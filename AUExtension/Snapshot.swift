@@ -142,6 +142,14 @@ struct SnapParams {
     // SPLIT — a set-membership filter (chord-split + velocity window).
     var splitSet = ChordSplit()
     var splitVel = VelWindow()
+    // RATCHET MODE — ALL uses count/ramp above; COIN/PATTERN below.
+    var rtcMode: RatchetMode = .all
+    var rtcChance: Double = 0.5
+    var rtcCountLo: Int = 2
+    var rtcCountHi: Int = 4
+    var rtcSlices: [Int] = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: per-slice counts (0 = plain)
+    var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
+    var rtcRotate: Int = 0
 }
 
 struct SnapColour {
@@ -266,7 +274,7 @@ final class SnapshotBox {
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
 
 /// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
-enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax, tuttiBalance, lenShort, lenLong }
+enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax, tuttiBalance, lenShort, lenLong, rtcChance }
 
 /// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
 /// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
@@ -277,7 +285,7 @@ struct MacroMod { let macro: Int; let param: MacroParam; let delta: Double }
 /// seals — which read the document, not this — stay stable, and value 0 ⇒ home (no offset). Clamps match `resolve`.
 func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapParams {
     guard !mods.isEmpty else { return p }
-    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dMin = 0.0, dMax = 0.0, dTutti = 0.0, dLenS = 0.0, dLenL = 0.0
+    var dGate = 0.0, dRamp = 0.0, dSpread = 0.0, dCurve = 0.0, dTilt = 0.0, dProb = 0.0, dHarm = 0.0, dMin = 0.0, dMax = 0.0, dTutti = 0.0, dLenS = 0.0, dLenL = 0.0, dRtc = 0.0
     for m in mods {
         let v = (m.macro >= 0 && m.macro < values.count) ? values[m.macro] : 0
         let off = v * m.delta
@@ -295,6 +303,7 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
         case .tuttiBalance: dTutti += off
         case .lenShort:     dLenS += off
         case .lenLong:      dLenL += off
+        case .rtcChance:    dRtc += off
         }
     }
     var r = p
@@ -310,6 +319,7 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
     if dTutti != 0 { r.tuttiBalance = clamp(r.tuttiBalance + dTutti, 0, 1) }   // live-automatable SOLO↔TUTTI
     if dLenS != 0 { r.lenShort = clamp(r.lenShort + dLenS, 0.05, 0.95) }
     if dLenL != 0 { r.lenLong = clamp(r.lenLong + dLenL, 0, 1) }
+    if dRtc != 0 { r.rtcChance = clamp(r.rtcChance + dRtc, 0, 1) }   // live-automatable ratchet density (COIN)
     return r
 }
 

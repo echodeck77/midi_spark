@@ -2634,55 +2634,120 @@ final class Router {
     /// RATCHET (§3): re-strike the WHOLE input pool `repeats` times per column, staccato (0.6), velocity ramp.
     /// Not an arp (no index cycling) — every stab is the pool (or the parent's sounding note, when referenced).
     private func emitRatchetRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int,
-                                emits: Bool, box: SnapshotBox, pool: NotePool,
+                                emits: Bool, box: SnapshotBox, pool livePool: NotePool,
                                 effColumn: Int, beatPos: Double, windowBeats: Double, windowStart: Int64,
                                 windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double, cycleBeats: Double,
                                 chainDriver: Int = -1,
                                 out: MIDIEmitter?, diag: inout KernelDiag) {
-        let pool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: read the frozen chord if armed
+        let pool = effectivePool(for: cell, live: livePool)   // receiver strip LATCH: read the frozen chord if armed
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)   // §9 item 1 EMITTER-ROTATE
-        let repeats = effectiveRepeats(colour)
         let ramp = effectiveRamp(colour)
+        let p = colour.a
+        if p.rtcMode != .all {   // COIN / PATTERN — strikes-per-step vary, so window-scan (not the fixed-sub iterateTicks)
+            emitRatchetModal(mode: p.rtcMode, cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm,
+                             ramp: ramp, chainDriver: chainDriver, beatPos: beatPos, windowBeats: windowBeats,
+                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a,
+                             cycleBeats: cycleBeats, p: p, out: out, diag: &diag)
+            return
+        }
+        let repeats = effectiveRepeats(colour)
         let sub = S / Double(repeats)                          // one repeat every `sub` beats
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = sub }
-
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                      beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
             let colStart = columnStart(mTickBeat, S)
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
-            // §cell-edit F CHOP: this ratchet repeat routes by which of the 8 column slices it lands in.
-            let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)
-            if emits && tbm == 0 { return }                   // MUTE slice → this repeat is silent
-            if chainDriver >= 0 {
-                // CELL MACHINE: RATCHET chain DRIVER — re-strike the composed set of the stages BEFORE it at this
-                // repeat, then fold each struck note through the stages AFTER it (e.g. a downstream passgate).
-                composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
-                for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
-                    let sn = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
-                    let n = Int(sn) + transpose
-                    guard n >= 0 && n <= 127 else { continue }
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
-                    if emits {
-                        let vel = ratchetVelocity(base: max(1, Int(chainScratch.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // ramp the inherited velocity
-                        emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,   // raw bm — emitChop applies the slice
-                                       windowEnd: windowEnd, velocity: vel, m: mTickBeat, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
-                    }
+            let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)         // §cell-edit F CHOP: routes by the 8-slice
+            if emits && tbm == 0 { return }                               // MUTE slice → this repeat is silent
+            ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
+                            onTime: onTime, offTime: offTime, m: mTickBeat, repIdx: repIdx, count: repeats, ramp: ramp,
+                            chainDriver: chainDriver, windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
+        }
+    }
+
+    /// ONE ratchet strike of the whole (composed-upstream, or held) chord at [onTime, offTime) with the velocity ramp.
+    /// Shared by ALL (iterateTicks) and the COIN/PATTERN window-scan. Chain-driver notes fold downstream via emitDriverNote.
+    private func ratchetStrikeAt(cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool, bm: UInt8, tbm: UInt8,
+                                 onTime: Int64, offTime: Int64, m: Double, repIdx: Int, count: Int, ramp: Double,
+                                 chainDriver: Int, windowEnd: Int64, S: Double, cycleBeats: Double, beatsPerSample: Double,
+                                 out: MIDIEmitter?, diag: inout KernelDiag) {
+        if chainDriver >= 0 {
+            composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: m, S: S, cycleBeats: cycleBeats)
+            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
+                let sn = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); let n = Int(sn) + transpose
+                guard n >= 0 && n <= 127 else { continue }
+                storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: m)
+                if emits {
+                    let vel = ratchetVelocity(base: max(1, Int(chainScratch.velocity(sn))), ramp: ramp, index: repIdx, count: count)
+                    emitDriverNote(n, cell: cell, driver: chainDriver, bm: bm, onSample: onTime, offSample: offTime,
+                                   windowEnd: windowEnd, velocity: vel, m: m, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, pass: diag.pass, out: out, diag: &diag)
                 }
-            } else {
-                let srcN = pool.srcCount(for: cell)            // re-strike every held note passing the filter (§7)
-                for k in 0..<srcN {
-                    let sn = pool.srcAscending(k, for: cell)
-                    let n = Int(sn) + transpose
-                    guard n >= 0 && n <= 127 else { continue }
-                    storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: mTickBeat)
-                    if emits {
-                        let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: repeats)   // ramp the inherited velocity
-                        emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime,
-                                  windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+            }
+        } else {
+            for k in 0..<pool.srcCount(for: cell) {
+                let sn = pool.srcAscending(k, for: cell); let n = Int(sn) + transpose
+                guard n >= 0 && n <= 127 else { continue }
+                storeArtic(row: r, on: onTime, off: offTime, note: UInt8(n), beat: m)
+                if emits && tbm != 0 {
+                    let vel = ratchetVelocity(base: max(1, Int(pool.velocity(sn))), ramp: ramp, index: repIdx, count: count)
+                    emitArtic(note: UInt8(n), busMask: tbm, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: vel, out: out, diag: &diag)
+                }
+            }
+        }
+    }
+
+    /// RATCHET COIN / PATTERN. COIN: per step, a seeded chance to ratchet (a count in [lo,hi]) vs a plain single hit.
+    /// PATTERN: walk the 8-slice per-slice-count row at RATE — 0 = a plain single hit, N = a roll of N within the slice;
+    /// ROTATE offsets the pattern. Window-scanned per column (like WEAVE/LENGTH); RETRIG at the column boundary.
+    private func emitRatchetModal(mode: RatchetMode, cell: SnapCell, row r: Int, transpose: Int, emits: Bool, pool: NotePool,
+                                  bm: UInt8, ramp: Double, chainDriver: Int, beatPos: Double, windowBeats: Double,
+                                  windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
+                                  cycleBeats: Double, p: SnapParams, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard S > 0 else { return }
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a), mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        var col = columnStart(mWinStart, S)
+        while col < mWinEnd {
+            let colEnd = col + S
+            if mode == .coin {
+                let step = Int((col / S).rounded())
+                let count = rtcCoinRatchets(step: step, chance: p.rtcChance) ? rtcCoinCount(step: step, lo: p.rtcCountLo, hi: p.rtcCountHi) : 1
+                let sub = S / Double(max(1, count))
+                for j in 0..<count {
+                    let tau = col + Double(j) * sub
+                    guard tau >= mWinStart && tau < mWinEnd else { continue }
+                    let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
+                    let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: min(colEnd, tau + sub * 0.6), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
+                                    onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
+                                    windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
+                }
+            } else {   // PATTERN
+                let sliceBeats = max(0.03125, p.rtcRateBeats)
+                var sIdx = 0
+                while true {
+                    let sliceStart = col + Double(sIdx) * sliceBeats
+                    if sliceStart >= colEnd { break }
+                    sIdx += 1
+                    let g = Int((sliceStart / sliceBeats).rounded(.down))
+                    let idx = (((g + p.rtcRotate) % 8) + 8) % 8
+                    let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 0
+                    let count = raw <= 0 ? 1 : min(8, raw)                 // 0 = plain single hit
+                    let sEnd = min(colEnd, sliceStart + sliceBeats), subSlice = sliceBeats / Double(count)
+                    for j in 0..<count {
+                        let tau = sliceStart + Double(j) * subSlice
+                        guard tau >= mWinStart && tau < mWinEnd && tau < sEnd else { continue }
+                        let tbm = chopMask(cell, m: tau, S: S, base: bm); if emits && tbm == 0 { continue }
+                        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                        let offT = sampleOf(musical: min(sEnd, tau + subSlice * 0.6), beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                        ratchetStrikeAt(cell: cell, row: r, transpose: transpose, emits: emits, pool: pool, bm: bm, tbm: tbm,
+                                        onTime: onT, offTime: offT, m: tau, repIdx: j, count: count, ramp: ramp, chainDriver: chainDriver,
+                                        windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
                     }
                 }
             }
+            col += S
         }
     }
 

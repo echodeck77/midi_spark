@@ -1243,6 +1243,7 @@ struct ProcessorBox: View {
     @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
     @State private var lenPaint: LenState = .mute        // LENGTH: the brush — defaults to MUTE so it contrasts with the all-PASS slices (first tap carves a visible rest)
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
+    @State private var rtcBrush: Int = 3                 // RATCHET PATTERN: the count loaded on the brush (0 = plain)
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -1411,9 +1412,41 @@ struct ProcessorBox: View {
             }
             field("FIT (cycle = 1 beat)") { seg(["OFF", "ON"], sel: (p.arpFit ?? false) ? "ON" : "OFF") { i in setParam { $0.arpFit = (i == 1) } } }
         case .ratchet:
-            field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
-                setParam { $0.count = [2,3,4,6,8][i] } } }
-            field("RAMP \(Int((p.ramp ?? 0.5) * 100))%") {
+            let rmode = p.rtcMode ?? .all
+            field("MODE") { seg(RatchetMode.allCases.map(\.rawValue), sel: rmode.rawValue) { i in
+                setParam { $0.rtcMode = RatchetMode.allCases[i] } } }
+            if rmode == .all {
+                field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
+                    setParam { $0.count = [2,3,4,6,8][i] } } }
+            } else if rmode == .coin {
+                Text("each step rolls: ratchet (a burst) or plain (one hit)").font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
+                field("CHANCE — how often a step bursts  \(Int((p.rtcChance ?? 0.5) * 100))%") {
+                    Slider(value: bind(p.rtcChance ?? 0.5) { v in setParam { $0.rtcChance = v } }, in: 0...1).tint(accent) }
+                field("COUNT LO  \(p.rtcCountLo ?? 2)") { seg((1...8).map { "\($0)" }, sel: "\(p.rtcCountLo ?? 2)") { i in
+                    setParam { $0.rtcCountLo = i + 1; if ($0.rtcCountHi ?? 4) < i + 1 { $0.rtcCountHi = i + 1 } } } }
+                field("COUNT HI  \(p.rtcCountHi ?? 4)  (burst length range)") { seg((1...8).map { "\($0)" }, sel: "\(p.rtcCountHi ?? 4)") { i in
+                    setParam { $0.rtcCountHi = i + 1; if ($0.rtcCountLo ?? 2) > i + 1 { $0.rtcCountLo = i + 1 } } } }
+            } else {   // pattern
+                field("COUNT — pick, then tap slices  (· = plain · 2/3/4 = roll)") { seg(["·", "2", "3", "4"], sel: rtcBrush == 0 ? "·" : "\(rtcBrush)") { i in
+                    rtcBrush = [0, 2, 3, 4][i] } }
+                field("SLICES — the bar, left → right at RATE") { HStack(spacing: 4) {
+                    ForEach(0..<8, id: \.self) { i in
+                        let cur = rtcSliceAt(p.rtcSlices, i)
+                        Text(cur <= 0 ? "·" : "\(cur)").font(.system(size: 14, weight: .heavy, design: .monospaced))
+                            .foregroundColor(cur <= 0 ? .white.opacity(0.4) : .black)
+                            .frame(maxWidth: .infinity).frame(height: 36)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(cur <= 0 ? Color.white.opacity(0.06) : accent.opacity(0.85)))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture { setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = rtcBrush; $0.rtcSlices = s } }
+                    }
+                } }
+                field("RATE — slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
+                    setParam { $0.rtcRate = ArpRate.allCases[i] } } }
+                field("ROTATE — walk the pattern  (\(p.rtcRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.rtcRotate ?? 0)") { i in
+                    setParam { $0.rtcRotate = i } } }
+            }
+            field("RAMP — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%") {
                 Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
             }
         case .passgate:
@@ -1672,6 +1705,9 @@ struct ProcessorBox: View {
     }
     private func weaveDrawnAt(_ arr: [StepRate]?, _ i: Int) -> StepRate {
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .r1_8
+    }
+    private func rtcSliceAt(_ arr: [Int]?, _ i: Int) -> Int {   // RATCHET PATTERN per-slice count (safe read)
+        let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : 0
     }
 
     private func tuttiSliceAt(_ arr: [TuttiSlice]?, _ i: Int) -> TuttiSlice {   // safe read (a loaded doc may carry <8)

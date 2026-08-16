@@ -85,6 +85,10 @@ enum LenState: String, Codable, CaseIterable { case pass = "PASS", mute = "MUTE"
 // derived from its rank. MODE = the ratio law. LADDER: rank r = base÷2^r (1/4·1/8·1/16…). HARMONIC: rank r = (r+1)×base
 // (1:2:3:4 — pitch ratios as time ratios). (DRAWN + EUCLID modes are a phase-2 add — append-only enum.)
 enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic = "HARMONIC", drawn = "DRAWN", euclid = "EUCLID" }
+// RATCHET MODE (working name; Paul 2026-08-16, ferry) — the TUTTI precedent on ratchet. ALL = every step bursts (today);
+// COIN = a seeded chance per step to ratchet-or-plain (a count range varies the burst); PATTERN = an 8-slice row of
+// per-slice counts (0=plain · 2/3/4) painted across the bar. Append-only; ALL is the migration-invisible default.
+enum RatchetMode: String, Codable, CaseIterable { case all = "ALL", coin = "COIN", pattern = "PATTERN" }
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -179,6 +183,14 @@ struct ColourParams: Codable, Equatable {
     // SPLIT (Paul 2026-08-05) — a set-membership filter, reusing the chord-split + velocity-window model. Append-only.
     var splitSet: ChordSplit? = ChordSplit()   // ALL · TOP n · BOTTOM n · RANGE (pool-relative except RANGE)
     var splitVel: VelWindow? = VelWindow()     // pass only notes with velocity in [floor, ceil]
+    // RATCHET MODE (Paul 2026-08-16, ferry) — ALL (uses `count`/`ramp` above) · COIN · PATTERN. Append-only Optional.
+    var rtcMode: RatchetMode? = .all
+    var rtcChance: Double? = 0.5               // COIN: P(ratchet) per step (else plain single hit)
+    var rtcCountLo: Int? = 2                   // COIN: the burst count range low (when it ratchets)
+    var rtcCountHi: Int? = 4                   // COIN: the burst count range high
+    var rtcSlices: [Int]? = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: 8 per-slice counts (0 = plain single · 2/3/4 = roll)
+    var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
+    var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its
