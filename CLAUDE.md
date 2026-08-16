@@ -159,6 +159,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DOCS STALENESS SWEEP LANDED (2026-08-16, on `main`, PUSHED; `0743796`; iOS builds, macOS 634 green). Audited the
+  whole doc corpus (4 parallel agents, verified against code) and fixed drift: CLAUDE.md vocab/invariants (colour cap →
+  ID-based+ephemeral; +400+i macro address; dropped 2 dead .mermaid refs); README (600+ tests, 15 procs, tab shell,
+  BUILD); pending-tasks (ticked MACROS/AUTHORING/CONTROLLER-ROUTING/GLIDE; retired-cell-edit banner; §12 carry-over);
+  feature-status → redirect; terminology (BUILD lexicon); ui-port-guide + AC iterations 3–5/2 GWT = historical banners;
+  manual (new BUILD chapter, retired EDIT chapter/PERFORM-EDIT toggle/SELECT verb — all 14 wired {#anchor} preserved);
+  test-procedures (self-test panel, tab-model P-series/RK-GEO); spec v2.8 SUPERSEDED banner + delta preamble +
+  factory-scenes (morph removed, scene-13 bronze→slate/1-2→1-4, scene-16 harmonize); code comments (param-300,
+  SceneFactory alt*) corrected. DEFERRED: manual 'Why/concept' lines are still design-side stubs; QUANT still unbuilt;
+  the accent-colour DesignKit migration is partial (FlowView divergent hue array + 0.145 near-miss unruled).**
 - **▶ CODEBASE REVIEW + its low-risk/high-value action bucket LANDED (2026-08-16, on `main`, PUSHED; macOS 626 green,
   iOS Debug+Release build). `Docs/codebase-review-2026-08-16.md` (`1558c02`) = a whole-repo review (7 parallel
   subsystem deep-reads → purpose · clarity · refactor · test gaps · start-again, a confirmed/latent bug table, a
