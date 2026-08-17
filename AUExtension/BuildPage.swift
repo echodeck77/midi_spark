@@ -1358,12 +1358,19 @@ extension DiagView {
         guard let cid = ddSelectedColourID, row >= 0, row < 8 else { return }
         let base = buildColourChain(cid)
         let srcC = buildComplexity(base)                        // note-frequency + concurrency (for the lighter/darker tint)
-        var avoid = [Dice.fingerprint(base)]                    // don't reproduce the SOURCE (velocity+gate aware) …
+        let srcFP = Dice.fingerprint(base)
+        var avoid = [srcFP]                                     // PREFER: don't reproduce the SOURCE (velocity+gate aware) …
         for r in 0..<8 where r != row {                         // … or ANY other row already on the grid (else repeats)
             if let rid = buildRowColour(r) { avoid.append(Dice.fingerprint(buildColourChain(rid))) }
         }
         var rng = SystemRandomNumberGenerator()
-        guard let mutated = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng) else { return }   // no distinct+audible variant found
+        // Relaxed fallback: only unlike the SOURCE + what's on THIS row now. Once the grid fills with variants the
+        // strict search exhausts the source's small param space and returns nil — MUTATE would silently stop. Falling
+        // back keeps it responsive (an occasional chain-repeat under a distinct colour beats a dead button). (2026-08-17)
+        var relaxed = [srcFP]
+        if let rid = buildRowColour(row) { relaxed.append(Dice.fingerprint(buildColourChain(rid))) }
+        guard let mutated = BuildSceneLogic.mutateChain(base, avoid: avoid, &rng)
+                ?? BuildSceneLogic.mutateChain(base, avoid: relaxed, &rng) else { return }   // no audible variant at all
         let newC = buildComplexity(mutated)
         let hue = buildSimilarHue(of: cid, lighter: newC < srcC, srcC: srcC, newC: newC)
         let newID = buildNewColour(hex: hue, machine: mutated)   // a NEW colour (never already placed) → no relocation
