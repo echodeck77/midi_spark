@@ -1485,12 +1485,14 @@ extension DiagView {
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
-                AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))
+                // FLATTEN on → the valve/part buttons; off (default) → plain row-master chevrons
+                buildFlattenMode ? AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])) : AnyView(buildPerformRowButtons(cell: cell))
                 VStack(spacing: BuildGeom.cellGap) {
                     buildLoopKeys(cell: cell)                     // the column-selector row
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
-                AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))
+                // FLATTEN on → the right per-rung buttons; off → the SAME buttons hidden (reserves width, no touch) so the grid stays the same size
+                buildFlattenMode ? AnyView(buildRightPartButtons(cell: cell, hue: buildCyan)) : AnyView(buildRightPartButtons(cell: cell, hue: buildCyan).hidden())
             })
             // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
             AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
@@ -1836,23 +1838,50 @@ extension DiagView {
         .allowsHitTesting(enabled)
     }
 
-    // FLATTEN — the third verb-box button (where MUTATE used to sit). Placeholder for now: a colour chip (the same
-    // small box as PLACE/FILL) + "FLATTEN >>>". Sized to the verb-box buttons (36pt). No action yet. (Paul 2026-08-17)
+    // FLATTEN — the third verb-box button (where MUTATE used to sit): a colour chip (the same small box as PLACE/
+    // FILL) + "FLATTEN >>>". A TOGGLE for the PLAY grid's mode — ON shows the valve/part buttons, OFF (default)
+    // shows plain row-master chevrons. Sized to the verb-box buttons (36pt). (Paul 2026-08-17)
     @ViewBuilder private func buildFlattenButton() -> some View {
+        let armed = buildFlattenMode
         let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))
         let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
         HStack(spacing: 3) {
             RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
                 .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // same size as the PLACE/FILL chip
             Text("FLATTEN").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
-                .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.4)
-            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
+                .foregroundColor(armed ? .black : .white).lineLimit(1).minimumScaleFactor(0.4)
+            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(armed ? .black : buildSelHue)
         }
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)          // match the SELECT/MUTATE buttons
-        .background(RoundedRectangle(cornerRadius: 9).fill(buildCell))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildEdge, lineWidth: 1))
-        .contentShape(Rectangle())                                              // placeholder — no action wired yet
+        .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { buildFlattenMode.toggle() }
+    }
+    // NORMAL-mode play grid (FLATTEN off): a plain right-chevron button per row — a ROW MASTER. One per grid row,
+    // aligned past the loop-key row like the part buttons.
+    @ViewBuilder private func buildPerformRowButtons(cell: CGFloat) -> some View {
+        VStack(spacing: BuildGeom.cellGap) {
+            Color.clear.frame(width: cell, height: cell)   // align past the loop-key row
+            ForEach(0..<8, id: \.self) { r in
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.11))
+                    .frame(width: cell, height: cell)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+                    .overlay(Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.7)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildPerformRowToggle(r) }
+            }
+        }
+    }
+    // The row master: if any populated cell in the row is muted, UNMUTE the whole row; if every populated cell is
+    // already unmuted, MUTE the whole row — exactly as if each cell had been pressed. Empty cells are left alone.
+    private func buildPerformRowToggle(_ r: Int) {
+        let cols = (0..<8).filter { buildPerformCells[$0][r] != nil }
+        guard !cols.isEmpty else { return }
+        let allUnmuted = cols.allSatisfy { !buildPerformMute.contains($0 * 8 + r) }
+        for c in cols { let k = c * 8 + r; if allUnmuted { buildPerformMute.insert(k) } else { buildPerformMute.remove(k) } }
+        buildPublishScene()
     }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
@@ -2175,9 +2204,9 @@ extension DiagView {
                     AnyView(buildStagingGrid(cell: cell, hue: hue))
                 } else {
                     AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-                        buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])
+                        buildFlattenMode ? AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])) : AnyView(buildPerformRowButtons(cell: cell))
                         VStack(spacing: BuildGeom.cellGap) { buildLoopKeys(cell: cell); AnyView(buildPlayBands(cell: cell)) }
-                        buildRightPartButtons(cell: cell, hue: buildCyan)
+                        buildFlattenMode ? AnyView(buildRightPartButtons(cell: cell, hue: buildCyan)) : AnyView(buildRightPartButtons(cell: cell, hue: buildCyan).hidden())
                     })
                 }
             }
