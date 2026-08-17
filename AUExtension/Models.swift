@@ -413,6 +413,10 @@ struct Cell: Codable, Equatable {
     // Colour's A face (the cell can't see its Colour here, so resolution lives builder-side). Stage 1 renders
     // the HEAD slot + per-slot bypass; slots 2…8 are stored but not yet executed (serial chain = a later stage).
     var processors: [ProcessorSlot]? = nil
+    // CELL LIBRARY star rating (0–5). Optional → old library files decode nil ⇒ unrated (0). Library metadata only;
+    // grid cells leave it nil. (Paul 2026-08-17)
+    var stars: Int? = nil
+    var starsResolved: Int { max(0, min(5, stars ?? 0)) }
 
     /// "Machine minus routing" for the CELL LIBRARY (§cell-machine 4.8): a copy carrying this cell's colour +
     /// source-shaping (chord-split · velocity window · chop) + the given MATERIALISED chain, with ALL routing

@@ -66,6 +66,15 @@ enum PresetStore {
     }
 }
 
+/// A library BROWSER row: the saved/factory cell's name, the processor types in its chain, and its star rating.
+struct LibEntry: Identifiable, Equatable {
+    let name: String
+    let types: [ProcessorType]
+    var stars: Int
+    var id: String { name }
+    var chainSummary: String { types.isEmpty ? "—" : types.map { $0.rawValue }.joined(separator: " → ") }
+}
+
 /// CELL LIBRARY (§cell-machine 1.5/4.8) — a named, saved CELL reusable across sessions. Same app-level file
 /// pattern as PresetStore (Application Support/Cells · `.8x8cell`), one Codable `Cell` per file. A saved cell is
 /// "machine minus routing": the chain + colour + source-shaping travel; input/output are wired fresh on stamp.
@@ -107,8 +116,8 @@ enum CellLibraryStore {
         func slot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
             var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
         }
-        func cell(_ colourID: String, _ slots: [ProcessorSlot]) -> Cell {
-            var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; return c
+        func cell(_ colourID: String, _ slots: [ProcessorSlot], _ stars: Int = 3) -> Cell {
+            var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; c.stars = stars; return c
         }
         // A curated set of MUSICAL CHAINS (each is a colour's machine you STAMP onto the selected colour, then wire
         // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
@@ -174,6 +183,28 @@ enum CellLibraryStore {
                                                slot(.mod) { $0.modCC = 74; $0.modShape = .sine; $0.modRate = .r2 }])),  // an arp under a filter LFO
             ("Skip Gate",   cell("azure",     [slot(.passgate) { $0.passes = [true, false, true, true] },        // drop every 2nd step …
                                                slot(.arp) { $0.pattern = .up; $0.rate = .r1_8 }])),              // … then arp what passes
+
+            // ── THIRD SET (2026-08-17) — a deep dive on LENGTH (per-slice gate/duration) + TUTTI (solo vs whole
+            //    chord), star-rated (the curation basis for the future library) ────────────────────────────────
+            // LENGTH — trance gates, rhythms, ties
+            ("Half Gate",    cell("cyan",      [slot(.length) { $0.lenSlices = [.pass, .pass, .mute, .mute, .pass, .pass, .mute, .mute] }], 4)),
+            ("Off-Beat",     cell("teal",      [slot(.length) { $0.lenSlices = [.mute, .pass, .mute, .pass, .mute, .pass, .mute, .pass] }], 4)),
+            ("Stutter",      cell("magenta",   [slot(.length) { $0.lenSlices = [.short, .mute, .short, .mute, .short, .mute, .short, .mute]; $0.lenShort = 0.3 }], 4)),
+            ("Tremolo",      cell("vermilion", [slot(.length) { $0.lenSlices = [.short, .short, .short, .short, .short, .short, .short, .short]; $0.lenShort = 0.2 }], 3)),
+            ("Tresillo",     cell("orange",    [slot(.length) { $0.lenSlices = [.pass, .mute, .mute, .pass, .mute, .mute, .pass, .mute] }], 5)),   // 3-3-2 clave feel
+            ("Long Tie",     cell("gold",      [slot(.length) { $0.lenSlices = [.long, .pass, .pass, .pass, .long, .pass, .pass, .pass]; $0.lenLong = 0.9 }], 4)),
+            ("Build Up",     cell("blush",     [slot(.length) { $0.lenSlices = [.mute, .mute, .short, .short, .pass, .pass, .long, .long]; $0.lenLong = 0.8 }], 3)),   // grows across the bar
+            // TUTTI — solo vs full-chord shapes
+            ("Sparse Stab",  cell("indigo",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.2; $0.tuttiPick = .high }], 5)),          // mostly one note, rare full chord
+            ("Full Swell",   cell("violet",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.8 }], 3)),
+            ("Call & Chord", cell("purple",    [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all]; $0.tuttiRate = .r1_8 }], 5)),
+            ("Downbeat",     cell("wine",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.all, .rest, .all, .rest, .all, .rest, .all, .rest]; $0.tuttiRate = .r1_8 }], 4)),
+            ("Bass & Top",   cell("green",     [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .low, .high, .low, .low, .low, .high, .low]; $0.tuttiRate = .r1_8 }], 4)),
+            // LENGTH + TUTTI combined
+            ("Gated Chords", cell("chartreuse",[slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.75 },
+                                                slot(.length) { $0.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute] }], 5)),   // full chords, trance-gated
+            ("Rhythm Voice", cell("mint",      [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.low, .all, .high, .all, .low, .all, .high, .all] },
+                                                slot(.length) { $0.lenSlices = [.short, .short, .pass, .short, .short, .short, .pass, .short]; $0.lenShort = 0.4 }], 4)),
         ]
     }
 }

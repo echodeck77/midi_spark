@@ -245,6 +245,22 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         return CellLibraryStore.save(c, as: name)
     }
     func listLibraryCells() -> [String] { CellLibraryStore.list() }
+    // Browser rows for SAVED cells: name + chain processor types + star rating (loads each cell).
+    func libraryCellSummaries() -> [LibEntry] {
+        CellLibraryStore.list().map { name in
+            let c = CellLibraryStore.load(name)
+            return LibEntry(name: name, types: (c?.processors ?? []).map { $0.type }, stars: c?.starsResolved ?? 0)
+        }
+    }
+    // Browser rows for the read-only FACTORY set (curated star ratings).
+    func factoryLibrarySummaries() -> [LibEntry] {
+        CellLibraryStore.factory().map { LibEntry(name: $0.name, types: ($0.cell.processors ?? []).map { $0.type }, stars: $0.cell.starsResolved) }
+    }
+    // Re-rate a SAVED cell (0–5) and persist. Factory cells are read-only.
+    func setLibraryStars(_ name: String, _ stars: Int) {
+        guard var c = CellLibraryStore.load(name) else { return }
+        c.stars = max(0, min(5, stars)); CellLibraryStore.save(c, as: name)
+    }
     func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
     func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }

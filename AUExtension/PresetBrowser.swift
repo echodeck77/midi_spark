@@ -125,14 +125,15 @@ struct PresetBrowser: View {
 /// CELL LIBRARY browser (§cell-machine 4.8) — mirrors PresetBrowser for named saved CELLS: SAVE the selected
 /// cell under a name, STAMP a saved cell (arms the stamp mode), DELETE. Same overlay look as PRESETS.
 struct CellBrowser: View {
-    let cells: [String]
-    var factory: [String] = []                  // read-only starter cells (STAMP only)
+    let cells: [LibEntry]
+    var factory: [LibEntry] = []                // read-only starter cells (STAMP only)
     var canSave: Bool = false
     let onSave: (String) -> Void
     let onStamp: (String) -> Void
     var onStampFactory: (String) -> Void = { _ in }
-    var onPreview: (String) -> Void = { _ in }          // touch a NAME → audition its chain (reverted on close unless APPLY'd)
+    var onPreview: (String) -> Void = { _ in }          // tap anywhere on a ROW → audition its chain (reverted on close unless APPLY'd)
     var onPreviewFactory: (String) -> Void = { _ in }
+    var onSetStars: (String, Int) -> Void = { _, _ in } // tap a star to rate a SAVED cell (0–5)
     let onDelete: (String) -> Void
     let onClose: () -> Void
 
@@ -180,48 +181,62 @@ struct CellBrowser: View {
                         if cells.isEmpty {
                             Text("no saved cells yet — configure a cell, then SAVE").font(.system(size: 11, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.vertical, 8)
                         } else {
-                            ForEach(cells, id: \.self) { name in
-                                HStack(spacing: 8) {
-                                    Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.9))
-                                        .contentShape(Rectangle()).onTapGesture { onPreview(name) }   // touch the name → audition it
-                                    Spacer().contentShape(Rectangle()).onTapGesture { onPreview(name) }
-                                    Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                                        .padding(.horizontal, 10).padding(.vertical, 5)
-                                        .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
-                                        .contentShape(Rectangle()).onTapGesture { onStamp(name) }
-                                    Text(confirmDelete == name ? "SURE?" : "✕")
-                                        .font(.system(size: confirmDelete == name ? 10 : 12, weight: .heavy, design: .monospaced))
-                                        .foregroundColor(confirmDelete == name ? .black : ink.opacity(0.5))
-                                        .padding(.horizontal, confirmDelete == name ? 8 : 6).padding(.vertical, confirmDelete == name ? 5 : 0)
-                                        .background(RoundedRectangle(cornerRadius: 5).fill(confirmDelete == name ? amber : .clear))
-                                        .contentShape(Rectangle())
-                                        .onTapGesture { if confirmDelete == name { onDelete(name); confirmDelete = nil } else { confirmDelete = name } }
-                                }
-                                .padding(.horizontal, 10).padding(.vertical, 7)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.05)))
-                            }
+                            ForEach(cells) { e in libraryRow(e, saved: true) }
                         }
                         if !factory.isEmpty {   // read-only starter cells — STAMP only
                             Text("FACTORY").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4)).padding(.top, 10).padding(.leading, 2)
-                            ForEach(factory, id: \.self) { name in
-                                HStack(spacing: 8) {
-                                    Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.8))
-                                        .contentShape(Rectangle()).onTapGesture { onPreviewFactory(name) }   // touch the name → audition it
-                                    Spacer().contentShape(Rectangle()).onTapGesture { onPreviewFactory(name) }
-                                    Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                                        .padding(.horizontal, 10).padding(.vertical, 5)
-                                        .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
-                                        .contentShape(Rectangle()).onTapGesture { onStampFactory(name) }
-                                }
-                                .padding(.horizontal, 10).padding(.vertical, 7)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(0.03)))
-                            }
+                            ForEach(factory) { e in libraryRow(e, saved: false) }
                         }
                     }
                 }
             }
             .padding(18).frame(maxWidth: 460, maxHeight: 520)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
+        }
+    }
+
+    // One library row: name over its chain summary, a star rating, APPLY, and (saved only) delete. Tapping ANYWHERE
+    // on the row that isn't a button previews the chain; APPLY/stars/delete keep their own hit areas.
+    @ViewBuilder private func libraryRow(_ e: LibEntry, saved: Bool) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(e.name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(saved ? 0.9 : 0.8))
+                Text(e.chainSummary).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6)
+            }
+            starsView(e, editable: saved)
+            Spacer(minLength: 6)
+            Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
+                .contentShape(Rectangle()).onTapGesture { if saved { onStamp(e.name) } else { onStampFactory(e.name) } }
+            if saved {
+                Text(confirmDelete == e.name ? "SURE?" : "✕")
+                    .font(.system(size: confirmDelete == e.name ? 10 : 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(confirmDelete == e.name ? .black : ink.opacity(0.5))
+                    .padding(.horizontal, confirmDelete == e.name ? 8 : 6).padding(.vertical, confirmDelete == e.name ? 5 : 0)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(confirmDelete == e.name ? amber : .clear))
+                    .contentShape(Rectangle())
+                    .onTapGesture { if confirmDelete == e.name { onDelete(e.name); confirmDelete = nil } else { confirmDelete = e.name } }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(saved ? 0.05 : 0.03)))
+        .contentShape(Rectangle())
+        .onTapGesture { if saved { onPreview(e.name) } else { onPreviewFactory(e.name) } }   // whole-row preview
+    }
+    // A 5-star rating. Editable (saved cells): tap a star to set; tap the current top star to drop one. Factory cells
+    // render display-only, so a tap falls through to the row's preview.
+    @ViewBuilder private func starsView(_ e: LibEntry, editable: Bool) -> some View {
+        HStack(spacing: 1) {
+            ForEach(1...5, id: \.self) { k in
+                let filled = k <= e.stars
+                if editable {
+                    Image(systemName: filled ? "star.fill" : "star").font(.system(size: 10)).foregroundColor(filled ? amber : ink.opacity(0.22))
+                        .contentShape(Rectangle()).onTapGesture { onSetStars(e.name, e.stars == k ? k - 1 : k) }
+                } else {
+                    Image(systemName: filled ? "star.fill" : "star").font(.system(size: 10)).foregroundColor(filled ? amber : ink.opacity(0.22))
+                }
+            }
         }
     }
 }

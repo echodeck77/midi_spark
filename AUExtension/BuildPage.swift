@@ -1833,14 +1833,14 @@ extension DiagView {
         cellLibraryFromBuild = true
         buildLibraryOriginalChain = buildSelID.map { buildColourMachine($0) }
         buildLibraryPreviewed = false
-        cellLibraryList = au?.listLibraryCells() ?? []
+        cellLibraryList = au?.libraryCellSummaries() ?? []
         showCellLibrary = true
     }
     // Save the SELECTED colour's chain as a named library cell.
     func buildSaveColourToLibrary(_ name: String) {
         guard let cid = buildSelID else { return }
         au?.saveChainToLibrary(colourID: cid, chain: buildColourMachine(cid), name: name)
-        cellLibraryList = au?.listLibraryCells() ?? []
+        cellLibraryList = au?.libraryCellSummaries() ?? []
     }
     // PREVIEW a library cell: temporarily overwrite the selected colour's chain so it auditions live. Reverted on
     // close unless the user commits with APPLY.

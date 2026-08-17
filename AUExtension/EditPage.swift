@@ -768,13 +768,13 @@ extension DiagView {
     }
 
     // CELL MACHINE stage-4 — the CELL LIBRARY: save the selected cell, browse, stamp saved cells.
-    func openCellLibrary() { cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
+    func openCellLibrary() { cellLibraryList = au?.libraryCellSummaries() ?? []; showCellLibrary = true }
     func saveCellNamed(_ name: String) {
         au?.saveCellToLibrary(col: selCol, row: selRow, name: name)
-        cellLibraryList = au?.listLibraryCells() ?? []
+        cellLibraryList = au?.libraryCellSummaries() ?? []
     }
     func deleteLibraryCellNamed(_ name: String) {
-        au?.deleteLibraryCell(name: name); cellLibraryList = au?.listLibraryCells() ?? []
+        au?.deleteLibraryCell(name: name); cellLibraryList = au?.libraryCellSummaries() ?? []
     }
     // LIBRARY · APPLY — replace the CHAIN of the cells currently being edited with the library cell's chain.
     func applyLibraryChain(_ cell: Cell?) {

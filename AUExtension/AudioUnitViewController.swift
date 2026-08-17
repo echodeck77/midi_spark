@@ -155,7 +155,7 @@ struct DiagView: View {
     @State var cellLibraryFromBuild = false   // the browser was opened from the BUILD page → save/stamp target the SELECTED COLOUR's chain, not an EDIT cell
     @State var buildLibraryOriginalChain: [ProcessorSlot]? = nil   // the selected colour's chain at library-open — restored if the user leaves without APPLY
     @State var buildLibraryPreviewed = false                       // a preview temporarily overwrote the colour's chain (not yet committed)
-    @State var cellLibraryList: [String] = []
+    @State var cellLibraryList: [LibEntry] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
     @State var macroAuthorOpen = false
     @State var macroAuthorSlot = 0
@@ -929,13 +929,14 @@ struct DiagView: View {
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
                 if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser (BUILD-context routes to the selected colour's chain)
-                    CellBrowser(cells: cellLibraryList, factory: au?.factoryLibraryCells().map { $0.name } ?? [],
+                    CellBrowser(cells: cellLibraryList, factory: au?.factoryLibrarySummaries() ?? [],
                                 canSave: cellLibraryFromBuild ? (buildSelID != nil) : (editingCell != nil),
                                 onSave: { name in if cellLibraryFromBuild { buildSaveColourToLibrary(name) } else { saveCellNamed(name) } },
                                 onStamp: { name in if cellLibraryFromBuild { buildStampLibrary(au?.loadLibraryCell(name: name)) } else { stampFromLibrary(name) } },
                                 onStampFactory: { name in if cellLibraryFromBuild { buildStampLibrary(au?.factoryLibraryCell(name: name)) } else { stampFromFactory(name) } },
                                 onPreview: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.loadLibraryCell(name: name)) } },
                                 onPreviewFactory: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.factoryLibraryCell(name: name)) } },
+                                onSetStars: { name, stars in au?.setLibraryStars(name, stars); cellLibraryList = au?.libraryCellSummaries() ?? [] },
                                 onDelete: deleteLibraryCellNamed,
                                 onClose: { if cellLibraryFromBuild { buildCloseLibrary() } else { showCellLibrary = false } })
                 }
