@@ -1266,19 +1266,6 @@ extension DiagView {
         buildPulseColourID = nil; buildPulseChain = []
         refreshFromDocument()
     }
-    // After PLACING, audition a NEW colour on the palette: the placed piece's SETTINGS under a DISTINCT hue, pulsing
-    // as a "create a duplicate" candidate. Leaves the selection alone and never marks the placed colour — so the
-    // original stops strobing. Reuses ONE standing ephemeral candidate (no leak). Tap the pulse to keep it. (2026-08-17)
-    private func buildAuditionDuplicate(of src: String) {
-        let machine = buildColourMachine(src)
-        let id: String
-        if let a = buildAuditionID, !buildPartCast.contains(a), buildColourReg[a] != nil { id = a }   // recolour/reuse the last uncommitted candidate
-        else { buildIDCounter += 1; id = "b\(buildIDCounter)" }
-        buildColourReg[id] = machine; colourHueOverride[id] = buildDistinctHue(); buildSyncColours()
-        buildAuditionID = id
-        buildPulseColourID = id; buildPulseChain = machine
-    }
-
     // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
     // has a nil templateChain, which the engine resolves via the LEGACY A-face — and every default colour is type
     // .arp, so it would play an arp the user can't see in the (empty) chain. Store a passthrough placeholder so the
@@ -1326,17 +1313,10 @@ extension DiagView {
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
             buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a part-grid row button
-                if buildPlaceArmed {                                                        // PLACE armed → stamp the selected colour across the row; STAYS armed for more rows
-                    let placed = ddSelectedColourID
-                    buildStampRow(row)
-                    if let p = placed { buildAuditionDuplicate(of: p) }                     // offer a same-settings, DIFFERENT-colour duplicate on the palette
-                }
-                else {
-                    switch buildRowMode {
-                    case .select: buildSelectRow(row)                                       // select the whole row's rung
-                    case .place:  buildStampRow(row)                                        // (unreachable — PLACE retired from the verb box)
-                    case .mutate: buildMutateRow(row)                                       // a value-tweaked variant of the selected colour
-                    }
+                switch buildRowMode {
+                case .select: buildSelectRow(row)                                           // select the whole row's rung
+                case .place:  buildSelectRow(row)                                           // (PLACE retired — the colour tabs place now)
+                case .mutate: buildMutateRow(row)                                           // a value-tweaked variant of the selected colour
                 }
             }
             VStack(spacing: BuildGeom.cellGap) {
@@ -1505,7 +1485,7 @@ extension DiagView {
                             RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(buildPlaceArmed ? AnyView(Text(">>>").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)) : AnyView(Text("\(base + r + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))))   // PLACE armed → ">>>"; else the ROW NUMBER 1–8 (Paul 2026-08-17)
+                                .overlay(Text("\(base + r + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7)))   // the ROW NUMBER 1–8
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(base + r) }  // press → run the current row mode on that grid row
                         }
@@ -1823,7 +1803,7 @@ extension DiagView {
                     ForEach(0..<3, id: \.self) { c in
                         let idx = r * 3 + c
                         let label = idx < labels.count ? labels[idx] : ""
-                        if label == "PLACE" { buildPlaceButton() } else { buildFooterBoxBtn(label) }
+                        buildFooterBoxBtn(label)
                     }
                 }
             }
@@ -1848,73 +1828,6 @@ extension DiagView {
             .onTapGesture { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any control button leaves PLACE mode
     }
 
-    // The PLACE button (left column). A standalone TOGGLE (not a radio): a colour CHIP (the selected colour on a
-    // contrast-picked ground) + ">>>". When armed it shows the INVERSE of its idle colours; arming lights the play
-    // grid's row buttons with ">>>". Any non-play-grid-row touch disarms it (buildExitPlaceMode). (Paul 2026-08-17)
-    @ViewBuilder private func buildPlaceButton() -> some View {
-        let armed = buildPlaceArmed
-        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))            // is the SELECTED colour dark?
-        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)   // contrast ground behind the square
-        let ink: Color = armed ? buildCell : .white                          // inverse when armed
-        HStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
-                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // the small square, in the SELECTED colour
-            Text("PLACE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
-                .foregroundColor(ink).lineLimit(1).minimumScaleFactor(0.4)
-            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced))
-                .foregroundColor(armed ? buildCell : buildSelHue)
-        }
-        .padding(.horizontal, 5)
-        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
-        .background(RoundedRectangle(cornerRadius: 8).fill(armed ? Color.white.opacity(0.92) : buildCell))   // INVERSE ground when armed
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture { buildPlaceArmed.toggle() }                          // TOGGLE — tapping PLACE again disarms
-    }
-
-    // Is the SELECTED colour's chain unlike EVERY colour already placed on the part grid? (Gates the pop-up PLACE
-    // button — no point placing a chain that's already on a row.)
-    private func buildChainIsUnplaced() -> Bool {
-        guard let cid = ddSelectedColourID else { return false }
-        let fp = Dice.fingerprint(buildColourChain(cid))
-        guard !fp.isEmpty else { return false }                            // an empty/silent chain isn't placeable
-        for r in 0..<8 { if let rid = buildRowColour(r), Dice.fingerprint(buildColourChain(rid)) == fp { return false } }
-        return true
-    }
-    // The number of empty (placeable) rows on the part grid.
-    private func buildEmptyRowCount() -> Int { (0..<8).filter { buildRowColour($0) == nil }.count }
-    // The PLACE button inside a processor pop-up — same look as the left column's PLACE (colour chip + ">>>"). NOW an
-    // INSTANT action: it assigns this chain to the TOP available row and stays open. Active only when the chain isn't
-    // already on the grid AND there's a free row. (Paul 2026-08-17)
-    @ViewBuilder private func buildPopupPlaceButton(slot: Int) -> some View {
-        let enabled = buildEmptyRowCount() > 0 && buildChainIsUnplaced()
-        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))
-        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
-        HStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
-                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))
-            Text("PLACE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3).foregroundColor(.white)
-            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
-        }
-        .padding(.horizontal, 10).frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
-        .opacity(enabled ? 1 : 0.35)
-        .contentShape(Rectangle())
-        .onTapGesture { if enabled { buildPlaceInstant() } }
-        .allowsHitTesting(enabled)
-    }
-    // INSTANT place: stamp the selected colour onto the TOP available row, report it, then hand the pop-up a fresh
-    // candidate (same chain, different colour) so the next placement is a new row — edit it to differ, then place again.
-    private func buildPlaceInstant() {
-        guard let x = ddSelectedColourID, let row = (0..<8).first(where: { buildRowColour($0) == nil }) else { return }
-        buildStampRow(row)                                                     // assign the chain to the top free row
-        buildPlaceMsg = "added to row \(row + 1) — \(buildEmptyRowCount()) remaining"
-        let id = buildNewColour(hex: buildDistinctHue(), machine: buildColourMachine(x))   // fresh candidate for the next row
-        buildSelectID(id)                                                      // the pop-up now edits the candidate (same slot stays valid)
-        buildPulseColourID = id; buildPulseChain = buildColourMachine(x)       // it pulses on the palette
-    }
-
     // PLACE is armed by the PLACE button / the verb-box radio; clicking any button that ISN'T a grid row selector
     // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
     private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false } }
@@ -1927,7 +1840,7 @@ extension DiagView {
             HStack(spacing: gap) {
                 buildFooterBoxBtn("🎲 RANDOMIZE")
                 buildFooterBoxBtn("MUTATE")
-                buildPlaceButton()
+                buildFooterBoxBtn("")                                        // PLACE removed — the colour tabs are the placement now
             }
             GeometryReader { g in                                            // exact 2:1 split so the row aligns with the 3 above
                 let btnW = (g.size.width - gap * 2) / 3
@@ -2368,7 +2281,6 @@ extension DiagView {
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
                 Text(proc.type.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)
                 Spacer()
-                buildPopupPlaceButton(slot: slot)               // PLACE this chain onto the part grid (then reopen on a fresh candidate)
                 Button { buildChainToggleBypass(slot) } label: {
                     Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(.white)                  // white on black
@@ -2387,11 +2299,6 @@ extension DiagView {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .background(hue.opacity(0.22))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
-            if let msg = buildPlaceMsg {                                    // PLACE feedback: "added to row 6 — 2 remaining"
-                Text(msg).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(buildCyan.opacity(0.12))
-            }
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
         }
         .frame(width: panelW).frame(maxHeight: size.height * 0.82)
