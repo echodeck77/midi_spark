@@ -2299,6 +2299,9 @@ extension DiagView {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .background(hue.opacity(0.22))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
+            AnyView(buildColourTabs(castW: panelW - 32, cell: 28))         // the SAME colour tabs, top of the body — select a tab / populate an empty one (pulses until edited; persists on close)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
         }
         .frame(width: panelW).frame(maxHeight: size.height * 0.82)
