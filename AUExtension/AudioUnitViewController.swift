@@ -91,7 +91,7 @@ struct DiagView: View {
     @State var buildRowMode: BuildRowMode = .select  // STAGING grid: what its left row buttons do (SELECT · MUTATE; PLACE retired from the centre column — Paul 2026-08-17)
     @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
     @State var buildFlattenMode: Bool = false        // FLATTEN toggle (default OFF): ON = the valve/part-button play grid · OFF = plain row-master chevrons + hidden right column
-    @State var buildPlaceReopenSlot: Int? = nil      // set when PLACE is pressed INSIDE a processor pop-up → after the next row-stamp, reopen the pop-up on a fresh candidate at this slot
+    @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
@@ -1352,7 +1352,7 @@ struct DiagView: View {
                      strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
                 .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
             rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
-        }
+          }
         }
        }
     // §11 ROW SELECT — a chevron per row, on BOTH sides of the grid, always visible (aligned past the column-
