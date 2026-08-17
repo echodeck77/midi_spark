@@ -131,6 +131,8 @@ struct CellBrowser: View {
     let onSave: (String) -> Void
     let onStamp: (String) -> Void
     var onStampFactory: (String) -> Void = { _ in }
+    var onPreview: (String) -> Void = { _ in }          // touch a NAME → audition its chain (reverted on close unless APPLY'd)
+    var onPreviewFactory: (String) -> Void = { _ in }
     let onDelete: (String) -> Void
     let onClose: () -> Void
 
@@ -181,7 +183,8 @@ struct CellBrowser: View {
                             ForEach(cells, id: \.self) { name in
                                 HStack(spacing: 8) {
                                     Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.9))
-                                    Spacer()
+                                        .contentShape(Rectangle()).onTapGesture { onPreview(name) }   // touch the name → audition it
+                                    Spacer().contentShape(Rectangle()).onTapGesture { onPreview(name) }
                                     Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
@@ -203,7 +206,8 @@ struct CellBrowser: View {
                             ForEach(factory, id: \.self) { name in
                                 HStack(spacing: 8) {
                                     Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.8))
-                                    Spacer()
+                                        .contentShape(Rectangle()).onTapGesture { onPreviewFactory(name) }   // touch the name → audition it
+                                    Spacer().contentShape(Rectangle()).onTapGesture { onPreviewFactory(name) }
                                     Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                                         .padding(.horizontal, 10).padding(.vertical, 5)
                                         .background(RoundedRectangle(cornerRadius: 5).fill(cyan))

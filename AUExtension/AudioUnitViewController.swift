@@ -150,6 +150,8 @@ struct DiagView: View {
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State var showCellLibrary = false
     @State var cellLibraryFromBuild = false   // the browser was opened from the BUILD page → save/stamp target the SELECTED COLOUR's chain, not an EDIT cell
+    @State var buildLibraryOriginalChain: [ProcessorSlot]? = nil   // the selected colour's chain at library-open — restored if the user leaves without APPLY
+    @State var buildLibraryPreviewed = false                       // a preview temporarily overwrote the colour's chain (not yet committed)
     @State var cellLibraryList: [String] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
     @State var macroAuthorOpen = false
@@ -928,7 +930,10 @@ struct DiagView: View {
                                 onSave: { name in if cellLibraryFromBuild { buildSaveColourToLibrary(name) } else { saveCellNamed(name) } },
                                 onStamp: { name in if cellLibraryFromBuild { buildStampLibrary(au?.loadLibraryCell(name: name)) } else { stampFromLibrary(name) } },
                                 onStampFactory: { name in if cellLibraryFromBuild { buildStampLibrary(au?.factoryLibraryCell(name: name)) } else { stampFromFactory(name) } },
-                                onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false; cellLibraryFromBuild = false })
+                                onPreview: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.loadLibraryCell(name: name)) } },
+                                onPreviewFactory: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.factoryLibraryCell(name: name)) } },
+                                onDelete: deleteLibraryCellNamed,
+                                onClose: { if cellLibraryFromBuild { buildCloseLibrary() } else { showCellLibrary = false } })
                 }
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)

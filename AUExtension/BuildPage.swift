@@ -1777,18 +1777,39 @@ extension DiagView {
             .contentShape(Rectangle())
             .onTapGesture { buildExitPlaceMode(); buildOpenLibrary() }
     }
-    // Open the library IN BUILD CONTEXT: its Save/Stamp act on the selected colour's chain.
-    func buildOpenLibrary() { cellLibraryFromBuild = true; cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
+    // Open the library IN BUILD CONTEXT: its Save/Stamp act on the selected colour's chain. Remember the colour's
+    // CURRENT chain so a preview can be reverted if the user leaves without APPLY.
+    func buildOpenLibrary() {
+        cellLibraryFromBuild = true
+        buildLibraryOriginalChain = buildSelID.map { buildColourMachine($0) }
+        buildLibraryPreviewed = false
+        cellLibraryList = au?.listLibraryCells() ?? []
+        showCellLibrary = true
+    }
     // Save the SELECTED colour's chain as a named library cell.
     func buildSaveColourToLibrary(_ name: String) {
         guard let cid = buildSelID else { return }
         au?.saveChainToLibrary(colourID: cid, chain: buildColourMachine(cid), name: name)
         cellLibraryList = au?.listLibraryCells() ?? []
     }
-    // Stamp a library cell's chain ONTO the selected colour (replacing its machine); keeps the colour + its I/O.
+    // PREVIEW a library cell: temporarily overwrite the selected colour's chain so it auditions live. Reverted on
+    // close unless the user commits with APPLY.
+    func buildPreviewLibrary(_ cell: Cell?) {
+        guard let cell, let cid = buildSelID else { return }
+        buildWriteColourMachine(cid, cell.processors ?? [])
+        buildLibraryPreviewed = true
+    }
+    // APPLY — commit a library cell's chain ONTO the selected colour (keeps the colour + its I/O); no revert.
     func buildStampLibrary(_ cell: Cell?) {
         guard let cell, let cid = buildSelID else { return }
         buildWriteColourMachine(cid, cell.processors ?? [])
+        buildLibraryPreviewed = false; buildLibraryOriginalChain = nil
+        showCellLibrary = false; cellLibraryFromBuild = false
+    }
+    // CLOSE without APPLY → restore the colour's original chain if a preview changed it.
+    func buildCloseLibrary() {
+        if buildLibraryPreviewed, let cid = buildSelID { buildWriteColourMachine(cid, buildLibraryOriginalChain ?? []) }
+        buildLibraryPreviewed = false; buildLibraryOriginalChain = nil
         showCellLibrary = false; cellLibraryFromBuild = false
     }
 
