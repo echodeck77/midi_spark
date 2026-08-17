@@ -1257,7 +1257,14 @@ extension DiagView {
                 if buildPlaceArmed {                                                        // PLACE armed → stamp the selected colour across the row; STAYS armed for more rows
                     let placed = ddSelectedColourID
                     buildStampRow(row)
-                    if let p = placed { buildAuditionDuplicate(of: p) }                     // offer a same-settings, DIFFERENT-colour duplicate on the palette
+                    if let reopen = buildPlaceReopenSlot, let p = placed {                   // PLACE came from a processor pop-up → open a fresh candidate + reopen the pop-up
+                        buildPlaceReopenSlot = nil
+                        let id = buildNewColour(hex: buildDistinctHue(), machine: buildColourMachine(p))   // a fresh candidate: same chain, DIFFERENT colour
+                        buildSelectID(id)                                                    // edit target = the new candidate (also disarms place)
+                        buildPulseColourID = id; buildPulseChain = buildColourMachine(p)     // it pulses on the palette as the new candidate
+                        let n = selectedColourChain().count                                 // the candidate shares the placed chain → the slot stays valid
+                        if n > 0 { buildEditSlot = min(reopen, n - 1) }                      // reopen the pop-up on the same processor
+                    } else if let p = placed { buildAuditionDuplicate(of: p) }              // normal place-mode audition
                 }
                 else {
                     switch buildRowMode {
@@ -1744,9 +1751,40 @@ extension DiagView {
         .onTapGesture { buildPlaceArmed.toggle() }                          // TOGGLE — tapping PLACE again disarms
     }
 
+    // Is the SELECTED colour's chain unlike EVERY colour already placed on the part grid? (Gates the pop-up PLACE
+    // button — no point placing a chain that's already on a row.)
+    private func buildChainIsUnplaced() -> Bool {
+        guard let cid = ddSelectedColourID else { return false }
+        let fp = Dice.fingerprint(buildColourChain(cid))
+        guard !fp.isEmpty else { return false }                            // an empty/silent chain isn't placeable
+        for r in 0..<8 { if let rid = buildRowColour(r), Dice.fingerprint(buildColourChain(rid)) == fp { return false } }
+        return true
+    }
+    // The PLACE button inside a processor pop-up — same look as the left column's PLACE (colour chip + ">>>"), but a
+    // one-shot: it arms place, closes the pop-up, and remembers to reopen on a fresh candidate after the row-stamp.
+    // Active only when the chain isn't already on the grid. (Paul 2026-08-17)
+    @ViewBuilder private func buildPopupPlaceButton(slot: Int) -> some View {
+        let enabled = buildChainIsUnplaced()
+        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))
+        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
+        HStack(spacing: 3) {
+            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))
+            Text("PLACE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3).foregroundColor(.white)
+            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
+        }
+        .padding(.horizontal, 10).frame(height: 34)
+        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
+        .opacity(enabled ? 1 : 0.35)
+        .contentShape(Rectangle())
+        .onTapGesture { if enabled { buildPlaceReopenSlot = slot; buildPlaceArmed = true; buildEditSlot = nil } }   // arm · close · remember the slot
+        .allowsHitTesting(enabled)
+    }
+
     // PLACE is armed by the PLACE button / the verb-box radio; clicking any button that ISN'T a grid row selector
     // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
-    private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false } }
+    private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false }; buildPlaceReopenSlot = nil }
 
     // The LEFT column's control box. Row 1: RANDOMIZE · MUTATE · PLACE. Row 2: the cell LIBRARY (spanning the two
     // left cells) + FILL (styled like PLACE; runs the old STAGE THE GRID). (Paul 2026-08-17)
@@ -2197,6 +2235,7 @@ extension DiagView {
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
                 Text(proc.type.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)
                 Spacer()
+                buildPopupPlaceButton(slot: slot)               // PLACE this chain onto the part grid (then reopen on a fresh candidate)
                 Button { buildChainToggleBypass(slot) } label: {
                     Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(.white)                  // white on black
