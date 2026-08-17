@@ -1228,7 +1228,7 @@ extension DiagView {
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE box IS this column's button box (a 3×2: verbs + reserved blanks)
             Spacer(minLength: 0)
-            AnyView(buildBottomPlaceholder("EMITTER SELECT"))    // bottom of the middle column — the emitter toggle select
+            AnyView(buildEmitterSelectBox(gridW: gridW))         // bottom of the middle column — the four emitter toggles + MIDI-out info
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1955,6 +1955,24 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 5).fill(on ? colour : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.clear : buildEdge, lineWidth: 1.5))
             .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+
+    // THE EMITTER SELECT box (centre column, bottom): the four PART-owned output emitter toggles (A–D) + the
+    // MIDI-OUT readout (lit emitters → their channels). Emitters are part-owned, so every colour follows. (2026-08-17)
+    @ViewBuilder private func buildEmitterSelectBox(gridW: CGFloat) -> some View {
+        let buses = buildPartEmitters
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {                                  // A–D toggle the PART's output emitters
+                ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
+                    buildIOChip(b.rawValue, on: buses.contains(b), fill: true) { buildToggleBus(b) }
+                }
+            }
+            buildMidiOutInfo(buses: buses, castW: gridW - 20)    // the lit emitters + their channels
+        }
+        .padding(10)
+        .frame(width: gridW)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
