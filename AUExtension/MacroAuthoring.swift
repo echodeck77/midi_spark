@@ -111,31 +111,33 @@ func macroSlotBindings(_ macros: [Macro], col: Int, row: Int, slot: Int) -> [Mac
 func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
     let bypass = MacroControlParam(key: "bypass", label: "BYPASS", kind: .toggle)
     let gate   = MacroControlParam(key: "gate", label: "GATE", kind: .continuous(lo: 0.05, hi: 1))
+    // GATE means note length in ARP + WEAVE → friendly label LENGTH (reply global rule). RATCHET keeps GATE (not in the reply).
+    let length = MacroControlParam(key: "gate", label: "LENGTH", kind: .continuous(lo: 0.05, hi: 1))
     switch type {
     case .arp:
         return [bypass,
                 MacroControlParam(key: "pattern", label: "PATTERN", kind: .option(ArpPattern.allCases.map(\.rawValue))),
-                MacroControlParam(key: "rate", label: "RATE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "rate", label: "SPEED", kind: .option(ArpRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "octaves", label: "OCTAVES", kind: .stepper(lo: 1, hi: 4)),
-                MacroControlParam(key: "phase", label: "PHASE", kind: .option(ArpPhase.allCases.map(\.rawValue))),
-                gate]
+                MacroControlParam(key: "phase", label: "NEW CHORD", kind: .option(ArpPhase.allCases.map(\.rawValue))),
+                length]
     case .ratchet:
         return [bypass,
                 MacroControlParam(key: "rtcMode", label: "MODE", kind: .option(RatchetMode.allCases.map(\.rawValue))),
                 MacroControlParam(key: "count", label: "REPEATS", kind: .stepper(lo: 2, hi: 8)),
-                MacroControlParam(key: "ramp", label: "RAMP", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "ramp", label: "BURST FADE", kind: .continuous(lo: 0, hi: 1)),
                 MacroControlParam(key: "rtcChance", label: "CHANCE", kind: .continuous(lo: 0, hi: 1)),
-                MacroControlParam(key: "rtcCountLo", label: "COUNT LO", kind: .stepper(lo: 1, hi: 8)),
-                MacroControlParam(key: "rtcCountHi", label: "COUNT HI", kind: .stepper(lo: 1, hi: 8)),
-                MacroControlParam(key: "rtcRate", label: "SLICE RATE", kind: .option(ArpRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "rtcCountLo", label: "SIZE MIN", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "rtcCountHi", label: "SIZE MAX", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "rtcRate", label: "GRID", kind: .option(ArpRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "rtcRotate", label: "ROTATE", kind: .stepper(lo: 0, hi: 7)),
                 gate]
     case .strum:
         return [bypass,
-                MacroControlParam(key: "strumDir", label: "DIR", kind: .option(StrumDir.allCases.map(\.rawValue))),
+                MacroControlParam(key: "strumDir", label: "DIRECTION", kind: .option(StrumDir.allCases.map(\.rawValue))),
                 MacroControlParam(key: "spread", label: "SPREAD", kind: .continuous(lo: 0, hi: 1)),
                 MacroControlParam(key: "curve", label: "CURVE", kind: .continuous(lo: -1, hi: 1)),
-                MacroControlParam(key: "velTilt", label: "VEL TILT", kind: .continuous(lo: -1, hi: 1))]
+                MacroControlParam(key: "velTilt", label: "VOL TILT", kind: .continuous(lo: -1, hi: 1))]
     case .chance:
         return [bypass,
                 MacroControlParam(key: "probability", label: "CHANCE", kind: .continuous(lo: 0, hi: 1))]
@@ -147,69 +149,69 @@ func macroParamsForProcessor(_ type: ProcessorType) -> [MacroControlParam] {
                 MacroControlParam(key: "harmVelScale", label: "VOICE VEL", kind: .continuous(lo: 0.1, hi: 1))]
     case .passgate:
         return [bypass,
-                MacroControlParam(key: "passMask", label: "PASSES", kind: .mask(bits: 4))]
+                MacroControlParam(key: "passMask", label: "PLAY ON PASS", kind: .mask(bits: 4))]
     case .echo:
         return [bypass,
                 MacroControlParam(key: "rate", label: "TIME", kind: .option(ArpRate.allCases.map(\.rawValue))),
                 MacroControlParam(key: "count", label: "REPEATS", kind: .stepper(lo: 2, hi: 8)),
-                MacroControlParam(key: "ramp", label: "DECAY", kind: .continuous(lo: 0, hi: 1))]
+                MacroControlParam(key: "ramp", label: "FADE", kind: .continuous(lo: 0, hi: 1))]
     case .euclid:
         return [bypass,
-                MacroControlParam(key: "euclidPulses", label: "PULSES", kind: .stepper(lo: 1, hi: 16)),
+                MacroControlParam(key: "euclidPulses", label: "HITS FROM", kind: .stepper(lo: 1, hi: 16)),
                 MacroControlParam(key: "euclidSteps", label: "STEPS", kind: .stepper(lo: 2, hi: 16)),
                 MacroControlParam(key: "euclidRot", label: "ROTATE", kind: .stepper(lo: 0, hi: 15))]
     case .burst:
         return [bypass,
-                MacroControlParam(key: "count", label: "STRIKES", kind: .stepper(lo: 2, hi: 16)),
-                MacroControlParam(key: "curve", label: "CURVE", kind: .continuous(lo: -1, hi: 1))]
+                MacroControlParam(key: "count", label: "HITS", kind: .stepper(lo: 2, hi: 16)),
+                MacroControlParam(key: "curve", label: "SHAPE", kind: .continuous(lo: -1, hi: 1))]
     case .cascade:
         return [bypass,
-                MacroControlParam(key: "rate", label: "RATE", kind: .option(ArpRate.allCases.map(\.rawValue)))]
+                MacroControlParam(key: "rate", label: "SPEED", kind: .option(ArpRate.allCases.map(\.rawValue)))]
     case .drone:
-        return [bypass, MacroControlParam(key: "gate", label: "PAD LEVEL", kind: .continuous(lo: 0.05, hi: 1))]
+        return [bypass, MacroControlParam(key: "gate", label: "LEVEL", kind: .continuous(lo: 0.05, hi: 1))]
     case .shift:
         return [bypass, MacroControlParam(key: "spread", label: "PUSH", kind: .continuous(lo: 0, hi: 1))]
     case .humanize:
-        return [bypass, MacroControlParam(key: "spread", label: "AMOUNT", kind: .continuous(lo: 0, hi: 1))]
+        return [bypass, MacroControlParam(key: "spread", label: "FEEL", kind: .continuous(lo: 0, hi: 1))]
     case .mod:
         return [bypass,
-                MacroControlParam(key: "modCC", label: "CC#", kind: .stepper(lo: 0, hi: 127)),
+                MacroControlParam(key: "modCC", label: "SEND CC", kind: .stepper(lo: 0, hi: 127)),
                 MacroControlParam(key: "modShape", label: "WAVE", kind: .option(ModShape.allCases.map(\.rawValue))),
                 MacroControlParam(key: "modMin", label: "MIN", kind: .continuous(lo: 0, hi: 127)),   // range IS depth+polarity; macro-able (stabs)
                 MacroControlParam(key: "modMax", label: "MAX", kind: .continuous(lo: 0, hi: 127)),
-                MacroControlParam(key: "modRate", label: "RATE", kind: .option(ModRate.allCases.map(\.rawValue))),
-                MacroControlParam(key: "modReset", label: "ON LEAVE", kind: .toggle)]
+                MacroControlParam(key: "modRate", label: "CYCLE", kind: .option(ModRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "modReset", label: "ON EXIT", kind: .toggle)]
     case .glide:
         return [bypass,
-                MacroControlParam(key: "glideRange", label: "RANGE", kind: .stepper(lo: 1, hi: 48)),
-                MacroControlParam(key: "glidePriority", label: "PRIORITY", kind: .option(GlidePriority.allCases.map(\.rawValue))),
-                MacroControlParam(key: "glideReanchor", label: "OUT OF RANGE", kind: .toggle)]
+                MacroControlParam(key: "glideRange", label: "BEND RANGE", kind: .stepper(lo: 1, hi: 48)),
+                MacroControlParam(key: "glidePriority", label: "FOLLOW", kind: .option(GlidePriority.allCases.map(\.rawValue))),
+                MacroControlParam(key: "glideReanchor", label: "TOO FAR", kind: .toggle)]
     case .tutti:
         return [bypass,
                 MacroControlParam(key: "tuttiMode", label: "MODE", kind: .option(TuttiMode.allCases.map(\.rawValue))),
-                MacroControlParam(key: "tuttiBalance", label: "SOLO↔TUTTI", kind: .continuous(lo: 0, hi: 1)),
-                MacroControlParam(key: "tuttiPick", label: "PICK", kind: .option(TuttiPick.allCases.map(\.rawValue)))]
+                MacroControlParam(key: "tuttiBalance", label: "BALANCE", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "tuttiPick", label: "SOLO NOTE", kind: .option(TuttiPick.allCases.map(\.rawValue)))]
     case .length:
         return [bypass,
-                MacroControlParam(key: "lenShort", label: "SHORT", kind: .continuous(lo: 0.05, hi: 0.95)),
-                MacroControlParam(key: "lenLong", label: "LONG", kind: .continuous(lo: 0, hi: 1)),
+                MacroControlParam(key: "lenShort", label: "SHORT =", kind: .continuous(lo: 0.05, hi: 0.95)),
+                MacroControlParam(key: "lenLong", label: "LONG =", kind: .continuous(lo: 0, hi: 1)),
                 MacroControlParam(key: "lenRotate", label: "ROTATE", kind: .stepper(lo: 0, hi: 7))]
     case .weave:
         return [bypass,
                 MacroControlParam(key: "weaveMode", label: "MODE", kind: .option(WeaveMode.allCases.map(\.rawValue))),
-                MacroControlParam(key: "weaveBaseStep", label: "BASE", kind: .option(StepRate.allCases.map(\.rawValue))),
-                MacroControlParam(key: "weavePhase", label: "PHASE", kind: .option(ArpPhase.allCases.map(\.rawValue))),
-                MacroControlParam(key: "weaveSpan", label: "SPAN", kind: .stepper(lo: 1, hi: 8)),
-                MacroControlParam(key: "weaveEuclidSteps", label: "EUCLID N", kind: .stepper(lo: 2, hi: 16)),
-                gate]
+                MacroControlParam(key: "weaveBaseStep", label: "BASS CLOCK", kind: .option(StepRate.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weavePhase", label: "NEW CHORD", kind: .option(ArpPhase.allCases.map(\.rawValue))),
+                MacroControlParam(key: "weaveSpan", label: "VOICES", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "weaveEuclidSteps", label: "STEPS", kind: .stepper(lo: 2, hi: 16)),
+                length]
     case .split:
         return [bypass,
-                MacroControlParam(key: "splitMode", label: "SPLIT", kind: .option(SplitMode.allCases.map(\.rawValue))),
-                MacroControlParam(key: "splitN", label: "N", kind: .stepper(lo: 1, hi: 8)),
-                MacroControlParam(key: "splitNote", label: "RANGE NOTE", kind: .stepper(lo: 0, hi: 127)),
-                MacroControlParam(key: "splitHigh", label: "RANGE SIDE", kind: .toggle),
-                MacroControlParam(key: "splitVFloor", label: "VEL FLOOR", kind: .stepper(lo: 1, hi: 127)),
-                MacroControlParam(key: "splitVCeil", label: "VEL CEIL", kind: .stepper(lo: 1, hi: 127))]
+                MacroControlParam(key: "splitMode", label: "KEEP", kind: .option(SplitMode.allCases.map(\.rawValue))),
+                MacroControlParam(key: "splitN", label: "NOTES", kind: .stepper(lo: 1, hi: 8)),
+                MacroControlParam(key: "splitNote", label: "AT NOTE", kind: .stepper(lo: 0, hi: 127)),
+                MacroControlParam(key: "splitHigh", label: "SIDE", kind: .toggle),
+                MacroControlParam(key: "splitVFloor", label: "VEL MIN", kind: .stepper(lo: 1, hi: 127)),
+                MacroControlParam(key: "splitVCeil", label: "VEL MAX", kind: .stepper(lo: 1, hi: 127))]
     }
 }
 
