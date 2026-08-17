@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ BUILD PAGE REARRANGE + PLACE MODE + COLOUR-UNIQUENESS LANDED (2026-08-17, on `main`, PUSHED; `2125c34`+`3280fde`;
+  iOS builds; UI-only, engine tests untouched). Whole-page rework of `AUExtension/BuildPage.swift` (experimental). Left
+  column: PLAY → part → an invisible untouchable header row → cast (8×4) → the chain as a 4×2 of 2×2-cell processor boxes
+  (numbered 1–8, buttons at 80% centred, no connectors); cast+processors = an 8×8-equiv block, grid-height. The INPUT
+  piano + OUTPUT sections and the footer chain editor were DROPPED (their functions kept but uncalled, holding the
+  device-verified receiver/emitter plumbing for the rebuild). Each of the three columns carries a fixed-height button box
+  + a bottom placeholder (RECEIVERS · EMITTER SELECT · EMITTER OUT). Left box rows: RANDOMIZE·MUTATE·PLACE / LIBRARY·FILL
+  (LIBRARY spans two cells → the cell-library browser; FILL is styled like PLACE and runs the old STAGE THE GRID).
+  PLACE is a STANDALONE toggle (`buildPlaceArmed`, NOT the staging SELECT/MUTATE radio — the verb-box PLACE is disabled):
+  arming lights the PART grid's row buttons with ">>>"; a tap stamps the selected colour and STAYS armed; any non-part-row
+  touch disarms. After a stamp, a same-settings / DIFFERENT-hue duplicate is auditioned on the palette (one reused
+  ephemeral candidate) — one-tap duplicate. Cast is now SLOT-ADDRESSABLE (per-part `castSlots`, persisted + migrated on
+  load): long-pressing an empty cell clones the last-used colour ONTO that cell (was: bottom-right). STRONG colour
+  uniqueness: `buildUniqueHue` no longer blanket-blocks the canonical hues (the bug that made new colours reuse the
+  source's near-shade); `buildDistinctHue` assigns a genuinely distinct hue; `buildEnforceCastHues` recolours any
+  duplicate after every cast mutation + on load; placing no longer leaves the source strobing. DEFERRED: the RECEIVERS +
+  EMITTER bottom panels are placeholders (rebuild pending); the CELL LIBRARY is broken by model churn (next task).**
 - **▶ RATCHET MODE RADIO LANDED (ferry, 2026-08-16, on `main`, PUSHED; `71f3b50`; iOS builds, macOS 740 green). RTC gets
   TUTTI's MODE radio (`AcceptanceCriteria-rtc-mode-radio.md`): ALL (today, default/migration-invisible) · COIN (seeded
   per-step chance to ratchet-or-plain + a COUNT LO–HI range; CHANCE is a foldable MacroParam) · PATTERN (8-slice

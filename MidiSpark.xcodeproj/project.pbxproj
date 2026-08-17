@@ -51,6 +51,7 @@
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
+		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		A71376B370E076CCB3B3A89E /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
@@ -125,6 +126,7 @@
 		344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkApp.swift; sourceTree = "<group>"; };
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
 		3EDCE8A830228B93BE51322A /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
+		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceWeaveTests.swift; sourceTree = "<group>"; };
 		52D6A2BAD52CA71E5145C36A /* FlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowView.swift; sourceTree = "<group>"; };
@@ -198,6 +200,7 @@
 			isa = PBXGroup;
 			children = (
 				8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */,
+				487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */,
 				D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */,
 				66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */,
 				8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */,
@@ -486,6 +489,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F6EE573AB17BEB1885C87D5D /* AcceptanceArpTests.swift in Sources */,
+				96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */,
 				2A13BA2CD92BDE358A0AD2BA /* AcceptanceGatesSpecialTests.swift in Sources */,
 				37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */,
 				7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */,

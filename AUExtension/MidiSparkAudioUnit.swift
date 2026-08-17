@@ -238,6 +238,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         guard let cell = document.scenes[document.activeSceneResolved].cells[col][row] else { return false }
         return CellLibraryStore.save(cell.libraryStripped(materialisedChain: materializedChain(cell)), as: name)
     }
+    // BUILD-side save: a COLOUR's machine (chain) becomes a library cell (no grid cell needed). Routing stripped.
+    @discardableResult
+    func saveChainToLibrary(colourID: String, chain: [ProcessorSlot], name: String) -> Bool {
+        var c = Cell(colourID: colourID); c.processors = chain; c.buses = []
+        return CellLibraryStore.save(c, as: name)
+    }
     func listLibraryCells() -> [String] { CellLibraryStore.list() }
     func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }

@@ -1766,7 +1766,8 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
 
-    // The cell LIBRARY opener (the browser used on EDIT), sat across the two left cells of the control box.
+    // The cell LIBRARY opener, sat across the two left cells of the control box. On BUILD the browser saves/stamps
+    // the SELECTED COLOUR's chain (not an EDIT grid cell).
     @ViewBuilder private func buildLibraryButton() -> some View {
         Text("LIBRARY").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
@@ -1774,7 +1775,21 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { buildExitPlaceMode(); openCellLibrary() }
+            .onTapGesture { buildExitPlaceMode(); buildOpenLibrary() }
+    }
+    // Open the library IN BUILD CONTEXT: its Save/Stamp act on the selected colour's chain.
+    func buildOpenLibrary() { cellLibraryFromBuild = true; cellLibraryList = au?.listLibraryCells() ?? []; showCellLibrary = true }
+    // Save the SELECTED colour's chain as a named library cell.
+    func buildSaveColourToLibrary(_ name: String) {
+        guard let cid = buildSelID else { return }
+        au?.saveChainToLibrary(colourID: cid, chain: buildColourMachine(cid), name: name)
+        cellLibraryList = au?.listLibraryCells() ?? []
+    }
+    // Stamp a library cell's chain ONTO the selected colour (replacing its machine); keeps the colour + its I/O.
+    func buildStampLibrary(_ cell: Cell?) {
+        guard let cell, let cid = buildSelID else { return }
+        buildWriteColourMachine(cid, cell.processors ?? [])
+        showCellLibrary = false; cellLibraryFromBuild = false
     }
 
     // FILL — styled identically to PLACE (colour chip + ">>>"), but it's an ACTION not a mode: it runs the old

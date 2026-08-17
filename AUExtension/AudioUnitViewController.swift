@@ -149,6 +149,7 @@ struct DiagView: View {
     @State var currentPreset = ""              // §3 the loaded preset's name
     // CELL MACHINE stage-4: the CELL LIBRARY browser + the stamp mode (a saved cell awaiting placement).
     @State var showCellLibrary = false
+    @State var cellLibraryFromBuild = false   // the browser was opened from the BUILD page → save/stamp target the SELECTED COLOUR's chain, not an EDIT cell
     @State var cellLibraryList: [String] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
     @State var macroAuthorOpen = false
@@ -921,11 +922,13 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
-                if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser
+                if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser (BUILD-context routes to the selected colour's chain)
                     CellBrowser(cells: cellLibraryList, factory: au?.factoryLibraryCells().map { $0.name } ?? [],
-                                canSave: editingCell != nil,
-                                onSave: saveCellNamed, onStamp: stampFromLibrary, onStampFactory: stampFromFactory,
-                                onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false })
+                                canSave: cellLibraryFromBuild ? (buildSelID != nil) : (editingCell != nil),
+                                onSave: { name in if cellLibraryFromBuild { buildSaveColourToLibrary(name) } else { saveCellNamed(name) } },
+                                onStamp: { name in if cellLibraryFromBuild { buildStampLibrary(au?.loadLibraryCell(name: name)) } else { stampFromLibrary(name) } },
+                                onStampFactory: { name in if cellLibraryFromBuild { buildStampLibrary(au?.factoryLibraryCell(name: name)) } else { stampFromFactory(name) } },
+                                onDelete: deleteLibraryCellNamed, onClose: { showCellLibrary = false; cellLibraryFromBuild = false })
                 }
                 if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
                     VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)

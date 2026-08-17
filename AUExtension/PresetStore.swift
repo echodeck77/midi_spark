@@ -110,17 +110,34 @@ enum CellLibraryStore {
         func cell(_ colourID: String, _ slots: [ProcessorSlot]) -> Cell {
             var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; return c
         }
+        // A curated set of MUSICAL CHAINS (each is a colour's machine you STAMP onto the selected colour, then wire
+        // your own I/O). Rebuilt for the current 19-processor model (2026-08-17). Ordered light → dense.
         return [
-            ("Bloom",   cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 0] }, slot(.arp)])),
-            ("Stutter", cell("violet",  [slot(.passgate) { $0.passes = [true, true, true, true] }, slot(.ratchet) { $0.count = 4 }])),
-            ("Cascade", cell("magenta", [slot(.arp) { $0.octaves = 2 }, slot(.strum)])),
-            // MIDI DELAYS (user 2026-08-08) — stampable single-slot echoes, each a delay character (wire your own I/O).
-            ("Slap",    cell("gold",    [slot(.echo) { $0.echoDelayDiv = 3; $0.echoRepeats = 1; $0.echoFeedDelay = 0.85; $0.echoDecay = 0 }])),
-            ("Double",  cell("orange",  [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 3; $0.echoDecay = 0.5 }])),
-            ("Dub",     cell("wine",    [slot(.echo) { $0.echoDelayDiv = 4; $0.echoRepeats = 12; $0.echoDecay = 0.85 }])),
-            ("Rise",    cell("magenta", [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoDecay = 0.6; $0.echoPitch = 3 }])),
-            ("Fall",    cell("purple",  [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoDecay = 0.6; $0.echoPitch = -3 }])),
-            ("Canyon",  cell("indigo",  [slot(.echo) { $0.echoDelayDiv = 8; $0.echoRepeats = 3; $0.echoDecay = 0.7; $0.echoOffset = 0.2 }])),
+            // — melodic / arpeggiated —
+            ("Shimmer",    cell("gold",    [slot(.harmonize) { $0.harmIntervals = [7, 12, 19] },        // add 5th + octave + 12th
+                                            slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 }])),
+            ("Human Arp",  cell("vermilion",   [slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 },
+                                            slot(.humanize) { $0.spread = 0.35 }])),                    // loose, hand-played feel
+            ("Push",       cell("teal",    [slot(.shift) { $0.spread = 0.16 },                          // nudge the whole chord late
+                                            slot(.arp) { $0.pattern = .upDown; $0.rate = .r1_8 }])),
+            // — rhythmic gates / rolls —
+            ("Trance Gate",cell("cyan",    [slot(.length) { $0.lenSlices = [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute] }])),
+            ("Trap Roll",  cell("magenta", [slot(.ratchet) { $0.rtcMode = .pattern; $0.rtcSlices = [0, 0, 3, 0, 0, 4, 0, 2]; $0.rtcRate = .r1_16 }])),
+            ("Euclid Dub", cell("indigo",  [slot(.euclid) { $0.euclidPulses = 5; $0.euclidSteps = 8 },  // 5-in-8 pulse …
+                                            slot(.echo) { $0.echoDelayDiv = 6; $0.echoRepeats = 5; $0.echoDecay = 0.7 }])),  // … into a dotted dub tail
+            // — polyrhythm / ensemble —
+            ("Weave",      cell("violet",  [slot(.weave) { $0.weaveMode = .ladder; $0.weaveBaseStep = .r1_2; $0.weaveSpan = 4 }])),
+            ("Cascade",    cell("chartreuse",    [slot(.cascade) { $0.rate = .r1_4; $0.strumDir = .up }])),   // reveal the chord note by note
+            // — expressive / gestural —
+            ("Rake",       cell("orange",  [slot(.strum) { $0.strumDir = .down; $0.spread = 0.28; $0.velTilt = 0.5 }])),
+            ("Glide Bass", cell("wine",    [slot(.split) { $0.splitSet = ChordSplit(mode: .bottom, n: 1) },   // keep the lowest note …
+                                            slot(.glide) { $0.glideTime = 0.18; $0.glideRange = 12 }])),      // … as one sliding mono voice
+            ("Burst",      cell("blush",   [slot(.burst) { $0.count = 6; $0.curve = -0.6 },              // an accelerating entry roll …
+                                            slot(.harmonize) { $0.harmIntervals = [0, 12, 0] }])),       // … doubled an octave up
+            // — generative / evolving —
+            ("Sparse",     cell("purple",  [slot(.chance) { $0.probability = 0.55; $0.chanceDensity = true },
+                                            slot(.arp) { $0.pattern = .upDown; $0.rate = .r1_8 }])),
+            ("Tutti Stab", cell("mint",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.35; $0.tuttiPick = .high }])),
         ]
     }
 }

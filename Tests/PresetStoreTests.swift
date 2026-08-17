@@ -92,8 +92,8 @@ final class PresetStoreTests: XCTestCase {
             XCTAssertNil(cell.inputRow); XCTAssertNil(cell.inputReceiver, "\(name) has no input routing")
             XCTAssertNotNil(colourIDs.firstIndex(of: cell.colourID), "\(name)'s colour is canonical")
         }
-        let bloom = factory.first { $0.name == "Bloom" }!.cell   // round-trips like any saved cell
-        let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(bloom))
-        XCTAssertEqual(rt.processors?.count, 2, "Bloom = harmonize→arp")
+        let shimmer = factory.first { $0.name == "Shimmer" }!.cell   // round-trips like any saved cell
+        let rt = try! JSONDecoder().decode(Cell.self, from: JSONEncoder().encode(shimmer))
+        XCTAssertEqual(rt.processors?.count, 2, "Shimmer = harmonize→arp")
     }
 }
