@@ -111,6 +111,8 @@ struct DiagView: View {
     @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→colourID for non-default colours (long-press places a colour on its pressed cell)
     @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
+    @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
+    @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
     // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
     // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
     @State var buildPerformCells: [[String?]] = Array(repeating: Array(repeating: nil, count: 8), count: 8)

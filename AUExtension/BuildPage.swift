@@ -163,17 +163,43 @@ extension DiagView {
             .fill(cid.flatMap { colourColor($0) } ?? buildCell.opacity(0.35))
             .frame(width: w, height: cell)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
             .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cid != nil ? .black.opacity(0.7) : buildDim))
             .contentShape(Rectangle())
             .onTapGesture { buildTapColourTab(n) }
+    }
+    // A breathing white pulse (the pending-tab / previewed-row highlight).
+    @ViewBuilder private func buildPulseOverlay() -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            let ph = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)
+            RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.12 + 0.32 * ph)).allowsHitTesting(false)
+        }
     }
     private func buildTapColourTab(_ n: Int) {
         if let cid = buildRowColour(n) {                         // a SET tab → select its colour + play its row
             for c in 0..<8 { buildStagingSel[c] = n }
             buildSelectID(cid)
             buildStagingSyncIfPlaying()
+        } else {
+            buildPopulateTab(n)                                  // an EMPTY tab → create/copy/place, then pulse until edited
         }
-        // an EMPTY tab → create/copy/place/pulse (Phase 2)
+    }
+    // Touch an EMPTY tab: mint tab n's colour carrying a COPY of the last-selected colour's chain, place it on row n,
+    // select it, and mark it PENDING (pulsing). Only one pending → revert the previous one first. (Paul 2026-08-17)
+    private func buildPopulateTab(_ n: Int) {
+        let sourceChain = buildSelID.map { buildColourMachine($0) } ?? []
+        if let p = buildPendingTab, p != n {                     // ONE pending → discard the previous unedited candidate
+            if let old = buildRowColour(p) { buildPartCast.removeAll { $0 == old } }
+            buildSetRow(p, to: nil)
+        }
+        let y = buildNewTabColour(n, machine: sourceChain)       // tab n's fixed hue + the copied chain
+        buildPartCast.append(y)
+        buildSetRow(n, to: y)                                    // placed on part-grid row n
+        for c in 0..<8 { buildStagingSel[c] = n }
+        buildSelectID(y)
+        buildPendingTab = n
+        buildPendingSource = selectedColourChain()               // the exact form buildApplyChain compares against
+        buildStagingSyncIfPlaying()
     }
 
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
@@ -1327,7 +1353,10 @@ extension DiagView {
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // TARGET on EVERY cell matching the selected palette colour (editable), selected or not
-                                    .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying, id: id) }   // THE NOTE SWEEP (v1) — only when the PART grid plays
+                                    .overlay { ZStack {
+                                        if buildPendingTab == r { buildPulseOverlay() }   // PENDING tab → its row previews, pulsing
+                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying, id: id)   // THE NOTE SWEEP (v1)
+                                    } }
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -2399,6 +2428,10 @@ extension DiagView {
     private func buildApplyChain(_ chain: [ProcessorSlot]) {
         guard let cid = ddSelectedColourID else { return }
         buildWriteColourMachine(cid, chain)
+        // PLACED: a pending tab whose chain has diverged from its source is committed (stops pulsing). (2026-08-17)
+        if let p = buildPendingTab, buildRowColour(p) == cid, chain != buildPendingSource {
+            buildPendingTab = nil; buildPendingSource = []
+        }
     }
     private func buildChainEditSlot(_ i: Int, _ mutate: (inout ProcessorSlot) -> Void) {
         var c = selectedColourChain(); guard i < c.count else { return }; mutate(&c[i]); buildApplyChain(c)
