@@ -138,6 +138,42 @@ enum CellLibraryStore {
             ("Sparse",     cell("purple",  [slot(.chance) { $0.probability = 0.55; $0.chanceDensity = true },
                                             slot(.arp) { $0.pattern = .upDown; $0.rate = .r1_8 }])),
             ("Tutti Stab", cell("mint",    [slot(.tutti) { $0.tuttiMode = .coin; $0.tuttiBalance = 0.35; $0.tuttiPick = .high }])),
+
+            // ── SECOND SET (2026-08-17) — 20 more, each differing from the first set in an interesting way ──────────
+            // — harmony / voicing —
+            ("Descend",     cell("azure",     [slot(.harmonize) { $0.harmIntervals = [7, 12, 0] },              // 5th + octave …
+                                               slot(.arp) { $0.pattern = .down; $0.rate = .r1_16; $0.octaves = 2 }])),  // … falling (vs Shimmer's rise)
+            ("Wide Voicing",cell("green",     [slot(.harmonize) { $0.harmIntervals = [12, 16, 19] }])),          // octave · 10th · 12th — a spread chord
+            // — arpeggiator characters —
+            ("Down Runner", cell("slate",     [slot(.arp) { $0.pattern = .down; $0.rate = .r1_16; $0.octaves = 3; $0.arpFit = true }])),
+            ("Random Walk", cell("magenta",   [slot(.arp) { $0.pattern = .random; $0.rate = .r1_16; $0.octaves = 2 }])),
+            ("Top Line",    cell("chartreuse",[slot(.split) { $0.splitSet = ChordSplit(mode: .top, n: 2) },       // the two highest notes …
+                                               slot(.arp) { $0.pattern = .up; $0.rate = .r1_16 }])),             // … as a melody line
+            // — echo characters —
+            ("Climb",       cell("orange",    [slot(.echo) { $0.echoDelayDiv = 2; $0.echoRepeats = 6; $0.echoDecay = 0.6; $0.echoPitch = 2 }])),  // each echo a step higher
+            ("Cavern",      cell("indigo",    [slot(.echo) { $0.echoDelayDiv = 8; $0.echoRepeats = 4; $0.echoDecay = 0.7; $0.echoOffset = 0.2 }])),  // slow, wide, off-grid
+            // — weave modes (the first set only had LADDER) —
+            ("Harmonic Weave", cell("violet", [slot(.weave) { $0.weaveMode = .harmonic; $0.weaveBaseStep = .r1_4; $0.weaveSpan = 5 }])),
+            ("Euclid Weave",cell("purple",    [slot(.weave) { $0.weaveMode = .euclid; $0.weaveEuclidSteps = 8 }])),
+            ("Drawn Weave", cell("blush",     [slot(.weave) { $0.weaveMode = .drawn; $0.weaveDrawn = [.r1_1, .r1_2, .r1_4, .r1_8, .r1_8, .r1_4, .r1_2, .r1_1] }])),
+            // — sustained / pads —
+            ("Pad",         cell("teal",      [slot(.drone) { $0.gate = 0.9 }])),                                // hold the entry chord flat
+            ("Top Pad",     cell("cyan",      [slot(.split) { $0.splitSet = ChordSplit(mode: .top, n: 2) },       // the top two …
+                                               slot(.drone) { $0.gate = 0.85 }])),                               // … held as a pad
+            // — length / gate shapes (the first set only had the PASS/MUTE trance gate) —
+            ("Gallop",      cell("wine",      [slot(.length) { $0.lenSlices = [.short, .short, .mute, .short, .short, .mute, .short, .mute] }])),
+            ("Legato Tie",  cell("gold",      [slot(.length) { $0.lenSlices = [.long, .pass, .pass, .long, .pass, .pass, .long, .pass]; $0.lenLong = 0.85 }])),
+            // — ratchet modes (the first set only had PATTERN) —
+            ("Machine Gun", cell("vermilion", [slot(.ratchet) { $0.rtcMode = .all; $0.count = 4; $0.ramp = 0.3 }])),  // every step bursts
+            ("Coin Roll",   cell("magenta",   [slot(.ratchet) { $0.rtcMode = .coin; $0.rtcChance = 0.5; $0.rtcCountLo = 2; $0.rtcCountHi = 4 }])),  // sometimes rolls
+            // — set-level / voice —
+            ("Tutti Pattern",cell("blush",    [slot(.tutti) { $0.tuttiMode = .pattern; $0.tuttiSlices = [.all, .low, .high, .top2, .all, .low, .high, .all]; $0.tuttiRate = .r1_8 }])),
+            ("Glide Lead",  cell("green",     [slot(.glide) { $0.glideTime = 0.3; $0.glideRange = 7; $0.glidePriority = .high }])),  // slides, tracks the top note
+            // — CC + gate (first set had neither MOD nor PASSGATE) —
+            ("Filter Arp",  cell("slate",     [slot(.arp) { $0.pattern = .up; $0.rate = .r1_16; $0.octaves = 2 },
+                                               slot(.mod) { $0.modCC = 74; $0.modShape = .sine; $0.modRate = .r2 }])),  // an arp under a filter LFO
+            ("Skip Gate",   cell("azure",     [slot(.passgate) { $0.passes = [true, false, true, true] },        // drop every 2nd step …
+                                               slot(.arp) { $0.pattern = .up; $0.rate = .r1_8 }])),              // … then arp what passes
         ]
     }
 }
