@@ -1281,6 +1281,7 @@ extension DiagView {
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // TARGET on EVERY cell matching the selected palette colour (editable), selected or not
+                                    .overlay { buildNoteSweep(idx: c * 8 + r, hue: id.flatMap { colourColor($0) } ?? .white) }   // THE NOTE SWEEP (v1)
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -1615,7 +1616,10 @@ extension DiagView {
                                     .overlay { if let g = ghost, let gc = colourColor(g) {   // THE PREVIEW = a THICK, DIMMED OUTLINE in the colour (not a fill)
                                         RoundedRectangle(cornerRadius: 7).strokeBorder(gc.opacity(0.45), lineWidth: 3) } }
                                     .overlay { if id != nil && multiRung && activeRung { RoundedRectangle(cornerRadius: 7).stroke(Color.white, lineWidth: 2.5) } }   // WHITE = the selected rung (like the part grid)
-                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // THE TARGET rides every play-grid cell matching the selected machine
+                                    .overlay { ZStack {                                            // TARGET + NOTE SWEEP (folded into one overlay to keep the cell type-checkable)
+                                        if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) }   // THE TARGET rides every play-grid cell matching the selected machine
+                                        buildNoteSweep(idx: c * 8 + r, hue: id.flatMap { colourColor($0) } ?? .white)   // THE NOTE SWEEP (v1)
+                                    } }
                                     .opacity(muted || (id != nil && multiRung && !activeRung) ? 0.3 : 1)   // MUTED cell OR a non-selected rung dims
                                     .contentShape(Rectangle())
                                     .onTapGesture {
@@ -1652,6 +1656,47 @@ extension DiagView {
                     .allowsHitTesting(false)
             }
         }
+    }
+
+    // THE NOTE SWEEP (v1 — spec `AcceptanceCriteria-note-sweep.md`, ratified 2026-08-16). A line sweeps across the
+    // cell for as long as the note SOUNDS (note-off mid-travel = the line freezes where it got to → the note's length
+    // reads visually). VELOCITY is the stroke (weight + opacity). AXIS = ROTATION: each new strike moment takes the
+    // next edge (L→R · T→B · R→L · B→T) via cellStrikeSeq. Reuses the existing per-cell feeds (no new plumbing).
+    // Deferred: velocity-fed density governor · CONTOUR axis (needs a per-note pitch feed) · face-dimming. (2026-08-17)
+    @ViewBuilder private func buildNoteSweep(idx: Int, hue: Color) -> some View {
+        let hitAt = idx < cellHitAt.count ? cellHitAt[idx] : .distantPast
+        let vel = idx < cellHitVel.count ? cellHitVel[idx] : 0
+        let sounding = idx < cellSounding.count ? cellSounding[idx] : false
+        let releasedAt = idx < cellReleasedAt.count ? cellReleasedAt[idx] : .distantPast
+        let seq = idx < cellStrikeSeq.count ? cellStrikeSeq[idx] : 0
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+            Canvas { ctx, size in
+                let hasRelease = releasedAt > hitAt
+                let strikeAge = tl.date.timeIntervalSince(hitAt)
+                let releaseAge = tl.date.timeIntervalSince(releasedAt)
+                // LIFE: full while the note sounds; fades ~0.45s from release; a pluck the gate missed flashes ~0.5s.
+                let life = sounding ? 1.0 : (hasRelease ? max(0, 1 - releaseAge / 0.45) : max(0, 1 - strikeAge / 0.5))
+                guard life > 0.02, strikeAge >= 0 else { return }
+                // TRAVEL: the head advances while sounding, then FREEZES at the reach it had on release.
+                let elapsed = sounding ? strikeAge : max(0, releasedAt.timeIntervalSince(hitAt))
+                let progress = min(1.0, elapsed / 0.8)                 // crosses the cell in ~0.8s of sustained sound
+                let w = size.width, h = size.height
+                let (p0, p1): (CGPoint, CGPoint)
+                switch ((seq % 4) + 4) % 4 {                           // ROTATION axis
+                case 0:  (p0, p1) = (CGPoint(x: 0, y: h / 2), CGPoint(x: w, y: h / 2))     // L→R
+                case 1:  (p0, p1) = (CGPoint(x: w / 2, y: 0), CGPoint(x: w / 2, y: h))     // T→B
+                case 2:  (p0, p1) = (CGPoint(x: w, y: h / 2), CGPoint(x: 0, y: h / 2))     // R→L
+                default: (p0, p1) = (CGPoint(x: w / 2, y: h), CGPoint(x: w / 2, y: 0))     // B→T
+                }
+                let head = CGPoint(x: p0.x + (p1.x - p0.x) * progress, y: p0.y + (p1.y - p0.y) * progress)
+                var path = Path(); path.move(to: p0); path.addLine(to: head)
+                let weight = 1.5 + 3.0 * vel                           // VELOCITY IS THE STROKE — weight …
+                let alpha = min(1.0, (0.35 + 0.65 * vel) * life)       // … and opacity
+                ctx.stroke(path, with: .color(hue.opacity(alpha)), style: StrokeStyle(lineWidth: weight, lineCap: .round))
+            }
+            .padding(3)
+        }
+        .allowsHitTesting(false)
     }
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
