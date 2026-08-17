@@ -365,7 +365,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         for e in buildEphemeralColours where !temp.colours.contains(where: { $0.colourID == e.id }) {   // append BUILD ephemeral colours
             var col = Colour(colourID: e.id, type: .arp)
             col.defined = true
-            col.templateChain = e.machine
+            // An EMPTY machine is a born-audible PASSTHROUGH, not "no chain": store the bypassed-passgate placeholder,
+            // else the builder collapses [] → nil and falls to the legacy A-face (an ARP) — a seeded empty tab-1 colour
+            // played as an arp despite showing an empty chain. (Paul 2026-08-17)
+            col.templateChain = e.machine.isEmpty ? [passthroughTemplateSlot()] : e.machine
             temp.colours.append(col)
         }
         let si = temp.activeSceneResolved
