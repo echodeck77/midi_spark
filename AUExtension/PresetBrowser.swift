@@ -195,16 +195,21 @@ struct CellBrowser: View {
         }
     }
 
-    // One library row: name over its chain summary, a star rating, APPLY, and (saved only) delete. Tapping ANYWHERE
-    // on the row that isn't a button previews the chain; APPLY/stars/delete keep their own hit areas.
+    // One library row: a favourite star, then a PREVIEW region (name over its chain summary), then APPLY + (saved)
+    // delete. The preview region is its OWN tap target with no interactive children — so tapping anywhere across the
+    // name/summary/gap reliably previews, while the star/APPLY/delete buttons keep their own hit areas.
     @ViewBuilder private func libraryRow(_ e: LibEntry, saved: Bool) -> some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(e.name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(saved ? 0.9 : 0.8))
-                Text(e.chainSummary).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6)
+            favStar(e, editable: saved)
+            HStack(spacing: 0) {                               // ← the PREVIEW region (fills the line up to the buttons)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(e.name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(saved ? 0.9 : 0.8))
+                    Text(e.chainSummary).font(.system(size: 8.5, weight: .semibold, design: .monospaced)).foregroundColor(ink.opacity(0.4)).lineLimit(1).minimumScaleFactor(0.6)
+                }
+                Spacer(minLength: 0)
             }
-            starsView(e, editable: saved)
-            Spacer(minLength: 6)
+            .contentShape(Rectangle())
+            .onTapGesture { if saved { onPreview(e.name) } else { onPreviewFactory(e.name) } }
             Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 5).fill(cyan))
@@ -221,22 +226,13 @@ struct CellBrowser: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 6).fill(ink.opacity(saved ? 0.05 : 0.03)))
-        .contentShape(Rectangle())
-        .onTapGesture { if saved { onPreview(e.name) } else { onPreviewFactory(e.name) } }   // whole-row preview
     }
-    // A 5-star rating. Editable (saved cells): tap a star to set; tap the current top star to drop one. Factory cells
-    // render display-only, so a tap falls through to the row's preview.
-    @ViewBuilder private func starsView(_ e: LibEntry, editable: Bool) -> some View {
-        HStack(spacing: 1) {
-            ForEach(1...5, id: \.self) { k in
-                let filled = k <= e.stars
-                if editable {
-                    Image(systemName: filled ? "star.fill" : "star").font(.system(size: 10)).foregroundColor(filled ? amber : ink.opacity(0.22))
-                        .contentShape(Rectangle()).onTapGesture { onSetStars(e.name, e.stars == k ? k - 1 : k) }
-                } else {
-                    Image(systemName: filled ? "star.fill" : "star").font(.system(size: 10)).foregroundColor(filled ? amber : ink.opacity(0.22))
-                }
-            }
-        }
+    // A single FAVOURITE star (curation flag). Saved cells: tap to toggle. Factory cells: display-only (curated).
+    @ViewBuilder private func favStar(_ e: LibEntry, editable: Bool) -> some View {
+        let on = e.stars >= 1
+        Image(systemName: on ? "star.fill" : "star").font(.system(size: 13, weight: .semibold)).foregroundColor(on ? amber : ink.opacity(0.28))
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+            .onTapGesture { if editable { onSetStars(e.name, on ? 0 : 1) } }
     }
 }

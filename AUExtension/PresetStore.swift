@@ -116,7 +116,7 @@ enum CellLibraryStore {
         func slot(_ t: ProcessorType, _ f: (inout ColourParams) -> Void = { _ in }) -> ProcessorSlot {
             var p = ColourParams(); f(&p); return ProcessorSlot(type: t, params: p)
         }
-        func cell(_ colourID: String, _ slots: [ProcessorSlot], _ stars: Int = 3) -> Cell {
+        func cell(_ colourID: String, _ slots: [ProcessorSlot], _ stars: Int = 0) -> Cell {   // stars = FAVOURITE flag now (0/1); the curated standouts pass 1
             var c = Cell(colourID: colourID); c.processors = slots; c.buses = []; c.stars = stars; return c
         }
         // A curated set of MUSICAL CHAINS (each is a colour's machine you STAMP onto the selected colour, then wire
