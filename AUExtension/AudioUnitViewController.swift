@@ -260,6 +260,7 @@ struct DiagView: View {
     @State var cellStrikeSeq = [Int](repeating: 0, count: 64)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
+    @State var emitDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD emitter fader: the live drag velocity override per emitter (nil = not dragging)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
     @State var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
     @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
@@ -1352,7 +1353,7 @@ struct DiagView: View {
             rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
         }
         }
-    }
+       }
     // §11 ROW SELECT — a chevron per row, on BOTH sides of the grid, always visible (aligned past the column-
     // key row). Tapping a row applies the ACTIVE verb to that row's 8 cells (no-op if no verb is held). The
     // right rail points left, the left rail points right — both point INTO the grid. `chevron` picks which.

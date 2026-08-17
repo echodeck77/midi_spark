@@ -1502,7 +1502,7 @@ extension DiagView {
             // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
             AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
             Spacer(minLength: 0)
-            AnyView(buildBottomPlaceholder("EMITTER OUT"))       // bottom of the right column — the main emitter output
+            AnyView(buildEmittersBox())                          // bottom of the right column — the four main emitter controls (fader + M/S + RACK)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1973,6 +1973,67 @@ extension DiagView {
         .frame(width: gridW)
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+
+    // THE MAIN EMITTERS BOX (right column, bottom): four output controls (A–D), styled like the receivers panel.
+    // Each = an INTERACTIVE velocity fader (drag to override output velocity; bottom = kill; release = spring back)
+    // + Mute/Solo on one line + a prominent RACK toggle. (Paul 2026-08-17)
+    @ViewBuilder private func buildEmittersBox() -> some View {
+        HStack(spacing: 6) {                                       // the four emitters A–D sit side by side
+            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+    @ViewBuilder private func buildEmitterControl(_ i: Int) -> some View {
+        let letter = ["A", "B", "C", "D"][i]
+        let muted = !(i < busEnabled.count ? busEnabled[i] : true)
+        let soloed = emitterFootSolo & (1 << UInt8(i)) != 0
+        let racked = rackMask & (1 << UInt8(i)) != 0
+        let h: CGFloat = 14 + 68 + 3
+        HStack(spacing: 6) {
+            buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — full control height
+            VStack(spacing: 3) {
+                HStack(spacing: 3) {                                           // MUTE · SOLO on one line
+                    buildRecMini("M", on: muted, colour: buildPink) { toggleEmitter(i) }       // mute = disable the bus
+                    buildRecMini("S", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }
+                }.frame(height: 14)
+                buildRecProminent("RACK", on: racked, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleRack(i) }.frame(height: 68)   // the RACK gate, prominent
+            }.frame(height: h)
+        }
+    }
+    // The interactive velocity fader: the meter (emitPeak, decayed) normally; while DRAGGED it forces the emitter's
+    // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
+    @ViewBuilder private func buildEmitterFader(_ i: Int, letter: String) -> some View {
+        let override = i < emitDragVel.count ? emitDragVel[i] : nil
+        VStack(spacing: 2) {
+            Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
+            GeometryReader { g in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    let age = tl.date.timeIntervalSince(i < emitPeakAt.count ? emitPeakAt[i] : .distantPast)
+                    let meter = (i < emitPeak.count ? emitPeak[i] : 0) * max(0, 1 - age / 0.6)
+                    let level = override != nil ? Double(override!) / 127.0 : meter
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
+                        RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let frac = 1 - min(1, max(0, v.location.y / g.size.height))
+                        let vel = Int((frac * 127).rounded())
+                        if i < emitDragVel.count { emitDragVel[i] = vel }
+                        setVelOverride(i, vel)                          // 0 = kill
+                    }
+                    .onEnded { _ in
+                        if i < emitDragVel.count { emitDragVel[i] = nil }
+                        setVelOverride(i, nil)                          // release → natural velocity
+                    })
+            }
+        }
     }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
