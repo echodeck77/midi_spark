@@ -1895,7 +1895,7 @@ extension DiagView {
     // incoming-velocity meter (left) + a control stack (right): Mute/Solo on one line, then LATCH, then an ENABLE
     // button showing the door's MIDI channel — LATCH and ENABLE are the prominent pair. (Paul 2026-08-17)
     @ViewBuilder private func buildReceiversBox() -> some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 6) {                                       // the four doors A–D sit side by side
             ForEach(0..<4, id: \.self) { i in buildReceiverControl(i) }
         }
         .padding(10)
