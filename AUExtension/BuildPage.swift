@@ -1332,7 +1332,7 @@ extension DiagView {
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
-                                    .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // TARGET on EVERY cell matching the selected palette colour (editable), selected or not
+                                    // (the per-cell TARGET is gone — the selected colour now shows as the tinted ROW NUMBER on its rail, Paul 2026-08-17)
                                     .overlay { ZStack {
                                         if buildPendingTab == r { buildPulseOverlay() }   // PENDING tab → its row previews, pulsing
                                         buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying, id: id)   // THE NOTE SWEEP (v1)
@@ -1482,12 +1482,16 @@ extension DiagView {
                     let base = bands.prefix(idx).reduce(0, +)      // absolute grid-row offset for this band
                     VStack(spacing: BuildGeom.cellGap) {
                         ForEach(0..<rows, id: \.self) { r in
+                            let gridRow = base + r
+                            let rowCid = buildRowColour(gridRow)
+                            let isSel = rowCid != nil && rowCid == ddSelectedColourID   // this row holds the SELECTED colour
                             RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(Text("\(base + r + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7)))   // the ROW NUMBER 1–8
+                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(isSel ? (rowCid.flatMap { colourColor($0) } ?? buildEdge) : buildEdge, lineWidth: isSel ? 2 : 1))
+                                .overlay(Text("\(gridRow + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced))
+                                    .foregroundColor(isSel ? (rowCid.flatMap { colourColor($0) } ?? .white) : .white.opacity(0.7)))   // ROW NUMBER 1–8 — SHOWS THE SELECTED COLOUR when this row holds it (replaces the per-cell target)
                                 .contentShape(Rectangle())
-                                .onTapGesture { onRow?(base + r) }  // press → run the current row mode on that grid row
+                                .onTapGesture { onRow?(gridRow) }  // press → run the current row mode on that grid row
                         }
                     }
                 }
