@@ -370,7 +370,12 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         }
         let si = temp.activeSceneResolved
         if temp.scenes.indices.contains(si) {
-            if let sc = stagingRenderScene { temp.scenes[si] = sc }            // STAGING grid overrides the played scene
+            if let sc = stagingRenderScene {                                   // STAGING grid overrides the played scene …
+                var scene = sc                                                 // … but the staging scene is composed at defaults, so honour the LIVE
+                scene.stepRate = temp.scenes[si].stepRate                      // rate + swing (the header clock) — else the audition ignores the rate control
+                scene.swing = temp.scenes[si].swing
+                temp.scenes[si] = scene
+            }
             if let p = previewSolo { temp.scenes[si].setCell(p.col, p.row, p.cell) }
         }
         return temp
