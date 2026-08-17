@@ -2327,6 +2327,13 @@ final class Router {
         for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
         let count = srcNotes.count
         guard count > 0 else { return }
+        // [TUTTI PATTERN → LENGTH]: TUTTI PATTERN isn't a note-DRIVER, so a downstream LENGTH never reached the
+        // per-note fold (emitDriverNote) — it was silently dropped. Resolve the last non-bypassed LENGTH after the
+        // head here and fold its gate onto each slice hit below (same MUTE-drops / PASS-keeps / SHORT·LONG-override
+        // rule as emitDriverNote). (Paul 2026-08-17)
+        var lenP: SnapParams? = nil
+        var lj = 1
+        while lj < cell.procs.count { if !cell.slotBypass[lj] && cell.procs[lj].type == .length { lenP = cell.procs[lj] }; lj += 1 }
         let gStart = Int((mWinStart / sub).rounded(.down)), gEnd = Int((mWinEnd / sub).rounded(.down))
         guard gEnd >= gStart else { return }
         for g in gStart...gEnd {
@@ -2335,8 +2342,18 @@ final class Router {
             let idx = (((g + p.tuttiRotate) % 8) + 8) % 8
             let (ranks, oct) = tuttiSliceRanks(idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
             guard !ranks.isEmpty else { continue }                 // REST → silent slice
+            var offBeat = tau + sub * 0.9                           // TUTTI's own ~90%-of-slice gate
+            if let lp = lenP {                                     // downstream LENGTH overrides THIS slice's gate
+                let sIdx = ((chopSlice(tau, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
+                let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
+                switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
+                case .drop:                continue                 // MUTE → the slice rests
+                case .keep:                break                    // PASS → keep TUTTI's own gate
+                case .overrideOff(let ob): offBeat = ob             // SHORT/LONG → capped at the step end
+                }
+            }
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-            let offT = sampleOf(musical: tau + sub * 0.9, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            let offT = sampleOf(musical: offBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
             for rank in ranks where rank >= 0 && rank < count {
                 let n = srcNotes[rank].note + transpose + oct

@@ -159,3 +159,52 @@ final class AcceptanceLengthTests: XCTestCase {
         }
     }
 }
+
+// MARK: - [TUTTI PATTERN → LENGTH] — a downstream LENGTH now folds its gate onto each TUTTI slice hit (Paul 2026-08-17)
+
+final class AcceptanceTuttiPatternLengthChainTests: XCTestCase {
+    // CONCEPT: TUTTI PATTERN owns WHICH notes fire per slice; a downstream LENGTH then shapes each hit's DURATION —
+    // MUTE = the slice rests, PASS = keep TUTTI's own length, SHORT/LONG = override the off. LENGTH must not change
+    // WHICH pitches sound (MUTE only removes onsets). Locks the fix where LENGTH after TUTTI PATTERN was dropped
+    // entirely (TUTTI isn't a note-DRIVER, so the per-note emitDriverNote fold never reached the LENGTH slot).
+
+    private func pattern(_ state: TuttiSlice) -> ProcessorSlot {
+        var t = ProcessorSlot(type: .tutti)
+        t.params.tuttiMode = .pattern
+        t.params.tuttiSlices = Array(repeating: state, count: 8)   // all 8 slices identical → set = the state's shape
+        return t
+    }
+    private func lengthAll(_ s: LenState) -> ProcessorSlot {
+        var l = ProcessorSlot(type: .length)
+        l.params.lenSlices = Array(repeating: s, count: 8)
+        return l
+    }
+
+    func testDownstreamLengthMuteSilencesTuttiPattern() {
+        // THE REGRESSION: before the fix, LENGTH after TUTTI PATTERN was ignored → the chord sounded. all-MUTE rests.
+        XCTAssertTrue(Accept.onsA([pattern(.all), lengthAll(.mute)]).isEmpty,
+                      "[TUTTI PATTERN all-ALL → LENGTH all-MUTE] must be silent — every slice rests")
+    }
+
+    func testDownstreamLengthPassKeepsTuttiSelection() {
+        // PASS keeps TUTTI's own gate and never alters pitch: the fold is duration-only.
+        XCTAssertEqual(Accept.notesA([pattern(.high), lengthAll(.pass)]), [67],
+                       "[TUTTI PATTERN all-HIGH → LENGTH all-PASS] keeps TUTTI's HIGH selection")
+        XCTAssertEqual(Accept.notesA([pattern(.all), lengthAll(.pass)]), [60, 64, 67],
+                       "[TUTTI PATTERN all-ALL → LENGTH all-PASS] keeps the whole set")
+    }
+
+    func testDownstreamLengthShapesDurationNotPitch() {
+        // SHORT fires every slice (never drops), just shorter → the whole TUTTI set still sounds, no foreign pitch.
+        XCTAssertEqual(Accept.notesA([pattern(.all), lengthAll(.short)]), [60, 64, 67],
+                       "[TUTTI PATTERN all-ALL → LENGTH all-SHORT] shapes duration only — the whole set sounds")
+    }
+
+    func testDownstreamLengthMuteMaskDropsSlicesNotPitches() {
+        // A MUTE/PASS LENGTH mask over an all-ALL TUTTI PATTERN leaves gaps but still sounds the WHOLE chord set.
+        let mask: [LenState] = [.mute, .pass, .pass, .pass, .mute, .pass, .pass, .pass]
+        var len = ProcessorSlot(type: .length); len.params.lenSlices = mask
+        let ns = Accept.notesA([pattern(.all), len])
+        XCTAssertEqual(ns, [60, 64, 67], "gaps from MUTE slices, but the surviving slices still sound the whole set")
+    }
+}
