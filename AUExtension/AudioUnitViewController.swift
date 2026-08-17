@@ -145,6 +145,7 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
+    @AppStorage("midispark.showTabBar") var showTabBar = true     // the six-tab bar SHOWS by default; toggled on the cog page
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -915,7 +916,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
                             outAt: emitPeakAt, aboutLine: aboutLine,
-                            showScenes: $showScenes,
+                            showScenes: $showScenes, showTabBar: $showTabBar,
                             onSetEmitterChannel: setEmitterChannel,
                             onChanged: { busChannels = au?.uiBusChannels() ?? busChannels },
                             onClose: { showSettings = false })
@@ -1532,6 +1533,7 @@ struct DiagView: View {
                        activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
                        onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
+                       showTabBar: showTabBar,                                  // tab bar visibility (cog toggle)
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },

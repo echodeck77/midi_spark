@@ -31,6 +31,7 @@ struct ArrangementBar: View {
     var activeTab: AppTab = .grid           // LAYOUT v2: which surface is showing — the six-tab bar drives everything
     var onSetTab: (AppTab) -> Void = { _ in }
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
+    var showTabBar: Bool = true             // the six-tab bar SHOWS by default; toggled on the cog page (Paul 2026-08-17)
     var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
     var stepIndex: Int = 4                  // LAYOUT v2: the clock (STEP rate + SWING) moved into the header from ControlsView
     var swing: Int = 50
@@ -77,7 +78,7 @@ struct ArrangementBar: View {
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
-            tabBar.helpAnchor("#tab-bar")                                           // LAYOUT v2: the six-tab bar on its own row under the header
+            if showTabBar { tabBar.helpAnchor("#tab-bar") }                         // LAYOUT v2: the six-tab bar — toggleable on the cog page
             if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }
         .offset(x: sceneShakeX)                              // shake when the active scene refuses the trash
