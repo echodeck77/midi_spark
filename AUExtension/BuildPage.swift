@@ -1281,7 +1281,7 @@ extension DiagView {
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     .overlay { if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) } }   // TARGET on EVERY cell matching the selected palette colour (editable), selected or not
-                                    .overlay { buildNoteSweep(idx: c * 8 + r, hue: id.flatMap { colourColor($0) } ?? .white) }   // THE NOTE SWEEP (v1)
+                                    .overlay { buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying, id: id) }   // THE NOTE SWEEP (v1) — only when the PART grid plays
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -1430,7 +1430,7 @@ extension DiagView {
                             RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(buildPlaceArmed ? AnyView(Text(">>>").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)) : AnyView(buildRowButtonIcon()))   // PLACE armed → ">>>" (place target); else the ROW-MODE icon (chevron · wand)
+                                .overlay(buildPlaceArmed ? AnyView(Text(">>>").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)) : AnyView(Text("\(base + r + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))))   // PLACE armed → ">>>"; else the ROW NUMBER 1–8 (Paul 2026-08-17)
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(base + r) }  // press → run the current row mode on that grid row
                         }
@@ -1618,7 +1618,7 @@ extension DiagView {
                                     .overlay { if id != nil && multiRung && activeRung { RoundedRectangle(cornerRadius: 7).stroke(Color.white, lineWidth: 2.5) } }   // WHITE = the selected rung (like the part grid)
                                     .overlay { ZStack {                                            // TARGET + NOTE SWEEP (folded into one overlay to keep the cell type-checkable)
                                         if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) }   // THE TARGET rides every play-grid cell matching the selected machine
-                                        buildNoteSweep(idx: c * 8 + r, hue: id.flatMap { colourColor($0) } ?? .white)   // THE NOTE SWEEP (v1)
+                                        buildNoteSweep(idx: c * 8 + r, active: buildPerformPlaying, id: id)   // THE NOTE SWEEP (v1) — only when the PLAY grid plays
                                     } }
                                     .opacity(muted || (id != nil && multiRung && !activeRung) ? 0.3 : 1)   // MUTED cell OR a non-selected rung dims
                                     .contentShape(Rectangle())
@@ -1663,7 +1663,14 @@ extension DiagView {
     // reads visually). VELOCITY is the stroke (weight + opacity). AXIS = ROTATION: each new strike moment takes the
     // next edge (L→R · T→B · R→L · B→T) via cellStrikeSeq. Reuses the existing per-cell feeds (no new plumbing).
     // Deferred: velocity-fed density governor · CONTOUR axis (needs a per-note pitch feed) · face-dimming. (2026-08-17)
-    @ViewBuilder private func buildNoteSweep(idx: Int, hue: Color) -> some View {
+    // A hex lightened toward white by `t` (0…1) — the hue's BRIGHT tone.
+    private func buildLighten(_ hex: UInt32, _ t: Double) -> UInt32 {
+        func ch(_ s: Int) -> UInt32 { let c = Double((hex >> s) & 0xFF); return UInt32(max(0, min(255, c + (255 - c) * t))) }
+        return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+    }
+    @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?) -> some View {
+      if active, let cid = id {                                    // ONLY on a POPULATED cell of the grid that is the PLAYING voice
+        let hue = Color(hex: buildLighten(buildBaseHex(cid), 0.72))  // the hue's BRIGHT tone → visible over the same-colour face
         let hitAt = idx < cellHitAt.count ? cellHitAt[idx] : .distantPast
         let vel = idx < cellHitVel.count ? cellHitVel[idx] : 0
         let sounding = idx < cellSounding.count ? cellSounding[idx] : false
@@ -1697,6 +1704,7 @@ extension DiagView {
             .padding(3)
         }
         .allowsHitTesting(false)
+      }
     }
 
     // ── MACHINERY STRIP (bottom, full width): the chain — ID · IN box · slots + ghost · OUT box ────────────────────
