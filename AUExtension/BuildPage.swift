@@ -172,7 +172,7 @@ extension DiagView {
     @ViewBuilder private func buildPulseOverlay() -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
             let ph = 0.5 + 0.5 * sin(tl.date.timeIntervalSinceReferenceDate * 3.4)
-            RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.12 + 0.32 * ph)).allowsHitTesting(false)
+            RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.12 + 0.32 * ph)).allowsHitTesting(false)
         }
     }
     private func buildTapColourTab(_ n: Int) {
