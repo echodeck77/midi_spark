@@ -928,11 +928,7 @@ extension DiagView {
     // buildPanel), RIGHT-aligned so it sits at PART 1's row above each grid. The active side fills cyan.
     @ViewBuilder private func buildGridModeRadio(_ mode: Binding<BuildGridMode>, onEye: (() -> Void)? = nil) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "eye").font(.system(size: 13, weight: .semibold)).foregroundColor(buildCyan)   // LEFT: open this grid full-screen
-                .padding(.horizontal, 10).frame(height: 26)      // a chip matching PLAY/EDIT's height, with side padding
-                .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
-                .contentShape(Rectangle()).onTapGesture { onEye?() }
-            Spacer(minLength: 0)
+            Spacer(minLength: 0)                                  // the eye moved to the grid's top-left corner (buildGridCornerEye)
             ForEach([BuildGridMode.play, .edit], id: \.self) { m in
                 Text(m.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
                     .foregroundColor(mode.wrappedValue == m ? .black : buildDim)
@@ -942,6 +938,15 @@ extension DiagView {
                     .onTapGesture { mode.wrappedValue = m }
             }
         }
+    }
+    // The grid's full-screen "eye" — seated in the grid's TOP-LEFT CORNER cell (immediately left of the column
+    // selectors, immediately above the row selectors). popup 0 = the part grid · 1 = the play grid. (Paul 2026-08-17)
+    @ViewBuilder private func buildGridCornerEye(cell: CGFloat, popup: Int) -> some View {
+        Image(systemName: "eye").font(.system(size: min(15, cell * 0.55), weight: .semibold)).foregroundColor(buildCyan)
+            .frame(width: cell, height: cell)
+            .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+            .contentShape(Rectangle())
+            .onTapGesture { if popup == 1 { buildPlayMode = .play }; buildGridPopup = popup }
     }
 
     // The selected door's MIDI-IN CHANNEL box (keyboard-sized) — tap opens a channel selector (OMNI · CH 1–16).
@@ -1221,13 +1226,7 @@ extension DiagView {
         let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
-            HStack(spacing: 6) {                                  // EDIT mode retired for the part grid (Paul 2026-08-16) — just the full-screen zoom remains
-                Image(systemName: "eye").font(.system(size: 13, weight: .semibold)).foregroundColor(buildCyan)
-                    .padding(.horizontal, 10).frame(height: 26)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(buildPanel))
-                    .contentShape(Rectangle()).onTapGesture { buildGridPopup = 0 }
-                Spacer(minLength: 0)
-            }
+            Color.clear.frame(height: 26)                        // the eye moved into the grid's top-left corner; keep the row so the grids stay aligned
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE box IS this column's button box (a 3×2: verbs + reserved blanks)
             Spacer(minLength: 0)
@@ -1294,6 +1293,7 @@ extension DiagView {
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
         }
+        .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
     }
 
     // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; otherwise none.
@@ -1500,7 +1500,7 @@ extension DiagView {
                 }
                 // FLATTEN on → the right per-rung buttons; off → the SAME buttons hidden (reserves width, no touch) so the grid stays the same size
                 buildFlattenMode ? AnyView(buildRightPartButtons(cell: cell, hue: buildCyan)) : AnyView(buildRightPartButtons(cell: cell, hue: buildCyan).hidden())
-            })
+            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) })   // the eye in the play grid's top-left corner cell
             // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
             AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
             Spacer(minLength: 0)
