@@ -1378,7 +1378,7 @@ extension DiagView {
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
     @ViewBuilder private func buildStagingVerbBox(gridW: CGFloat) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.place, enabled: false); buildRowModeBtn(.mutate) }   // PLACE disabled here — it moved to the left column's PLACE button (Paul 2026-08-17)
+            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.mutate); buildFlattenButton() }   // SELECT ⟷ MUTATE radio (PLACE moved to the left column); FLATTEN placeholder (Paul 2026-08-17)
             HStack(spacing: 6) { buildBlankSlot(); buildBlankSlot(); buildBlankSlot() }   // reserved — left blank for now (Paul 2026-08-16)
         }
         .padding(8)
@@ -1834,6 +1834,25 @@ extension DiagView {
         .contentShape(Rectangle())
         .onTapGesture { if enabled { buildExitPlaceMode(); buildStageTheGrid() } }
         .allowsHitTesting(enabled)
+    }
+
+    // FLATTEN — the third verb-box button (where MUTATE used to sit). Placeholder for now: a colour chip (the same
+    // small box as PLACE/FILL) + "FLATTEN >>>". Sized to the verb-box buttons (36pt). No action yet. (Paul 2026-08-17)
+    @ViewBuilder private func buildFlattenButton() -> some View {
+        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))
+        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
+        HStack(spacing: 3) {
+            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // same size as the PLACE/FILL chip
+            Text("FLATTEN").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
+                .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.4)
+            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
+        }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)          // match the SELECT/MUTATE buttons
+        .background(RoundedRectangle(cornerRadius: 9).fill(buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildEdge, lineWidth: 1))
+        .contentShape(Rectangle())                                              // placeholder — no action wired yet
     }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
