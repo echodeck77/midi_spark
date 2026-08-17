@@ -143,10 +143,37 @@ extension DiagView {
     // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {
-            Color.clear.frame(height: cell)                       // the invisible header row (mirrors the grids' loop-key row — untouchable)
-            AnyView(buildCastSection(castW: castW, cell: cell))   // rows 1–4: the cast (8×4)
-            AnyView(buildProcessorBlock(castW: castW, cell: cell))// rows 5–8: the chain as a 4×2 of 2×2-cell boxes
+            AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8)
+            AnyView(buildProcessorBlock(castW: castW, cell: cell))// the selected tab's chain, as a 4×2 of 2×2-cell boxes
         }
+    }
+    // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
+    // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
+    @ViewBuilder private func buildColourTabs(castW: CGFloat, cell: CGFloat) -> some View {
+        let gap = BuildGeom.castGap
+        let tabW = (castW - gap * 7) / 8
+        HStack(spacing: gap) {
+            ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell) }
+        }
+    }
+    @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat) -> some View {
+        let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
+        let selected = cid != nil && cid == ddSelectedColourID
+        RoundedRectangle(cornerRadius: 6)
+            .fill(cid.flatMap { colourColor($0) } ?? buildCell.opacity(0.35))
+            .frame(width: w, height: cell)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cid != nil ? .black.opacity(0.7) : buildDim))
+            .contentShape(Rectangle())
+            .onTapGesture { buildTapColourTab(n) }
+    }
+    private func buildTapColourTab(_ n: Int) {
+        if let cid = buildRowColour(n) {                         // a SET tab → select its colour + play its row
+            for c in 0..<8 { buildStagingSel[c] = n }
+            buildSelectID(cid)
+            buildStagingSyncIfPlaying()
+        }
+        // an EMPTY tab → create/copy/place/pulse (Phase 2)
     }
 
     // The chain as the block's lower half: 8 processor boxes, each the size of 2×2 cast cells, laid 1·2·3·4 /
@@ -689,13 +716,31 @@ extension DiagView {
         buildSyncColours()
         return ids
     }
-    // Seed part 1's palette with ITS OWN fresh defaults, ONCE. Every NEW part gets its own too (see buildAddPart). §2.
+    // Mint a TAB colour: an ephemeral colour carrying `machine` with tab n's FIXED hue (colourHexes[n]), verbatim
+    // (no uniquify — a tab always shows the same colour). (Paul 2026-08-17 — the 8-tab model)
+    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot]) -> String {
+        let hex = n < colourHexes.count ? colourHexes[n] : 0x808080
+        buildIDCounter += 1
+        let id = "b\(buildIDCounter)"
+        buildColourReg[id] = machine
+        colourHueOverride[id] = hex
+        buildSyncColours()
+        return id
+    }
+    // Seed TAB 1 (part-grid row 1) with an EMPTY PASSTHROUGH colour; tabs 2–8 stay empty. It plays + is selected.
+    private func buildSeedTab1() {
+        let y1 = buildNewTabColour(0, machine: [])
+        buildSetRow(0, to: y1)
+        buildPartCast = [y1]; buildCastSlots = [:]
+        for c in 0..<8 { buildStagingSel[c] = 0 }
+        buildSelectID(y1)
+    }
+    // Seed the workshop ONCE, on first BUILD appear. (Was: 8×4 default cast; now the single TAB 1.) §2.
     func buildSeedCastIfNeeded() {
         guard !buildCastSeeded else { return }
         buildCastSeeded = true
-        buildPartCast = buildFreshDefaultCast(); buildCastSlots = [:]   // defaults are positional (top-left block) — no explicit slots
+        buildSeedTab1()
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].cast = buildPartCast }
-        buildEnsureCastSelection()
     }
     // Keep the selection within the PART's cast (its own palette). A fresh, EMPTY cast → NO selection: the footer + the
     // machine audition have nothing until the user adds a colour. Replaces the global ddEnsureSelection on BUILD. §2.
@@ -731,8 +776,9 @@ extension DiagView {
         if let reuse = buildParts.indices.first(where: { $0 != buildCurrentPart && buildPartIsUnused(buildParts[$0]) }) {
             buildLoadPart(reuse)   // pristine already — keep its OWN per-part defaults, just switch to it
         } else {
-            var fresh = BuildPart(); fresh.cast = buildFreshDefaultCast()   // a new part → its own fresh defaults
+            let fresh = BuildPart()                                         // a new part opens on TAB 1 (empty passthrough)
             buildParts.append(fresh); buildLoadPart(buildParts.count - 1)
+            buildSeedTab1()
         }
     }
     // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
