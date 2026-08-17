@@ -131,7 +131,7 @@ extension DiagView {
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
             AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · PLACE / LIBRARY · FILL — directly below the processor section
             Spacer(minLength: 0)
-            AnyView(buildBottomPlaceholder("RECEIVERS"))          // bottom of the left column — the receivers rebuild lands here
+            AnyView(buildReceiversBox())                          // bottom of the left column — the four input doors (A–D)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         // §1 THE THREAD (colour-architecture): a thin selected-hue edge down the LEFT column → it reads with the
@@ -1889,6 +1889,72 @@ extension DiagView {
         let allUnmuted = cols.allSatisfy { !buildPerformMute.contains($0 * 8 + r) }
         for c in cols { let k = c * 8 + r; if allUnmuted { buildPerformMute.insert(k) } else { buildPerformMute.remove(k) } }
         buildPublishScene()
+    }
+
+    // THE RECEIVERS BOX (left column, bottom): four identical controls (A–D), one per input door. Each = a live
+    // incoming-velocity meter (left) + a control stack (right): Mute/Solo on one line, then LATCH, then an ENABLE
+    // button showing the door's MIDI channel — LATCH and ENABLE are the prominent pair. (Paul 2026-08-17)
+    @ViewBuilder private func buildReceiversBox() -> some View {
+        VStack(spacing: 6) {
+            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+    @ViewBuilder private func buildReceiverControl(_ i: Int) -> some View {
+        let rec = i < receivers.count ? receivers[i] : Receiver()
+        let letter = ["A", "B", "C", "D"][i]
+        let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
+        let latched = latchMask & (1 << UInt8(i)) != 0
+        let h: CGFloat = 54
+        HStack(spacing: 6) {
+            buildReceiverMeter(i, letter: letter).frame(width: 22, height: h)   // velocity indicator — full control height
+            VStack(spacing: 3) {
+                HStack(spacing: 3) {                                            // MUTE · SOLO on one line
+                    buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
+                    buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
+                }.frame(height: 14)
+                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }.frame(height: 17)
+                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }.frame(height: 17)   // ENABLE, labelled with the channel
+            }.frame(height: h)
+        }
+    }
+    private func recChanLabel(_ rec: Receiver) -> String { rec.channel == 0 ? "OMNI" : "CH \(rec.channel)" }
+    // The incoming-velocity meter: the door letter over a bottom-filling bar that peaks on input then decays.
+    @ViewBuilder private func buildReceiverMeter(_ i: Int, letter: String) -> some View {
+        VStack(spacing: 2) {
+            Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
+                let level = max(0, (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.6))
+                GeometryReader { g in
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
+                        RoundedRectangle(cornerRadius: 3).fill(buildCyan.opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, level)))
+                    }
+                }
+            }
+        }
+    }
+    // A small square-ish Mute/Solo toggle.
+    @ViewBuilder private func buildRecMini(_ label: String, on: Bool, colour: Color, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? .black : .white.opacity(0.7))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? colour : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    // A PROMINENT toggle (thicker edge, bold, strong lit colour) — used for LATCH and ENABLE.
+    @ViewBuilder private func buildRecProminent(_ label: String, on: Bool, colour: Color, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(on ? .black : .white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? colour : buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.clear : buildEdge, lineWidth: 1.5))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
     }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
