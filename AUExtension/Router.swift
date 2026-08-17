@@ -1160,6 +1160,7 @@ final class Router {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
+            if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
             if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
             if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
@@ -1790,6 +1791,13 @@ final class Router {
                 }
                 continue
             }
+            if let li = composableLengthTailIndex(cell) {   // [<composable upstream> → LENGTH]: LENGTH re-articulates the composed set (no driver to fold it per-note)
+                emitLengthComposedRow(cell: cell, row: r, colour: colour, transpose: transpose, emits: emits,
+                                      lenIdx: li, pool: pool, beatPos: beatPos, windowBeats: windowBeats,
+                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                      S: S, a: a, out: out, diag: &diag)
+                continue
+            }
             if isHoldTailChain(cell) { continue }   // CELL MACHINE: a hold-tail chain emits at column boundaries (emitColumnHolds), not here
 
             switch mode {
@@ -2294,7 +2302,30 @@ final class Router {
     private func isHoldTailChain(_ cell: SnapCell) -> Bool {
         guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
         if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
-        switch last.type { case .passgate, .chance, .harmonize: return true; default: return false }
+        switch last.type {
+        case .passgate, .chance, .harmonize: return true
+        case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
+        case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
+        default: return false
+        }
+    }
+    /// A NO-DRIVER chain whose last non-bypassed slot is LENGTH, sitting after a composable (hold) upstream —
+    /// `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`, `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`, `[PASSGATE → LENGTH]`.
+    /// Returns the LENGTH slot index; such a cell re-articulates its composed upstream set through LENGTH's gate
+    /// (emitLengthComposedRow), so BOTH the standalone tick-loop switch and emitColumnHolds must defer to it. LENGTH
+    /// re-articulates, so it can't be a plain hold-tail (isHoldTailChain). A TUTTI-PATTERN head is EXCLUDED —
+    /// emitTuttiPatternRow already folds a downstream LENGTH per slice, preserving PATTERN's own rhythm. (Paul 2026-08-17)
+    private func composableLengthTailIndex(_ cell: SnapCell) -> Int? {
+        guard chainDriverIndex(cell) < 0 else { return nil }             // a driver already folds LENGTH per-note (emitDriverNote)
+        var last = -1, i = cell.procs.count - 1
+        while i >= 0 { if !cell.slotBypass[i] { last = i; break }; i -= 1 }
+        guard last >= 1, cell.procs[last].type == .length else { return nil }
+        var head = -1, h = 0
+        while h < cell.procs.count { if !cell.slotBypass[h] { head = h; break }; h += 1 }
+        if head >= 0, head != last, cell.procs[head].type == .tutti, cell.procs[head].tuttiMode == .pattern { return nil }
+        var hasUpstream = false, k = 0
+        while k < last { if !cell.slotBypass[k] && cell.procs[k].type != .length { hasUpstream = true; break }; k += 1 }
+        return hasUpstream ? last : nil
     }
     /// A cell whose chain TAIL is ECHO and is NOT tick-driven: single-slot `[ECHO]`, or a hold-upstream chain like
     /// `[PASSGATE→ECHO]` / `[HARMONIZE→ECHO]`. `emitEchoColumn` registers its tail from the composed upstream set;
@@ -2392,6 +2423,47 @@ final class Router {
                     guard n >= 0 && n <= 127 else { continue }
                     storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
                     if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, sn.vel), out: out, diag: &diag) }
+                }
+            }
+            col += S
+        }
+    }
+
+    /// LENGTH after a non-driver, composable upstream — `[TUTTI COIN → LENGTH]`, `[HARMONIZE → LENGTH]`,
+    /// `[CHANCE → LENGTH]`, `[SPLIT → LENGTH]`, `[PASSGATE → LENGTH]`. LENGTH isn't a note-DRIVER, so its gate never
+    /// reached the per-note fold (emitDriverNote) and was silently dropped. Re-articulate the COMPOSED upstream set
+    /// (composeChainSet up to the slot before LENGTH) through LENGTH's 8-slice gate — recomposed at each column start
+    /// so per-step-seeded upstreams (TUTTI COIN / CHANCE) stay loop-consistent. Same emitArtic lifecycle + step-capped
+    /// offs as emitLengthRow → no stuck notes. (Paul 2026-08-17)
+    private func emitLengthComposedRow(cell: SnapCell, row r: Int, colour: SnapColour, transpose: Int, emits: Bool,
+                                       lenIdx: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
+                                       windowStart: Int64, windowEnd: Int64, beatsPerSample: Double, S: Double,
+                                       a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
+        guard S > 0, lenIdx >= 1, lenIdx < cell.procs.count else { return }
+        let lp = cell.procs[lenIdx]
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
+        let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
+        let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
+        let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
+        let cycleBeats = Double(Snap.cols) * S
+        var col = columnStart(mWinStart, S)
+        while col < mWinEnd {
+            composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this column
+            let cnt = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
+            if cnt > 0 {
+                let events = lengthColumnEvents(slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: S)
+                for e in events where e.on >= mWinStart && e.on < mWinEnd {
+                    let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+                    let tbm = chopMask(cell, m: e.on, S: S, base: bm)
+                    for k in 0..<cnt {
+                        let src = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
+                        let n = Int(src) + transpose
+                        guard n >= 0 && n <= 127 else { continue }
+                        let v = max(1, chainScratch.velocity(src))
+                        storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
+                        if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: v, out: out, diag: &diag) }
+                    }
                 }
             }
             col += S

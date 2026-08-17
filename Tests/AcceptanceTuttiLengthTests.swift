@@ -208,3 +208,75 @@ final class AcceptanceTuttiPatternLengthChainTests: XCTestCase {
         XCTAssertEqual(ns, [60, 64, 67], "gaps from MUTE slices, but the surviving slices still sound the whole set")
     }
 }
+
+// MARK: - [<hold> → LENGTH] — LENGTH after ANY non-driver hold now re-articulates the composed set (Paul 2026-08-17)
+
+final class AcceptanceHoldToLengthChainTests: XCTestCase {
+    // A downstream LENGTH after a NON-driver hold (TUTTI COIN / HARMONIZE / CHANCE / SPLIT / PASSGATE) was silently
+    // dropped — no driver to fold it per-note, and LENGTH re-articulates so it can't be a plain hold-tail. Now the
+    // composed upstream set is re-articulated through LENGTH's gate. MUTE-all proves the gate bites; PASS-all proves
+    // it's duration-only (the composed pitch set is preserved).
+
+    private func coin(_ balance: Double, _ pick: TuttiPick) -> ProcessorSlot {
+        var t = ProcessorSlot(type: .tutti); t.params.tuttiMode = .coin; t.params.tuttiBalance = balance; t.params.tuttiPick = pick; return t
+    }
+    private func harm(_ ivs: [Int]) -> ProcessorSlot { var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = ivs; return h }
+    private func chance(_ p: Double) -> ProcessorSlot { var c = ProcessorSlot(type: .chance); c.params.probability = p; return c }
+    private func lenAll(_ s: LenState) -> ProcessorSlot { var l = ProcessorSlot(type: .length); l.params.lenSlices = Array(repeating: s, count: 8); return l }
+
+    func testTuttiCoinThenLengthMuteIsSilenced() {
+        XCTAssertTrue(Accept.onsA([coin(1, .low), lenAll(.mute)]).isEmpty,
+                      "[TUTTI COIN bal=1 → LENGTH all-MUTE] must be silent — the gate now reaches past TUTTI COIN")
+    }
+    func testTuttiCoinThenLengthPassKeepsTheSet() {
+        XCTAssertEqual(Accept.notesA([coin(1, .low), lenAll(.pass)]), [60, 64, 67],
+                       "[TUTTI COIN bal=1 → LENGTH all-PASS] passes the whole coin-TUTTI set")
+        XCTAssertEqual(Accept.notesA([coin(0, .high), lenAll(.pass)]), [67],
+                       "[TUTTI COIN bal=0 HIGH → LENGTH all-PASS] keeps TUTTI's SOLO top note")
+    }
+    func testHarmonizeThenLengthMuteIsSilenced() {
+        XCTAssertTrue(Accept.onsA([harm([12, 0, 0]), lenAll(.mute)]).isEmpty,
+                      "[HARMONIZE +12 → LENGTH all-MUTE] must be silent — the gate reaches past HARMONIZE")
+    }
+    func testHarmonizeThenLengthPassKeepsTheExpandedSet() {
+        XCTAssertEqual(Accept.notesA([harm([12, 0, 0]), lenAll(.pass)]), [60, 64, 67, 72, 76, 79],
+                       "[HARMONIZE +12 → LENGTH all-PASS] sounds the harmonized set — duration only")
+    }
+    func testChanceThenLengthMuteIsSilenced() {
+        XCTAssertTrue(Accept.onsA([chance(1), lenAll(.mute)]).isEmpty,
+                      "[CHANCE p=1 → LENGTH all-MUTE] must be silent")
+    }
+    func testChanceThenLengthPassKeepsTheSet() {
+        XCTAssertEqual(Accept.notesA([chance(1), lenAll(.pass)]), [60, 64, 67],
+                       "[CHANCE p=1 → LENGTH all-PASS] passes the whole set (p=1 keeps every note)")
+    }
+}
+
+// MARK: - [<hold> → SPLIT] · [<hold> → TUTTI COIN] — a set-FILTER tail after a non-driver hold now composes (Paul 2026-08-17)
+
+final class AcceptanceHoldToSetFilterChainTests: XCTestCase {
+    // A SPLIT or TUTTI-COIN TAIL after a non-driver hold was ignored — isHoldTailChain only knew passgate/chance/
+    // harmonize, so the transform keyed off the HEAD and the tail did nothing. Now they compose: the upstream hold
+    // is built (composeChainSet), then the tail filters/rolls that set.
+
+    private func harm(_ ivs: [Int]) -> ProcessorSlot { var h = ProcessorSlot(type: .harmonize); h.params.harmIntervals = ivs; return h }
+    private func splitBottom(_ n: Int) -> ProcessorSlot { var s = ProcessorSlot(type: .split); s.params.splitSet = ChordSplit(mode: .bottom, n: n); return s }
+    private func splitTop(_ n: Int) -> ProcessorSlot { var s = ProcessorSlot(type: .split); s.params.splitSet = ChordSplit(mode: .top, n: n); return s }
+    private func coin(_ balance: Double, _ pick: TuttiPick) -> ProcessorSlot {
+        var t = ProcessorSlot(type: .tutti); t.params.tuttiMode = .coin; t.params.tuttiBalance = balance; t.params.tuttiPick = pick; return t
+    }
+
+    func testHarmonizeThenSplitBottomKeepsTheLowest() {
+        // HARMONIZE +12 → {60,64,67,72,76,79}; SPLIT BOTTOM 1 keeps the lowest = {60}.
+        XCTAssertEqual(Accept.notesA([harm([12, 0, 0]), splitBottom(1)]), [60],
+                       "[HARMONIZE +12 → SPLIT BOTTOM 1] keeps only the lowest of the harmonized set")
+    }
+    func testHarmonizeThenSplitTopKeepsTheHighest() {
+        XCTAssertEqual(Accept.notesA([harm([12, 0, 0]), splitTop(1)]), [79],
+                       "[HARMONIZE +12 → SPLIT TOP 1] keeps only the highest of the harmonized set")
+    }
+    func testHarmonizeThenTuttiCoinSoloLowKeepsTheLowest() {
+        XCTAssertEqual(Accept.notesA([harm([12, 0, 0]), coin(0, .low)]), [60],
+                       "[HARMONIZE +12 → TUTTI COIN bal=0 LOW] solos the lowest of the harmonized set")
+    }
+}
