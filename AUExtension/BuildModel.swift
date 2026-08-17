@@ -14,6 +14,7 @@ struct BuildPart: Codable, Equatable {
     var rowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: what a row REVERTS to when its colour is stamped elsewhere
     var selID: String? = nil          // the cast selection BY ID (supports ephemeral colours)
     var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store
+    var castSlots: [Int: String] = [:] // §2 explicit slot→colourID placements for NON-default colours (long-press lands a colour on its pressed cell)
     var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
     var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
     var deployed: Bool = false        // christened (PART n) once deployed to the play grid

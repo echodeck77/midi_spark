@@ -129,7 +129,7 @@ extension DiagView {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; pairs with the grids' column button
             AnyView(buildPartHeader())                            // the part selector — pairs (roughly) with the grids' mode radios
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
-            AnyView(buildFooterBox(labels: ["🎲 RANDOMIZE", "MUTATE", "PLACE", "", "", ""]))   // the control box, directly below the processor section (button 3 = PLACE)
+            AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · PLACE / LIBRARY · FILL — directly below the processor section
             Spacer(minLength: 0)
             AnyView(buildBottomPlaceholder("RECEIVERS"))          // bottom of the left column — the receivers rebuild lands here
         }
@@ -192,7 +192,7 @@ extension DiagView {
         }
         .frame(width: w, height: h)                               // … centred in the full cell footprint
         .contentShape(Rectangle())
-        .onTapGesture { if populated { buildEditSlot = i } else { buildAddSlot = i } }
+        .onTapGesture { buildExitPlaceMode(); if populated { buildEditSlot = i } else { buildAddSlot = i } }   // a processor box is not a play-grid row → leaves PLACE mode
     }
 
     @ViewBuilder private func buildInputSection(castW: CGFloat) -> some View {
@@ -416,6 +416,7 @@ extension DiagView {
     }
     // Select a colour BY ID (document or ephemeral) — the ID-based BUILD selection.
     private func buildSelectID(_ id: String) {
+        buildExitPlaceMode()                                     // choosing a colour is a non-(play-row) touch → leave PLACE mode
         buildSelID = id                                          // the DISPLAY selection updates immediately (target, footer, highlight)
         ddColourSel = colourIDs.firstIndex(of: id) ?? -1
         ddStickyReceiver = buildSelReceiver
@@ -429,13 +430,46 @@ extension DiagView {
     private func buildComplexity(_ chain: [ProcessorSlot]) -> Int { let e = Dice.evalRun(chain); return e.sig.count * 100 + e.peak }   // note frequency (×100) + concurrency
     // The base hue of a colour (its override if any, else its palette hex).
     private func buildBaseHex(_ id: String) -> UInt32 { colourHueOverride[id] ?? colourIDs.firstIndex(of: id).map { colourHexes[$0] } ?? 0x808080 }
-    // No two colours may share a hue (Paul 2026-08-16): if `hex` is already taken, nudge it to the nearest distinct
-    // shade — stops two MUTATE variants of one source landing on the identical lighter/darker tone.
+    // Every hue currently IN USE by a live colour: the materialised document colours + every ephemeral/recoloured
+    // override. An UNASSIGNED canonical hex is NOT counted — so a new colour can claim a genuinely distinct
+    // canonical hue rather than a near-shade of its source. (Paul 2026-08-17)
+    private func buildUsedHues() -> Set<UInt32> {
+        var used = Set(colourHueOverride.values)
+        for (i, id) in colourIDs.enumerated() where ddColourShown(i) { used.insert(buildBaseHex(id)) }
+        return used
+    }
+    // A hue guaranteed UNUSED and, wherever possible, VISIBLY distinct: an unassigned canonical palette hue first,
+    // else a canonical seed perturbed until it clears everything in use. The engine behind the "no two alike" rule.
+    private func buildDistinctHue() -> UInt32 {
+        let used = buildUsedHues()
+        if let fresh = colourHexes.first(where: { !used.contains($0) }) { return fresh }
+        for seed in colourHexes {
+            var h = seed, n = 0
+            while used.contains(h) && n < 128 { n += 1; h = buildPerturbHex(seed, by: n) }
+            if !used.contains(h) { return h }
+        }
+        return 0x808080
+    }
+    // STRONG RULE (Paul 2026-08-17): no two colours may EVER share a hue. Keep `hex` if it is free, else nudge to
+    // the nearest distinct shade, and if THAT still collides fall back to a guaranteed-distinct hue. Never returns
+    // a used hue.
     private func buildUniqueHue(_ hex: UInt32) -> UInt32 {
-        var used = Set(colourHueOverride.values); used.formUnion(colourHexes)
+        let used = buildUsedHues()
+        if !used.contains(hex) { return hex }
         var h = hex, n = 0
-        while used.contains(h) && n < 96 { n += 1; h = buildPerturbHex(hex, by: n) }
-        return h
+        while used.contains(h) && n < 128 { n += 1; h = buildPerturbHex(hex, by: n) }
+        return used.contains(h) ? buildDistinctHue() : h
+    }
+    // STRONG RULE: no two PALETTE (cast) colours share a hue. Any member whose hue duplicates an earlier member is
+    // recoloured to a distinct hue. Call after any cast mutation.
+    private func buildEnforceCastHues() {
+        var seen = Set<UInt32>(); var changed = false
+        for id in buildPartCast {
+            let h = buildBaseHex(id)
+            if seen.contains(h) { let nh = buildDistinctHue(); colourHueOverride[id] = nh; seen.insert(nh); changed = true }
+            else { seen.insert(h) }
+        }
+        if changed { buildSyncColours() }
     }
     private func buildPerturbHex(_ h: UInt32, by d: Int) -> UInt32 {
         func ch(_ shift: Int) -> UInt32 { let c = Int((h >> shift) & 0xFF); return UInt32(max(0, min(255, c + (c < 128 ? d : -d)))) }   // push each channel toward its extreme by an increasing step
@@ -579,7 +613,7 @@ extension DiagView {
         var p = buildParts[buildCurrentPart]
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
         p.rowChain = buildRowChain; p.rowShade = buildRowShade; p.rowUnder = buildRowUnder
-        p.selID = buildSelID; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast
+        p.selID = buildSelID; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
         buildParts[buildCurrentPart] = p
     }
     private func buildLoadPart(_ i: Int) {
@@ -588,8 +622,10 @@ extension DiagView {
         let p = buildParts[i]
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
-        buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast
-        buildPulseColourID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
+        buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
+        buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
+        buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
+        buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
         buildEnsureCastSelection()                              // §2: keep the selection inside this part's cast (empty cast → none)
         buildStagingSyncIfPlaying()
     }
@@ -604,7 +640,7 @@ extension DiagView {
             var p = BuildPart()                                 // the live workshop IS the unassigned part — freshest from @State
             p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel; p.rowChain = buildRowChain
             p.rowShade = buildRowShade; p.rowUnder = buildRowUnder; p.selID = buildSelID
-            p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.deployed = false
+            p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots; p.deployed = false
             part = p
         } else if let stored = buildParts.first(where: { !$0.deployed }) {
             part = stored                                       // viewing a deployed part → the unassigned one is stored
@@ -658,7 +694,7 @@ extension DiagView {
     func buildSeedCastIfNeeded() {
         guard !buildCastSeeded else { return }
         buildCastSeeded = true
-        buildPartCast = buildFreshDefaultCast()
+        buildPartCast = buildFreshDefaultCast(); buildCastSlots = [:]   // defaults are positional (top-left block) — no explicit slots
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].cast = buildPartCast }
         buildEnsureCastSelection()
     }
@@ -1071,34 +1107,60 @@ extension DiagView {
                 .overlay(Text("+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildDim))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
                 .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0.4) { buildAddCastColour() }
+                .onLongPressGesture(minimumDuration: 0.4) { buildCloneLastColour(atSlot: i) }   // long-press an empty cell → clone the last-used colour onto THIS cell
         }
     }
 
     // THE PALETTE GRID stays 8×4 (32 slots). The 8 DEFAULTS occupy the TOP-LEFT 4×2 block (a proportion of the grid);
     // user-added colours fill from the BOTTOM-RIGHT corner (slot 31 first, then 30, …) so a new colour "starts bottom-right".
     private var buildCastDefaultCount: Int { min(Self.buildDefaultTypes.count, buildPartCast.count) }
-    // slot (0–31) → the buildPartCast index shown there, or nil (an empty slot). 8 cols × 4 rows.
+    // Is a slot part of the top-left 4×2 DEFAULT block (which is positional), vs the freely-placeable extras region?
+    private func buildIsDefaultSlot(_ slot: Int) -> Bool { let row = slot / 8, col = slot % 8; return row < 2 && col < 4 }
+    // slot (0–31) → the buildPartCast index shown there, or nil (an empty slot). 8 cols × 4 rows. The default block is
+    // positional (top-left); every OTHER colour sits where it was explicitly placed (buildCastSlots).
     private func buildCastMemberAt(_ slot: Int) -> Int? {
         let dc = buildCastDefaultCount
-        let row = slot / 8, col = slot % 8
-        if row < 2 && col < 4 {                                       // the top-left 4×2 default block
-            let k = row * 4 + col
+        if buildIsDefaultSlot(slot) {                                 // the top-left 4×2 default block
+            let row = slot / 8, col = slot % 8, k = row * 4 + col
             return k < dc ? k : nil
         }
-        let a = 31 - slot                                            // adds fill from the bottom-right corner
-        return (a >= 0 && a < buildPartCast.count - dc) ? dc + a : nil
+        guard let id = buildCastSlots[slot] else { return nil }       // extras live at their explicitly-placed slot
+        return buildPartCast.firstIndex(of: id)
     }
-    // The bottom-right-most FREE add slot — where the next colour is proposed/committed (nil once the palette is full).
-    private func buildFirstFreePaletteSlot() -> Int? {
-        let slot = 31 - (buildPartCast.count - buildCastDefaultCount)
-        return slot > 11 ? slot : nil                                 // adds live below/right of the default block; never collide with it
+    // The bottom-right-most FREE add slot — where the next auto-added colour lands (nil once the palette is full).
+    private func buildFirstFreeCastSlot() -> Int? {
+        for slot in stride(from: 31, through: 0, by: -1) where !buildIsDefaultSlot(slot) && buildCastSlots[slot] == nil { return slot }
+        return nil
+    }
+    private func buildFirstFreePaletteSlot() -> Int? { buildFirstFreeCastSlot() }
+    // Reconcile buildCastSlots with membership: drop stale slots, and give every extra member a slot (migrates old
+    // parts saved before castSlots existed, and keeps auto-added colours visible).
+    private func buildReslotCast() {
+        buildCastSlots = buildCastSlots.filter { buildPartCast.contains($0.value) && !buildIsDefaultSlot($0.key) }
+        let dc = buildCastDefaultCount
+        var slotted = Set(buildCastSlots.values)
+        for m in dc..<buildPartCast.count {
+            let id = buildPartCast[m]
+            if !slotted.contains(id), let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id; slotted.insert(id) }
+        }
     }
     // The next UNDEFINED global colour to materialize (nil = all 16 exist).
     private func buildFirstUndefinedGlobal() -> Int? { (0..<colourIDs.count).first { !ddColourShown($0) } }
     // ADD a fresh (passthrough) colour to THIS part's cast: a free DOCUMENT slot if one remains, else an unlimited
     // EPHEMERAL colour with a canonical-ish hue. Then select it. (Paul 2026-08-15 — no 16-colour cap.)
-    private func buildAddCastColour() {
+    // Long-pressing an empty cast cell CLONES the last-used colour: a brand-new colour carrying the SAME machine
+    // (settings) as the currently-selected colour — the last one placed or whose settings were changed — under a
+    // fresh unique hue. Falls back to a blank colour when nothing is selected yet. (Paul 2026-08-17)
+    private func buildCloneLastColour(atSlot slot: Int? = nil) {
+        guard let src = buildSelID else { buildAddCastColour(atSlot: slot); return }
+        let id = buildNewColour(hex: buildDistinctHue(), machine: buildColourMachine(src))   // SAME settings, a genuinely DIFFERENT colour (never reuse the source hue)
+        if !buildPartCast.contains(id) { buildPartCast.append(id) }
+        buildPlaceCastSlot(id, slot)                                                          // land it on the LONG-PRESSED cell (else first-free)
+        buildEnforceCastHues()                                                                // strong rule: never two alike in the cast
+        buildPulseColourID = nil                                                              // the clone IS the commit — never leave the SOURCE strobing
+        buildSelectID(id)
+    }
+    private func buildAddCastColour(atSlot slot: Int? = nil) {
         let id: String
         if let j = buildFirstUndefinedGlobal() {
             buildCreateColour(j); id = colourIDs[j]
@@ -1107,17 +1169,38 @@ extension DiagView {
             buildColourReg[id] = []; colourHueOverride[id] = colourHexes[buildIDCounter % colourHexes.count]; buildSyncColours()
         }
         if !buildPartCast.contains(id) { buildPartCast.append(id) }
+        buildPlaceCastSlot(id, slot)
+        buildEnforceCastHues()                                                                // strong rule: never two alike in the cast
         buildSelectID(id)
+    }
+    // Assign a NON-default colour its cast slot: the requested one if it's a free extras cell, else the first free.
+    private func buildPlaceCastSlot(_ id: String, _ requested: Int?) {
+        buildCastSlots = buildCastSlots.filter { $0.value != id }                             // this colour claims exactly one slot
+        if let s = requested, !buildIsDefaultSlot(s), buildCastSlots[s] == nil { buildCastSlots[s] = id }
+        else if let s = buildFirstFreeCastSlot() { buildCastSlots[s] = id }
     }
     // Commit the pulsing candidate: a staged VARIATION becomes a NEW palette colour (carrying its machine); an existing
     // colour is simply selected. Either way the colour is SELECTED (its machine loads into the footer) — and THE TARGET
     // then marks it in the cast + on its selected grid cells, so the user edits the machine knowing what's in focus.
     private func buildCommitPulse() {
         guard let pid = buildPulseColourID else { buildPulseColourID = nil; return }
-        if !buildPartCast.contains(pid) { buildPartCast.append(pid) }   // LAST TOUCHED promotes the colour (document or ephemeral) INTO the cast
+        if !buildPartCast.contains(pid) { buildPartCast.append(pid); buildPlaceCastSlot(pid, nil); buildEnforceCastHues() }   // LAST TOUCHED promotes the colour INTO the cast (first-free slot)
+        if pid == buildAuditionID { buildAuditionID = nil }           // it graduated from candidate to a real cast colour
         buildSelectID(pid)                                             // select it (loads its machine into the footer)
         buildPulseColourID = nil; buildPulseChain = []
         refreshFromDocument()
+    }
+    // After PLACING, audition a NEW colour on the palette: the placed piece's SETTINGS under a DISTINCT hue, pulsing
+    // as a "create a duplicate" candidate. Leaves the selection alone and never marks the placed colour — so the
+    // original stops strobing. Reuses ONE standing ephemeral candidate (no leak). Tap the pulse to keep it. (2026-08-17)
+    private func buildAuditionDuplicate(of src: String) {
+        let machine = buildColourMachine(src)
+        let id: String
+        if let a = buildAuditionID, !buildPartCast.contains(a), buildColourReg[a] != nil { id = a }   // recolour/reuse the last uncommitted candidate
+        else { buildIDCounter += 1; id = "b\(buildIDCounter)" }
+        buildColourReg[id] = machine; colourHueOverride[id] = buildDistinctHue(); buildSyncColours()
+        buildAuditionID = id
+        buildPulseColourID = id; buildPulseChain = machine
     }
 
     // Create a colour on BUILD as a PASSTHROUGH machine (empty chain → unprocessed MIDI). A bare `defined` colour
@@ -1173,11 +1256,18 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a row button → do the current ROW MODE
-                switch buildRowMode {
-                case .select: buildSelectRow(row)                                           // select the whole row's rung
-                case .place:  buildStampRow(row)                                            // write the selected colour across the row
-                case .mutate: buildMutateRow(row)                                           // a value-tweaked variant of the selected colour
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a part-grid row button
+                if buildPlaceArmed {                                                        // PLACE armed → stamp the selected colour across the row; STAYS armed for more rows
+                    let placed = ddSelectedColourID
+                    buildStampRow(row)
+                    if let p = placed { buildAuditionDuplicate(of: p) }                     // offer a same-settings, DIFFERENT-colour duplicate on the palette
+                }
+                else {
+                    switch buildRowMode {
+                    case .select: buildSelectRow(row)                                       // select the whole row's rung
+                    case .place:  buildStampRow(row)                                        // (unreachable — PLACE retired from the verb box)
+                    case .mutate: buildMutateRow(row)                                       // a value-tweaked variant of the selected colour
+                    }
                 }
             }
             VStack(spacing: BuildGeom.cellGap) {
@@ -1288,7 +1378,7 @@ extension DiagView {
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
     @ViewBuilder private func buildStagingVerbBox(gridW: CGFloat) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.place); buildRowModeBtn(.mutate) }   // the ROW-BUTTON mode radio
+            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.place, enabled: false); buildRowModeBtn(.mutate) }   // PLACE disabled here — it moved to the left column's PLACE button (Paul 2026-08-17)
             HStack(spacing: 6) { buildBlankSlot(); buildBlankSlot(); buildBlankSlot() }   // reserved — left blank for now (Paul 2026-08-16)
         }
         .padding(8)
@@ -1334,7 +1424,7 @@ extension DiagView {
                             RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
-                                .overlay(buildRowButtonIcon())      // icon reflects the ROW MODE (chevron · target · mutate) — Paul 2026-08-16
+                                .overlay(buildPlaceArmed ? AnyView(Text(">>>").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)) : AnyView(buildRowButtonIcon()))   // PLACE armed → ">>>" (place target); else the ROW-MODE icon (chevron · wand)
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(base + r) }  // press → run the current row mode on that grid row
                         }
@@ -1360,7 +1450,7 @@ extension DiagView {
                     .overlay(Text(set ? "\(idx + 1)" : "+").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(set ? (mine ? 0.95 : 0.6) : 0.4)))   // SET shows the number; EMPTY shows a + (deploy-here)
                     .overlay(alignment: .leading) { if mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: the deployed band's bright-ink RAIL BRACKET (others sit dim)
                     .contentShape(Rectangle())
-                    .onTapGesture { buildBandValve(base: base, rows: rows) }   // THE VALVE: empty → flatten+stash+clear · set → restore
+                    .onTapGesture { buildExitPlaceMode(); buildBandValve(base: base, rows: rows) }   // play-grid button → not a part-grid row, so it leaves PLACE mode; THE VALVE: empty → flatten+stash+clear · set → restore
             }
         }
     }
@@ -1382,7 +1472,7 @@ extension DiagView {
                     .overlay(Text(whole ? "" : (set ? letter : "+")).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(whole ? 0.2 : (set ? (mine ? 0.95 : 0.6) : 0.4))))   // SET → the rung letter · EMPTY → + · WHOLE band → inert
                     .overlay(alignment: .trailing) { if set && mine { Rectangle().fill(buildPartInk).frame(width: 3) } }   // §2: current part's rung gets the bright-ink bracket
                     .contentShape(Rectangle())
-                    .onTapGesture { buildRowValve(row: r) }   // RIGHT per-rung valve: deploy this rung / restore its sub-part (one at a time)
+                    .onTapGesture { buildExitPlaceMode(); buildRowValve(row: r) }   // play-grid button → leaves PLACE mode; then the per-rung valve
             }
         }
     }
@@ -1597,7 +1687,8 @@ extension DiagView {
                 HStack(spacing: BuildGeom.cellGap) {
                     ForEach(0..<3, id: \.self) { c in
                         let idx = r * 3 + c
-                        buildFooterBoxBtn(idx < labels.count ? labels[idx] : "")
+                        let label = idx < labels.count ? labels[idx] : ""
+                        if label == "PLACE" { buildPlaceButton() } else { buildFooterBoxBtn(label) }
                     }
                 }
             }
@@ -1611,29 +1702,103 @@ extension DiagView {
     @ViewBuilder private func buildFooterBoxBtn(_ label: String) -> some View {
         let empty = label.isEmpty
         let live = label.contains("RANDOMIZE")
-        let isPlace = label == "PLACE"
-        let armed = isPlace && buildRowMode == .place            // PLACE reflects the SAME mode the verb box drives
-        HStack(spacing: 4) {
-            Text(label)
-                .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(armed ? .black : (live ? buildPink : .white))
-                .lineLimit(1).minimumScaleFactor(0.5)
-            if isPlace { Image(systemName: "chevron.right").font(.system(size: 10, weight: .black)).foregroundColor(buildSelHue) }   // the PLACE chevron, in the SELECTED colour
+        Text(label)
+            .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(live ? buildPink : .white)
+            .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)   // FIXED height (min==max) — a flexible box competes with the column's Spacer and stretches to the screen bottom
+            .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(live ? buildPink.opacity(0.55) : buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
+            .contentShape(Rectangle())
+            .onTapGesture { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any control button leaves PLACE mode
+    }
+
+    // The PLACE button (left column). A standalone TOGGLE (not a radio): a colour CHIP (the selected colour on a
+    // contrast-picked ground) + ">>>". When armed it shows the INVERSE of its idle colours; arming lights the play
+    // grid's row buttons with ">>>". Any non-play-grid-row touch disarms it (buildExitPlaceMode). (Paul 2026-08-17)
+    @ViewBuilder private func buildPlaceButton() -> some View {
+        let armed = buildPlaceArmed
+        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))            // is the SELECTED colour dark?
+        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)   // contrast ground behind the square
+        let ink: Color = armed ? buildCell : .white                          // inverse when armed
+        HStack(spacing: 3) {
+            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // the small square, in the SELECTED colour
+            Text("PLACE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
+                .foregroundColor(ink).lineLimit(1).minimumScaleFactor(0.4)
+            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced))
+                .foregroundColor(armed ? buildCell : buildSelHue)
         }
-        .padding(.horizontal, 4)
-        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)   // FIXED height (min==max) — a flexible box competes with the column's Spacer and stretches to the screen bottom
-        .background(RoundedRectangle(cornerRadius: 8).fill(armed ? buildCyan : buildCell))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(live ? buildPink.opacity(0.55) : buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
+        .padding(.horizontal, 5)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+        .background(RoundedRectangle(cornerRadius: 8).fill(armed ? Color.white.opacity(0.92) : buildCell))   // INVERSE ground when armed
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture {
-            if isPlace { buildRowMode = .place }                 // arm PLACE — identical to the verb-box PLACE
-            else { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any OTHER button leaves PLACE mode
-        }
+        .onTapGesture { buildPlaceArmed.toggle() }                          // TOGGLE — tapping PLACE again disarms
     }
 
     // PLACE is armed by the PLACE button / the verb-box radio; clicking any button that ISN'T a grid row selector
     // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
-    private func buildExitPlaceMode() { if buildRowMode == .place { buildRowMode = .select } }
+    private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false } }
+
+    // The LEFT column's control box. Row 1: RANDOMIZE · MUTATE · PLACE. Row 2: the cell LIBRARY (spanning the two
+    // left cells) + FILL (styled like PLACE; runs the old STAGE THE GRID). (Paul 2026-08-17)
+    @ViewBuilder private func buildLeftControlBox() -> some View {
+        let gap = BuildGeom.cellGap
+        VStack(spacing: gap) {
+            HStack(spacing: gap) {
+                buildFooterBoxBtn("🎲 RANDOMIZE")
+                buildFooterBoxBtn("MUTATE")
+                buildPlaceButton()
+            }
+            GeometryReader { g in                                            // exact 2:1 split so the row aligns with the 3 above
+                let btnW = (g.size.width - gap * 2) / 3
+                HStack(spacing: gap) {
+                    buildLibraryButton().frame(width: btnW * 2 + gap)        // occupies the two LEFT cells
+                    buildFillButton().frame(width: btnW)                     // the third cell
+                }
+            }
+            .frame(height: 34)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+    }
+
+    // The cell LIBRARY opener (the browser used on EDIT), sat across the two left cells of the control box.
+    @ViewBuilder private func buildLibraryButton() -> some View {
+        Text("LIBRARY").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+            .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { buildExitPlaceMode(); openCellLibrary() }
+    }
+
+    // FILL — styled identically to PLACE (colour chip + ">>>"), but it's an ACTION not a mode: it runs the old
+    // STAGE THE GRID (fills the part grid to 8 rows). Disabled until the staging grid has content.
+    @ViewBuilder private func buildFillButton() -> some View {
+        let enabled = buildStagingPopulated
+        let selDark = buildIsDark(buildBaseHex(buildSelID ?? ""))
+        let chipGround: Color = selDark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
+        HStack(spacing: 3) {
+            RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // the same colour square as PLACE
+            Text("FILL").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
+                .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.4)
+            Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
+        }
+        .padding(.horizontal, 5)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+        .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
+        .opacity(enabled ? 1 : 0.35)
+        .contentShape(Rectangle())
+        .onTapGesture { if enabled { buildExitPlaceMode(); buildStageTheGrid() } }
+        .allowsHitTesting(enabled)
+    }
 
     // A bottom-of-column placeholder box (receivers · emitter-select · emitter-out). Contents are stubs for now;
     // the styling (panel fill + edge outline + fixed height) matches the button boxes so all columns read alike.
@@ -1718,15 +1883,17 @@ extension DiagView {
             .onTapGesture { action?() }
     }
     // The SELECT · PLACE · MUTATE radio — a pure radio (always one active) that changes what the left row buttons DO.
-    @ViewBuilder private func buildRowModeBtn(_ m: BuildRowMode) -> some View {
-        let armed = buildRowMode == m
+    @ViewBuilder private func buildRowModeBtn(_ m: BuildRowMode, enabled: Bool = true) -> some View {
+        let armed = buildRowMode == m && enabled
         Text(m.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(armed ? Color.black : Color.white)
             .frame(maxWidth: .infinity).frame(minHeight: 36, maxHeight: 36)   // FIXED height — else the verb box stretches to the page bottom (competes with the Spacer)
             .background(RoundedRectangle(cornerRadius: 9).fill(armed ? buildCyan : buildCell))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(armed ? Color.clear : buildEdge, lineWidth: 1))   // §0: armed keeps the cyan fill; idle mutes to a whisper
+            .opacity(enabled ? 1 : 0.3)                                        // DISABLED (PLACE) → greyed, inert
             .contentShape(Rectangle())
-            .onTapGesture { buildRowMode = m }
+            .onTapGesture { if enabled { buildExitPlaceMode(); buildRowMode = m } }   // a verb is not a play-grid row → leaves PLACE mode
+            .allowsHitTesting(enabled)
     }
     // The left row-button icon for the current mode: a chevron (SELECT), the TARGET (PLACE) or a wand (MUTATE); the
     // latter two carry the SELECTED palette colour so you see what a press will lay down. (Paul 2026-08-16)

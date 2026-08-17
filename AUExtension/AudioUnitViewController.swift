@@ -88,7 +88,8 @@ struct DiagView: View {
     // BUILD page (user 2026-08-11): the selected PART's cast colour (index into the part palette; −1 = none). Placement-skeleton state.
     @State var buildSelReceiver: Int = 0      // BUILD left column: the INPUT door (R1–R4) the machine's INPUT face edits
     // BUILD verbs (iteration 4: drag retires → PLACE · MOVE · DELETE spring-held verbs). The armed verb (nil = none).
-    @State var buildRowMode: BuildRowMode = .place   // part grid: what the left row buttons do (SELECT · PLACE · MUTATE); lands on PLACE — Paul 2026-08-16
+    @State var buildRowMode: BuildRowMode = .select  // STAGING grid: what its left row buttons do (SELECT · MUTATE; PLACE retired from the centre column — Paul 2026-08-17)
+    @State var buildPlaceArmed: Bool = false         // PLAY-grid PLACE mode — a standalone toggle (NOT the staging radio); armed from the left PLACE button
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
@@ -105,6 +106,8 @@ struct DiagView: View {
     @State var buildReturnPart: Int? = nil               // QoL: the UNDEFINED bench to auto-return to after promoting a restored part (Paul 2026-08-15)
     @State var buildPartEmitters: Set<Bus> = [.a]        // the CURRENT part's output emitters (part-owned I/O; every colour follows)
     @State var buildPartCast: [String] = []              // the CURRENT part's cast MEMBERSHIP (visible palette over the global store); §2 cast view
+    @State var buildCastSlots: [Int: String] = [:]       // §2 explicit slot→colourID for non-default colours (long-press places a colour on its pressed cell)
+    @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
     // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
     // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.
