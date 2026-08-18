@@ -133,9 +133,6 @@ extension DiagView {
             AnyView(buildReceiversBox())                          // bottom of the left column — the four input doors (A–D)
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        // §1 THE THREAD (colour-architecture): a thin selected-hue edge down the LEFT column → it reads with the
-        // chain (also hue-framed) as ONE object — the machine's anatomy. Alpha is a starting point; Paul tunes on glass.
-        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1).fill(buildSelHue.opacity(0.55)).frame(width: 2).padding(.vertical, 6) }
     }
 
     // The 8×8-equivalent machine block. An INVISIBLE, untouchable header row lands the cast one cell down, on the
