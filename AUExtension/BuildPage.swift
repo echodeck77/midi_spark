@@ -158,15 +158,17 @@ extension DiagView {
     // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
     @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs only (grid verbs moved below the part grid)
-            buildChainBtn("LIBRARY")       { buildOpenLibrary() }
-            buildChainBtn("<<< RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
-            buildChainBtn("<<< MUTATE")    { buildMutateChain() }       // nudge the chain
-            buildChainBtn("<<< CLEAR")     { buildClearChain() }        // empty the chain
+        VStack(spacing: 0) {                                                  // the CHAIN-scope verbs — SPREAD across the chain-block height (Paul 2026-08-18)
+            buildChainBtn("LIBRARY")   { buildOpenLibrary() }
+            Spacer(minLength: 4)
+            buildChainBtn("RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
+            Spacer(minLength: 4)
+            buildChainBtn("MUTATE")    { buildMutateChain() }       // nudge the chain
+            Spacer(minLength: 4)
+            buildChainBtn("CLEAR")     { buildClearChain() }        // empty the chain
         }
-        .frame(width: width)
-        .frame(height: height, alignment: .center)                           // centre VERTICALLY within the chain-block height
-        .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain (Paul 2026-08-18)
+        .frame(width: width, height: height)                                 // fill the chain-block height so the Spacers spread the buttons
+        .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain
     }
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {
