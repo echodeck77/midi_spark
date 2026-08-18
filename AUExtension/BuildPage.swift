@@ -2024,17 +2024,31 @@ extension DiagView {
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
         let latched = latchMask & (1 << UInt8(i)) != 0
-        let h: CGFloat = 122                                                    // total control height, split into 3 EQUAL rows on the right (Paul 2026-08-18)
+        let h: CGFloat = 148                                                    // total control height, split into 4 EQUAL rows on the right (Paul 2026-08-18)
         HStack(spacing: 6) {
             buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
-            VStack(spacing: 3) {                                                // three EQUAL rows, top → bottom
+            VStack(spacing: 3) {                                                // four EQUAL rows, top → bottom
                 buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
-                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }                                   // MIDDLE: LATCH
+                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }                                   // LATCH
+                buildRecOct(i)                                                  // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // BOTTOM: SOLO (left) · MUTE (right)
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
                     buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
                 }
             }.frame(height: h)
+        }
+    }
+    // The receiver's OCTAVE nudge row: −  OCT ±n  + (input transpose; ephemeral, ±3 octaves). (Paul 2026-08-18)
+    @ViewBuilder private func buildRecOct(_ i: Int) -> some View {
+        let oct = i < receiverOctave.count ? receiverOctave[i] : 0
+        HStack(spacing: 3) {
+            buildRecMini("−", on: false, colour: buildCyan) { nudgeReceiverOctave(i, -1) }.frame(width: 16)
+            Text("OCT \(oct > 0 ? "+" : "")\(oct)").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(oct == 0 ? .white.opacity(0.6) : buildCyan).lineLimit(1).minimumScaleFactor(0.5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(buildEdge, lineWidth: 1))
+            buildRecMini("+", on: false, colour: buildCyan) { nudgeReceiverOctave(i, 1) }.frame(width: 16)
         }
     }
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
