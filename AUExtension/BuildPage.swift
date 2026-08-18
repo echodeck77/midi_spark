@@ -162,7 +162,7 @@ extension DiagView {
         RoundedRectangle(cornerRadius: 6)
             .fill(selected ? (tint ?? buildRowButtonFill) : buildRowButtonFill)
             .frame(width: w, height: cell)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : buildEdge, lineWidth: selected ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : (tint ?? buildEdge), lineWidth: (selected || tint != nil) ? 2 : 1))   // SELECTED = white; populated = its colour outline; empty = the faint edge
             .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
             .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(selected ? .black.opacity(0.7) : (tint ?? .white.opacity(0.7))))   // populated → the colour's TEXT; empty → grey; selected → black on the fill
