@@ -1399,7 +1399,7 @@ extension DiagView {
         let hue = buildSelHue
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) })).padding(.bottom, 6)   // tap = play/STOP the part; enabled once EITHER grid has content
-            AnyView(buildStagingGrid(cell: cell, hue: hue)).padding(.bottom, 6)   // the PART grid
+            AnyView(buildStagingGrid(cell: cell, hue: hue)).padding(.bottom, 12)   // the PART grid (doubled gap to the verb buttons, Paul 2026-08-18)
             AnyView(buildGridVerbButtons())                       // RANDOMIZE · MUTATE · CLEAR — the grid-scope verbs (Paul 2026-08-18)
             Spacer(minLength: 0)                                  // the I/O box now spans BOTH grid columns below them (buildIOBox); receivers moved there (Paul 2026-08-18)
         }
@@ -1674,7 +1674,7 @@ extension DiagView {
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
-            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 6)   // the eye in the play grid's top-left corner cell
+            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 12)   // the eye in the play grid's top-left corner cell (doubled gap to the rack buttons)
             AnyView(buildRackButtons())                          // four RACK placeholders below the play grid (Paul 2026-08-18)
             // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)
