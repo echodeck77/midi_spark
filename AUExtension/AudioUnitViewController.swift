@@ -1172,7 +1172,7 @@ struct DiagView: View {
     // multi-touch stays alive (a ScrollView swallows those touches even with scrolling disabled).
     @ViewBuilder func mainContent(_ geo: GeometryProxy) -> some View {
         let column = VStack(spacing: 8) {
-            arrangementBar.frame(maxWidth: 1024)       // §2: LOGO · header · TAB BAR · scene row — capped to the grid's 1024 width, centred
+            arrangementBar.frame(maxWidth: .infinity)  // §2: LOGO · header · TAB BAR · scene row — full page width (Paul 2026-08-18, was capped to 1024)
             tabBody(geo)                               // the surface for the active tab
         }
         .padding(.horizontal, 12).padding(.top, 12)
@@ -1352,7 +1352,7 @@ struct DiagView: View {
                      ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells
                      routeFoci: routeFocusCells, routeIn: routeInCandidates, routeOut: routeOutCandidates,
-                     tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
+                        tapAltMask: tapAltMask, tapMuteMask: tapMuteMask,
                      strokeActive: strokeActive, onStroke: strokeCell, onStrokeEnd: endStroke)
                 .background(routeProbe("grid"))             // §viz: the grid's frame anchors the routing lines
             rowRail(cellHeight, chevron: "chevron.left")    // §11 ROW SELECT — RIGHT of the grid, always visible
