@@ -18,6 +18,10 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
   dir + presented in a share sheet (`ReelShareSheet`). The deck now keeps the last COMPLETED pass every boundary (not
   only on arm), so export works after any pass. macOS 766 green (+4 MidiFileTests). **DEVICE test owed** (the share
   sheet from an AUv3 extension is the risk).
+  - Delivery = SHARE SHEET, chosen (Paul 2026-08-18, "simple version for now"). The robust App Group + Files-sharing
+    route (extension → shared container → container app copies to its Files-visible Documents via
+    UIFileSharingEnabled / LSSupportsOpeningDocumentsInPlace) is DEFERRED — revisit if the share sheet won't present in
+    a host, or once the standalone app lands.
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); no history depth beyond
   1 pass; doesn't yet snapshot tempo/scene changes mid-record.
