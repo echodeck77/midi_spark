@@ -2210,7 +2210,7 @@ extension DiagView {
             }
         )
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? buildCyan : buildEdge, lineWidth: 1))   // §0: the voice keeps the accent; idle mutes
-        .opacity(enabled ? 1 : 0.35)                             // DISABLED → greyed out (Paul 2026-08-15)
+        // DISABLED (empty grid) looks IDENTICAL to the stopped state — full opacity — but stays inert (Paul 2026-08-18)
         .contentShape(Rectangle())
         .onTapGesture { if enabled { buildExitPlaceMode(); action?() } }   // a transport button is not a row selector → leaves PLACE mode
         .allowsHitTesting(enabled)
