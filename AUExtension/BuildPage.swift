@@ -135,7 +135,7 @@ extension DiagView {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // tabs + receiver selector + [2×4 MIDI chain | verb button stack]
-            AnyView(buildEmitterToggles(castW: castW))            // the four MIDI-OUT emitter toggles, styled like the MIDI-IN selector (Paul 2026-08-18)
+            AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)   // the four MIDI-OUT emitter toggles — more space above them (Paul 2026-08-18)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -147,7 +147,7 @@ extension DiagView {
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
-            AnyView(buildReceiverSelector(castW: castW)).padding(.vertical, 6)   // the MIDI-IN (receiver) selector — padded above + below (Paul 2026-08-18)
+            AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — more space below it (Paul 2026-08-18)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the VERTICAL 2×4 MIDI chain + the CHAIN verb stack to its right (Paul 2026-08-18)
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))      // 2×4 of 2×2-cell boxes — ~half the width
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
