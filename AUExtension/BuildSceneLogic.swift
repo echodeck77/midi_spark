@@ -30,6 +30,8 @@ enum BuildSceneLogic {
         // THE MIDI CHAIN (raw audition of the selected colour)
         var chainColourID: String? = nil
         var chainMachine: [ProcessorSlot] = []         // the colour's audible chain — [] = a born-audible passthrough
+        var chainReceiver = 0                          // the SELECTED colour's input door (its row's, resolved) — Paul 2026-08-18
+        var chainEmitters: Set<Bus> = []               // the SELECTED colour's output emitters (its row's, resolved)
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -69,8 +71,8 @@ enum BuildSceneLogic {
         }
 
         if i.chainActive, let cid = i.chainColourID {               // THE MIDI CHAIN — raw, on the least-occupied free row
-            let buses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
-            let recv = max(0, min(3, i.selReceiver))
+            let buses: Set<Bus> = i.chainEmitters.isEmpty ? [.a] : i.chainEmitters   // the SELECTED colour's own I/O (Paul 2026-08-18)
+            let recv = max(0, min(3, i.chainReceiver))
             let occ = (0..<8).map { r in (0..<8).filter { s.cellAt($0, r) != nil }.count }
             if let row = (0..<8).min(by: { occ[$0] < occ[$1] }), occ[row] < 8 {
                 for c in 0..<8 where s.cellAt(c, row) == nil {

@@ -210,14 +210,16 @@ extension DiagView {
         .frame(width: castW)
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
-        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: buildSelReceiver == i) { buildSelectDoor(i) }   // radio: select the part's door
+        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door; nothing on a row → unselected (Paul 2026-08-18)
+        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on) { buildSelectDoor(i) }
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
     @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildPartEmitters.contains(b)) { buildToggleBus(b) }   // toggle: multiple emitters can be lit
+                let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? false   // the SELECTED row's emitters; nothing on a row → unselected
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on) { buildToggleBus(b) }
             }
         }
         .frame(width: castW)
@@ -289,6 +291,7 @@ extension DiagView {
         let y = buildNewTabColour(n, machine: sourceChain)       // tab n's fixed hue + the copied chain
         buildPartCast.append(y)
         buildSetRow(n, to: y)                                    // placed on part-grid row n
+        if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }   // the new row inherits the LAST-USED I/O (Paul 2026-08-18)
         for c in 0..<8 { buildStagingSel[c] = n }
         buildSelectID(y)
         buildPendingTab = n
@@ -378,10 +381,11 @@ extension DiagView {
     // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
     // scene-build + audition; no per-colour cell fanning.
     private func buildSelectDoor(_ i: Int) {
-        buildSelReceiver = i
-        ddStickyReceiver = i
+        if let r = buildSelectedRow, r < buildRowReceiver.count { buildRowReceiver[r] = i }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
+        else { buildSelReceiver = i }                            // nothing on a row → set the part DEFAULT
+        ddStickyReceiver = i                                     // a new row inherits the LAST-USED
         receivers = au?.uiReceivers() ?? receivers               // mirror so the source toggle/keyboard reflect the newly-selected door at once
-        buildStagingSyncIfPlaying()                              // the part's door applies to every staging cell, live
+        buildStagingSyncIfPlaying()                              // the row's door applies to its staging cells, live
         refreshFromDocument()
     }
 
@@ -416,14 +420,14 @@ extension DiagView {
     private func ddSelectedColourBuses() -> Set<Bus> { buildPartEmitters }
 
     private func buildToggleBus(_ bus: Bus) {
-        var buses = buildPartEmitters
+        let selR = buildSelectedRow
+        var buses = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
-        if buses.isEmpty { buses = [bus] }                        // never leave the PART with no output
-        buildPartEmitters = buses
-        ddStickyBuses = buses                                     // the machine audition preview reads this
-        // The PART owns the output — apply it LIVE to whatever's sounding (Paul 2026-08-15): re-publishing the scene
-        // re-stamps buildPartEmitters onto the chain audition's injected row AND the part/piece cells.
-        buildPublishScene()
+        if buses.isEmpty { buses = [bus] }                        // never leave a row with no output
+        if let r = selR, r < buildRowEmitters.count { buildRowEmitters[r] = buses }   // override THIS ROW only (per-row I/O, Paul 2026-08-18)
+        else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
+        ddStickyBuses = buses                                     // a new row inherits the LAST-USED
+        buildPublishScene()                                       // apply the row's output LIVE to whatever's sounding
     }
 
     // The MIDI-CHAIN voice. Paul 2026-08-15: it plays the selected colour's machine RAW — behind the scenes a 1-row play
@@ -528,7 +532,15 @@ extension DiagView {
             input.chainColourID = cid
             input.chainMachine = buildColourChain(cid)
         }
+        let selR = buildSelectedRow                                          // the chain audition takes the SELECTED colour's row I/O
+        input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
+    }
+    // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
+    private var buildSelectedRow: Int? {
+        guard let id = buildSelID else { return nil }
+        return (0..<8).first { buildRowColour($0) == id }
     }
     // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
     private func buildRowReceiverResolved(_ r: Int) -> Int {

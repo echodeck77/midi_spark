@@ -5,6 +5,19 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
+## ★ SOON — THE REEL-TO-REEL (output history replay) (Paul 2026-08-18)
+A reel-to-reel icon at the BOTTOM-LEFT of the page. When touched, the plugin REPLAYS its recent EMITTER OUTPUT from
+history — starting the playback from the START OF THE NEXT PASS (quantised to the loop boundary). i.e. a tape loop of
+what the instrument just SENT OUT. Engine scope (real work, not UI-only):
+- record the EMITTED stream (per-emitter note/CC events with PASS-RELATIVE timing) into a ring/history buffer on the
+  render thread — the sanctioned mutable-state class (like the echo ring / note tracker), cleared on transport edges;
+- on trigger, ARM replay; at the next pass boundary, play the recorded events back out the emitters (decide: replace
+  the live output, or layer over it — Paul to rule), re-stamped on their cables/channels;
+- no stuck notes (offs recorded + replayed; flush on stop/panic); loop-length aware.
+- UI: the reel-to-reel glyph bottom-left; armed/playing state shown on it.
+Open Qs for Paul before building: replace vs overlay live output · how many passes of history · does a second touch
+stop/re-arm · does it follow tempo/scene changes.
+
 ## ★ SOON — PatternSpan (SPAN: CELL | ROW) rollout to the pattern processors (Paul 2026-08-18)
 EUCLID SPAN landed (`e7e0043`, on `main`; commit line in CLAUDE.md status). `PatternSpan { cell, row }` + `euclidSpan`
 are in place. ROW stretches a processor's N-step timeline across the whole 8-column BAR (a cross-column phrase) —
