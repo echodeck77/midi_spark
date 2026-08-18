@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit   // ReelShareSheet (UIActivityViewController) — REEL-TO-REEL export
 
 // The ONE workshop voice: which SHOP section sounds — the MIDI CHAIN audition, the PART grid, or NEITHER. Each header
 // toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
@@ -90,7 +91,23 @@ extension DiagView {
         let c: Color = reelState == 2 ? Color(red: 0.36, green: 0.92, blue: 0.52) : (reelState == 1 ? Color(red: 1.0, green: 0.72, blue: 0.2) : buildDim)
         Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
             .padding(12).contentShape(Rectangle())
-            .onTapGesture { au?.reelTouch() }
+            .onTapGesture { au?.reelTouch() }                                 // tap = record/replay toggle
+            .onLongPressGesture { buildReelExport() }                         // long-press = EXPORT the recorded pass (Paul 2026-08-18)
+            .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
+    }
+    // EXPORT the recorded pass to SMF files (the A–D sum + per-emitter stems), then present a share sheet. (Paul 2026-08-18)
+    private func buildReelExport() {
+        let files = au?.reelExportFiles() ?? []
+        guard !files.isEmpty else { return }
+        let dir = FileManager.default.temporaryDirectory
+        var urls: [URL] = []
+        for f in files {
+            let url = dir.appendingPathComponent(f.name)
+            if (try? f.data.write(to: url)) != nil { urls.append(url) }
+        }
+        guard !urls.isEmpty else { return }
+        reelShareURLs = urls
+        reelShowShare = true
     }
 
     // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.
@@ -2754,4 +2771,13 @@ extension DiagView {
             .contentShape(Rectangle()).onTapGesture { }
         }
     }
+}
+
+// A share sheet for the REEL-TO-REEL export (SMF files). (Paul 2026-08-18)
+struct ReelShareSheet: UIViewControllerRepresentable {
+    let urls: [URL]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: urls, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

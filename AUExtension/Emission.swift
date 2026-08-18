@@ -41,6 +41,10 @@ final class ReelDeck {
     func startPass() { curN = 0 }
     func promote() { loopN = curN; for i in 0..<curN { loop[i] = cur[i] } }   // the just-finished pass becomes the loop
     func clear() { curN = 0; loopN = 0; state = .off }
+    /// The loop's events on the given cables (for EXPORT). cables: {1,2,3,4} = the A–D sum; {n} = one emitter. (Paul 2026-08-18)
+    func exportEvents(cables: Set<UInt8>) -> [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] {
+        (0..<loopN).compactMap { cables.contains(loop[$0].cable) ? (loop[$0].beat, loop[$0].b0, loop[$0].b1, loop[$0].b2) : nil }
+    }
     /// Emit every loop event whose NEXT occurrence lands in this render window [beatPos, beatPos+windowBeats). Loops
     /// across the pass boundary per-event, so a window straddling the boundary plays both spans.
     func replay(beatPos: Double, windowBeats: Double, cycleBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {

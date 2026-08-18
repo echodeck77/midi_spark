@@ -411,8 +411,23 @@ final class Kernel {
     private var reelToggle = false
     private var reelExitFlush = false
     private var reelLastPass = Int.min
+    private var reelTempoStored = 120.0
+    private var reelCycleStored = 4.0
     func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
     func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
+    /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
+    func reelExport() -> [(name: String, data: Data)] {
+        guard reel.hasLoop else { return [] }
+        let ppq = 480
+        var files: [(name: String, data: Data)] = []
+        let sum = reel.exportEvents(cables: [1, 2, 3, 4])
+        if !sum.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: sum, bpm: reelTempoStored, ppq: ppq, loopBeats: reelCycleStored))) }
+        for (i, letter) in ["A", "B", "C", "D"].enumerated() {
+            let ev = reel.exportEvents(cables: [UInt8(i + 1)])
+            if !ev.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: ev, bpm: reelTempoStored, ppq: ppq, loopBeats: reelCycleStored))) }
+        }
+        return files
+    }
     private func reelBlanketOff(out: MIDIEmitter?) {                // CC120 + CC123 on every channel × cable — kills the loop's ringing notes on stop
         for cable in UInt8(0)...4 { for ch in UInt8(0)..<16 {
             out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 120, 0)
@@ -546,9 +561,11 @@ final class Kernel {
             }
         }
         if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
+        reelTempoStored = tempo; reelCycleStored = reelCycleBeats   // remembered for EXPORT (step 2)
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
-            if reel.state == .armed { reel.promote(); reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
+            if reel.state != .replaying { reel.promote() }         // keep the last COMPLETED recorded pass (for replay + export)
+            if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
             reel.startPass(); reelLastPass = reelPass
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }

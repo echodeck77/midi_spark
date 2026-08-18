@@ -12,8 +12,12 @@ beat; on ARM the just-finished pass becomes the loop and REPLACES live from the 
 resumes live. Flushes on the transitions (allNotesOff entering replay · CC120/123 leaving) → no stuck notes. Reel-to-reel
 glyph bottom-left of the BUILD page (amber armed · green replaying). Rulings applied: REPLACE the output · loop 1 pass ·
 second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE EAR OWED** (render path — unheard here).
-- [ ] **STEP 2 — EXPORT**: write the recorded pass to a MIDI file (the point of the feature). Reuse the same `ReelDeck`
-  buffer (pass-relative events → SMF ticks at the loop's tempo).
+- [x] **STEP 2 — EXPORT LANDED (Paul 2026-08-18)**: LONG-PRESS the reel glyph → the recorded pass exported as SMF files
+  (`MidiFile.swift`, pure + unit-tested): `MidiSpark-All.mid` = the A–D SUM (each emitter on its stamp channel, cable-0
+  All duplicates dropped) + a per-emitter stem (`-A/-B/-C/-D`) for each cable that has events. Files written to the temp
+  dir + presented in a share sheet (`ReelShareSheet`). The deck now keeps the last COMPLETED pass every boundary (not
+  only on arm), so export works after any pass. macOS 766 green (+4 MidiFileTests). **DEVICE test owed** (the share
+  sheet from an AUv3 extension is the risk).
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); no history depth beyond
   1 pass; doesn't yet snapshot tempo/scene changes mid-record.

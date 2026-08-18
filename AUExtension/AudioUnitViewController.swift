@@ -113,6 +113,8 @@ struct DiagView: View {
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
     @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
     @State var reelState: Int = 0                        // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (polled)
+    @State var reelShareURLs: [URL] = []                 // EXPORT: the written SMF files to share
+    @State var reelShowShare = false
     @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
     @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
