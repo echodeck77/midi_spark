@@ -140,9 +140,33 @@ extension DiagView {
     // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {
-            AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8)
-            AnyView(buildProcessorBlock(castW: castW, cell: cell))// the selected tab's chain, as a 4×2 of 2×2-cell boxes
+            AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
+            AnyView(buildReceiverSelector(castW: castW))          // the MIDI-IN (receiver) selector — separates the row selector from the chain box
+            AnyView(buildProcessorBlock(castW: castW, cell: cell))// the selected tab's chain (the MIDI CHAIN box), a 4×2 of 2×2-cell boxes
         }
+    }
+    // THE RECEIVER (MIDI-IN) SELECTOR — sits between the row selector and the MIDI-chain box. Four buttons styled
+    // like the centre column's emitter A–D chips (buildIOChip: cyan-when-armed, muted idle), but two-line: "MIDI IN"
+    // small over a big A/B/C/D. A radio — one door selected, feeding the part. (Paul 2026-08-18)
+    @ViewBuilder private func buildReceiverSelector(castW: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { i in buildReceiverSelectChip(i) }
+        }
+        .frame(width: castW)
+    }
+    @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
+        let on = buildSelReceiver == i
+        let letter = ["A", "B", "C", "D"][i]
+        VStack(spacing: 1) {
+            Text("MIDI IN").font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
+            Text(letter).font(.system(size: 15, weight: .black, design: .monospaced))
+        }
+        .foregroundColor(on ? Color.black : buildDim)
+        .frame(maxWidth: .infinity).frame(height: 48)                        // matches the emitter chips (height 48, fill the row)
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON = the accent; idle mutes
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { buildSelectDoor(i) }                                // select the door (radio); the part feeds from it
     }
     // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
     // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
