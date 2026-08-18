@@ -90,7 +90,7 @@ extension DiagView {
     // ── LANDSCAPE: three EQUAL columns (palette · staging · play) over the full-width machinery strip ──────────────
     @ViewBuilder private func buildLandscape(_ size: CGSize) -> some View {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
-        let leftW = max(1, avail / 3 * 0.968)                      // the MACHINE column, widened twice by 10% off the original 0.8×-of-a-third
+        let leftW = max(1, avail / 3 * 0.726)                      // the MACHINE column: 0.968 × 0.75 → 25% narrower (Paul 2026-08-18)
         let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
         // the PERFORM grid is widest: LEFT part buttons + 8 grid cells + RIGHT per-row buttons = 10 cells (+ 9 gaps).
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 10))
