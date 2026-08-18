@@ -148,26 +148,33 @@ extension DiagView {
         VStack(spacing: BuildGeom.castGap) {
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
             AnyView(buildReceiverSelector(castW: castW))          // the MIDI-IN (receiver) selector — separates the row selector from the chain box
-            AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the VERTICAL 2×4 MIDI chain + a verb button stack to its right (Paul 2026-08-18)
+            AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the VERTICAL 2×4 MIDI chain + the CHAIN verb stack to its right (Paul 2026-08-18)
                 AnyView(buildProcessorBlock(castW: castW, cell: cell))      // 2×4 of 2×2-cell boxes — ~half the width
-                AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75))   // LIBRARY + the <<< chain / grid >>> verbs — 25% narrower than the free half
-                Spacer(minLength: 0)
+                AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
+                                              height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // centred beside the chain (the grid verbs moved below the part grid)
             })
         }
     }
     // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
-    @ViewBuilder private func buildChainButtonStack(width: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.castGap) {
+    @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat) -> some View {
+        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs only (grid verbs moved below the part grid)
             buildChainBtn("LIBRARY")       { buildOpenLibrary() }
             buildChainBtn("<<< RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
-            buildChainBtn("RANDOMIZE >>>") { buildRandomizeGrid() }     // random rung per column
             buildChainBtn("<<< MUTATE")    { buildMutateChain() }       // nudge the chain
-            buildChainBtn("MUTATE >>>")    { buildStageTheGrid() }      // stage/mutate the grid into variations
             buildChainBtn("<<< CLEAR")     { buildClearChain() }        // empty the chain
-            buildChainBtn("CLEAR >>>")     { buildClearGrid() }         // deselect the grid
         }
         .frame(width: width)
+        .frame(height: height, alignment: .center)                           // centre VERTICALLY within the chain-block height
+        .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain (Paul 2026-08-18)
+    }
+    // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
+    @ViewBuilder private func buildGridVerbButtons() -> some View {
+        HStack(spacing: 6) {
+            buildChainBtn("RANDOMIZE") { buildRandomizeGrid() }   // random rung per column
+            buildChainBtn("MUTATE")    { buildStageTheGrid() }    // stage/mutate the grid into variations
+            buildChainBtn("CLEAR")     { buildClearGrid() }       // deselect the grid
+        }
     }
     @ViewBuilder private func buildChainBtn(_ label: String, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
@@ -1384,6 +1391,7 @@ extension DiagView {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
+            AnyView(buildGridVerbButtons())                       // RANDOMIZE · MUTATE · CLEAR — the grid-scope verbs (Paul 2026-08-18)
             Spacer(minLength: 0)                                  // the I/O box now spans BOTH grid columns below them (buildIOBox); receivers moved there (Paul 2026-08-18)
         }
         .frame(maxWidth: .infinity, alignment: .center)
