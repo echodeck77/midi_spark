@@ -134,8 +134,7 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
-            AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
-            AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · AUTOFILL / LIBRARY — directly below the processor section
+            AnyView(buildMachineBlock(castW: castW, cell: cell))  // tabs + receiver selector + [2×4 MIDI chain | verb button stack]
             AnyView(buildEmitterToggles(castW: castW))            // the four MIDI-OUT emitter toggles, styled like the MIDI-IN selector (Paul 2026-08-18)
             Spacer(minLength: 0)
         }
@@ -149,8 +148,34 @@ extension DiagView {
         VStack(spacing: BuildGeom.castGap) {
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
             AnyView(buildReceiverSelector(castW: castW))          // the MIDI-IN (receiver) selector — separates the row selector from the chain box
-            AnyView(buildProcessorBlock(castW: castW, cell: cell))// the selected tab's chain (the MIDI CHAIN box), a 4×2 of 2×2-cell boxes
+            AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the VERTICAL 2×4 MIDI chain + a verb button stack to its right (Paul 2026-08-18)
+                AnyView(buildProcessorBlock(castW: castW, cell: cell))      // 2×4 of 2×2-cell boxes — ~half the width
+                AnyView(buildChainButtonStack())                           // LIBRARY + the <<< chain / grid >>> verbs — fills the rest
+            })
         }
+    }
+    // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
+    // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
+    @ViewBuilder private func buildChainButtonStack() -> some View {
+        VStack(spacing: BuildGeom.castGap) {
+            buildChainBtn("LIBRARY")       { buildOpenLibrary() }
+            buildChainBtn("<<< RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
+            buildChainBtn("RANDOMIZE >>>") { buildRandomizeGrid() }     // random rung per column
+            buildChainBtn("<<< MUTATE")    { buildMutateChain() }       // nudge the chain
+            buildChainBtn("MUTATE >>>")    { buildStageTheGrid() }      // stage/mutate the grid into variations
+            buildChainBtn("<<< CLEAR")     { buildClearChain() }        // empty the chain
+            buildChainBtn("CLEAR >>>")     { buildClearGrid() }         // deselect the grid
+        }
+        .frame(maxWidth: .infinity)
+    }
+    @ViewBuilder private func buildChainBtn(_ label: String, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
+            .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { buildExitPlaceMode(); action() }
     }
     // THE RECEIVER (MIDI-IN) SELECTOR — sits between the row selector and the MIDI-chain box. Four buttons styled
     // like the centre column's emitter A–D chips (buildIOChip: cyan-when-armed, muted idle), but two-line: "MIDI IN"
@@ -256,11 +281,11 @@ extension DiagView {
         let swW = (castW - gap * 7) / 8                            // same swatch width as the cast → boxes sit on the 8-column grid
         let boxW = swW * 2 + gap                                   // 2 cast columns wide
         let boxH = cell * 2 + gap                                  // 2 cast rows tall
-        VStack(spacing: gap) {
-            ForEach(0..<2, id: \.self) { r in
+        VStack(spacing: gap) {                                      // VERTICAL 2×4 (was 4×2): 4 rows of 2 boxes, reading L→R then down (Paul 2026-08-18)
+            ForEach(0..<4, id: \.self) { r in
                 HStack(spacing: gap) {
-                    ForEach(0..<4, id: \.self) { c in
-                        buildProcBox(r * 4 + c, chain: chain, w: boxW, h: boxH)
+                    ForEach(0..<2, id: \.self) { c in
+                        buildProcBox(r * 2 + c, chain: chain, w: boxW, h: boxH)
                     }
                 }
             }
@@ -688,6 +713,35 @@ extension DiagView {
         var rng = SystemRandomNumberGenerator()
         au?.withChainColour(cid) { $0 = Dice.rollSimple(using: &rng) }
         refreshFromDocument()
+    }
+    // <<< MUTATE — nudge the SELECTED colour's midi chain in place (a value-tweaked variant of its OWN machine). (Paul 2026-08-18)
+    private func buildMutateChain() {
+        guard let cid = ddSelectedColourID else { return }
+        let base = buildColourChain(cid)
+        var rng = SystemRandomNumberGenerator()
+        if let mutated = BuildSceneLogic.mutateChain(base, avoid: [Dice.fingerprint(base)], &rng) { buildWriteColourMachine(cid, mutated) }
+        refreshFromDocument()
+    }
+    // <<< CLEAR — empty the SELECTED colour's midi chain (every processor box → "+"). (Paul 2026-08-18)
+    private func buildClearChain() {
+        guard let cid = ddSelectedColourID else { return }
+        buildWriteColourMachine(cid, [])
+        refreshFromDocument()
+    }
+    // RANDOMIZE >>> — randomize the PART grid's performance: a random POPULATED rung per column. (Paul 2026-08-18)
+    private func buildRandomizeGrid() {
+        var rng = SystemRandomNumberGenerator()
+        for c in 0..<8 {
+            let populated = (0..<8).filter { buildStagingCells[c][$0] != nil }
+            buildStagingSel[c] = populated.randomElement(using: &rng) ?? -1
+        }
+        buildStagingSyncIfPlaying()
+    }
+    // CLEAR >>> — clear the PART grid's active selection (every column deselected → the grid plays nothing). The placed
+    // colours + tabs are KEPT (non-destructive). (Paul 2026-08-18)
+    private func buildClearGrid() {
+        for c in 0..<8 { buildStagingSel[c] = -1 }
+        buildStagingSyncIfPlaying()
     }
 
     // The selected colour's OWN processors (its templateChain) — shown on the footer. Interior EMPTY boxes (passthrough
