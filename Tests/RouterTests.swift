@@ -121,6 +121,18 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "4 euclid pulses × the 3-note chord")
         assertNothingLeftSounding(e)
     }
+    func testEuclidDownbeatFiresOnAnUnalignedColumnBoundary() {
+        // REGRESSION (Paul 2026-08-18): the euclid cell sits in COLUMN 1, whose start (beat S=2) falls MID render-block,
+        // not on a block boundary — the case the old window-scan dropped, losing every column's step-0 pulse (K→K−1;
+        // K=1 silent). Existing euclid tests hid it by starting the run exactly on column 0's boundary. All 4 pulses
+        // (incl. the downbeat at 2.0) must sound: 4 × 3 = 12.
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }) { $0.cells[1][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 4, into: e)   // column 1 is active over [2,4); its downbeat at 2.0 is mid-block
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
+        assertNothingLeftSounding(e)
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {

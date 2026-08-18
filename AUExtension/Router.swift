@@ -2208,9 +2208,16 @@ final class Router {
             let k = p.euclidPulsesFromPool ? srcNotes.count : p.euclidPulses   // POOL: K = held-note count (composed set if chained)
             let pat = euclidPattern(pulses: k, steps: n, rotation: p.euclidRot)
             let sub = S / Double(n)
-            for j in 0..<n where pat[j] {
-                let tau = colStart + Double(j) * sub
-                if inWindow(tau) { strikeChord(tau: tau, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
+            // Emit via iterateTicks (like the ARP) instead of a window-scan: its floor + per-row dedup CATCHES the
+            // downbeat pulse (step 0, sitting exactly on the column boundary) that the old `tau >= mWinStart` scan
+            // dropped whenever a render block didn't begin precisely on the boundary — i.e. almost always, so every
+            // EUCLID lost its downbeat (K→K−1; K=1 = silent). The column gate keeps a cell's pulses in ITS column, so
+            // it never reaches into the next one. (Paul 2026-08-18)
+            iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
+                         beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                         beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, _, _ in
+                let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
+                if pat[step] { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
