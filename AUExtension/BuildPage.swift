@@ -1426,7 +1426,7 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildStagingRowAction($0) }  // LEFT row rail
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildTapColourTab($0) }  // LEFT row rail — same behaviour as the top colour tabs (select the row's colour / populate if empty) (Paul 2026-08-18)
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
                 VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
