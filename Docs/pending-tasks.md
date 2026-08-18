@@ -3,7 +3,25 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-16._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
+
+## ★ SOON — PatternSpan (SPAN: CELL | ROW) rollout to the pattern processors (Paul 2026-08-18)
+EUCLID SPAN landed (`e7e0043`, on `main`; commit line in CLAUDE.md status). `PatternSpan { cell, row }` + `euclidSpan`
+are in place. ROW stretches a processor's N-step timeline across the whole 8-column BAR (a cross-column phrase) —
+this is the arp/weave PHASE=FREE axis generalised, NOT note-sustain legato. The `iterateTicks` column gate already
+scopes each cell to its own column, so per processor the work is small + uniform: engine = ONE line (the tick-grid
+denominator `S` → `cycleBeats`), model = an additive-Optional field (nil ⇒ CELL, old docs safe), UI = a SPAN CELL|ROW
+seg on the face, + a row-fills-a-row test (`testEuclidSpanRowSpreadsPulsesAcrossTheBar` is the template). Roll onto
+(every processor rated ★★ or higher, in priority order):
+- [ ] **LENGTH** ★★★ — the 8-slice gate spans the bar → a whole-bar trance-gate phrase. **Do first — biggest payoff.**
+- [ ] **MOD** ★★★ — the LFO / STEPS period spans the bar. This IS the deferred CC-stage `SPAN CELL|PHRASE|FREE` sketch
+  (`design-cc-stage-tactile-2026-08-09.md`) — reconcile the naming (PHRASE ≈ ROW) when building.
+- [ ] **TUTTI (PATTERN)** ★★ — the 8-slice set-shape spans the bar.
+- [ ] **RATCHET (PATTERN)** ★★ — the per-slice counts span the bar.
+- [ ] **BURST** ★★ — the accel/decel roll unfolds across the whole bar.
+- [ ] **CASCADE** ★★ — the note-reveal spans the bar (naturally musical over a phrase).
+(CHANCE was ★ — deferred. ARP/WEAVE already have PHASE; DRONE/ECHO/GLIDE already flow across boundaries.)
+**DEVICE ear owed on EUCLID ROW.**
 
 ## ★ DONE (2026-08-05/06) — MACROS (phase 2 track)
 Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. `feat/macros`
