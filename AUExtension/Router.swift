@@ -295,6 +295,10 @@ final class Router {
     private let chainA = NotePool()
     private let chainB = NotePool()
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
+    // Per-row: the absolute column-step a window-scan GENERATOR (burst/cascade/drone/shift/humanize) last emitted in.
+    // On a column's FIRST window it differs from the current step → scan from colStart so the DOWNBEAT (and any pulse
+    // in [colStart, mWinStart)) fires once instead of being dropped at the boundary. (Paul 2026-08-18)
+    private var lastGenStep = [Int64](repeating: Int64.min, count: Snap.rows)
     // §9 item 1 ON TAP (unified ALT model): ephemeral per-cell ALT flips (bit col*8+row). Set each process()
     // from the param; XORed into a cell's base ALT so a PERFORM tap is momentary, never a document write.
     private var tapAltMask: UInt64 = 0
@@ -1531,7 +1535,7 @@ final class Router {
         // ---- transport edges: all-notes-off (§7) ----
         if wasPlaying != playing {
             allNotesOff(atSample: renderSampleImmediate, out: out)
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             prevEffColumn = -1
             altLastOnset = .min; altMomentIndex = -1     // role family ALT/TURNS: a fresh play restarts the rotation at the first member
             passAnchor = 0                               // MULTI-SCENE S2b: a fresh play is absolute (no restart offset)
@@ -1580,7 +1584,7 @@ final class Router {
         if preview.active != prevPreviewActive {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             auditionStartSample = windowStart; auditionLastTick = -1
-            for i in lastTick.indices { lastTick[i] = -1 }      // free the solo row's tick-dedup
+            for i in lastTick.indices { lastTick[i] = -1; lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
             prevPreviewActive = preview.active
         }
@@ -1608,7 +1612,7 @@ final class Router {
             passAnchor = beatPos
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
         }
         let beatPos = beatPos - passAnchor
@@ -1665,7 +1669,7 @@ final class Router {
                 closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out)
             }
             prevEffColumn = effColumn
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
+            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
@@ -2200,7 +2204,16 @@ final class Router {
                 }
             }
         }
-        func inWindow(_ tau: Double) -> Bool { tau >= mWinStart && tau < mWinEnd }
+        // A window-scan generator's FIRST window in each column scans from colStart (not mWinStart) so the DOWNBEAT
+        // strike — and any pulse in [colStart, mWinStart), emit-late/clamped to the block start — fires once, instead
+        // of being dropped because the boundary-crossing block still rendered the previous column. lastGenStep dedups
+        // per row so later windows in the same column don't re-emit. (EUCLID takes the iterateTicks path and ignores
+        // this.) The absolute column-step is monotonic, so each column occurrence (incl. every lap) catches its own
+        // downbeat. (Paul 2026-08-18)
+        let curGenStep = Int64((columnStart(mWinStart, S) / S).rounded())
+        let scanFrom = (curGenStep != lastGenStep[r]) ? colStart : mWinStart
+        lastGenStep[r] = curGenStep
+        func inWindow(_ tau: Double) -> Bool { tau >= scanFrom && tau < mWinEnd }
 
         switch mode {
         case .euclid:

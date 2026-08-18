@@ -460,6 +460,17 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "a 4-strike burst on one note")
         assertNothingLeftSounding(e)
     }
+    func testBurstDownbeatFiresOnAnUnalignedColumnBoundary() {
+        // REGRESSION (Paul 2026-08-18): like EUCLID, a window-scan generator dropped its DOWNBEAT strike (f=0, at the
+        // column boundary) when the boundary fell mid render-block. Placed in COLUMN 1 (start = S = 2, mid-block), the
+        // 4-strike even burst must still sound all 4 (was 3 = the f=0 strike lost). The scanFrom fix catches it.
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+            c.paramsA.count = 4; c.paramsA.curve = 0; return c }) { $0.cells[1][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60]), beats: 4, into: e)   // column 1 active over [2,4); the f=0 downbeat at 2.0 is mid-block
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "the column-1 burst downbeat must not be dropped")
+        assertNothingLeftSounding(e)
+    }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
             c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
