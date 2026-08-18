@@ -140,7 +140,7 @@ extension DiagView {
                 AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)
             }
             .padding(10)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.3), lineWidth: 2)))   // the big section outline (Paul 2026-08-18)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildSelHue, lineWidth: 2)))   // the big section outline — the SELECTED colour (Paul 2026-08-18)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
