@@ -120,6 +120,8 @@ struct DiagView: View {
     @State var reelRoll: [ReelDeck.Note] = []            // the selected pass's notes (A–D piano-roll lanes)
     @State var reelSelPassNo: Int = -1                   // the currently selected/playing pass (−1 = auto latest)
     @State var reelCycle: Double = 4                     // the pass length in beats (piano-roll x-axis)
+    @State var reelLastBeat: Double = 0                  // last polled beat + its wall-clock stamp → smooth roll playhead
+    @State var reelLastBeatAt = Date()
     @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
     @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
@@ -1038,6 +1040,7 @@ struct DiagView: View {
                 let rr = au.reelSelectedRoll();    if rr != reelRoll { reelRoll = rr }
                 let sp = au.reelSelectedPassNo();  if sp != reelSelPassNo { reelSelPassNo = sp }
                 let cy = au.reelCycleBeats();      if cy != reelCycle { reelCycle = cy }
+                if nd.beat != reelLastBeat { reelLastBeat = nd.beat; reelLastBeatAt = Date() }   // stamp for the smooth roll playhead
             }
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
             let clk = au.uiClaimLeak();    if clk != claimLeak { claimLeak = clk }

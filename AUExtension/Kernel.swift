@@ -415,6 +415,9 @@ final class Kernel {
     private var reelCycleStored = 4.0
     private var reelSelectRequest = Int.min                         // control thread: a pass to select+replay (Int.min = none)
     private var reelStopRequest = false                             // control thread: stop replay → resume live
+    private var reelBrowsing = false                                // the PASS BROWSER pop-up is open → freeze the history tape
+    private var reelRecordFromStart = false                         // was the in-progress pass recorded from its start? (only such passes file)
+    func reelSetBrowsing(_ on: Bool) { reelBrowsing = on }          // control thread: pop-up opened/closed
     func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
     func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up reads the ring + selected roll; taps select+replay / stop (deferred to render).
@@ -581,15 +584,19 @@ final class Kernel {
         }
         reelTempoStored = tempo; reelCycleStored = reelCycleBeats   // remembered for EXPORT (step 2)
         reel.cycleBeats = reelCycleBeats                            // the pass browser closes open notes in the roll at this length
+        // THE HISTORY FREEZES while you're IN reel-to-reel (Paul 2026-08-19): the browser open OR a pass replaying → the
+        // tape stops writing, so the pass list stays a stable snapshot. Recording resumes on the NEXT full pass on exit.
+        let reelFrozen = reelBrowsing || reel.state == .replaying
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
-            if reel.state != .replaying { reel.promote() }         // keep the last COMPLETED recorded pass (for replay + export)
+            if reelRecordFromStart && !reelFrozen { reel.promote() }   // file ONLY a pass recorded start→finish, uninterrupted by reel mode
             if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
             reel.startPass(); reelLastPass = reelPass
+            reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }
         reelTap.out = liveEmitter; reelTap.deck = reel
-        reelTap.recording = playing && reel.state != .replaying
+        reelTap.recording = playing && !reelFrozen
         reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
 
         if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop

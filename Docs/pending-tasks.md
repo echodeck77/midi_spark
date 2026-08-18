@@ -35,6 +35,12 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
   - v1 notes: bottom-right = the most-recent COMPLETED pass (the in-progress pass isn't replayable); ring per-pass cap
     8192 events (dense-pass overflow drops, as the record cap already does); selecting a pass while STOPPED pins it for
     SAVE but only sounds once the transport runs.
+  - **FREEZE-WHILE-BROWSING (Paul 2026-08-19)**: the history tape stops writing whenever the browser is open OR a pass is
+    replaying (`reelBrowsing` set by the pop-up's onAppear/onDisappear · `reelFrozen = reelBrowsing || replaying`), so the
+    pass list is a stable snapshot; recording resumes on the NEXT FULL pass on exit (only a pass recorded start→finish,
+    uninterrupted, is filed — `reelRecordFromStart`). Kernel-only (not unit-tested; device-verified path).
+  - **ROLL PLAYHEAD (Paul 2026-08-19)**: while a pass replays, a white playhead sweeps the piano-roll lanes (TimelineView,
+    beat-extrapolated one-clock) and each note LIGHTS (full hue + glow + thicker) as the head crosses it.
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.

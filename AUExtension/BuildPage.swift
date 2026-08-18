@@ -125,15 +125,35 @@ extension DiagView {
                     ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes
                         HStack(spacing: 2) { ForEach(0..<8, id: \.self) { c in buildReelPassCell(r * 8 + c, cell: cell) } }
                     }
-                    ForEach(0..<4, id: \.self) { lane in                         // BOTTOM 4 rows — A/B/C/D piano-roll lanes
-                        buildReelLane(lane, width: gridSide, height: cell)
-                    }
+                    buildReelRollSection(width: gridSide, laneH: cell)           // BOTTOM 4 rows — A/B/C/D piano-roll lanes + playhead
                 }
             }
             .padding(16)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
         }
+        .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
+        .onDisappear { au?.reelSetBrowsing(false) }                              // resume recording on the next full pass
+    }
+    // The 4 piano-roll lanes + a shared PLAYHEAD that sweeps while a pass replays (notes light as it crosses them).
+    private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
+            let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
+            VStack(spacing: 2) {
+                ForEach(0..<4, id: \.self) { lane in buildReelLane(lane, width: width, height: laneH, phase: phase) }
+            }
+            .overlay(alignment: .leading) {
+                if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5).offset(x: CGFloat(phase) * width) }
+            }
+        }
+    }
+    // The playhead position (0…1) NOW, extrapolated from the last beat poll (one-clock rule). Only while replaying.
+    private func reelPlayheadPhase(_ now: Date) -> Double? {
+        guard reelState == 2, reelCycle > 0 else { return nil }
+        let beat = d.playing ? reelLastBeat + now.timeIntervalSince(reelLastBeatAt) * d.tempo / 60.0 : reelLastBeat
+        var p = beat.truncatingRemainder(dividingBy: reelCycle) / reelCycle
+        if p < 0 { p += 1 }
+        return p
     }
     // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
     // or (if it's already the replaying pass) stop and resume live.
@@ -154,14 +174,15 @@ extension DiagView {
             }
     }
     // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1; pitch scaled to the shared
-    // (all-lane) range, x scaled to the pass length, opacity by velocity.
-    private func buildReelLane(_ lane: Int, width: CGFloat, height: CGFloat) -> some View {
+    // (all-lane) range, x scaled to the pass length, opacity by velocity. A note the playhead is over lights up.
+    private func buildReelLane(_ lane: Int, width: CGFloat, height: CGFloat, phase: Double?) -> some View {
         let hue = reelLaneHues[lane]
         let notes = reelRoll.filter { Int($0.cable) == lane + 1 }
         let all = reelRoll.map { Int($0.note) }
         let lo = all.min() ?? 48, hi = all.max() ?? 72
         let span = max(1, hi - lo)
         let cyc = max(0.0001, reelCycle)
+        let head = phase.map { $0 * cyc }                                        // the playhead's beat, or nil
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             Canvas { ctx, sz in
@@ -170,8 +191,11 @@ extension DiagView {
                     let w = max(2, CGFloat((n.end - n.start) / cyc) * sz.width)
                     let yFrac = 1 - CGFloat(Int(n.note) - lo) / CGFloat(span)
                     let y = yFrac * (sz.height - 6) + 3
-                    let rect = CGRect(x: x, y: y - 1.5, width: min(w, sz.width - x), height: 3)
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.2), with: .color(hue.opacity(0.45 + 0.5 * Double(n.vel) / 127)))
+                    let active = head.map { $0 >= n.start && $0 < n.end } ?? false
+                    let base = 0.45 + 0.5 * Double(n.vel) / 127
+                    let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
+                    if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(hue.opacity(0.35))) }   // glow under
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(hue.opacity(active ? 1.0 : base)))
                 }
             }.frame(width: width, height: height)
             Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced))

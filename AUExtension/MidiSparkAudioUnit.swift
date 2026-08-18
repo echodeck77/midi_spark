@@ -309,6 +309,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func reelSelectPass(_ p: Int) { kernel.reelSelectPass(p) }           // tap a pass → select + replay now
     func reelStopReplay() { kernel.reelStopReplay() }                    // stop replay → resume live
     func reelCycleBeats() -> Double { kernel.reelCycleValue() }          // the pass length (piano-roll x-axis)
+    func reelSetBrowsing(_ on: Bool) { kernel.reelSetBrowsing(on) }      // pop-up open → freeze the history tape
 
     /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
     /// other cell falls silent. Empty = normal grid playback. Ephemeral (never persisted); the edit page sets it

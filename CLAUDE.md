@@ -177,7 +177,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   only while the pop-up is open. Decisions of record (Paul 2026-08-19): tap opens the pop-up (retiring tap-replay +
   long-press-export) · pass tap = select+play-now · Save = selected pass → share. +5 ReelDeckTests (ring order,
   eviction past 32, pin survives promotes, select loads the right pass, roll pairing). `reelTouch` kept in AU/Kernel but
-  now UI-unused. bottom-right = most-recent COMPLETED pass (in-progress isn't replayable).**
+  now UI-unused. bottom-right = most-recent COMPLETED pass (in-progress isn't replayable). **FOLLOW-UPS same day:**
+  (1) FREEZE-WHILE-BROWSING — the tape stops writing while the browser is open OR replaying (`reelBrowsing` via the
+  pop-up onAppear/onDisappear; `reelFrozen = reelBrowsing || .replaying`), so the pass list is a stable snapshot;
+  recording resumes on the NEXT FULL pass on exit (only a pass recorded start→finish files, `reelRecordFromStart`).
+  (2) ROLL PLAYHEAD — a white head sweeps the lanes while replaying (TimelineView, beat-extrapolated one-clock) and each
+  note lights (full hue + glow + thicker) as it's crossed. Both Kernel/UI-only (device-verified path); macOS still 771.**
 - **▶ BUILD PAGE REARRANGE + PLACE MODE + COLOUR-UNIQUENESS LANDED (2026-08-17, on `main`, PUSHED; `2125c34`+`3280fde`;
   iOS builds; UI-only, engine tests untouched). Whole-page rework of `AUExtension/BuildPage.swift` (experimental). Left
   column: PLAY → part → an invisible untouchable header row → cast (8×4) → the chain as a 4×2 of 2×2-cell processor boxes
