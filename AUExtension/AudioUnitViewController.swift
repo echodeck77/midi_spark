@@ -112,6 +112,7 @@ struct DiagView: View {
     @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
     @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
+    @State var reelState: Int = 0                        // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (polled)
     @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
     @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
@@ -1024,6 +1025,7 @@ struct DiagView: View {
                 || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
+            let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
             let clk = au.uiClaimLeak();    if clk != claimLeak { claimLeak = clk }
             let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }

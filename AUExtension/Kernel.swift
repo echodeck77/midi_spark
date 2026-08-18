@@ -404,6 +404,21 @@ final class Kernel {
     }
     #endif
     private let liveEmitter = LiveMIDIEmitter()   // the AUMIDIOutputEventBlock adapter (emission seam)
+    // THE REEL-TO-REEL (Paul 2026-08-18): the deck (record/replay), the recording tap wrapping liveEmitter, and the
+    // one-shot toggle from the UI (consumed on the render thread — same cross-thread pattern as panicRequested).
+    let reel = ReelDeck()
+    private let reelTap = ReelTap()
+    private var reelToggle = false
+    private var reelExitFlush = false
+    private var reelLastPass = Int.min
+    func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
+    func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
+    private func reelBlanketOff(out: MIDIEmitter?) {                // CC120 + CC123 on every channel × cable — kills the loop's ringing notes on stop
+        for cable in UInt8(0)...4 { for ch in UInt8(0)..<16 {
+            out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 120, 0)
+            out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 123, 0)
+        } }
+    }
 
     // reset() arrives on the CONTROL thread (the AU's reset:, e.g. AUM disabling the plugin) and must NOT mutate the
     // render-shared state (pool / voices / router arrays) there — it races the render thread → a malloc crash (device
@@ -414,6 +429,7 @@ final class Kernel {
         pool.reset()
         liveEmitter.out = midiOut       // pick up the current host block before flushing
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
+        reel.clear(); reelLastPass = Int.min                                     // THE REEL-TO-REEL: drop the tape on reset
         router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
     }
 
@@ -517,7 +533,34 @@ final class Kernel {
         // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
         updateLatchedPools()
         updateReceiverSounding()        // duration feed: snapshot the currently-held input notes per receiver
-        // ---- hand off to the router (columns, arp, emission, note tracker) ----
+        // ---- THE REEL-TO-REEL: record/replay the emitter output (Paul 2026-08-18) ----
+        let reelCycleBeats = Double(Snap.cols) * box.stepBeats
+        let reelBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
+        let reelWinStart = Int64(timestamp.pointee.mSampleTime)
+        if reelToggle {                                            // a touch: off→armed · armed→off · replaying→off(+flush)
+            reelToggle = false
+            switch reel.state {
+            case .off: reel.state = .armed
+            case .armed: reel.state = .off
+            case .replaying: reel.state = .off; reelExitFlush = true
+            }
+        }
+        if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
+        let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
+        if playing, reelPass != reelLastPass {                     // pass boundary
+            if reel.state == .armed { reel.promote(); reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
+            reel.startPass(); reelLastPass = reelPass
+        }
+        if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }
+        reelTap.out = liveEmitter; reelTap.deck = reel
+        reelTap.recording = playing && reel.state != .replaying
+        reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
+
+        if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
+            reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reelCycleBeats,
+                        beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
+        } else {
+        // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
         router.process(box: box, pool: pool,
                         playing: playing, beatPos: beatPos, tempo: tempo,
                         sampleRate: sampleRate,
@@ -531,9 +574,11 @@ final class Kernel {
                         sceneFlush: flushRequested, sceneRestart: restartRequested,
                         latchMask: effectiveLatchMask, latchedPools: latchedPools,
                         preview: (previewActive, Int(previewColourIndex), Int(previewFilter), previewBusMask, Int(previewInputRow)),
-                        out: liveEmitter, diag: &diag)
+                        out: reelTap, diag: &diag)
         router.snapshotEmitterSounding()   // §strips-done: capture the currently-sounding set (voices now reconciled)
         router.snapshotCellSounding()      // SEAL comet: capture which cells are sounding (note-on/off gate)
+        }
+        diag.reelState = reelStateValue()
         panicRequested = false          // master panel PANIC is a one-shot — consumed by this render's flush
         flushRequested = false          // MULTI-SCENE scene-switch flush is a one-shot too
         restartRequested = false        // MULTI-SCENE S2b restart-the-pass is a one-shot too

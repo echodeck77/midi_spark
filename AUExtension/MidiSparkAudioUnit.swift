@@ -299,6 +299,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// persisted; the PERFORM UI sets it while column keys are held and clears it (0) on release /
     /// transport stop / EDIT switch. `laneMask == 0` = no lap (playback follows the true column).
     func setLaneMask(_ mask: UInt8) { kernel.setLaneMask(mask) }
+    func reelTouch() { kernel.reelTouch() }                 // THE REEL-TO-REEL: toggle record→replay / resume (Paul 2026-08-18)
+    func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
 
     /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
     /// other cell falls silent. Empty = normal grid playback. Ephemeral (never persisted); the edit page sets it

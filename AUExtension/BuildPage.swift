@@ -79,9 +79,18 @@ extension DiagView {
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
             }
+            .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
         } else {
             Color.clear
         }
+    }
+    // THE REEL-TO-REEL toggle (Paul 2026-08-18): touch to ARM (replays the recorded pass from the next pass boundary,
+    // replacing live output + looping); touch again to resume normal play. Amber = armed · green = replaying.
+    @ViewBuilder private func buildReelButton() -> some View {
+        let c: Color = reelState == 2 ? Color(red: 0.36, green: 0.92, blue: 0.52) : (reelState == 1 ? Color(red: 1.0, green: 0.72, blue: 0.2) : buildDim)
+        Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
+            .padding(12).contentShape(Rectangle())
+            .onTapGesture { au?.reelTouch() }
     }
 
     // The selected colour's real hue (the cast selection drives the machine ID + grid tints). Falls back to cyan.

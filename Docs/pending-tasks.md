@@ -5,18 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
-## ★ SOON — THE REEL-TO-REEL (output history replay) (Paul 2026-08-18)
-A reel-to-reel icon at the BOTTOM-LEFT of the page. When touched, the plugin REPLAYS its recent EMITTER OUTPUT from
-history — starting the playback from the START OF THE NEXT PASS (quantised to the loop boundary). i.e. a tape loop of
-what the instrument just SENT OUT. Engine scope (real work, not UI-only):
-- record the EMITTED stream (per-emitter note/CC events with PASS-RELATIVE timing) into a ring/history buffer on the
-  render thread — the sanctioned mutable-state class (like the echo ring / note tracker), cleared on transport edges;
-- on trigger, ARM replay; at the next pass boundary, play the recorded events back out the emitters (decide: replace
-  the live output, or layer over it — Paul to rule), re-stamped on their cables/channels;
-- no stuck notes (offs recorded + replayed; flush on stop/panic); loop-length aware.
-- UI: the reel-to-reel glyph bottom-left; armed/playing state shown on it.
-Open Qs for Paul before building: replace vs overlay live output · how many passes of history · does a second touch
-stop/re-arm · does it follow tempo/scene changes.
+## ★ THE REEL-TO-REEL — STEP 1 LANDED (Paul 2026-08-18)
+The 1-pass output-tape (RECORD → REPLACE live output, LOOP; second touch resumes). Built at the Kernel seam: `ReelDeck`
++ `ReelTap` (Foundation-only, in Emission.swift, unit-tested); the tap records every emitted event with its pass-relative
+beat; on ARM the just-finished pass becomes the loop and REPLACES live from the next pass boundary; a second touch
+resumes live. Flushes on the transitions (allNotesOff entering replay · CC120/123 leaving) → no stuck notes. Reel-to-reel
+glyph bottom-left of the BUILD page (amber armed · green replaying). Rulings applied: REPLACE the output · loop 1 pass ·
+second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE EAR OWED** (render path — unheard here).
+- [ ] **STEP 2 — EXPORT**: write the recorded pass to a MIDI file (the point of the feature). Reuse the same `ReelDeck`
+  buffer (pass-relative events → SMF ticks at the loop's tempo).
+- v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
+  (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); no history depth beyond
+  1 pass; doesn't yet snapshot tempo/scene changes mid-record.
 
 ## ★ SOON — PatternSpan (SPAN: CELL | ROW) rollout to the pattern processors (Paul 2026-08-18)
 EUCLID SPAN landed (`e7e0043`, on `main`; commit line in CLAUDE.md status). `PatternSpan { cell, row }` + `euclidSpan`
