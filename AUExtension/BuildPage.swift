@@ -148,10 +148,10 @@ extension DiagView {
         VStack(spacing: BuildGeom.castGap) {
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
             AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — more space below it (Paul 2026-08-18)
-            AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the VERTICAL 2×4 MIDI chain + the CHAIN verb stack to its right (Paul 2026-08-18)
-                AnyView(buildProcessorBlock(castW: castW, cell: cell))      // 2×4 of 2×2-cell boxes — ~half the width
+            AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
-                                              height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // centred beside the chain (the grid verbs moved below the part grid)
+                                              height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack
+                AnyView(buildProcessorBlock(castW: castW, cell: cell))      // RIGHT: 2×4 of 2×2-cell boxes — ~half the width
             })
         }
     }
