@@ -101,9 +101,15 @@ extension DiagView {
                 // demangler's stack (SIGSEGV opening BUILD). AnyView is a nominal type the demangler won't recurse
                 // through — each column's type is instantiated separately + bounded.
                 AnyView(buildPaletteColumn(colW: leftW, cell: cell).frame(width: leftW, alignment: .center))
-                AnyView(buildStagingColumn(cell: cell).frame(width: gridColW, alignment: .center))
-                AnyView(buildPlayColumn(cell: cell).frame(width: gridColW, alignment: .center))
-            }   // each column now carries its OWN button box, directly below its grid (built inside the column)
+                // the two GRID columns are grouped so the combined I/O box (buildIOBox) can span both, directly below them
+                AnyView(VStack(spacing: 8) {
+                    HStack(alignment: .top, spacing: BuildGeom.colGap) {
+                        AnyView(buildStagingColumn(cell: cell).frame(width: gridColW, alignment: .center))
+                        AnyView(buildPlayColumn(cell: cell).frame(width: gridColW, alignment: .center))
+                    }
+                    AnyView(buildIOBox())
+                }.frame(width: gridColW * 2 + BuildGeom.colGap, alignment: .center))
+            }
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -115,6 +121,7 @@ extension DiagView {
             AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
             AnyView(buildStagingColumn(cell: cell))
             AnyView(buildPlayColumn(cell: cell))
+            AnyView(buildIOBox())                                            // the combined MIDI-IN + MIDI-OUT panel (Paul 2026-08-18)
         }
         .padding(.horizontal, 10).padding(.top, 6)
     }
@@ -1322,8 +1329,7 @@ extension DiagView {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
-            Spacer(minLength: 0)                                  // the SELECT/MUTATE verb box was removed below the grid (Paul 2026-08-18)
-            AnyView(buildReceiversBox())                         // bottom of the middle column — the four input doors (A–D), MOVED here from the left column (Paul 2026-08-18)
+            Spacer(minLength: 0)                                  // the I/O box now spans BOTH grid columns below them (buildIOBox); receivers moved there (Paul 2026-08-18)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1597,11 +1603,23 @@ extension DiagView {
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
             }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) })   // the eye in the play grid's top-left corner cell
-            // the play grid's footer button box was removed below the grid (Paul 2026-08-18)
+            // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)
-            AnyView(buildEmittersBox())                          // bottom of the right column — the four main emitter controls (fader + M/S + RACK)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+    // THE COMBINED I/O BOX — spans the bottom of BOTH grid columns (middle + right): the four MIDI-IN receiver controls
+    // (A–D) and the four MIDI-OUT emitter controls (A–D) in one panel, split by a divider. (Paul 2026-08-18)
+    @ViewBuilder private func buildIOBox() -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            ForEach(0..<4, id: \.self) { i in buildReceiverControl(i) }
+            Rectangle().fill(buildEdge).frame(width: 1).padding(.vertical, 6)   // MIDI IN │ MIDI OUT
+            ForEach(0..<4, id: \.self) { i in buildEmitterControl(i) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
     }
 
     // EMITTERS — the four output strips (A–D), in the style of the GRID page's emitter section (placeholder). Sits
