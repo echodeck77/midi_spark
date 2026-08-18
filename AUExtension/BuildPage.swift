@@ -92,8 +92,8 @@ extension DiagView {
         let avail = max(1, size.width - BuildGeom.colGap * 2 - 20)
         let leftW = max(1, avail / 3 * 0.726)                      // the MACHINE column: 0.968 × 0.75 → 25% narrower (Paul 2026-08-18)
         let gridColW = max(1, (avail - leftW) / 2)                 // staging + play split the reclaimed width
-        // the PERFORM grid is widest: LEFT part buttons + 8 grid cells + RIGHT per-row buttons = 10 cells (+ 9 gaps).
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 9) / 10))
+        // the PERFORM grid is widest: LEFT multi-row valve + LEFT single-row valve + 8 grid cells + RIGHT chevrons = 11 cells (+ 10 gaps).
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 10) / 11))
         VStack(spacing: 10) {
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
@@ -110,7 +110,7 @@ extension DiagView {
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 9 - 24) / 10))
+        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 10 - 24) / 11))   // play grid = 2 valves + 8 + chevrons = 11 cells
         VStack(spacing: 12) {
             AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
             AnyView(buildStagingColumn(cell: cell))
@@ -1320,7 +1320,7 @@ extension DiagView {
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelHue
         // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
-        let gridW = cell * 9 + BuildGeom.cellGap * 8              // row button + 8 cells + the 8 gaps between the 9
+        let gridW = cell * 10 + BuildGeom.cellGap * 9             // LEFT row rail + 8 cells + RIGHT row rail = 10 cells (Paul 2026-08-18)
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
@@ -1351,13 +1351,7 @@ extension DiagView {
     // blow the metadata demangler's stack (see buildPaletteColumn's note).
     @ViewBuilder private func buildStagingGrid(cell: CGFloat, hue: Color) -> some View {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { row in                      // press a part-grid row button
-                switch buildRowMode {
-                case .select: buildSelectRow(row)                                           // select the whole row's rung
-                case .place:  buildSelectRow(row)                                           // (PLACE retired — the colour tabs place now)
-                case .mutate: buildMutateRow(row)                                           // a value-tweaked variant of the selected colour
-                }
-            }
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildStagingRowAction($0) }  // LEFT row rail
             VStack(spacing: BuildGeom.cellGap) {
                 buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
                 VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
@@ -1385,8 +1379,17 @@ extension DiagView {
                 .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying) }   // sweeps only when the PART grid plays
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
+            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildStagingRowAction($0) }  // RIGHT row rail — identical to the left (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
+    }
+    // The part-grid row-button action, shared by the LEFT and RIGHT rails (Paul 2026-08-18).
+    private func buildStagingRowAction(_ row: Int) {
+        switch buildRowMode {
+        case .select: buildSelectRow(row)                                               // select the whole row's rung
+        case .place:  buildSelectRow(row)                                               // (PLACE retired — the colour tabs place now)
+        case .mutate: buildMutateRow(row)                                               // a value-tweaked variant of the selected colour
+        }
     }
 
     // The outline colour for a staging cell: WHITE for the ONE selected (playing) cell of its column; otherwise none.
@@ -1478,7 +1481,7 @@ extension DiagView {
     // THE VERB BOX (a different box below staging): the workbench verbs, then the workshop's outcomes.
     @ViewBuilder private func buildStagingVerbBox(gridW: CGFloat) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.mutate); buildFlattenButton() }   // SELECT ⟷ MUTATE radio (PLACE moved to the left column); FLATTEN placeholder (Paul 2026-08-17)
+            HStack(spacing: 6) { buildRowModeBtn(.select); buildRowModeBtn(.mutate); buildBlankSlot() }   // SELECT ⟷ MUTATE radio (PLACE moved to the left column); FLATTEN retired — both valves are always on the play grid now (Paul 2026-08-18)
             HStack(spacing: 6) { buildBlankSlot(); buildBlankSlot(); buildBlankSlot() }   // reserved — left blank for now (Paul 2026-08-16)
         }
         .padding(8)
@@ -1589,14 +1592,13 @@ extension DiagView {
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
             AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {   // same spacing as staging → attached the same way
-                // FLATTEN on → the valve/part buttons; off (default) → plain row-master chevrons
-                buildFlattenMode ? AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])) : AnyView(buildPerformRowButtons(cell: cell))
+                AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))   // LEFT 1: the MULTI-ROW valve
+                AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))                    // LEFT 2: the SINGLE-ROW valve — both valves now on the left (FLATTEN retired, Paul 2026-08-18)
                 VStack(spacing: BuildGeom.cellGap) {
                     buildLoopKeys(cell: cell)                     // the column-selector row
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
-                // FLATTEN on → the right per-rung buttons; off → the SAME buttons hidden (reserves width, no touch) so the grid stays the same size
-                buildFlattenMode ? AnyView(buildRightPartButtons(cell: cell, hue: buildCyan)) : AnyView(buildRightPartButtons(cell: cell, hue: buildCyan).hidden())
+                AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
             }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) })   // the eye in the play grid's top-left corner cell
             // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
             AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
@@ -2483,9 +2485,10 @@ extension DiagView {
                     AnyView(buildStagingGrid(cell: cell, hue: hue))
                 } else {
                     AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
-                        buildFlattenMode ? AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1])) : AnyView(buildPerformRowButtons(cell: cell))
+                        AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))   // multi-row valve
+                        AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))                    // single-row valve — both on the left
                         VStack(spacing: BuildGeom.cellGap) { buildLoopKeys(cell: cell); AnyView(buildPlayBands(cell: cell)) }
-                        buildFlattenMode ? AnyView(buildRightPartButtons(cell: cell, hue: buildCyan)) : AnyView(buildRightPartButtons(cell: cell, hue: buildCyan).hidden())
+                        AnyView(buildPerformRowButtons(cell: cell))                                   // right chevrons
                     })
                 }
             }
