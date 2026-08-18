@@ -1319,13 +1319,10 @@ extension DiagView {
     // ── MIDDLE COLUMN: STAGING (header · rail+loopkeys+grid · label) with the VERBS in their own box below ──────────
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelHue
-        // the staging grid's total width = the row rail + 8 cells + the 8 gaps between them (rail↔grid + 7 inter-cell).
-        let gridW = cell * 10 + BuildGeom.cellGap * 9             // LEFT row rail + 8 cells + RIGHT row rail = 10 cells (Paul 2026-08-18)
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
-            AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE box IS this column's button box (a 3×2: verbs + reserved blanks)
-            Spacer(minLength: 0)
+            Spacer(minLength: 0)                                  // the SELECT/MUTATE verb box was removed below the grid (Paul 2026-08-18)
             AnyView(buildReceiversBox())                         // bottom of the middle column — the four input doors (A–D), MOVED here from the left column (Paul 2026-08-18)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -1600,8 +1597,7 @@ extension DiagView {
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
             }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) })   // the eye in the play grid's top-left corner cell
-            // emitters + per-emitter MUTE/SOLO removed for now (non-functional) — they get rebuilt later
-            AnyView(buildFooterBox(labels: ["", "", "", "", "", ""]))   // the play grid's own button box, directly below it
+            // the play grid's footer button box was removed below the grid (Paul 2026-08-18)
             Spacer(minLength: 0)
             AnyView(buildEmittersBox())                          // bottom of the right column — the four main emitter controls (fader + M/S + RACK)
         }
