@@ -112,6 +112,8 @@ struct DiagView: View {
     @State var buildAuditionID: String? = nil            // the standing uncommitted "create a duplicate" candidate (ephemeral), auditioned after a PLACE
     @State var buildCastSeeded: Bool = false             // seed part 1's cast from the already-defined colours ONCE on first BUILD appear
     @State var buildPendingTab: Int? = nil               // the ONE pending (copied-unedited, PULSING) tab; nil = none
+    @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
+    @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     @State var buildPendingSource: [ProcessorSlot] = []  // the chain the pending tab was copied from — diverge = PLACED
     // THE PIECE — the perform (play) grid: deployed parts, ONE ROW per part (deployment order). Each cell keeps its
     // colourID + optional variation chain + the deploying part's I/O, so START/STOP THE PLAY GRID plays the assembly.

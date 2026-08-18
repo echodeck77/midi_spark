@@ -175,8 +175,8 @@ extension DiagView {
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
     @ViewBuilder private func buildGridVerbButtons() -> some View {
         HStack(spacing: 6) {
-            buildChainBtn("RANDOMIZE") { buildRandomizeGrid() }   // random rung per column
-            buildChainBtn("MUTATE")    { buildStageTheGrid() }    // stage/mutate the grid into variations
+            buildChainBtn("RANDOMIZE", enabled: !buildRandomizing) { buildRandomizeGrid() }   // generate 8 rows; disabled while running
+            buildChainBtn("MUTATE", enabled: !buildMutating && !selectedColourChain().isEmpty) { buildMutateGrid() }   // variations of the selected chain; disabled when no chain / running
             buildChainBtn("CLEAR")     { buildClearGrid() }       // deselect the grid
         }
     }
@@ -189,14 +189,16 @@ extension DiagView {
             buildChainBtn("RACK 4") { }
         }
     }
-    @ViewBuilder private func buildChainBtn(_ label: String, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
             .frame(maxWidth: .infinity).frame(height: 33)                     // compact fixed height (Paul 2026-08-18: +50%, 22 → 33)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
+            .opacity(enabled ? 1 : 0.35)                                      // DISABLED → dimmed + inert (Paul 2026-08-18)
             .contentShape(Rectangle())
-            .onTapGesture { buildExitPlaceMode(); action() }
+            .onTapGesture { if enabled { buildExitPlaceMode(); action() } }
+            .allowsHitTesting(enabled)
     }
     // THE RECEIVER (MIDI-IN) SELECTOR — sits between the row selector and the MIDI-chain box. Four buttons styled
     // like the centre column's emitter A–D chips (buildIOChip: cyan-when-armed, muted idle), but two-line: "MIDI IN"
@@ -755,6 +757,11 @@ extension DiagView {
     // OCTAVES-ONLY (Dice.randomSlot's rule); no two rows produce the same output. Ordered by complexity, then allocated
     // in that order to the 8 standard palette hues (rows 1–8). (Paul 2026-08-18)
     private func buildRandomizeGrid() {
+        guard !buildRandomizing else { return }
+        buildRandomizing = true
+        DispatchQueue.main.async { self.buildRunRandomizeGrid(); self.buildRandomizing = false }   // render the DISABLED state before the blocking compute
+    }
+    private func buildRunRandomizeGrid() {
         var rng = SystemRandomNumberGenerator()
         var chains: [[ProcessorSlot]] = []
         var seen = Set<[Int]>()
@@ -779,6 +786,44 @@ extension DiagView {
         buildPendingTab = nil
         buildSelectID(buildRowColour(0) ?? "")
         buildGCColours()                                                     // free the colours the old rows used
+        buildStagingSyncIfPlaying()
+    }
+    // MUTATE (under the part grid): 8 variations of the SELECTED colour's midi chain, laid onto the EXISTING row colours
+    // in order of complexity. Each variation nudges a few params across all the chain's processors (mutateChain), may
+    // add a SYMPATHETIC extra processor (kept only if the whole chain stays all-contributing), produces MIDI (non-silent),
+    // and differs from the others. Disabled when the selected chain is empty (nothing set). (Paul 2026-08-18)
+    private func buildMutateGrid() {
+        guard !buildMutating, ddSelectedColourID != nil, !selectedColourChain().isEmpty else { return }
+        buildMutating = true
+        DispatchQueue.main.async { self.buildRunMutateGrid(); self.buildMutating = false }   // render the DISABLED state before the blocking compute
+    }
+    private func buildRunMutateGrid() {
+        guard let selID = ddSelectedColourID else { return }
+        let base = buildColourChain(selID)
+        guard !base.isEmpty else { return }
+        let existing = (0..<8).compactMap { buildRowColour($0) }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }   // DISTINCT colours on the rows, row order
+        guard !existing.isEmpty else { return }
+        var rng = SystemRandomNumberGenerator()
+        var variations: [[ProcessorSlot]] = []
+        var seen = Set<[Int]>([Dice.fingerprint(base)])                      // avoid reproducing the source or a sibling
+        var budget = 400
+        while variations.count < existing.count && budget > 0 {
+            budget -= 1
+            guard var v = BuildSceneLogic.mutateChain(base, avoid: Array(seen), &rng) else { continue }   // nudge a few params across the processors
+            if Int.random(in: 0...1, using: &rng) == 0 {                     // ~half → try a SYMPATHETIC extra processor
+                for _ in 0..<6 {
+                    let trial = v + [Dice.randomSlot(using: &rng)]
+                    if Dice.allContribute(trial) { v = trial; break }        // kept only if every slot still contributes
+                }
+            }
+            let fp = Dice.fingerprint(v)
+            guard !Dice.signature(v).isEmpty, seen.insert(fp).inserted else { continue }   // produces MIDI + distinct
+            variations.append(v)
+        }
+        guard variations.count == existing.count else { return }
+        variations.sort { buildComplexity($0) < buildComplexity($1) }        // ORDER BY complexity of output
+        for (i, cid) in existing.enumerated() { buildWriteColourMachine(cid, variations[i]) }   // allocate to EXISTING colours only
+        refreshFromDocument()
         buildStagingSyncIfPlaying()
     }
     // CLEAR >>> — clear the PART grid's active selection (every column deselected → the grid plays nothing). The placed
