@@ -134,8 +134,13 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
-            AnyView(buildMachineBlock(castW: castW, cell: cell))  // tabs + receiver selector + [2×4 MIDI chain | verb button stack]
-            AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)   // the four MIDI-OUT emitter toggles — more space above them (Paul 2026-08-18)
+            AnyView(buildColourTabs(castW: castW, cell: cell))    // the ROW SELECTOR tabs — above the outlined section
+            AnyView(VStack(spacing: 8) {                          // THE OUTLINED MACHINE SECTION: receiver toggles · chain · buttons · emitter toggles (Paul 2026-08-18)
+                AnyView(buildMachineBlock(castW: castW, cell: cell))
+                AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)
+            }
+            .padding(10)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.3), lineWidth: 2)))   // the big section outline (Paul 2026-08-18)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -145,8 +150,7 @@ extension DiagView {
     // grids' DATA top (matching their loop-key row) rather than their header. Then the cast (rows 1–4) and the
     // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.castGap) {
-            AnyView(buildColourTabs(castW: castW, cell: cell))    // the 8 colour TABS (= part-grid rows 1–8) — the ROW SELECTOR
+        VStack(spacing: BuildGeom.castGap) {                      // (the colour TABS moved up to buildPaletteColumn, above the outlined section — Paul 2026-08-18)
             AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — more space below it (Paul 2026-08-18)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
@@ -2169,11 +2173,9 @@ extension DiagView {
         VStack(spacing: 2) {
             Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
             GeometryReader { g in
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                    let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0   // SUSTAINED while notes are held → note LENGTH
-                    let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
-                    let flash = (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.3)   // a brief attack flash on note-on
-                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { _ in
+                    let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0   // SUSTAINED while notes are held (no decay/drop animation, Paul 2026-08-18)
+                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, held))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
                         RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
@@ -2286,10 +2288,8 @@ extension DiagView {
         VStack(spacing: 2) {
             Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
             GeometryReader { g in
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                    let age = tl.date.timeIntervalSince(i < emitPeakAt.count ? emitPeakAt[i] : .distantPast)
-                    let meter = (i < emitPeak.count ? emitPeak[i] : 0) * max(0, 1 - age / 0.6)
-                    let level = override != nil ? Double(override!) / 127.0 : meter
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { _ in
+                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, i < emitPeak.count ? emitPeak[i] : 0))   // no decay/drop animation (Paul 2026-08-18)
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
                         RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
