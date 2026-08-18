@@ -2024,17 +2024,50 @@ extension DiagView {
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
         let latched = latchMask & (1 << UInt8(i)) != 0
-        let h: CGFloat = 14 + 51 + 51 + 6                                       // mute/solo(14) + LATCH(51) + ENABLE(51) + 2 gaps
+        let h: CGFloat = 122                                                    // total control height, split into 3 EQUAL rows on the right (Paul 2026-08-18)
         HStack(spacing: 6) {
-            buildReceiverMeter(i, letter: letter).frame(width: 22, height: h)   // velocity indicator — full control height
-            VStack(spacing: 3) {
-                HStack(spacing: 3) {                                            // MUTE · SOLO on one line
-                    buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
+            buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
+            VStack(spacing: 3) {                                                // three EQUAL rows, top → bottom
+                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
+                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }                                   // MIDDLE: LATCH
+                HStack(spacing: 3) {                                            // BOTTOM: SOLO (left) · MUTE (right)
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
-                }.frame(height: 14)
-                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }.frame(height: 51)   // 3× taller (prominent)
-                buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }.frame(height: 51)   // ENABLE (channel), 3× taller
+                    buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
+                }
             }.frame(height: h)
+        }
+    }
+    // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
+    // normally; DRAG to force this door's input velocity (top = 127 · bottom = 0) via setReceiverVel; release springs
+    // back to the natural velocity — the receiver mirror of buildEmitterFader. (Paul 2026-08-18)
+    @ViewBuilder private func buildReceiverFader(_ i: Int, letter: String) -> some View {
+        let override = i < recvDragVel.count ? recvDragVel[i] : nil
+        VStack(spacing: 2) {
+            Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
+            GeometryReader { g in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0   // SUSTAINED while notes are held → note LENGTH
+                    let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
+                    let flash = (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.3)   // a brief attack flash on note-on
+                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
+                        RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let frac = 1 - min(1, max(0, v.location.y / g.size.height))
+                        let vel = Int((frac * 127).rounded())
+                        if i < recvDragVel.count { recvDragVel[i] = vel }
+                        setReceiverVel(i, vel)                          // 0 = the input is silenced while held down
+                    }
+                    .onEnded { _ in
+                        if i < recvDragVel.count { recvDragVel[i] = nil }
+                        setReceiverVel(i, nil)                          // release → natural velocity
+                    })
+            }
         }
     }
     private func recChanLabel(_ rec: Receiver) -> String { rec.channel == 0 ? "OMNI" : "CH \(rec.channel)" }
