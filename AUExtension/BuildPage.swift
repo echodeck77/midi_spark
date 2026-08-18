@@ -156,12 +156,16 @@ extension DiagView {
     @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat) -> some View {
         let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
         let selected = cid != nil && cid == ddSelectedColourID
+        let tint = cid.flatMap { colourColor($0) }              // the tab's own colour (nil = empty)
+        // Styled like the part-grid ROW buttons: the muted RAIL (light grey on dark grey) when empty or unselected;
+        // a populated tab shows its colour as the NUMBER's text; the SELECTED tab keeps its solid-colour look. (Paul 2026-08-18)
         RoundedRectangle(cornerRadius: 6)
-            .fill(cid.flatMap { colourColor($0) } ?? buildCell.opacity(0.35))
+            .fill(selected ? (tint ?? buildRowButtonFill) : buildRowButtonFill)
             .frame(width: w, height: cell)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : buildEdge, lineWidth: selected ? 2 : 1))
             .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
-            .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cid != nil ? .black.opacity(0.7) : buildDim))
+            .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(selected ? .black.opacity(0.7) : (tint ?? .white.opacity(0.7))))   // populated → the colour's TEXT; empty → grey; selected → black on the fill
             .contentShape(Rectangle())
             .onTapGesture { buildTapColourTab(n) }
     }
