@@ -15,8 +15,11 @@ struct BuildPart: Codable, Equatable {
     var selID: String? = nil          // the cast selection BY ID (supports ephemeral colours)
     var cast: [String] = []           // §2 CAST VIEW: the part's visible palette — a per-part MEMBERSHIP over the global colour store
     var castSlots: [Int: String] = [:] // §2 explicit slot→colourID placements for NON-default colours (long-press lands a colour on its pressed cell)
-    var receiver: Int = 0             // the PART's input door (R1–R4) — shared across all its colours
-    var emitters: Set<Bus> = [.a]     // the PART's output emitters — shared across all its colours
+    var receiver: Int = 0             // the PART's DEFAULT input door (R1–R4) — a row inherits it unless overridden
+    var emitters: Set<Bus> = [.a]     // the PART's DEFAULT output emitters — a row inherits it unless overridden
+    // PER-ROW I/O overrides (Paul 2026-08-18, additive-Optional): a nil array OR a nil entry = inherit the part default.
+    var rowReceiver: [Int?]? = nil
+    var rowEmitters: [Set<Bus>?]? = nil
     var deployed: Bool = false        // christened (PART n) once deployed to the play grid
 }
 

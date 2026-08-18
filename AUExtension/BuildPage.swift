@@ -521,12 +521,23 @@ extension DiagView {
         input.stagingSel = buildStagingSel
         input.partEmitters = buildPartEmitters
         input.selReceiver = buildSelReceiver
+        input.rowReceiver = (0..<8).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
+        input.rowEmitters = (0..<8).map { buildRowEmittersResolved($0) }
         input.rowChain = buildRowChain
         if ddSolo, let cid = ddSelectedColourID {
             input.chainColourID = cid
             input.chainMachine = buildColourChain(cid)
         }
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
+    }
+    // PER-ROW I/O resolution (Paul 2026-08-18): a row's OWN door/emitters, or the part default when unset (nil).
+    private func buildRowReceiverResolved(_ r: Int) -> Int {
+        ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
+    }
+    private func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
+        let own = (r >= 0 && r < buildRowEmitters.count) ? buildRowEmitters[r] : nil
+        if let own, !own.isEmpty { return own }
+        return buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
     }
 
     // A colour's OWN machine (templateChain), audible slots only.
@@ -855,6 +866,7 @@ extension DiagView {
         p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel
         p.rowChain = buildRowChain; p.rowShade = buildRowShade; p.rowUnder = buildRowUnder
         p.selID = buildSelID; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
+        p.rowReceiver = buildRowReceiver; p.rowEmitters = buildRowEmitters   // PER-ROW I/O overrides (Paul 2026-08-18)
         buildParts[buildCurrentPart] = p
     }
     private func buildLoadPart(_ i: Int) {
@@ -864,6 +876,8 @@ extension DiagView {
         buildStagingCells = p.stagingCells; buildStagingSel = p.stagingSel
         buildRowChain = p.rowChain; buildRowShade = p.rowShade; buildRowUnder = p.rowUnder
         buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
+        buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
+        buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: 8)
         buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
         buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
         buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part

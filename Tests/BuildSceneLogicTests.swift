@@ -93,6 +93,22 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
     }
 
+    func testPerRowIOOverridesTheDefaultElseInherits() {
+        // PER-ROW I/O (Paul 2026-08-18): row 1 carries its OWN door + emitter; row 4 inherits the part default.
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 1, "gold"), (1, 4, "teal")])
+        i.stagingSel = [1, 4, -1, -1, -1, -1, -1, -1]
+        i.selReceiver = 0; i.partEmitters = [.a]                        // part DEFAULT: door R1 · emitter A
+        i.rowReceiver = [0, 2, 0, 0, 0, 0, 0, 0]                        // row 1 → door R3
+        i.rowEmitters = [[.a], [.c], [.a], [.a], [.a], [.a], [.a], [.a]] // row 1 → emitter C
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 1)?.inputReceiver, 2, "row 1 uses its OWN door")
+        XCTAssertEqual(s.cellAt(0, 1)?.buses, [.c], "row 1 uses its OWN emitter")
+        XCTAssertEqual(s.cellAt(1, 4)?.inputReceiver, 0, "row 4 inherits the part default door")
+        XCTAssertEqual(s.cellAt(1, 4)?.buses, [.a], "row 4 inherits the part default emitters")
+    }
+
     func testPieceDropsMutedAndInactiveRungCells() {
         var i = BuildSceneLogic.Input()
         i.performPlaying = true

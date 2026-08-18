@@ -22,8 +22,10 @@ enum BuildSceneLogic {
         // THE PART (staging grid)
         var stagingCells: [[String?]] = []             // [col][row] → colourID
         var stagingSel: [Int] = []                     // the ONE selected rung per column (-1 = silent)
-        var partEmitters: Set<Bus> = []                // the part's output emitters
-        var selReceiver = 0                            // the part's input door
+        var partEmitters: Set<Bus> = []                // the part's DEFAULT output emitters (a row inherits it when unset)
+        var selReceiver = 0                            // the part's DEFAULT input door (a row inherits it when unset)
+        var rowEmitters: [Set<Bus>] = []               // per staging-ROW emitters, RESOLVED (Paul 2026-08-18); empty/short → partEmitters
+        var rowReceiver: [Int] = []                    // per staging-ROW input door, RESOLVED; short → selReceiver
         var rowChain: [[ProcessorSlot]] = []           // per staging-ROW variation chain
         // THE MIDI CHAIN (raw audition of the selected colour)
         var chainColourID: String? = nil
@@ -51,12 +53,13 @@ enum BuildSceneLogic {
             } }
         }
 
-        if i.stagingPlaying {                                       // THE PART — the staging selection, ALONGSIDE the piece
-            let buses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
-            let recv = max(0, min(3, i.selReceiver))
+        if i.stagingPlaying {                                       // THE PART — the staging selection, ALONGSIDE the piece; each ROW carries its OWN I/O (Paul 2026-08-18)
+            let dfltBuses: Set<Bus> = i.partEmitters.isEmpty ? [.a] : i.partEmitters
             for c in 0..<8 {
                 let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                 guard r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, let cid = i.stagingCells[c][r] else { continue }
+                let buses: Set<Bus> = (r < i.rowEmitters.count && !i.rowEmitters[r].isEmpty) ? i.rowEmitters[r] : dfltBuses
+                let recv = max(0, min(3, r < i.rowReceiver.count ? i.rowReceiver[r] : i.selReceiver))
                 var cell = Cell(colourID: cid, buses: buses)
                 cell.inputReceiver = recv
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
