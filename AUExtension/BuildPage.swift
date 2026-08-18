@@ -1611,9 +1611,8 @@ extension DiagView {
     // THE COMBINED I/O BOX — spans the bottom of BOTH grid columns (middle + right): the four MIDI-IN receiver controls
     // (A–D) and the four MIDI-OUT emitter controls (A–D) in one panel, split by a divider. (Paul 2026-08-18)
     @ViewBuilder private func buildIOBox() -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 6) {                                  // one continuous section — receivers then emitters, no divider (Paul 2026-08-18)
             ForEach(0..<4, id: \.self) { i in buildReceiverControl(i) }
-            Rectangle().fill(buildEdge).frame(width: 1).padding(.vertical, 6)   // MIDI IN │ MIDI OUT
             ForEach(0..<4, id: \.self) { i in buildEmitterControl(i) }
         }
         .padding(10)
@@ -2048,7 +2047,7 @@ extension DiagView {
             VStack(spacing: 3) {                                                // four EQUAL rows, top → bottom
                 buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
                 buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }                                   // LATCH
-                buildRecOct(i)                                                  // OCT −/+ (between LATCH and S/M)
+                buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // BOTTOM: SOLO (left) · MUTE (right)
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
                     buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
@@ -2056,17 +2055,16 @@ extension DiagView {
             }.frame(height: h)
         }
     }
-    // The receiver's OCTAVE nudge row: −  OCT ±n  + (input transpose; ephemeral, ±3 octaves). (Paul 2026-08-18)
-    @ViewBuilder private func buildRecOct(_ i: Int) -> some View {
-        let oct = i < receiverOctave.count ? receiverOctave[i] : 0
+    // A shared OCTAVE nudge row: −  OCT ±n  + (±3 octaves). Used by both the receiver and emitter controls. (Paul 2026-08-18)
+    @ViewBuilder private func buildOctRow(oct: Int, onDown: @escaping () -> Void, onUp: @escaping () -> Void) -> some View {
         HStack(spacing: 3) {
-            buildRecMini("−", on: false, colour: buildCyan) { nudgeReceiverOctave(i, -1) }.frame(width: 16)
+            buildRecMini("−", on: false, colour: buildCyan, action: onDown).frame(width: 16)
             Text("OCT \(oct > 0 ? "+" : "")\(oct)").font(.system(size: 8, weight: .heavy, design: .monospaced))
                 .foregroundColor(oct == 0 ? .white.opacity(0.6) : buildCyan).lineLimit(1).minimumScaleFactor(0.5)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 4).fill(buildCell))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(buildEdge, lineWidth: 1))
-            buildRecMini("+", on: false, colour: buildCyan) { nudgeReceiverOctave(i, 1) }.frame(width: 16)
+            buildRecMini("+", on: false, colour: buildCyan, action: onUp).frame(width: 16)
         }
     }
     // The INTERACTIVE input-velocity indicator: the incoming-velocity meter (sustained while held, brief attack flash)
@@ -2175,15 +2173,15 @@ extension DiagView {
         let muted = !(i < busEnabled.count ? busEnabled[i] : true)
         let soloed = emitterFootSolo & (1 << UInt8(i)) != 0
         let racked = rackMask & (1 << UInt8(i)) != 0
-        let h: CGFloat = 14 + 68 + 3
+        let ch = i < busChannels.count ? busChannels[i] : i + 1
+        let h: CGFloat = 148                                                   // match the receiver control — four EQUAL rows (Paul 2026-08-18)
         HStack(spacing: 6) {
-            buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — full control height
-            VStack(spacing: 3) {
-                HStack(spacing: 3) {                                           // MUTE · SOLO on one line
-                    buildRecMini("M", on: muted, colour: buildPink) { toggleEmitter(i) }       // mute = disable the bus
-                    buildRecMini("S", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }
-                }.frame(height: 14)
-                buildRecProminent("RACK", on: racked, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleRack(i) }.frame(height: 68)   // the RACK gate, prominent
+            buildEmitterFader(i, letter: letter).frame(width: 22, height: h)   // interactive velocity fader — drag to override output velocity
+            VStack(spacing: 3) {                                               // four EQUAL rows, top → bottom (mirrors the receiver control)
+                buildRecProminent("CH \(ch)", on: !muted, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleEmitter(i) }   // TOP: CH n — acts as the MUTE (dim = muted / bus disabled)
+                buildRecProminent("RACK", on: racked, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleRack(i) }             // RACK
+                buildOctRow(oct: i < emitterOctave.count ? emitterOctave[i] : 0, onDown: { nudgeEmitterOctave(i, -1) }, onUp: { nudgeEmitterOctave(i, 1) })   // OCT −/+
+                buildRecMini("SOLO", on: soloed, colour: buildCyan) { toggleEmitterSolo(i) }   // BOTTOM: SOLO only (CH is the mute)
             }.frame(height: h)
         }
     }
