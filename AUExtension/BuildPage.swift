@@ -1700,11 +1700,11 @@ extension DiagView {
     // (A–D) and the four MIDI-OUT emitter controls (A–D) in one panel, split by a divider. (Paul 2026-08-18)
     @ViewBuilder private func buildIOBox() -> some View {
         HStack(alignment: .top, spacing: 6) {                                  // receivers then emitters, each headed by a top-right label (Paul 2026-08-18)
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("MIDI IN").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim)
                 HStack(alignment: .top, spacing: 6) { ForEach(0..<4, id: \.self) { i in buildReceiverControl(i) } }
             }
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("MIDI OUT").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(buildDim)
                 HStack(alignment: .top, spacing: 6) { ForEach(0..<4, id: \.self) { i in buildEmitterControl(i) } }
             }
