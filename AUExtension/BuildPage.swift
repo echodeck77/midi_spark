@@ -753,8 +753,8 @@ extension DiagView {
     }
     // RANDOMIZE >>> — randomize the PART grid's performance: a random POPULATED rung per column. (Paul 2026-08-18)
     // RANDOMIZE (under the part grid): generate 8 rows and lay them on the standard colours in order of complexity.
-    // Each chain is role-built so EVERY processor contributes (Dice.rollChain), never silent, and any harmonizer is
-    // OCTAVES-ONLY (Dice.randomSlot's rule); no two rows produce the same output. Ordered by complexity, then allocated
+    // Each chain is a SHORT 1–3-processor roll where EVERY processor contributes (Dice.rollSimple), never silent, and any
+    // harmonizer is OCTAVES-ONLY (Dice.randomSlot's rule); no two rows produce the same output. Ordered by complexity, then allocated
     // in that order to the 8 standard palette hues (rows 1–8). (Paul 2026-08-18)
     private func buildRandomizeGrid() {
         guard !buildRandomizing else { return }
@@ -768,7 +768,7 @@ extension DiagView {
         var budget = 200
         while chains.count < 8 && budget > 0 {
             budget -= 1
-            let c = Dice.rollChain(target: 5, using: &rng)   // role-built: all-contributing, capped, octave-only harmonize
+            let c = Dice.rollSimple(using: &rng)   // 1–3 processors MAX, all-contributing, capped, octave-only harmonize (Paul 2026-08-18)
             let sig = Dice.signature(c)
             guard !sig.isEmpty, seen.insert(sig).inserted else { continue }   // NON-silent + a DISTINCT output (no two the same)
             chains.append(c)
