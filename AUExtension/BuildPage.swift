@@ -750,12 +750,35 @@ extension DiagView {
         refreshFromDocument()
     }
     // RANDOMIZE >>> — randomize the PART grid's performance: a random POPULATED rung per column. (Paul 2026-08-18)
+    // RANDOMIZE (under the part grid): generate 8 rows and lay them on the standard colours in order of complexity.
+    // Each chain is role-built so EVERY processor contributes (Dice.rollChain), never silent, and any harmonizer is
+    // OCTAVES-ONLY (Dice.randomSlot's rule); no two rows produce the same output. Ordered by complexity, then allocated
+    // in that order to the 8 standard palette hues (rows 1–8). (Paul 2026-08-18)
     private func buildRandomizeGrid() {
         var rng = SystemRandomNumberGenerator()
-        for c in 0..<8 {
-            let populated = (0..<8).filter { buildStagingCells[c][$0] != nil }
-            buildStagingSel[c] = populated.randomElement(using: &rng) ?? -1
+        var chains: [[ProcessorSlot]] = []
+        var seen = Set<[Int]>()
+        var budget = 200
+        while chains.count < 8 && budget > 0 {
+            budget -= 1
+            let c = Dice.rollChain(target: 5, using: &rng)   // role-built: all-contributing, capped, octave-only harmonize
+            let sig = Dice.signature(c)
+            guard !sig.isEmpty, seen.insert(sig).inserted else { continue }   // NON-silent + a DISTINCT output (no two the same)
+            chains.append(c)
         }
+        guard chains.count == 8 else { return }                              // couldn't find 8 distinct (very rare) → leave the grid alone
+        chains.sort { buildComplexity($0) < buildComplexity($1) }            // ORDER BY complexity (ascending) …
+        buildPartCast = []
+        for r in 0..<8 {                                                     // … ALLOCATE in that order to the 8 standard colours (rows 1–8)
+            if r < buildRowUnder.count { buildRowUnder[r] = nil }
+            let id = buildNewTabColour(r, machine: chains[r])                // row r → the standard hue colourHexes[r] + its chain
+            buildPartCast.append(id)
+            buildSetRow(r, to: id)
+        }
+        for c in 0..<8 { buildStagingSel[c] = Int.random(in: 0..<8, using: &rng) }   // a fresh random rung per column
+        buildPendingTab = nil
+        buildSelectID(buildRowColour(0) ?? "")
+        buildGCColours()                                                     // free the colours the old rows used
         buildStagingSyncIfPlaying()
     }
     // CLEAR >>> — clear the PART grid's active selection (every column deselected → the grid plays nothing). The placed
