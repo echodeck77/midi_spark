@@ -1715,8 +1715,7 @@ extension DiagView {
         }
         .padding(10)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildEdge, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))   // outline removed (Paul 2026-08-18)
     }
 
     // EMITTERS — the four output strips (A–D), in the style of the GRID page's emitter section (placeholder). Sits
