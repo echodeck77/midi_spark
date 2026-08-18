@@ -471,6 +471,22 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 4, "the column-1 burst downbeat must not be dropped")
         assertNothingLeftSounding(e)
     }
+    func testEuclidSpanRowSpreadsPulsesAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-18): E(4,8) stretches its 4 pulses across the whole 8-column bar (columns 0,2,4,6),
+        // not 4 pulses PER column. With the euclid colour filling a row, one bar sounds exactly K × chord = 12 note-ons;
+        // SPAN CELL repeats the pattern in every column → 4 × 3 × 8 = 96. Same pattern, different timeline.
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the euclid fills the whole row
+            }
+        }
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        XCTAssertEqual(eRow.ons.filter { $0.cable == 1 }.count, 12, "SPAN ROW: 4 euclid pulses × 3 notes across the WHOLE bar")
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        XCTAssertEqual(eCell.ons.filter { $0.cable == 1 }.count, 96, "SPAN CELL: 4 × 3 × 8 columns — the pattern repeats each column")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
             c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }

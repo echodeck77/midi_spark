@@ -323,6 +323,7 @@ enum SnapshotBuilder {
         if let v = p.euclidPulses { out.euclidPulses = clamp(v, 1, 16) }
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
+        if let v = p.euclidSpan { out.euclidSpan = v }
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
         if let v = p.modCC { out.modCC = clamp(v, 0, 127) }
         if let v = p.modSource { out.modSource = v }

@@ -1517,6 +1517,8 @@ struct ProcessorBox: View {
             }
             field("STEPS  \(steps)") { grid16(sel: steps) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
             field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
+            let span = p.euclidSpan ?? .cell
+            field("SPAN") { seg(["CELL", "ROW"], sel: span == .row ? "ROW" : "CELL") { i in setParam { $0.euclidSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column · ROW = N steps span the bar (Paul 2026-08-18)
         case .burst:    // GENERATOR — accel/decel roll
             field("HITS  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }
             let cv = p.curve ?? 0

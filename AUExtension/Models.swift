@@ -45,6 +45,10 @@ enum ModFollow: String, Codable, CaseIterable { case density = "DENSITY", regist
 enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "LOW", high = "HIGH" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
+// SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
+// (N steps = one column); ROW stretches the SAME N steps across the whole 8-column bar (a cross-column phrase). The
+// column gate makes each cell voice only the pulses landing in its own column. Shared across EUCLID/LENGTH/TUTTI/… .
+enum PatternSpan: String, Codable, CaseIterable { case cell = "CELL", row = "ROW" }
 enum StepRate: String, Codable, CaseIterable {
     case r2_1 = "2/1", r1_1 = "1/1", r1_2 = "1/2", r1_2d = "1/2.", r1_4 = "1/4", r1_8 = "1/8"
     var beats: Double {
@@ -135,6 +139,7 @@ struct ColourParams: Codable, Equatable {
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
+    var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
     var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)

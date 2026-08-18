@@ -2220,7 +2220,10 @@ final class Router {
             let n = max(2, min(16, p.euclidSteps))
             let k = p.euclidPulsesFromPool ? srcNotes.count : p.euclidPulses   // POOL: K = held-note count (composed set if chained)
             let pat = euclidPattern(pulses: k, steps: n, rotation: p.euclidRot)
-            let sub = S / Double(n)
+            // SPAN: CELL fits N steps in one column (repeats each column); ROW stretches the SAME N steps across the
+            // whole bar (a cross-column phrase). Only `sub` changes — the column gate below keeps each cell voicing
+            // only the pulses that fall in its own column, so a euclid on a full row plays as one phrase. (Paul 2026-08-18)
+            let sub = (p.euclidSpan == .row ? cyc : S) / Double(n)
             // Emit via iterateTicks (like the ARP) instead of a window-scan: its floor + per-row dedup CATCHES the
             // downbeat pulse (step 0, sitting exactly on the column boundary) that the old `tau >= mWinStart` scan
             // dropped whenever a render block didn't begin precisely on the boundary — i.e. almost always, so every

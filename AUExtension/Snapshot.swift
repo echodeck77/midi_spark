@@ -101,6 +101,7 @@ struct SnapParams {
     var euclidSteps: Int = 8
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
+    var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
     var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
