@@ -169,11 +169,11 @@ extension DiagView {
         .frame(maxWidth: .infinity)
     }
     @ViewBuilder private func buildChainBtn(_ label: String, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
-            .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 7).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
+            .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
+            .frame(maxWidth: .infinity).frame(height: 22)                     // fixed, compact height — no longer stretches to the chain-block height (Paul 2026-08-18)
+            .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { buildExitPlaceMode(); action() }
     }
