@@ -133,7 +133,7 @@ extension DiagView {
     @ViewBuilder private func buildPaletteColumn(colW: CGFloat, cell: CGFloat) -> some View {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
+            AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // tabs + receiver selector + [2×4 MIDI chain | verb button stack]
             AnyView(buildEmitterToggles(castW: castW))            // the four MIDI-OUT emitter toggles, styled like the MIDI-IN selector (Paul 2026-08-18)
             Spacer(minLength: 0)
@@ -1389,8 +1389,8 @@ extension DiagView {
     @ViewBuilder private func buildStagingColumn(cell: CGFloat) -> some View {
         let hue = buildSelHue
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) }))   // tap = play/STOP the part; enabled once EITHER grid has content
-            AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
+            AnyView(buildColumnButton("PLAY THIS PART", active: buildDisplayVoice == .part, fill: .grid, enabled: buildStagingPopulated || buildPerformPopulated, action: { buildRequestWorkshopVoice(buildDisplayVoice == .part ? .none : .part) })).padding(.bottom, 6)   // tap = play/STOP the part; enabled once EITHER grid has content
+            AnyView(buildStagingGrid(cell: cell, hue: hue)).padding(.bottom, 6)   // the PART grid
             AnyView(buildGridVerbButtons())                       // RANDOMIZE · MUTATE · CLEAR — the grid-scope verbs (Paul 2026-08-18)
             Spacer(minLength: 0)                                  // the I/O box now spans BOTH grid columns below them (buildIOBox); receivers moved there (Paul 2026-08-18)
         }
@@ -1653,7 +1653,7 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, enabled: buildPerformPopulated, action: { buildTogglePerformVoice() }))   // disabled until the play grid has REAL cells (preview doesn't count)
+            AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, enabled: buildPerformPopulated, action: { buildTogglePerformVoice() })).padding(.bottom, 6)   // disabled until the play grid has REAL cells (preview doesn't count)
             // PLAY/EDIT radio dropped (Paul 2026-08-17); the eye moved to the grid's corner
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
             // — parts 3–5 aren't repeated on the right since they're already on the left. Assign STAGING → PERFORM (wires later).
@@ -1665,7 +1665,7 @@ extension DiagView {
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
-            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) })   // the eye in the play grid's top-left corner cell
+            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 6)   // the eye in the play grid's top-left corner cell
             // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)
         }
