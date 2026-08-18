@@ -176,6 +176,15 @@ extension DiagView {
             buildChainBtn("CLEAR")     { buildClearGrid() }       // deselect the grid
         }
     }
+    // Four RACK placeholder buttons below the play grid — same style as the grid verbs; no action yet. (Paul 2026-08-18)
+    @ViewBuilder private func buildRackButtons() -> some View {
+        HStack(spacing: 6) {
+            buildChainBtn("RACK 1") { }
+            buildChainBtn("RACK 2") { }
+            buildChainBtn("RACK 3") { }
+            buildChainBtn("RACK 4") { }
+        }
+    }
     @ViewBuilder private func buildChainBtn(_ label: String, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
@@ -1666,6 +1675,7 @@ extension DiagView {
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
             }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 6)   // the eye in the play grid's top-left corner cell
+            AnyView(buildRackButtons())                          // four RACK placeholders below the play grid (Paul 2026-08-18)
             // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)
         }
