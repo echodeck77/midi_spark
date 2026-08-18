@@ -1454,7 +1454,7 @@ extension DiagView {
                 .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying) }   // sweeps only when the PART grid plays
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
-            buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildStagingRowAction($0) }  // RIGHT row rail — identical to the left (Paul 2026-08-18)
+            buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
     }
@@ -1464,6 +1464,21 @@ extension DiagView {
         case .select: buildSelectRow(row)                                               // select the whole row's rung
         case .place:  buildSelectRow(row)                                               // (PLACE retired — the colour tabs place now)
         case .mutate: buildMutateRow(row)                                               // a value-tweaked variant of the selected colour
+        }
+    }
+    // The part grid's RIGHT rail — static right-pointing chevrons that never change colour (unlike the left rail's
+    // colour-tinted numbers). Same row action as the left. (Paul 2026-08-18)
+    @ViewBuilder private func buildStagingRightRail(cell: CGFloat) -> some View {
+        VStack(spacing: BuildGeom.cellGap) {
+            Color.clear.frame(width: cell, height: cell)                                 // align past the loop-key row
+            ForEach(0..<8, id: \.self) { r in
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.11))
+                    .frame(width: cell, height: cell)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+                    .overlay(Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.7)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { buildStagingRowAction(r) }
+            }
         }
     }
 
