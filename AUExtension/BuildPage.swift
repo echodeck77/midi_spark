@@ -129,8 +129,8 @@ extension DiagView {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; pairs with the grids' column button
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
             AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · AUTOFILL / LIBRARY — directly below the processor section
+            AnyView(buildEmitterToggles(castW: castW))            // the four MIDI-OUT emitter toggles, styled like the MIDI-IN selector (Paul 2026-08-18)
             Spacer(minLength: 0)
-            AnyView(buildReceiversBox())                          // bottom of the left column — the four input doors (A–D)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -155,10 +155,24 @@ extension DiagView {
         .frame(width: castW)
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
-        let on = buildSelReceiver == i
-        let letter = ["A", "B", "C", "D"][i]
+        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: buildSelReceiver == i) { buildSelectDoor(i) }   // radio: select the part's door
+    }
+    // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
+    // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
+    @ViewBuilder private func buildEmitterToggles(castW: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: buildPartEmitters.contains(b)) { buildToggleBus(b) }   // toggle: multiple emitters can be lit
+            }
+        }
+        .frame(width: castW)
+    }
+    // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
+    // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
+    // emitter toggles so they read identically. (Paul 2026-08-18)
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, action: @escaping () -> Void) -> some View {
         VStack(spacing: 1) {
-            Text("MIDI IN").font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
+            Text(top).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
             Text(letter).font(.system(size: 15, weight: .black, design: .monospaced))
         }
         .foregroundColor(on ? Color.black : buildDim)
@@ -166,7 +180,7 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON = the accent; idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { buildSelectDoor(i) }                                // select the door (radio); the part feeds from it
+        .onTapGesture(perform: action)
     }
     // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
     // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
@@ -1312,7 +1326,7 @@ extension DiagView {
             AnyView(buildStagingGrid(cell: cell, hue: hue))       // AnyView — keeps the deep 8×8 type out of this body
             AnyView(buildStagingVerbBox(gridW: gridW))            // the SELECT · PLACE · MUTATE box IS this column's button box (a 3×2: verbs + reserved blanks)
             Spacer(minLength: 0)
-            AnyView(buildEmitterSelectBox(gridW: gridW))         // bottom of the middle column — the four emitter toggles + MIDI-out info
+            AnyView(buildReceiversBox())                         // bottom of the middle column — the four input doors (A–D), MOVED here from the left column (Paul 2026-08-18)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
