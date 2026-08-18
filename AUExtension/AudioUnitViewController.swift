@@ -115,6 +115,11 @@ struct DiagView: View {
     @State var reelState: Int = 0                        // THE REEL-TO-REEL: 0 off · 1 armed · 2 replaying (polled)
     @State var reelShareURLs: [URL] = []                 // EXPORT: the written SMF files to share
     @State var reelShowShare = false
+    @State var reelShowPopup = false                     // THE PASS BROWSER pop-up (tap the reel glyph)
+    @State var reelPassNumbers: [Int] = []               // the 32 ring slots, oldest→newest (polled while the pop-up is open)
+    @State var reelRoll: [ReelDeck.Note] = []            // the selected pass's notes (A–D piano-roll lanes)
+    @State var reelSelPassNo: Int = -1                   // the currently selected/playing pass (−1 = auto latest)
+    @State var reelCycle: Double = 4                     // the pass length in beats (piano-roll x-axis)
     @State var buildRandomizing = false                  // the grid RANDOMIZE is computing (disable its button)
     @State var buildMutating = false                     // the grid MUTATE is computing (disable its button)
     // PER-ROW I/O (Paul 2026-08-18): each staging row can override the part's default door/emitters; nil = inherit.
@@ -1028,6 +1033,12 @@ struct DiagView: View {
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
+            if reelShowPopup {                                                    // THE PASS BROWSER: refresh the ring + selected roll while open
+                let pn = au.reelPassNumbers();     if pn != reelPassNumbers { reelPassNumbers = pn }
+                let rr = au.reelSelectedRoll();    if rr != reelRoll { reelRoll = rr }
+                let sp = au.reelSelectedPassNo();  if sp != reelSelPassNo { reelSelPassNo = sp }
+                let cy = au.reelCycleBeats();      if cy != reelCycle { reelCycle = cy }
+            }
             let cm = au.uiClaimMask();     if cm != claimMask { claimMask = cm }
             let clk = au.uiClaimLeak();    if clk != claimLeak { claimLeak = clk }
             let th = au.uiThruReceiver();  if th != thruReceiver { thruReceiver = th }

@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REEL-TO-REEL — THE PASS BROWSER pop-up LANDED (2026-08-19, on `main`; macOS 771 green, iOS builds; DEVICE
+  ear/eye owed). Reworks the reel glyph from a tap-replay toggle into an 8×8 pass browser. **ENGINE:** `ReelDeck`
+  (Emission.swift, Foundation-only) gained a 32-slot HISTORY RING — one flat `hist` buffer sliced `histCap`(8192)
+  events/pass, pass p → slot p%32, `passCounter` monotone; `passNumbers()` returns the ring oldest→newest (newest =
+  index 31 → bottom-right of the pop-up); `selectPass(passNo)` pins a pass into `loop` (`selectedPassNo`; promote
+  copies latest→loop only when UNPINNED); `selectedRoll()` pairs on/off into `Note{cable,note,vel,start,end}` for the
+  piano roll (cables 1–4, open notes close at `cycleBeats`); `clearSelection`. The ring fills continuously while live
+  (recording was already always-on). **KERNEL:** `reelSelectRequest`/`reelStopRequest` consumed on the render thread
+  (select → `.replaying` + allNotesOff = play-now; stop → `.off` + blanket-off + clearSelection = resume live); sets
+  `reel.cycleBeats`; wrappers `reelPassNumbers`/`reelSelectedRoll`/`reelSelectedPassNo`/`reelSelectPass`/`reelStopReplay`/
+  `reelCycleValue`, forwarded through `MidiSparkAudioUnit`. **UI (BuildPage):** the glyph taps open `buildReelPopup` (a
+  ZStack modal, no `.sheet` for the browser itself); TOP 4 rows = 32 pass cells (`buildReelPassCell`, 1-based number,
+  pinned = cyan, replaying = green ring, tap = select+replay / tap-the-playing-one = stop); BOTTOM 4 rows = A/B/C/D
+  `buildReelLane` Canvas piano rolls (pitch shared-scaled across lanes, x by pass length `reelCycle`, opacity by
+  velocity); SAVE exports the selected pass via the existing STEP-2 share-sheet path. VC polls the ring/roll/selection
+  only while the pop-up is open. Decisions of record (Paul 2026-08-19): tap opens the pop-up (retiring tap-replay +
+  long-press-export) · pass tap = select+play-now · Save = selected pass → share. +5 ReelDeckTests (ring order,
+  eviction past 32, pin survives promotes, select loads the right pass, roll pairing). `reelTouch` kept in AU/Kernel but
+  now UI-unused. bottom-right = most-recent COMPLETED pass (in-progress isn't replayable).**
 - **▶ BUILD PAGE REARRANGE + PLACE MODE + COLOUR-UNIQUENESS LANDED (2026-08-17, on `main`, PUSHED; `2125c34`+`3280fde`;
   iOS builds; UI-only, engine tests untouched). Whole-page rework of `AUExtension/BuildPage.swift` (experimental). Left
   column: PLAY → part → an invisible untouchable header row → cast (8×4) → the chain as a 4×2 of 2×2-cell processor boxes

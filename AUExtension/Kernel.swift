@@ -413,8 +413,17 @@ final class Kernel {
     private var reelLastPass = Int.min
     private var reelTempoStored = 120.0
     private var reelCycleStored = 4.0
+    private var reelSelectRequest = Int.min                         // control thread: a pass to select+replay (Int.min = none)
+    private var reelStopRequest = false                             // control thread: stop replay → resume live
     func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
     func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
+    // THE PASS BROWSER (Paul 2026-08-19): the pop-up reads the ring + selected roll; taps select+replay / stop (deferred to render).
+    func reelPassNumbers() -> [Int] { reel.passNumbers() }
+    func reelSelectedRoll() -> [ReelDeck.Note] { reel.selectedRoll() }   // read-only value copy — safe off the render thread (see BUILD reel note)
+    func reelSelectedPassNo() -> Int { reel.selectedPassNo }
+    func reelSelectPass(_ p: Int) { reelSelectRequest = p }
+    func reelStopReplay() { reelStopRequest = true }
+    func reelCycleValue() -> Double { reel.cycleBeats }             // the pass length in beats (piano-roll x-axis)
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
     func reelExport() -> [(name: String, data: Data)] {
         guard reel.hasLoop else { return [] }
@@ -561,7 +570,17 @@ final class Kernel {
             }
         }
         if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
+        if reelSelectRequest != Int.min {                          // the pop-up tapped a pass: pin it + REPLAY NOW (replace live output)
+            let p = reelSelectRequest; reelSelectRequest = Int.min
+            if reel.selectPass(p) { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
+        }
+        if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
+            reelStopRequest = false
+            if reel.state == .replaying { reel.state = .off; reelExitFlush = true }
+            reel.clearSelection()
+        }
         reelTempoStored = tempo; reelCycleStored = reelCycleBeats   // remembered for EXPORT (step 2)
+        reel.cycleBeats = reelCycleBeats                            // the pass browser closes open notes in the roll at this length
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
             if reel.state != .replaying { reel.promote() }         // keep the last COMPLETED recorded pass (for replay + export)

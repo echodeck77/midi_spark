@@ -302,6 +302,13 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func reelTouch() { kernel.reelTouch() }                 // THE REEL-TO-REEL: toggle record→replay / resume (Paul 2026-08-18)
     func uiReelState() -> Int { kernel.reelStateValue() }   // 0 off · 1 armed · 2 replaying
     func reelExportFiles() -> [(name: String, data: Data)] { kernel.reelExport() }   // EXPORT (step 2): the recorded pass as SMF (sum + per-emitter)
+    // THE PASS BROWSER (Paul 2026-08-19): the pop-up's 8×8 grid + piano roll.
+    func reelPassNumbers() -> [Int] { kernel.reelPassNumbers() }          // 32 ring slots, oldest→newest (−1 = empty)
+    func reelSelectedRoll() -> [ReelDeck.Note] { kernel.reelSelectedRoll() }   // the selected pass's notes (A–D lanes)
+    func reelSelectedPassNo() -> Int { kernel.reelSelectedPassNo() }     // the currently pinned/selected pass (−1 = auto latest)
+    func reelSelectPass(_ p: Int) { kernel.reelSelectPass(p) }           // tap a pass → select + replay now
+    func reelStopReplay() { kernel.reelStopReplay() }                    // stop replay → resume live
+    func reelCycleBeats() -> Double { kernel.reelCycleValue() }          // the pass length (piano-roll x-axis)
 
     /// EDIT PAGE "play this cell only" (user 2026-08-08): solo the given cells while the transport plays — every
     /// other cell falls silent. Empty = normal grid playback. Ephemeral (never persisted); the edit page sets it

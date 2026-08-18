@@ -79,21 +79,104 @@ extension DiagView {
                 if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
+                if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
             }
             .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
         } else {
             Color.clear
         }
     }
-    // THE REEL-TO-REEL toggle (Paul 2026-08-18): touch to ARM (replays the recorded pass from the next pass boundary,
-    // replacing live output + looping); touch again to resume normal play. Amber = armed · green = replaying.
+    // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up (select a pass to replay + save).
+    // Green while a recorded pass is replaying live; dim otherwise.
     @ViewBuilder private func buildReelButton() -> some View {
-        let c: Color = reelState == 2 ? Color(red: 0.36, green: 0.92, blue: 0.52) : (reelState == 1 ? Color(red: 1.0, green: 0.72, blue: 0.2) : buildDim)
+        let c: Color = reelState == 2 ? Color(red: 0.36, green: 0.92, blue: 0.52) : buildDim
         Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
             .padding(12).contentShape(Rectangle())
-            .onTapGesture { au?.reelTouch() }                                 // tap = record/replay toggle
-            .onLongPressGesture { buildReelExport() }                         // long-press = EXPORT the recorded pass (Paul 2026-08-18)
+            .onTapGesture { reelShowPopup = true }                            // tap = open the pass browser
             .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
+    }
+
+    // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
+    // replay it live; BOTTOM 4 rows = the selected pass drawn as A/B/C/D piano-roll lanes. SAVE exports the selected pass.
+    private var reelLaneHues: [Color] { [Color(red: 0.19, green: 0.83, blue: 0.91),   // A cyan
+                                         Color(red: 0.36, green: 0.92, blue: 0.52),   // B green
+                                         Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
+                                         Color(red: 0.85, green: 0.5,  blue: 0.95)] } // D violet
+    private func buildReelPopup(size: CGSize) -> some View {
+        let gridSide = min(size.width * 0.92, size.height * 0.8)
+        let cell = (gridSide - 7 * 2) / 8                                       // 8 cells, 2pt gaps
+        return ZStack {
+            Color.black.opacity(0.62).ignoresSafeArea().onTapGesture { reelShowPopup = false }
+            VStack(spacing: 10) {
+                HStack {
+                    Text("REEL · PASS BROWSER").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
+                    Spacer()
+                    Button { buildReelExport() } label: {
+                        Text("SAVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1)
+                            .foregroundColor(reelSelPassNo >= 0 || !reelPassNumbers.filter { $0 >= 0 }.isEmpty ? .black : buildDim)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
+                    }
+                    Button { reelShowPopup = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundColor(buildDim).padding(6)
+                    }
+                }.frame(width: gridSide)
+                VStack(spacing: 2) {
+                    ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes
+                        HStack(spacing: 2) { ForEach(0..<8, id: \.self) { c in buildReelPassCell(r * 8 + c, cell: cell) } }
+                    }
+                    ForEach(0..<4, id: \.self) { lane in                         // BOTTOM 4 rows — A/B/C/D piano-roll lanes
+                        buildReelLane(lane, width: gridSide, height: cell)
+                    }
+                }
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        }
+    }
+    // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
+    // or (if it's already the replaying pass) stop and resume live.
+    @ViewBuilder private func buildReelPassCell(_ index: Int, cell: CGFloat) -> some View {
+        let pass = index < reelPassNumbers.count ? reelPassNumbers[index] : -1
+        let sel = pass >= 0 && pass == reelSelPassNo
+        let playing = sel && reelState == 2
+        RoundedRectangle(cornerRadius: 3)
+            .fill(pass < 0 ? Color.white.opacity(0.03) : (sel ? buildCyan : Color.white.opacity(0.08)))
+            .frame(width: cell, height: cell)
+            .overlay(playing ? RoundedRectangle(cornerRadius: 3).stroke(Color(red: 0.36, green: 0.92, blue: 0.52), lineWidth: 2) : nil)
+            .overlay(pass >= 0 ? Text("\(pass + 1)").font(.system(size: min(13, cell * 0.34), weight: .heavy, design: .monospaced))
+                        .foregroundColor(sel ? .black : buildCyan.opacity(0.9)) : nil)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard pass >= 0 else { return }
+                if playing { au?.reelStopReplay() } else { au?.reelSelectPass(pass) }
+            }
+    }
+    // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1; pitch scaled to the shared
+    // (all-lane) range, x scaled to the pass length, opacity by velocity.
+    private func buildReelLane(_ lane: Int, width: CGFloat, height: CGFloat) -> some View {
+        let hue = reelLaneHues[lane]
+        let notes = reelRoll.filter { Int($0.cable) == lane + 1 }
+        let all = reelRoll.map { Int($0.note) }
+        let lo = all.min() ?? 48, hi = all.max() ?? 72
+        let span = max(1, hi - lo)
+        let cyc = max(0.0001, reelCycle)
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
+            Canvas { ctx, sz in
+                for n in notes {
+                    let x = CGFloat(n.start / cyc) * sz.width
+                    let w = max(2, CGFloat((n.end - n.start) / cyc) * sz.width)
+                    let yFrac = 1 - CGFloat(Int(n.note) - lo) / CGFloat(span)
+                    let y = yFrac * (sz.height - 6) + 3
+                    let rect = CGRect(x: x, y: y - 1.5, width: min(w, sz.width - x), height: 3)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.2), with: .color(hue.opacity(0.45 + 0.5 * Double(n.vel) / 127)))
+                }
+            }.frame(width: width, height: height)
+            Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced))
+                .foregroundColor(hue.opacity(0.8)).padding(.leading, 4)
+        }
     }
     // EXPORT the recorded pass to SMF files (the A–D sum + per-emitter stems), then present a share sheet. (Paul 2026-08-18)
     private func buildReelExport() {

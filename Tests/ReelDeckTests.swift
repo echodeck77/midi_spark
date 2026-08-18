@@ -56,4 +56,69 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertFalse(deck.hasLoop)
         XCTAssertEqual(deck.state, .off)
     }
+
+    // MARK: - THE PASS-HISTORY RING (Paul 2026-08-19)
+
+    /// Record one distinguishable pass (a single note whose pitch encodes the pass) then file + advance.
+    private func filePass(_ deck: ReelDeck, note: UInt8) {
+        deck.record(beat: 0.0, cable: 1, 0x90, note, 100)
+        deck.record(beat: 1.0, cable: 1, 0x80, note, 0)
+        deck.promote(); deck.startPass()
+    }
+
+    func testHistoryRingKeepsPassesOldestToNewest() {
+        let deck = ReelDeck()
+        for n in 0..<3 { filePass(deck, note: UInt8(60 + n)) }     // passes 0,1,2
+        let nums = deck.passNumbers()
+        XCTAssertEqual(nums.count, 32)
+        XCTAssertEqual(nums[31], 2, "newest is last (bottom-right of the pop-up)")
+        XCTAssertEqual(nums[30], 1)
+        XCTAssertEqual(nums[29], 0)
+        XCTAssertEqual(nums[28], -1, "unfilled slots are empty")
+    }
+
+    func testSelectPassLoadsThatPassNotTheLatest() {
+        let deck = ReelDeck()
+        for n in 0..<3 { filePass(deck, note: UInt8(60 + n)) }     // pass 0=note60, 1=note61, 2=note62
+        XCTAssertTrue(deck.selectPass(1))
+        XCTAssertEqual(deck.selectedPassNo, 1)
+        let ev = deck.exportEvents(cables: [1])
+        XCTAssertEqual(ev.first?.b1, 61, "loop now holds pass 1's note")
+    }
+
+    func testPinnedSelectionSurvivesLaterPromotes() {
+        let deck = ReelDeck()
+        for n in 0..<2 { filePass(deck, note: UInt8(60 + n)) }
+        XCTAssertTrue(deck.selectPass(0))                          // pin the OLD pass
+        filePass(deck, note: 99)                                   // a new pass completes
+        XCTAssertEqual(deck.exportEvents(cables: [1]).first?.b1, 60, "a pinned pass is not overwritten by a later promote")
+        deck.clearSelection()
+        filePass(deck, note: 77)                                   // auto again → loop tracks the latest
+        XCTAssertEqual(deck.exportEvents(cables: [1]).first?.b1, 77)
+    }
+
+    func testRingEvictsBeyondCapacity() {
+        let deck = ReelDeck()
+        for n in 0..<(ReelDeck.histCount + 2) { filePass(deck, note: UInt8(1 + (n % 120))) }   // 34 passes
+        let nums = deck.passNumbers()
+        XCTAssertEqual(nums[31], ReelDeck.histCount + 1, "newest kept")
+        XCTAssertEqual(nums[0], 2, "oldest kept = passCounter − histCount")
+        XCTAssertFalse(deck.selectPass(0), "an evicted pass can't be selected")
+        XCTAssertTrue(deck.selectPass(2), "the oldest surviving pass can")
+    }
+
+    func testSelectedRollPairsNotesAndClosesOpenOnesAtCycleEnd() {
+        let deck = ReelDeck()
+        deck.cycleBeats = 4.0
+        deck.record(beat: 0.0, cable: 1, 0x90, 60, 100)   // A: 60 for [0,1]
+        deck.record(beat: 1.0, cable: 1, 0x80, 60, 0)
+        deck.record(beat: 2.0, cable: 2, 0x90, 64, 80)    // B: 64 opens, never closes → to cycleBeats
+        deck.record(beat: 0.5, cable: 0, 0x90, 72, 90)    // cable 0 (All) is ignored
+        deck.promote()
+        let roll = deck.selectedRoll()
+        XCTAssertEqual(roll.count, 2)
+        let a = roll.first { $0.cable == 1 }; let b = roll.first { $0.cable == 2 }
+        XCTAssertEqual(a?.note, 60); XCTAssertEqual(a?.start, 0.0); XCTAssertEqual(a?.end, 1.0)
+        XCTAssertEqual(b?.note, 64); XCTAssertEqual(b?.end, 4.0, "an open note closes at the pass length")
+    }
 }

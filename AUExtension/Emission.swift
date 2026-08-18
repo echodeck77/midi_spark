@@ -35,12 +35,81 @@ final class ReelDeck {
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
     private(set) var loop = [Ev](repeating: Ev(), count: cap); private(set) var loopN = 0
     var hasLoop: Bool { loopN > 0 }
+    var cycleBeats = 4.0                                           // the current pass length in beats (set by the Kernel; used to close open notes in the roll)
+
+    // THE PASS-HISTORY RING (Paul 2026-08-19) — the pop-up pass browser keeps the last `histCount` completed passes.
+    // A single flat buffer (one allocation, off the render thread) sliced `histCap` events per pass; pass p lives in
+    // slot `p % histCount` (so a passNo maps straight to its slot). `loop` remains the SELECTED pass (replay + export).
+    static let histCount = 32                                      // passes kept — fills the pop-up's top 4 rows (8×4)
+    static let histCap = 8192                                      // events stored per pass (dense-pass overflow drops, as `cap` already does)
+    private var hist = [Ev](repeating: Ev(), count: histCount * histCap)
+    private var histLen = [Int](repeating: 0, count: histCount)    // events in each slot (0 = empty)
+    private var histPassNo = [Int](repeating: -1, count: histCount)// absolute pass number stored in each slot
+    private(set) var passCounter = 0                               // monotone COMPLETED-pass count (next pass = this value)
+    private(set) var selectedPassNo = -1                          // the pinned selection (−1 = auto: `loop` tracks the latest)
+
     func record(beat: Double, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2); curN += 1 }
     }
     func startPass() { curN = 0 }
-    func promote() { loopN = curN; for i in 0..<curN { loop[i] = cur[i] } }   // the just-finished pass becomes the loop
-    func clear() { curN = 0; loopN = 0; state = .off }
+    /// A pass just finished: file it into the ring, and — unless a pass is PINNED (manually selected) — make it the loop.
+    func promote() {
+        let slot = passCounter % ReelDeck.histCount
+        let n = min(curN, ReelDeck.histCap)
+        for i in 0..<n { hist[slot * ReelDeck.histCap + i] = cur[i] }
+        histLen[slot] = n; histPassNo[slot] = passCounter
+        passCounter += 1
+        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] } }   // auto: latest → loop
+    }
+    func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1
+        for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1 } }
+
+    /// The 32 ring slots as pass numbers, OLDEST→NEWEST (index 31 = the most recent completed pass; −1 = empty).
+    /// The pop-up lays these out in reading order so the newest lands bottom-right of the top 4×8 block.
+    func passNumbers() -> [Int] {
+        var out = [Int](repeating: -1, count: ReelDeck.histCount)
+        for k in 0..<ReelDeck.histCount {
+            let p = passCounter - 1 - k                            // newest first
+            guard p >= 0 else { break }
+            let slot = p % ReelDeck.histCount
+            if histPassNo[slot] == p, histLen[slot] > 0 { out[ReelDeck.histCount - 1 - k] = p }
+        }
+        return out
+    }
+    /// Pin `passNo` as the loop (copy its ring slot into `loop`). Returns false if that pass is no longer in the ring.
+    func selectPass(_ passNo: Int) -> Bool {
+        guard passNo >= 0 else { return false }
+        let slot = passNo % ReelDeck.histCount
+        guard histPassNo[slot] == passNo, histLen[slot] > 0 else { return false }
+        loopN = min(histLen[slot], ReelDeck.cap)
+        for i in 0..<loopN { loop[i] = hist[slot * ReelDeck.histCap + i] }
+        selectedPassNo = passNo
+        return true
+    }
+    func clearSelection() { selectedPassNo = -1 }                 // resume auto: `loop` tracks the latest again
+
+    /// One drawable note per (cable,note) on/off pair in the SELECTED pass — for the pop-up piano roll. Cables 1–4
+    /// only (0 = the All duplicate). A note still open at the pass end closes at `cycleBeats`; an unmatched off is dropped.
+    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double }
+    func selectedRoll() -> [Note] {
+        var out: [Note] = []
+        var open: [Int: (start: Double, vel: UInt8)] = [:]        // key = cable<<8 | note
+        for i in 0..<loopN {
+            let e = loop[i]
+            guard e.cable >= 1, e.cable <= 4 else { continue }
+            let key = Int(e.cable) << 8 | Int(e.b1)
+            let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
+            let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
+            if isOn { open[key] = (e.beat, e.b2) }
+            else if isOff, let o = open.removeValue(forKey: key) {
+                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat)))
+            }
+        }
+        for (key, o) in open {                                    // still sounding at the pass end → close at the loop length
+            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats)))
+        }
+        return out
+    }
     /// The loop's events on the given cables (for EXPORT). cables: {1,2,3,4} = the A–D sum; {n} = one emitter. (Paul 2026-08-18)
     func exportEvents(cables: Set<UInt8>) -> [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] {
         (0..<loopN).compactMap { cables.contains(loop[$0].cable) ? (loop[$0].beat, loop[$0].b0, loop[$0].b1, loop[$0].b2) : nil }
