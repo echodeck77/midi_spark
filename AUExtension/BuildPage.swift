@@ -128,7 +128,7 @@ extension DiagView {
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .cell, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) }))   // tap = play/STOP the chain; pairs with the grids' column button
             AnyView(buildMachineBlock(castW: castW, cell: cell))  // invisible header row + cast (rows 1–4) + processors (rows 5–8): the 8×8-equivalent block, grid-height
-            AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · PLACE / LIBRARY · FILL — directly below the processor section
+            AnyView(buildLeftControlBox())                        // RANDOMIZE · MUTATE · AUTOFILL / LIBRARY — directly below the processor section
             Spacer(minLength: 0)
             AnyView(buildReceiversBox())                          // bottom of the left column — the four input doors (A–D)
         }
@@ -1821,14 +1821,14 @@ extension DiagView {
 
     @ViewBuilder private func buildFooterBoxBtn(_ label: String) -> some View {
         let empty = label.isEmpty
-        let live = label.contains("RANDOMIZE")
+        let live = label.contains("RANDOMIZE")   // RANDOMIZE runs the simple roll — but is styled plain, like MUTATE/LIBRARY (Paul 2026-08-18)
         Text(label)
             .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-            .foregroundColor(live ? buildPink : .white)
+            .foregroundColor(.white)
             .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
             .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)   // FIXED height (min==max) — a flexible box competes with the column's Spacer and stretches to the screen bottom
             .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(live ? buildPink.opacity(0.55) : buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1).opacity(empty ? 0.5 : 1))
             .contentShape(Rectangle())
             .onTapGesture { buildExitPlaceMode(); if live { buildRandomizeSimple() } }   // any control button leaves PLACE mode
     }
@@ -1837,24 +1837,17 @@ extension DiagView {
     // turns it back off (→ SELECT). Wired into the control buttons (transports + footer buttons).
     private func buildExitPlaceMode() { if buildPlaceArmed { buildPlaceArmed = false } }
 
-    // The LEFT column's control box. Row 1: RANDOMIZE · MUTATE · PLACE. Row 2: the cell LIBRARY (spanning the two
-    // left cells) + FILL (styled like PLACE; runs the old STAGE THE GRID). (Paul 2026-08-17)
+    // The LEFT column's control box. Row 1: RANDOMIZE · MUTATE · AUTOFILL (all plain-styled). Row 2: the cell
+    // LIBRARY, spanning the full width. (Paul 2026-08-18: AUTOFILL moved up from row 2; LIBRARY now full-width.)
     @ViewBuilder private func buildLeftControlBox() -> some View {
         let gap = BuildGeom.cellGap
         VStack(spacing: gap) {
             HStack(spacing: gap) {
-                buildFooterBoxBtn("🎲 RANDOMIZE")
+                buildFooterBoxBtn("RANDOMIZE")
                 buildFooterBoxBtn("MUTATE")
-                buildFooterBoxBtn("")                                        // PLACE removed — the colour tabs are the placement now
+                buildFillButton()                                           // AUTOFILL — moved into the third cell (was PLACE's placeholder)
             }
-            GeometryReader { g in                                            // exact 2:1 split so the row aligns with the 3 above
-                let btnW = (g.size.width - gap * 2) / 3
-                HStack(spacing: gap) {
-                    buildLibraryButton().frame(width: btnW * 2 + gap)        // occupies the two LEFT cells
-                    buildFillButton().frame(width: btnW)                     // the third cell
-                }
-            }
-            .frame(height: 34)
+            buildLibraryButton()                                            // now spans the full row width
         }
         .padding(10)
         .frame(maxWidth: .infinity)
@@ -1918,7 +1911,7 @@ extension DiagView {
         HStack(spacing: 3) {
             RoundedRectangle(cornerRadius: 3).fill(chipGround).frame(width: 15, height: 15)
                 .overlay(RoundedRectangle(cornerRadius: 2).fill(buildSelHue).frame(width: 9, height: 9))   // the same colour square as PLACE
-            Text("FILL").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
+            Text("AUTOFILL").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.3)
                 .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.4)
             Text(">>>").font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildSelHue)
         }
