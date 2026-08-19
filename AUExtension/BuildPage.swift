@@ -85,8 +85,17 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
             }
             .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
+            .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
         } else {
             Color.clear
+        }
+    }
+    @ViewBuilder private func buildIOHoldBanner() -> some View {
+        if let m = buildIOHoldMsg {
+            Text(m).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.black)
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(Capsule().fill(buildCyan))
+                .padding(.top, 10).allowsHitTesting(false).transition(.opacity)
         }
     }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
@@ -385,7 +394,7 @@ extension DiagView {
     }
     @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
         let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door; nothing on a row → unselected (Paul 2026-08-18)
-        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on) { buildSelectDoor(i) }
+        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
@@ -393,7 +402,7 @@ extension DiagView {
         HStack(spacing: 4) {
             ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { _, b in
                 let on = buildSelectedRow.map { buildRowEmittersResolved($0).contains(b) } ?? false   // the SELECTED row's emitters; nothing on a row → unselected
-                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on) { buildToggleBus(b) }
+                buildIOSelectChip(top: "MIDI OUT", letter: b.rawValue, on: on, action: { buildToggleBus(b) }, onAll: { buildToggleBusAll(b) })
             }
         }
         .frame(width: castW)
@@ -401,7 +410,7 @@ extension DiagView {
     // The shared two-line I/O chip: a small top label over a big A/B/C/D, styled like the centre column's emitter A–D
     // chips (cyan-when-on, muted idle, height 48). Used by BOTH the MIDI-IN receiver selector and the MIDI-OUT
     // emitter toggles so they read identically. (Paul 2026-08-18)
-    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func buildIOSelectChip(top: String, letter: String, on: Bool, action: @escaping () -> Void, onAll: @escaping () -> Void = {}) -> some View {
         VStack(spacing: 1) {
             Text(top).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
             Text(letter).font(.system(size: 15, weight: .black, design: .monospaced))
@@ -411,7 +420,17 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCell))   // ON = the accent; idle mutes
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Color.clear : buildEdge, lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        .onTapGesture(perform: action)                                       // TAP = this row (or the part default)
+        .onLongPressGesture(minimumDuration: 0.75, perform: {               // HOLD = apply to EVERY row (Paul 2026-08-19)
+            buildIOHoldPressing = false; withAnimation { buildIOHoldMsg = nil }; onAll()
+        }, onPressingChanged: { pressing in
+            buildIOHoldPressing = pressing
+            if pressing {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {      // the hint appears a moment BEFORE it applies
+                    if buildIOHoldPressing { withAnimation { buildIOHoldMsg = "HOLD TO APPLY TO ALL" } }
+                }
+            } else { withAnimation { buildIOHoldMsg = nil } }
+        })
     }
     // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
     // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
@@ -645,6 +664,22 @@ extension DiagView {
         else { buildPartEmitters = buses }                        // nothing on a row → the part DEFAULT
         ddStickyBuses = buses                                     // a new row inherits the LAST-USED
         buildPublishScene()                                       // apply the row's output LIVE to whatever's sounding
+    }
+    // LONG-PRESS → apply the door to EVERY row (Paul 2026-08-19).
+    private func buildSelectDoorAll(_ i: Int) {
+        for r in 0..<min(8, buildRowReceiver.count) { buildRowReceiver[r] = i }
+        buildSelReceiver = i; ddStickyReceiver = i
+        receivers = au?.uiReceivers() ?? receivers
+        buildStagingSyncIfPlaying(); refreshFromDocument()
+    }
+    // LONG-PRESS → toggle the emitter on EVERY row (all rows take the reference row's toggled set). (Paul 2026-08-19)
+    private func buildToggleBusAll(_ bus: Bus) {
+        var buses = buildSelectedRow.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        if buses.contains(bus) { buses.remove(bus) } else { buses.insert(bus) }
+        if buses.isEmpty { buses = [bus] }
+        for r in 0..<min(8, buildRowEmitters.count) { buildRowEmitters[r] = buses }
+        buildPartEmitters = buses; ddStickyBuses = buses
+        buildPublishScene()
     }
 
     // The MIDI-CHAIN voice. Paul 2026-08-15: it plays the selected colour's machine RAW — behind the scenes a 1-row play

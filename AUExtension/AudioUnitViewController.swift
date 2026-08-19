@@ -98,6 +98,9 @@ struct DiagView: View {
     // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
     @State var buildEditorSnapshot: [ProcessorSlot] = []
     @State var buildEditorSnapCid: String? = nil
+    // I/O toggle LONG-PRESS → apply to EVERY row (Paul 2026-08-19): a "Hold to apply to all" hint shows a moment into the hold.
+    @State var buildIOHoldMsg: String? = nil
+    @State var buildIOHoldPressing = false
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)
