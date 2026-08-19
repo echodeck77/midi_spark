@@ -2266,24 +2266,33 @@ final class Router {
         case .burst:
             let count = Int(max(2, min(16, p.count)))
             let fracs = burstFractions(count: count, curve: p.curve)
-            let minGap = S / Double(count) * 0.9
+            // SPAN: CELL fills each column with the roll; ROW unfolds the SAME roll across the whole BAR (anchored at the
+            // bar start). The window gate keeps each cell to the strikes that fall in its own column. (Paul 2026-08-19)
+            let bWidth = (p.burstSpan == .row) ? cyc : S
+            let bAnchor = (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart
+            let minGap = bWidth / Double(count) * 0.9
             for (i, f) in fracs.enumerated() {
-                let tau = colStart + f * S
+                let tau = bAnchor + f * bWidth
                 if inWindow(tau) {
                     let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
                     strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
                 }
             }
         case .cascade:
-            let sub = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
-            guard sub > 0 else { break }
             let srcN = srcNotes.count
+            // SPAN: CELL reveals across the column at the arp rate; ROW spreads the reveal EVENLY across the whole BAR
+            // (one note per bar-slice), anchored at the bar start. (Paul 2026-08-19)
+            let cRow = (p.cascadeSpan == .row)
+            let cWidth = cRow ? cyc : S
+            let cAnchor = cRow ? columnStart(colStart, cyc) : colStart
+            let sub = cRow ? (cWidth / Double(max(1, srcN))) : Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+            guard sub > 0 else { break }
             for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
-                let tau = colStart + Double(j) * sub
-                if tau >= colStart + S { break }                  // ran past the column — the rest reveal next entry
+                let tau = cAnchor + Double(j) * sub
+                if tau >= cAnchor + cWidth { break }              // ran past the span — the rest reveal next entry
                 if inWindow(tau) {
                     let idx = p.strumDir == .down ? (srcN - 1 - j) : j   // reveal order (UP default · DOWN top-first)
-                    let gate = (colStart + S) - tau                // sustain to the column boundary
+                    let gate = (cAnchor + cWidth) - tau           // sustain to the span (column/bar) boundary
                     strikeChord(tau: tau, velScale: 1.0, gateBeats: max(0.01, gate), onlyIndex: idx)
                 }
             }
@@ -2401,7 +2410,9 @@ final class Router {
                                      windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                      out: MIDIEmitter?, diag: inout KernelDiag) {
         let p = colour.a
-        let sub = max(0.03125, p.tuttiSliceBeats)
+        // SPAN: CELL strides the 8-slice pattern at the RATE (default); ROW makes the 8 slices span exactly one bar
+        // (slice i = column i) — a whole-bar set-shape phrase. (Paul 2026-08-19)
+        let sub = (p.tuttiSpan == .row) ? max(0.03125, Double(Snap.cols) * S / 8.0) : max(0.03125, p.tuttiSliceBeats)
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2868,7 +2879,9 @@ final class Router {
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
                 }
             } else {   // PATTERN
-                let sliceBeats = max(0.03125, p.rtcRateBeats)
+                // SPAN: CELL strides the 8-slice counts at the RATE (default); ROW makes the 8 slices span the whole bar
+                // (slice i = column i) — a whole-bar per-slice-count phrase. (Paul 2026-08-19)
+                let sliceBeats = (p.rtcSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.rtcRateBeats)
                 var sIdx = 0
                 while true {
                     let sliceStart = col + Double(sIdx) * sliceBeats

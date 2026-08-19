@@ -281,6 +281,7 @@ enum SnapshotBuilder {
         if let v = p.tuttiSlices { var s = v; while s.count < 8 { s.append(.all) }; out.tuttiSlices = Array(s.prefix(8)) }
         if let v = p.tuttiRate { out.tuttiSliceBeats = max(0.03125, v.beats) }
         if let v = p.tuttiRotate { out.tuttiRotate = ((v % 8) + 8) % 8 }
+        if let v = p.tuttiSpan { out.tuttiSpan = v }
         if let v = p.lenSlices { var s = v; while s.count < 8 { s.append(.pass) }; out.lenSlices = Array(s.prefix(8)) }
         if let v = p.lenShort { out.lenShort = clamp(v, 0.05, 0.95) }
         if let v = p.lenLong { out.lenLong = clamp(v, 0, 1) }
@@ -301,6 +302,7 @@ enum SnapshotBuilder {
         if let v = p.rtcSlices { var s = v; while s.count < 8 { s.append(0) }; out.rtcSlices = Array(s.prefix(8)).map { clamp($0, 0, 8) } }
         if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
         if let v = p.rtcRotate { out.rtcRotate = ((v % 8) + 8) % 8 }
+        if let v = p.rtcSpan { out.rtcSpan = v }
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
@@ -325,6 +327,8 @@ enum SnapshotBuilder {
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         if let v = p.euclidSpan { out.euclidSpan = v }
+        if let v = p.burstSpan { out.burstSpan = v }
+        if let v = p.cascadeSpan { out.cascadeSpan = v }
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
         if let v = p.modCC { out.modCC = clamp(v, 0, 127) }
         if let v = p.modSource { out.modSource = v }

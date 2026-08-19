@@ -1517,6 +1517,8 @@ struct ProcessorBox: View {
                     setParam { $0.rtcRate = ArpRate.allCases[i] } } }
                 field("ROTATE — walk the pattern  (\(p.rtcRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.rtcRotate ?? 0)") { i in
                     setParam { $0.rtcRotate = i } } }
+                let rspan = p.rtcSpan ?? .cell
+                field("SPAN") { seg(["CELL", "ROW"], sel: rspan == .row ? "ROW" : "CELL") { i in setParam { $0.rtcSpan = (i == 1) ? .row : .cell } } }   // CELL = RATE stride · ROW = the 8 slices span the bar (Paul 2026-08-19)
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%") {
                 Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
@@ -1596,9 +1598,13 @@ struct ProcessorBox: View {
             let cv = p.curve ?? 0
             field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
                 Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
+            let bspan = p.burstSpan ?? .cell
+            field("SPAN") { seg(["CELL", "ROW"], sel: bspan == .row ? "ROW" : "CELL") { i in setParam { $0.burstSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column roll · ROW = unfolds across the bar (Paul 2026-08-19)
         case .cascade:  // GENERATOR — incremental chord reveal
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
+            let cspan = p.cascadeSpan ?? .cell
+            field("SPAN") { seg(["CELL", "ROW"], sel: cspan == .row ? "ROW" : "CELL") { i in setParam { $0.cascadeSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
         case .drone:    // GENERATOR — flat sustained pad (gate = pad level)
             field("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }
@@ -1690,6 +1696,8 @@ struct ProcessorBox: View {
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
                 field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
                     setParam { $0.tuttiRotate = i } } }
+                let tspan = p.tuttiSpan ?? .cell
+                field("SPAN") { seg(["CELL", "ROW"], sel: tspan == .row ? "ROW" : "CELL") { i in setParam { $0.tuttiSpan = (i == 1) ? .row : .cell } } }   // CELL = GRID stride · ROW = the 8 slices span the bar (Paul 2026-08-19)
             }
         case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG drawn as bars (how long the note sounds in the slice)
             field("PAINT — pick a length, then tap the slices") { HStack(spacing: 4) {

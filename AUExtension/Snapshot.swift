@@ -102,6 +102,8 @@ struct SnapParams {
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
     var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
+    var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
+    var cascadeSpan: PatternSpan = .cell     // CASCADE: CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
     var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
@@ -129,6 +131,7 @@ struct SnapParams {
     var tuttiSlices: [TuttiSlice] = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 authored slice shapes
     var tuttiSliceBeats: Double = 0.5    // PATTERN: slice width in beats (from tuttiRate)
     var tuttiRotate: Int = 0             // PATTERN: rotate the 8-slice pattern along the bar (0…7)
+    var tuttiSpan: PatternSpan = .cell   // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
     // LENGTH — 8 slices of the STEP, each PASS/MUTE/SHORT/LONG, + two gate lengths + rotate.
     var lenSlices: [LenState] = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
     var lenShort: Double = 0.4           // SHORT gate = 5…95% of one slice
@@ -153,6 +156,7 @@ struct SnapParams {
     var rtcSlices: [Int] = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: per-slice counts (0 = plain)
     var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
     var rtcRotate: Int = 0
+    var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
 }
 
 struct SnapColour {

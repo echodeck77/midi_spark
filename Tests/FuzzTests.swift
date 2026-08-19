@@ -71,6 +71,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
             if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
             if c.type == .ratchet && r.chance(0.5) { applyRandomRtc(&c.paramsA, &r) }
+            applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
         }
         var scene = SceneState.empty()
@@ -88,6 +89,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .weave && r.chance(0.6) { applyRandomWeave(&s.params, &r) }
                     if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
                     if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
+                    applyRandomSpan(&s.params, type: s.type, &r)
                     return s
                 }
             }
@@ -132,6 +134,21 @@ final class FuzzTests: XCTestCase {
     private func applyRandomSplit(_ p: inout ColourParams, _ r: inout FuzzRNG) {
         p.splitSet = ChordSplit(mode: SplitMode.allCases[r.int(SplitMode.allCases.count)], n: r.range(1, 6), note: r.int(128), high: r.chance(0.5))
         let f = r.range(1, 127); p.splitVel = VelWindow(floor: f, ceil: r.range(f, 127))   // incl. empty/full windows
+    }
+    // SPAN CELL|ROW (Paul 2026-08-19): ~half the time flip a span-capable processor to ROW, so the fuzz hammers the
+    // whole-bar-timeline paths for the no-stuck-notes / quiescence invariants across every transport + snapshot edge.
+    private func applyRandomSpan(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {
+        guard r.chance(0.5) else { return }
+        switch type {
+        case .euclid:  p.euclidSpan = .row
+        case .burst:   p.burstSpan = .row
+        case .cascade: p.cascadeSpan = .row
+        case .length:  p.lenSpan = .row
+        case .mod:     p.modSpan = .row
+        case .tutti:   p.tuttiSpan = .row
+        case .ratchet: p.rtcSpan = .row
+        default:       break
+        }
     }
     private func applyRandomRtc(_ p: inout ColourParams, _ r: inout FuzzRNG) {
         p.rtcMode = RatchetMode.allCases[r.int(RatchetMode.allCases.count)]   // ALL · COIN · PATTERN

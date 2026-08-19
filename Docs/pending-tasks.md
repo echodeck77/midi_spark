@@ -91,15 +91,17 @@ scopes each cell to its own column, so per processor the work is small + uniform
 denominator `S` → `cycleBeats`), model = an additive-Optional field (nil ⇒ CELL, old docs safe), UI = a SPAN CELL|ROW
 seg on the face, + a row-fills-a-row test (`testEuclidSpanRowSpreadsPulsesAcrossTheBar` is the template). Roll onto
 (every processor rated ★★ or higher, in priority order):
-- [ ] **LENGTH** ★★★ — the 8-slice gate spans the bar → a whole-bar trance-gate phrase. **Do first — biggest payoff.**
-- [ ] **MOD** ★★★ — the LFO / STEPS period spans the bar. This IS the deferred CC-stage `SPAN CELL|PHRASE|FREE` sketch
-  (`design-cc-stage-tactile-2026-08-09.md`) — reconcile the naming (PHRASE ≈ ROW) when building.
-- [ ] **TUTTI (PATTERN)** ★★ — the 8-slice set-shape spans the bar.
-- [ ] **RATCHET (PATTERN)** ★★ — the per-slice counts span the bar.
-- [ ] **BURST** ★★ — the accel/decel roll unfolds across the whole bar.
-- [ ] **CASCADE** ★★ — the note-reveal spans the bar (naturally musical over a phrase).
+- [x] **LENGTH** ★★★ — DONE (2026-08-19, `c01a9fb`): the 8-slice gate spans the bar (standalone + composed paths).
+- [x] **MOD** ★★★ — DONE (2026-08-19, `c01a9fb`): ROW = one LFO/STEPS cycle per bar; CELL = the modRate period (default,
+  unchanged). The CC-stage `SPAN CELL|PHRASE|FREE` sketch resolved as CELL(=rate)|ROW(=bar); no FREE variant added.
+- [x] **TUTTI (PATTERN)** ★★ — DONE (2026-08-19): ROW = the 8 slices span the bar (else the RATE stride).
+- [x] **RATCHET (PATTERN)** ★★ — DONE (2026-08-19): ROW = the per-slice counts span the bar (else the RATE stride).
+- [x] **BURST** ★★ — DONE (2026-08-19): ROW = the accel/decel roll unfolds across the whole bar.
+- [x] **CASCADE** ★★ — DONE (2026-08-19): ROW = the reveal spreads evenly across the bar.
+All six: additive-Optional model fields (old docs = CELL), snapshot + builder + `SPAN CELL|ROW` face seg, a row-vs-cell
+RouterTest each, + the fuzz flips ROW on ~half of span-capable procs (no-stuck-notes across every edge).
 (CHANCE was ★ — deferred. ARP/WEAVE already have PHASE; DRONE/ECHO/GLIDE already flow across boundaries.)
-**DEVICE ear owed on EUCLID ROW.**
+**DEVICE ear owed on EUCLID + LENGTH/MOD/TUTTI/RATCHET/BURST/CASCADE ROW.**
 
 ## ★ DONE (2026-08-05/06) — MACROS (phase 2 track)
 Specs: `AcceptanceCriteria-macro-panel.md` · `-macro-ab-authoring.md` · `-overlay-rule-macro-lanes.md`. `feat/macros`

@@ -140,6 +140,8 @@ struct ColourParams: Codable, Equatable {
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
     var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
+    var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
+    var cascadeSpan: PatternSpan? = nil       // CASCADE: CELL (reveal per column) | ROW (the reveal spans the bar) — Paul 2026-08-19
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
     var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
@@ -172,6 +174,7 @@ struct ColourParams: Codable, Equatable {
     var tuttiSlices: [TuttiSlice]? = [.all, .all, .all, .all, .all, .all, .all, .all]  // PATTERN: 8 slice set-shapes
     var tuttiRate: ArpRate? = .r1_8     // PATTERN: slices per window (reuses the arp rate divisions)
     var tuttiRotate: Int? = 0           // PATTERN: rotate the slice pattern along the bar (0…7)
+    var tuttiSpan: PatternSpan? = nil   // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
     // LENGTH (Paul 2026-08-05) — 8 slices of the STEP (like CHOP), each PASS/MUTE/SHORT/LONG, plus two gate lengths +
     // ROTATE. Default all-PASS = the chord sustains. Append-only Optional (old docs decode nil → defaults).
     var lenSlices: [LenState]? = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
@@ -198,6 +201,7 @@ struct ColourParams: Codable, Equatable {
     var rtcSlices: [Int]? = [2, 0, 2, 0, 2, 0, 2, 0]   // PATTERN: 8 per-slice counts (0 = plain single · 2/3/4 = roll)
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
+    var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

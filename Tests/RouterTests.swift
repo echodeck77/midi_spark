@@ -510,6 +510,70 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual((onsRow - 3) * 8, onsCell - 3, "ROW is the SAME slices spread across the bar, not repeated per column")
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
+    func testBurstSpanRowUnfoldsAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-19): the accel/decel roll unfolds ONCE across the bar; SPAN CELL re-rolls each column.
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+                c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+            }
+        }
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        let onsRow = eRow.ons.filter { $0.cable == 1 }.count, onsCell = eCell.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsRow, 0, "the ROW burst sounds")
+        XCTAssertLessThan(onsRow, onsCell, "SPAN ROW unfolds ONE roll across the bar; CELL re-rolls each column")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
+    func testCascadeSpanRowRevealsAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-19): the chord reveals across the whole bar; SPAN CELL re-reveals in each column.
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
+                c.paramsA.rate = .r1_8; c.paramsA.cascadeSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+            }
+        }
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        let onsRow = eRow.ons.filter { $0.cable == 1 }.count, onsCell = eCell.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsRow, 0, "the ROW cascade sounds")
+        XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the reveal across the bar; CELL re-reveals per column")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
+    func testTuttiPatternSpanRowSpreadsTheShapeAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-19): the 8-slice set-shape spans the whole bar (slice i = column i); CELL strides it at the RATE.
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .tutti)
+                c.paramsA.tuttiMode = .pattern
+                c.paramsA.tuttiSlices = [.all, .rest, .all, .rest, .all, .rest, .all, .rest]
+                c.paramsA.tuttiRate = .r1_16; c.paramsA.tuttiSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+            }
+        }
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        let onsRow = eRow.ons.filter { $0.cable == 1 }.count, onsCell = eCell.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsRow, 0, "the ROW tutti-pattern sounds")
+        XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the 8-slice shape across the bar; CELL strides it at the fast RATE")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
+    func testRatchetPatternSpanRowSpreadsCountsAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-19): the 8 per-slice counts span the whole bar (slice i = column i); CELL strides at the RATE.
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .ratchet)
+                c.paramsA.rtcMode = .pattern
+                c.paramsA.rtcSlices = [3, 0, 3, 0, 3, 0, 3, 0]
+                c.paramsA.rtcRate = .r1_16; c.paramsA.rtcSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }
+            }
+        }
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        let onsRow = eRow.ons.filter { $0.cable == 1 }.count, onsCell = eCell.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(onsRow, 0, "the ROW ratchet-pattern sounds")
+        XCTAssertLessThan(onsRow, onsCell, "SPAN ROW spreads the per-slice counts across the bar; CELL strides at the fast RATE")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
             c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
