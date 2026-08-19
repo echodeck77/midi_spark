@@ -1163,6 +1163,141 @@ final class Router {
         }
     }
 
+    // PER-PART CLOCK (Paul 2026-08-19): ONE row's per-window TICK content at `effColumn`, on `S`/`cycleBeats`. Extracted
+    // from the process() row loop so BOTH the uniform fast-path AND the per-row multi-clock path share it verbatim.
+    // Reads `diag.pass` (the caller sets it to the ROW's pass in the per-row path). No behaviour change vs the old inline loop.
+    private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
+                             box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
+                             beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
+            let cell = box.cells[effColumn * Snap.rows + r]
+            if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
+            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
+            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
+            currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
+            let ci = Int(cell.colourIndex)
+            let colour = box.colours[ci]
+            if !onSceneAudible(colour.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
+            // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
+            let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
+            let transpose = colourTranspose(ci, colour)
+                          + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
+                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
+            // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
+            var treat = colour; treat.a = cell.proc
+            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed,
+                                passMask: effectivePassMask(treat), pass: diag.pass)
+            let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
+            // DRONE = a legato chord-hold (user 2026-08-10): a SINGLE-SLOT drone sustains via emitColumnHolds (adopts
+            // across adjacent drone columns, closes where no drone re-holds it), NOT the per-tick generator — skip it
+            // here so it doesn't strike per step. A drone inside a multi-slot CHAIN keeps the generator path (v1).
+            if mode == .drone && cell.procs.count <= 1 { return }
+
+            // CELL MACHINE stage-2: a covered chain (arp/ratchet/strum TAIL) runs the tail over the composed
+            // upstream set; only the tail emits, and emitColumnHolds skips it.
+            let driver = chainDriverIndex(cell)
+            if driver >= 0 {
+                let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
+                var treatDrive = colour; treatDrive.a = driveP
+                // SPLIT downstream ([driver→SPLIT] = PUNCH HOLES): resolve its keep-window as NOTE bounds from the
+                // driver's SOURCE POOL (the held chord), so each driven note outside the subset becomes a rest.
+                splitGateActive = false
+                if let si = downstreamSplitIndex(cell, after: driver) {
+                    let ep = effectivePool(for: cell, live: pool)
+                    let cnt = ep.srcCount(for: cell)
+                    if cnt > 0 {
+                        let sp = cell.procs[si]
+                        let win = chordSplitWindow(count: cnt, split: sp.splitSet, noteAt: { Int(ep.srcAscending($0, for: cell)) })
+                        if win.len > 0 {
+                            splitGateLo = Int(ep.srcAscending(win.start, for: cell)); splitGateHi = Int(ep.srcAscending(win.start + win.len - 1, for: cell))
+                        } else { splitGateLo = 1; splitGateHi = 0 }   // empty subset → nothing passes
+                        splitGateVF = sp.splitVel.floor; splitGateVC = sp.splitVel.ceil
+                        splitGateActive = true
+                    }
+                }
+                switch driveP.type {
+                case .arp:
+                    emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
+                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
+                               chainDriver: driver, out: out, diag: &diag)
+                case .ratchet:
+                    emitRatchetRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
+                                   emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                                   windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                                   beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
+                                   chainDriver: driver, out: out, diag: &diag)
+                case .strum:
+                    emitStrumRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                 pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                                 beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
+                case .euclid, .burst, .cascade, .drone, .shift, .humanize:   // GENERATORS as chain drivers (user 2026-08-09)
+                    let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
+                    emitGeneratorRow(mode: dm, cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                     pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                     windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                case .weave:
+                    emitWeaveRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
+                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
+                default: break
+                }
+                return
+            }
+            if let li = composableLengthTailIndex(cell) {   // [<composable upstream> → LENGTH]: LENGTH re-articulates the composed set (no driver to fold it per-note)
+                emitLengthComposedRow(cell: cell, row: r, colour: colour, transpose: transpose, emits: emits,
+                                      lenIdx: li, pool: pool, beatPos: beatPos, windowBeats: windowBeats,
+                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                      S: S, a: a, out: out, diag: &diag)
+                return
+            }
+            if isHoldTailChain(cell) { return }   // CELL MACHINE: a hold-tail chain emits at column boundaries (emitColumnHolds), not here
+
+            switch mode {
+            case .arp:
+                emitArpRow(cell: cell, row: r, colour: treat, transpose: transpose,
+                           emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                           windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                           beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
+            case .ratchet:
+                emitRatchetRow(cell: cell, row: r, colour: treat, transpose: transpose,
+                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
+                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
+                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
+            case .strum:
+                emitStrumRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                             pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                             beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+            case .euclid, .burst, .cascade, .drone, .shift, .humanize:
+                emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                                 S: S, a: a, out: out, diag: &diag)
+            case .weave:
+                emitWeaveRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                             pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
+                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
+                             S: S, a: a, out: out, diag: &diag)
+            case .echo, .identity, .chance, .harmonize, .split:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. SPLIT filter) emit at the transition
+            case .tutti:
+                if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
+                    emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                                        pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+                }
+            case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
+                emitLengthRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
+                              pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
+                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
+            case .silent:
+                break   // closed passgate → nothing this window
+            }
+    }
+
     private func emitColumnHolds(box: SnapshotBox, column: Int, pool: NotePool, pass: Int,
                                  S: Double, a: Double, mNow: Double, beatPos: Double,
                                  beatsPerSample: Double, windowStart: Int64,
@@ -1744,133 +1879,9 @@ final class Router {
         let windowBeats = Double(frameCount) * beatsPerSample
 
         for r in 0..<Snap.rows {
-            let cell = box.cells[effColumn * Snap.rows + r]
-            if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
-            if soloSilenced(cell) { continue }   // receiver strip: input SOLO excludes this cell's receiver
-            currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
-            currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
-            currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
-            let ci = Int(cell.colourIndex)
-            let colour = box.colours[ci]
-            if !onSceneAudible(colour.on, pass: diag.pass) { continue }   // §9 item 1 ON SCENE: not entered / exited
-            // §9 item 1 ON HOLD (3a): while THIS cell is press-held, its ALT/OCT treatment overlays momentarily.
-            let held = heldCell >= 0 && heldCell == effColumn * Snap.rows + r
-            let transpose = colourTranspose(ci, colour)
-                          + holdOctaveShift(on: colour.on, held: held)   // ON HOLD = OCT
-                          + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
-            // CELL MACHINE: the per-cell HEAD treatment (cell.proc) drives the render (morph + grid-chaining retired).
-            var treat = colour; treat.a = cell.proc
-            let mode = cellMode(type: effectiveType(treat), bypassed: cell.bypassed,
-                                passMask: effectivePassMask(treat), pass: diag.pass)
-            let emits = cell.busMask != 0   // fan-out across every lit bus happens inside emitArtic
-            // DRONE = a legato chord-hold (user 2026-08-10): a SINGLE-SLOT drone sustains via emitColumnHolds (adopts
-            // across adjacent drone columns, closes where no drone re-holds it), NOT the per-tick generator — skip it
-            // here so it doesn't strike per step. A drone inside a multi-slot CHAIN keeps the generator path (v1).
-            if mode == .drone && cell.procs.count <= 1 { continue }
-
-            // CELL MACHINE stage-2: a covered chain (arp/ratchet/strum TAIL) runs the tail over the composed
-            // upstream set; only the tail emits, and emitColumnHolds skips it.
-            let driver = chainDriverIndex(cell)
-            if driver >= 0 {
-                let driveP = cell.procs[driver]                // the tick DRIVER (last tick-gen); slots before it compose, after it fold
-                var treatDrive = colour; treatDrive.a = driveP
-                // SPLIT downstream ([driver→SPLIT] = PUNCH HOLES): resolve its keep-window as NOTE bounds from the
-                // driver's SOURCE POOL (the held chord), so each driven note outside the subset becomes a rest.
-                splitGateActive = false
-                if let si = downstreamSplitIndex(cell, after: driver) {
-                    let ep = effectivePool(for: cell, live: pool)
-                    let cnt = ep.srcCount(for: cell)
-                    if cnt > 0 {
-                        let sp = cell.procs[si]
-                        let win = chordSplitWindow(count: cnt, split: sp.splitSet, noteAt: { Int(ep.srcAscending($0, for: cell)) })
-                        if win.len > 0 {
-                            splitGateLo = Int(ep.srcAscending(win.start, for: cell)); splitGateHi = Int(ep.srcAscending(win.start + win.len - 1, for: cell))
-                        } else { splitGateLo = 1; splitGateHi = 0 }   // empty subset → nothing passes
-                        splitGateVF = sp.splitVel.floor; splitGateVC = sp.splitVel.ceil
-                        splitGateActive = true
-                    }
-                }
-                switch driveP.type {
-                case .arp:
-                    emitArpRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
-                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                               chainDriver: driver, out: out, diag: &diag)
-                case .ratchet:
-                    emitRatchetRow(cell: cell, row: r, colour: treatDrive, transpose: transpose,
-                                   emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                                   windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                                   beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats,
-                                   chainDriver: driver, out: out, diag: &diag)
-                case .strum:
-                    emitStrumRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
-                                 pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                                 beatsPerSample: beatsPerSample, S: S, a: a, chainDriver: driver, out: out, diag: &diag)
-                case .euclid, .burst, .cascade, .drone, .shift, .humanize:   // GENERATORS as chain drivers (user 2026-08-09)
-                    let dm = cellMode(type: driveP.type, bypassed: false, passMask: driveP.passMask, pass: diag.pass)
-                    emitGeneratorRow(mode: dm, cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
-                                     pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                     windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                     S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-                case .weave:
-                    emitWeaveRow(cell: cell, row: r, colour: treatDrive, transpose: transpose, emits: emits,
-                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, cycleBeats: cycleBeats, chainDriver: driver, out: out, diag: &diag)
-                default: break
-                }
-                continue
-            }
-            if let li = composableLengthTailIndex(cell) {   // [<composable upstream> → LENGTH]: LENGTH re-articulates the composed set (no driver to fold it per-note)
-                emitLengthComposedRow(cell: cell, row: r, colour: colour, transpose: transpose, emits: emits,
-                                      lenIdx: li, pool: pool, beatPos: beatPos, windowBeats: windowBeats,
-                                      windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                      S: S, a: a, out: out, diag: &diag)
-                continue
-            }
-            if isHoldTailChain(cell) { continue }   // CELL MACHINE: a hold-tail chain emits at column boundaries (emitColumnHolds), not here
-
-            switch mode {
-            case .arp:
-                emitArpRow(cell: cell, row: r, colour: treat, transpose: transpose,
-                           emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                           windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                           beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .ratchet:
-                emitRatchetRow(cell: cell, row: r, colour: treat, transpose: transpose,
-                               emits: emits, box: box, pool: pool, effColumn: effColumn, beatPos: beatPos,
-                               windowBeats: windowBeats, windowStart: windowStart, windowEnd: windowEnd,
-                               beatsPerSample: beatsPerSample, S: S, a: a, cycleBeats: cycleBeats, out: out, diag: &diag)
-            case .strum:
-                emitStrumRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
-                             pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                             beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-            case .euclid, .burst, .cascade, .drone, .shift, .humanize:
-                emitGeneratorRow(mode: mode, cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
-                                 pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                                 windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                                 S: S, a: a, out: out, diag: &diag)
-            case .weave:
-                emitWeaveRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
-                             pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
-                             windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
-                             S: S, a: a, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .split:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. SPLIT filter) emit at the transition
-            case .tutti:
-                if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
-                    emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
-                                        pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                                        windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-                }
-            case .length:                          // standalone LENGTH re-articulates the held chord per the painted gate
-                emitLengthRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
-                              pool: pool, beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                              windowEnd: windowEnd, beatsPerSample: beatsPerSample, S: S, a: a, out: out, diag: &diag)
-            case .silent:
-                break   // closed passgate → nothing this window
-            }
+            emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
+                        box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                        beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
