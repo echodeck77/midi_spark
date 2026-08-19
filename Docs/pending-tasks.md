@@ -5,6 +5,20 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
+## ★ FERRY-CAPTURED, NOT A BUILD ORDER (2026-08-19 — Paul steers; his device steps outrank the docs)
+- **THE DOOR LOOP family** (`Docs/design-door-loop-2026-08-19.md`, ratified-for-the-channel). A latch that remembers
+  RHYTHM: record a door's RAW INPUT for N bars, cycle it back as the living input (determinism free — looped input
+  events ARE input events). Riders: RETRO-CAPTURE by default (the CATCH ring, double-tap keeps the last N bars);
+  OVERDUB = the latch's ADD/CHORD modes extended in time; PLAYBACK IS RE-ASKING (RATE/TRANSPOSE/QUANTIZE-on-playback
+  transform the loop — a legal moving frame for RIFF FOLLOWING). THE PROGRESSION REEL: record the whole song's harmony
+  once, scenes address SECTIONS of it. LINEAGE: this is the PURE-SOURCE recorder birthstone; the shipped ReelDeck is its
+  output-side twin — rhyme the machinery (ring/bars/freeze). Paul will walk the implementation directly.
+- **BURST · PATTERN + CARRY** (`Docs/AcceptanceCriteria/AcceptanceCriteria-burst-pattern-carry.md`, captured-not-ratified).
+  BURST gains the family MODE radio ONCE|COIN|PATTERN; PATTERN = the 8-slice pick-then-paint row with a new **CARRY**
+  state (the roll STRETCHES across the burst step + its contiguous carries — span-stretch of strikes+curve, not a
+  gate-ring). SPAN CELL|ROW reuses the shipped EUCLID precedent (NB: BURST's SPAN field already landed in the SPAN
+  rollout — this adds the PATTERN mode + CARRY on top). Follows LENGTH's trailing-note laws.
+
 ## ★★ PER-PART CLOCK — Stages A/B/C LANDED (2026-08-19; commits in CLAUDE.md status). OPEN follow-ups:
 - **Stage D — length < 8 UI.** The engine already loops a row over its `rowLength` (present + fuzzed); only the UI is
   missing: a LENGTH control (beside the RATE menu) editing the current part's `buildPartLen`, and the play/staging
