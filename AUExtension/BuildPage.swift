@@ -2331,8 +2331,8 @@ extension DiagView {
         func ch(_ s: Int) -> UInt32 { let c = Double((hex >> s) & 0xFF); return UInt32(max(0, min(255, c + (255 - c) * t))) }
         return (ch(16) << 16) | (ch(8) << 8) | ch(0)
     }
-    // THE PIANO-ROLL FACE on the BUILD grid cells (Paul 2026-08-19): soft note marks enter at the LEFT as the cell sounds
-    // and drift RIGHT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
+    // THE PIANO-ROLL FACE on the BUILD grid cells (Paul 2026-08-19): soft note marks enter at the RIGHT as the cell sounds
+    // and drift LEFT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
     // cell of the grid that is the PLAYING voice. Accumulated in the VC poll (buildCellRoll); paused when the cell rests.
     @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?) -> some View {
       if active, let cid = id {
@@ -2345,8 +2345,8 @@ extension DiagView {
                 for n in notes {
                     let age = now.timeIntervalSince(n.born)
                     if age < 0 || age > buildRollLife { continue }
-                    let prog = age / buildRollLife                      // 0 (left, just sounded) → 1 (right, gone)
-                    let x = CGFloat(prog) * size.width
+                    let prog = age / buildRollLife                      // 0 (right, just sounded) → 1 (left, gone)
+                    let x = CGFloat(1 - prog) * size.width              // notes enter at the RIGHT and drift LEFT (Paul 2026-08-19)
                     let y = CGFloat(1 - n.lane) * size.height           // lane = pitch (high = top)
                     let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)
                     let a = max(0.0, min(1.0, fade)) * (0.5 + 0.5 * n.vel)

@@ -362,7 +362,7 @@ struct GridView: View {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
                 if usePianoRollFace {
-                    // THE PIANO-ROLL FACE — note marks drift left→right as the cell sounds (identity = the hue).
+                    // THE PIANO-ROLL FACE — note marks drift right→left as the cell sounds (identity = the hue).
                     pianoRollFace(col * 8 + row)
                 } else if useMosaicFace {
                     // THE MOSAIC (candidate F) — the derived breathing-Mondrian face fills the whole cell (branch).
@@ -566,8 +566,8 @@ struct GridView: View {
     // white scaled by `vel × life` (the same strike-feed envelope the seal comet uses: hold while sounding, fade
     // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
     // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
-    // THE PIANO-ROLL FACE (Paul 2026-08-19) — over the cell's HUE, soft white note marks enter at the left AS the cell
-    // sounds and drift right, fading; nothing at rest. Gentle + non-distracting. Cheap: ≤12 rounded bars, one Canvas,
+    // THE PIANO-ROLL FACE (Paul 2026-08-19) — over the cell's HUE, soft white note marks enter at the RIGHT AS the cell
+    // sounds and drift left, fading; nothing at rest. Gentle + non-distracting. Cheap: ≤12 rounded bars, one Canvas,
     // paused when the cell has no live notes. (Pitch isn't fed per-cell yet — the lane is a stable per-note hash.)
     @ViewBuilder private func pianoRollFace(_ idx: Int) -> some View {
         let notes = (idx >= 0 && idx < cellRoll.count) ? cellRoll[idx] : []
@@ -578,10 +578,10 @@ struct GridView: View {
                 for n in notes {
                     let age = now.timeIntervalSince(n.born)
                     if age < 0 || age > Self.rollLife { continue }
-                    let prog = age / Self.rollLife                       // 0 (left, just sounded) → 1 (right, gone)
-                    let x = CGFloat(prog) * size.width
+                    let prog = age / Self.rollLife                       // 0 (right, just sounded) → 1 (left, gone)
+                    let x = CGFloat(1 - prog) * size.width               // notes enter at the RIGHT and drift LEFT (Paul 2026-08-19)
                     let y = CGFloat(1 - n.lane) * size.height
-                    let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)   // ease in at the left, out at the right
+                    let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)   // ease in at the right, out at the left
                     let a = max(0.0, min(1.0, fade)) * (0.4 + 0.55 * n.vel)
                     let rect = CGRect(x: x - barW / 2, y: y - barH / 2, width: barW, height: barH)
                     ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(a * 0.9)))
@@ -2107,8 +2107,8 @@ struct RoutingVizOverlay: View {
 // The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships. Internal (not
 // private) so the edit-page IDENTITY plate (EditPage.swift) reads the same switch.
 let useMosaicFace = true
-// THE PIANO-ROLL FACE (Paul 2026-08-19): the perform-grid cells echo a piano roll — soft note marks enter at the left
-// and drift right AS THE CELL SOUNDS, then fade. Gentle + calm (identity stays the cell's HUE). Overrides the mosaic on
+// THE PIANO-ROLL FACE (Paul 2026-08-19): the perform-grid cells echo a piano roll — soft note marks enter at the right
+// and drift left AS THE CELL SOUNDS, then fade. Gentle + calm (identity stays the cell's HUE). Overrides the mosaic on
 // the grid only; drawMosaic/the seal stay for the edit-page identity plate. Set false to restore the mosaic face.
 let usePianoRollFace = true
 
