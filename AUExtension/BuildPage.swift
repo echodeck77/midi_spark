@@ -96,14 +96,14 @@ extension DiagView {
             let recording = d.playing && reelState != 2                       // the tape captures live output while playing
             let c: Color = recording ? Color(red: 0.95, green: 0.24, blue: 0.24) : buildDim   // RED while recording (stays red), dim stopped
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
+                Image(systemName: "recordingtape").font(.system(size: 36, weight: .regular)).foregroundColor(c)
                 if recording {                                                // a gently pulsing RED record dot → "it's recording" (stays clearly red)
                     TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !recording)) { tl in
                         let t = tl.date.timeIntervalSinceReferenceDate
                         Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
-                            .frame(width: 7, height: 7)
+                            .frame(width: 10, height: 10)
                             .opacity(0.7 + 0.3 * abs(sin(t * 2.4)))           // 0.7…1.0 — never fades out
-                            .offset(x: 3, y: -1)
+                            .offset(x: 4, y: -1)
                     }
                 }
             }
@@ -439,7 +439,7 @@ extension DiagView {
     // NOW-PLAYING (Paul 2026-08-19): a gentle left→right shimmer on the row-selector tab whose row is the active rung in
     // the playing column. Cheap: 3 soft marks in one Canvas, only while that row plays.
     @ViewBuilder private func buildTabNowPlaying(_ n: Int) -> some View {
-        let playing = d.playing && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == n
+        let playing = d.playing && buildStagingPlaying && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == n   // only when the PART is the sounding voice (not the play grid)
         if playing {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 Canvas { ctx, size in
@@ -1018,6 +1018,7 @@ extension DiagView {
         buildSelectID(buildRowColour(0) ?? "")
         buildGCColours()                                                     // free the colours the old rows used
         buildStagingSyncIfPlaying()
+        buildRequestWorkshopVoice(.part)                                     // on loading, switch play to the PART grid (Paul 2026-08-19)
     }
     // Rung-per-column = AN ARC (design 2026-08-19). Rows are complexity-sorted (0 = sparsest), so pick LOW rows to OPEN,
     // build to a mid PEAK, take ONE breath/drop, then LAND low — a phrase, not random noise (call-and-response as jitter).
@@ -1757,14 +1758,16 @@ extension DiagView {
                                 let id = buildStagingCells[c][r]
                                 let selected = buildStagingSel[c] == r   // a rung can be selected even when EMPTY (Paul 2026-08-15)
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill(id.flatMap { colourColor($0) } ?? buildCell)   // ALWAYS the exact palette colour — no shading, no dimming (Paul 2026-08-15)
+                                    .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.62))   // non-selected cells slightly DIMMER (Paul 2026-08-19)
                                     .frame(width: cell, height: cell)
                                     .overlay(RoundedRectangle(cornerRadius: 7)     // WHITE box = the SELECTED (playing) rung; that alone decides playback
                                         .stroke(buildStagingStroke(c: c, r: r, stocked: id != nil), lineWidth: selected ? 2.5 : 2))
                                     // (the per-cell TARGET is gone — the selected colour now shows as the tinted ROW NUMBER on its rail, Paul 2026-08-17)
                                     .overlay { ZStack {
                                         if buildPendingTab == r { buildPulseOverlay() }   // PENDING tab → its row previews, pulsing
-                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying, id: id)   // THE NOTE SWEEP (v1)
+                                        // ONLY the ACTIVE RUNG sweeps: the part renders just its selected rung per column (the rest of the
+                                        // scene is the DEPLOYED piece), so a non-selected part cell must NOT read the piece's sounding. (Paul 2026-08-19 bug)
+                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id)
                                     } }
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
@@ -2780,15 +2783,26 @@ extension DiagView {
     @ViewBuilder private func buildProcessorEditor(slot: Int, size: CGSize) -> some View {
         let chain = selectedColourChain()
         let topReserve: CGFloat = 54                           // clear the top play-button row ("Play this part") — the panel docks BELOW it
+        // Keep the LEFT column (machine · chain · tabs) UNCOVERED (Paul 2026-08-19): in landscape the panel docks to the
+        // RIGHT of it (over the two grid columns + I/O box); in portrait the columns stack, so no left offset.
+        let landscape = size.width >= size.height
+        let leftW = landscape ? max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3 * 0.726) : 0
+        let leftReserve = landscape ? 10 + leftW + BuildGeom.colGap : 12
+        let contentW = max(200, size.width - leftReserve - 14)
         if slot < chain.count, let cid = ddSelectedColourID {
             ZStack(alignment: .top) {
-                Color.black.opacity(0.4).ignoresSafeArea()     // a light backdrop over the page; tapping OUTSIDE the panel = SAVE + close
-                    .contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
-                VStack(spacing: 0) {                            // DOCKED: below the play buttons, spanning the width, down to the bottom (over the I/O box)
-                    Color.clear.frame(height: topReserve)
-                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, size: size)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.horizontal, 12).padding(.bottom, 12)
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: leftReserve)      // the LEFT column stays visible + interactive
+                    ZStack(alignment: .top) {
+                        Color.black.opacity(0.4)               // backdrop over the grid columns only; tap here = SAVE + close
+                            .contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
+                        VStack(spacing: 0) {                   // DOCKED: below the play buttons, down to the bottom (over the I/O box)
+                            Color.clear.frame(height: topReserve)
+                            buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: contentW)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .padding(.trailing, 10).padding(.bottom, 12)
+                        }
+                    }
                 }
             }
             .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
@@ -2802,7 +2816,7 @@ extension DiagView {
         buildEditSlot = nil
     }
 
-    @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, size: CGSize) -> some View {
+    @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, contentW: CGFloat) -> some View {
         let hue = buildSelHue
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {                               // HEADER: colour + name · BYPASS · CANCEL · DELETE
@@ -2837,7 +2851,7 @@ extension DiagView {
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
             VStack(alignment: .leading, spacing: 5) {          // ROW SELECTOR — a tab OVERWRITES that row with the current edits
                 Text("TAP TO OVERWRITE ROW:").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
-                AnyView(buildColourTabs(castW: size.width - 56, cell: 30, inEditor: true))
+                AnyView(buildColourTabs(castW: contentW - 40, cell: 30, inEditor: true))
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
