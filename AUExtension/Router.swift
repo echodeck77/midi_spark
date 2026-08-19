@@ -1347,7 +1347,7 @@ final class Router {
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
         // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
         if pool.count > 0 || latchMask != 0 {
-        for r in (onlyRow.map { [$0] } ?? Array(0..<Snap.rows)) {   // PER-PART CLOCK: one row, or all
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
@@ -2693,12 +2693,14 @@ final class Router {
                 }
             }
         case .harmonize:
-            let ivs = [p.harmIntervals.0, p.harmIntervals.1, p.harmIntervals.2]
+            let iv0 = p.harmIntervals.0, iv1 = p.harmIntervals.1, iv2 = p.harmIntervals.2   // unrolled — no per-stage array alloc (render path)
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
                 let base = Int(src.srcAscending(k, filter: 0, cableMask: 0b1111))
                 let bv = max(1, src.velocity(UInt8(base)))                // the added voices inherit the base note's velocity
                 dst.noteOn(UInt8(base), velocity: bv, channel: 0)
-                for iv in ivs where iv != 0 { let v = base + Int(iv); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv0 != 0 { let v = base + Int(iv0); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv1 != 0 { let v = base + Int(iv1); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
+                if iv2 != 0 { let v = base + Int(iv2); if v >= 0 && v <= 127 { dst.noteOn(UInt8(v), velocity: bv, channel: 0) } }
             }
         case .split:                                           // set-membership filter — RE-POOL when upstream of a driver
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)

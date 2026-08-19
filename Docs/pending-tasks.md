@@ -5,6 +5,27 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
+## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
+- **Render-path allocations (invariant 3), verified real:** (1) `srcNotes` local `[(note,vel)]` array rebuilt per
+  window in `Router.emitWeaveRow`/`emitGeneratorRow`/`emitTuttiPatternRow`/`emitLengthRow` (~lines 2223/2317/2531/2585)
+  — share ONE fixed instance buffer + extract a `fillSrcNotes` helper (the 6 fill loops are identical); the fills don't
+  re-enter, but verify per site before acting. (2) `euclidPattern`→`[Bool]` allocates **per RANK per window** in
+  `emitWeaveRow` (~2253), plus `burstFractions`/`tuttiSliceRanks` array returns in the hot loop — add fill-into-buffer
+  variants in Derivations (keep the array versions for the unit tests). Both are low-magnitude but true; do as a tested
+  Router pass. (3) `process()` uniform-vs-multi-clock block is ~duplicated (transition + tick loops) since the per-part
+  clock — an `emitColumnTransition` extraction would dedup; same item as codebase-review §12 "split Router.process".
+- **UI dead-code (grep-clean, FLAGGED not removed — the EDIT/verb surface may be intentional WIP like BuildPage):**
+  `AudioUnitViewController` `toggleHold`/`onVerbEngaged`/`clearSelectionUndo`/`selectionMixed`/`sceneName`; `EditPage`
+  `setEditMode`/`commitSession`/`revertSession`/`editGridLongPress`/`editGridLongEnd`/`midiSectionHeader`/
+  `chainSectionHeader`; latent AU API (`setPreviewOverlay`/`clearPreviewOverlay`, `addMacroEmitterTargets`/
+  `removeMacroEmitterTargets`, `setCellChain`, `listLibraryCells`, `factoryLibraryCells`, `loadFactoryScene`,
+  `uiEffColumn`). Confirm each surface isn't held-for-rebuild before a sweep. (`Router.hasDuplicateVoices` +
+  `MacroParam` decode zombies are RESERVED — keep.)
+- **DONE this pass (`main`):** fixed the composeScene bug (a default-rate deployed part silently lost its short LENGTH,
+  + staging-row clock could be clobbered by the piece) with a `clockClaimed` tracker + 4 composeScene tests; removed 2
+  render-path allocations (`emitColumnHolds` per-call array, `applyStage` harmonize interval array); +1 rowLen-clamp
+  test; removed the accidental `continuousRange` orphan.
+
 ## ★ FERRY-CAPTURED, NOT A BUILD ORDER (2026-08-19 — Paul steers; his device steps outrank the docs)
 - **THE DOOR LOOP family** (`Docs/design-door-loop-2026-08-19.md`, ratified-for-the-channel). A latch that remembers
   RHYTHM: record a door's RAW INPUT for N bars, cycle it back as the living input (determinism free — looped input

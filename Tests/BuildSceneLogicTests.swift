@@ -158,6 +158,61 @@ final class BuildSceneLogicTests: XCTestCase {
         let chainRow = (0..<8).first { r in r != 0 && r != 3 && s.cellAt(0, r)?.colourID == "cyan" }
         XCTAssertNotNil(chainRow, "the chain lands on some free row, coexisting with both")
     }
+    // MARK: composeScene — the PER-PART CLOCK + PER-ROW LAP mapping (Input → SceneState.rowStepRate/rowLen/rowLane)
+
+    func testPieceAppliesPerRowLengthEvenWhenRateIsDefault() {
+        // BUG (Paul 2026-08-19): the piece's per-row LENGTH was set only inside `if let rr = performRate[r]`, so a
+        // deployed part at the SCENE-DEFAULT rate (nil) silently lost its short loop — the common Stage-D case.
+        var i = BuildSceneLogic.Input()
+        i.performPlaying = true
+        i.performCells = grid([(0, 2, "gold")])
+        i.performActiveRung = { _, _ in true }
+        i.performRate = Array(repeating: nil, count: 8)            // scene-default rate
+        i.performLen = [nil, nil, 4, nil, nil, nil, nil, nil]      // row 2 loops 4 columns
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.rowLen?[2], 4, "a default-rate part still applies its short loop length")
+    }
+
+    func testStagingClaimsRowSoThePieceNeverClobbersItsClock() {
+        // Staging OWNS a row it occupies even when its rate is the scene default (nil) — the piece must not override it.
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true; i.performPlaying = true
+        i.stagingCells = grid([(0, 2, "gold")]); i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
+        i.stagingRate = nil; i.stagingLen = 4                      // staging: default rate, short length
+        i.performCells = grid([(1, 2, "teal")]); i.performActiveRung = { _, _ in true }   // piece also on row 2
+        i.performRate = [nil, nil, .r2_1, nil, nil, nil, nil, nil] // piece row-2 rate = 2/1
+        i.performLen = [nil, nil, 8, nil, nil, nil, nil, nil]
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertNil(s.rowStepRate![2], "staging owns row 2 with its DEFAULT rate — the piece's 2/1 must not clobber it")
+        XCTAssertEqual(s.rowLen![2], 4, "staging's short length wins, not the piece's 8")
+    }
+
+    func testUniformStagingLeavesPerRowClockNil() {
+        // No custom rate/length ⇒ no per-row clock at all → the Router keeps its uniform fast path.
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 0, "gold")]); i.stagingSel = [0, -1, -1, -1, -1, -1, -1, -1]
+        i.stagingRate = nil; i.stagingLen = nil
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertNil(s.rowStepRate, "uniform staging → no per-row clock (fast path preserved)")
+        XCTAssertNil(s.rowLen)
+    }
+
+    func testRowLaneStagingWinsAndAMutedPieceCellContributesNoLane() {
+        // A muted piece cell must NOT contribute its lane (mirrors the cell-placement guard); staging wins a shared row.
+        var i = BuildSceneLogic.Input()
+        i.performPlaying = true; i.stagingPlaying = true
+        i.performCells = grid([(0, 2, "gold"), (0, 5, "gold")])
+        i.performMute = [0 * 8 + 5]                                // the row-5 piece cell is muted
+        i.performActiveRung = { _, _ in true }
+        i.performLane = 0b1
+        i.stagingCells = grid([(1, 2, "teal")]); i.stagingSel = [-1, 2, -1, -1, -1, -1, -1, -1]  // staging on row 2
+        i.stagingLane = 0b10
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.rowLane?[5] ?? 0, 0, "a muted piece cell contributes no lane")
+        XCTAssertEqual(s.rowLane?[2], 0b10, "staging's lane wins the shared row over the piece's")
+    }
+
     // Regression (Paul 2026-08-16): MUTATE on a EUCLID gave only ONE variant then went dead — its euclidPulses/Steps/Rot
     // params were advertised but NOT wired into processorValues/applyProcessorValues, so the only working tweak was the
     // bypass toggle. With them wired, repeated MUTATE yields many distinct variants.

@@ -36,6 +36,17 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b2.rowLength[0], Snap.cols, "an unset row is a full 8")
     }
 
+    func testRowLenClampsOutOfRangeToOneThroughEight() {
+        // The clamp is load-bearing: the Router multi-clock path divides by cyc = rowLength · rowStep, so a 0 would
+        // yield NaN. A hostile/garbage decode of rowLen must resolve into 1…8. (Paul 2026-08-19)
+        let cs = colours(customizing: 0) { _ in }
+        let b = box(cs) { $0.rowLen = [0, 99, -3, nil, nil, nil, nil, nil] }
+        XCTAssertEqual(b.rowLength[0], 1, "0 clamps up to 1")
+        XCTAssertEqual(b.rowLength[1], Snap.cols, "99 clamps down to 8")
+        XCTAssertEqual(b.rowLength[2], 1, "a negative clamps up to 1")
+        XCTAssertEqual(b.rowLength[3], Snap.cols, "nil falls to a full 8")
+    }
+
     // delta §9 item 1: the builder carries each Colour's ON assignments onto its SnapColour (nil → unassigned).
     func testOnConfigResolvesOntoSnapColour() {
         var on = OnConfig()

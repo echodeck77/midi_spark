@@ -97,17 +97,19 @@ enum BuildSceneLogic {
         // part) rows win over the piece (they sit in front); a nil ⇒ the scene default (uniform = today).
         var rowStepRate = [StepRate?](repeating: nil, count: 8)
         var rowLen = [Int?](repeating: nil, count: 8)
+        var clockClaimed = [Bool](repeating: false, count: 8)   // rows the STAGING (front) voice owns — the piece never overrides these
         if i.stagingPlaying {
             for c in 0..<8 {
                 let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
                 if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
-                    rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen
+                    rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen; clockClaimed[r] = true
                 }
             }
         }
         if i.performPlaying {
-            for r in 0..<8 where rowStepRate[r] == nil {
-                if r < i.performRate.count, let rr = i.performRate[r] { rowStepRate[r] = rr; rowLen[r] = (r < i.performLen.count ? i.performLen[r] : nil) }
+            for r in 0..<8 where !clockClaimed[r] {   // a staging row wins even when its rate/len are nil (scene default); else the piece fills
+                if r < i.performRate.count { rowStepRate[r] = i.performRate[r] }   // rate + length set INDEPENDENTLY: a default-rate part still applies its short LENGTH (bug fix Paul 2026-08-19)
+                if r < i.performLen.count { rowLen[r] = i.performLen[r] }
             }
         }
         if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {
