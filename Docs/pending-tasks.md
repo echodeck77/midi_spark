@@ -6,14 +6,13 @@ AND add its commit line to CLAUDE.md status. Terse by design — detail lives in
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
-- **Render-path allocations (invariant 3), verified real:** (1) `srcNotes` local `[(note,vel)]` array rebuilt per
-  window in `Router.emitWeaveRow`/`emitGeneratorRow`/`emitTuttiPatternRow`/`emitLengthRow` (~lines 2223/2317/2531/2585)
-  — share ONE fixed instance buffer + extract a `fillSrcNotes` helper (the 6 fill loops are identical); the fills don't
-  re-enter, but verify per site before acting. (2) `euclidPattern`→`[Bool]` allocates **per RANK per window** in
-  `emitWeaveRow` (~2253), plus `burstFractions`/`tuttiSliceRanks` array returns in the hot loop — add fill-into-buffer
-  variants in Derivations (keep the array versions for the unit tests). Both are low-magnitude but true; do as a tested
-  Router pass. (3) `process()` uniform-vs-multi-clock block is ~duplicated (transition + tick loops) since the per-part
-  clock — an `emitColumnTransition` extraction would dedup; same item as codebase-review §12 "split Router.process".
+- **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
+  `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.
+  (2) STILL OPEN: `euclidPattern`→`[Bool]` allocates **per RANK per window** in `emitWeaveRow`, plus
+  `burstFractions`/`tuttiSliceRanks` array returns in the hot loop — add fill-into-buffer variants in Derivations (keep
+  the array versions for the unit tests). Low-magnitude; a tested Router+Derivations pass. (3) STILL OPEN: `process()`
+  uniform-vs-multi-clock block is ~duplicated (transition + tick loops) — an `emitColumnTransition` extraction would
+  dedup; same item as codebase-review §12 "split Router.process".
 - **UI dead-code (grep-clean, FLAGGED not removed — the EDIT/verb surface may be intentional WIP like BuildPage):**
   `AudioUnitViewController` `toggleHold`/`onVerbEngaged`/`clearSelectionUndo`/`selectionMixed`/`sceneName`; `EditPage`
   `setEditMode`/`commitSession`/`revertSession`/`editGridLongPress`/`editGridLongEnd`/`midiSectionHeader`/
@@ -46,12 +45,11 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   wrap at length. `testPerRowLengthLoopsShorterThanTheBar` proves a short row loops shorter. (Paul's "promote only
   LOOPED columns → parts shorter than 8" — the render + UI now support any length; the promote-picks-looped-columns
   behaviour itself is a separate future step.)
-- **echo / mod / glide per-row clock (v1 limitation).** In the multi-clock render path these stay on the scene-default
-  clock (a part's custom rate doesn't retime its echo/mod/glide). Give each `onlyRow` scoping + call them per-row in
-  `Router.process`'s non-uniform branch. Watch the MOD leave-disposition (`modLastColumn` is a single shared var —
-  thrashes under per-row calls; CC-only, no stuck notes, but wrong resets). Do when a device pass shows it matters.
-- **DEVICE ear/eye owed:** two parts at different rates in one play grid (hear the drift); the per-row playheads drift
-  out of phase; the RATE menu placement by the reel glyph.
+- ~~**echo / mod / glide per-row clock (v1 limitation).**~~ DONE (2026-08-19) — each fires on its ROW's own clock in the
+  multi-clock path; MOD/GLIDE leave-disposition is now per-slot (per-row + a global slot), uniform path byte-identical.
+  Remaining sub-limit: MOD SPAN=ROW's period still uses the scene bar, not the row's (minor).
+- **DEVICE ear/eye owed:** two parts at different rates in one play grid (hear the drift, incl. echo/mod/glide now
+  retimed per part); the per-row playheads drift out of phase; the RATE/LENGTH corner control; the reel colour roll.
 
 ## ★ THE REEL-TO-REEL — STEP 1 LANDED (Paul 2026-08-18)
 The 1-pass output-tape (RECORD → REPLACE live output, LOOP; second touch resumes). Built at the Kernel seam: `ReelDeck`

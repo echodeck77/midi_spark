@@ -182,8 +182,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   **STAGE D (length < 8 UI, 2026-08-19):** the part-grid corner control gained a LOOP LENGTH section (1…8) editing
   `buildPartLen`; the staging + play grids DIM columns past the loop (play grid per-row by each row's part length);
   playheads already wrap at length. `testPerRowLengthLoopsShorterThanTheBar` proves a short row loops shorter (a cell
-  beyond the length is never visited). STILL OPEN: echo/mod/glide per-row clock (v1 limitation); the promote-only-
-  looped-columns behaviour (a separate future step — the render + UI now support any length).**
+  beyond the length is never visited). **ECHO/MOD/GLIDE PER-ROW (2026-08-19, `c1cb444`):** they now fire on each ROW's
+  own clock in the multi-clock path (were scene-default) — `onlyRow` scoping + per-slot leave-disposition arrays
+  (modLastColumn/modColumnEntryBeat/glideLastColumn, slot Snap.rows = the uniform/global call, byte-identical); +test
+  (a fast row's echo strikes far more often). STILL OPEN: MOD SPAN=ROW period still uses the scene bar (minor); the
+  promote-only-looped-columns behaviour (a separate future step).**
+- **▶ HOUSEKEEPING — composeScene bug + render-path allocations + coverage (2026-08-19, on `main`; `f468faf` +
+  `ac7eb2b`; macOS 795→796 green, iOS builds). Survey-driven (three parallel agents: missing tests · dead code ·
+  refactor/efficiency), every finding verified before acting. **BUG:** `composeScene` dropped a deployed part's short
+  LENGTH when its rate was the scene default (the piece length was gated behind `if let rr = performRate[r]`), and the
+  staging row's clock could be clobbered by the piece — fixed with a `clockClaimed` tracker + 4 tests. **EFFICIENCY
+  (invariant 3):** removed the `emitColumnHolds` per-call `Array(0..<rows)`, the `applyStage` harmonize interval array,
+  and the `srcNotes` per-window array in all 4 driver emitters (→ a reused `srcNoteBuf` + slice view; byte-identical,
+  proven by the acceptance oracle + fuzz). **DEAD CODE:** removed the accidental `MacroControlKind.continuousRange`
+  orphan (kept `hasDuplicateVoices` — a RESERVED I3 hook — + decode zombies). +1 rowLen-clamp test. FLAGGED for a
+  focused pass (`pending-tasks`): the Derivations fill-into-buffer variants (euclidPattern per-rank etc.), the
+  `process()` uniform/multi-clock split, and a UI dead-code cluster (may be held-for-rebuild like BuildPage).**
 - **▶ SPAN CELL|ROW ROLLOUT — all ≥★★ processors DONE (2026-08-19, on `main`; `c01a9fb` LENGTH+MOD, `a6d8807`
   BURST/CASCADE/TUTTI/RATCHET; macOS green incl. fuzz, iOS builds; DEVICE ear owed). Generalises the EUCLID SPAN
   template to the six processors rated ★★+: ROW stretches a processor's timeline across the whole BAR (a cross-column
