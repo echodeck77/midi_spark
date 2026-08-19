@@ -51,7 +51,8 @@ enum Dice {
         Array(repeating: .euclid,   count: 4) + Array(repeating: .burst,   count: 3) +
         Array(repeating: .cascade,  count: 3) + Array(repeating: .drone,   count: 3) +
         Array(repeating: .humanize, count: 2) + Array(repeating: .shift,   count: 2) +
-        Array(repeating: .strum,    count: 2) + Array(repeating: .chance,  count: 2) +
+        Array(repeating: .strum,    count: 2) + Array(repeating: .chance,  count: 4) +   // CHANCE up (Paul's favourite, 2026-08-19)
+        Array(repeating: .tutti,    count: 4) +                                           // TUTTI added — was ABSENT (Paul's favourite, esp. PATTERN)
         Array(repeating: .echo,     count: 2) + Array(repeating: .harmonize, count: 1)   // MUCH LESS harmonizer
 
     // ROLE-BASED COMPOSITION (user 2026-08-11): the engine's LAST tick-generator is the DRIVER; slots BEFORE it shape
@@ -200,6 +201,16 @@ enum Dice {
         s.params.euclidSteps = [8, 16].randomElement(using: &rng)!
         s.params.echoRepeats = Int.random(in: 2...6, using: &rng)
         s.params.echoDelayDiv = [2, 3, 4, 6].randomElement(using: &rng)!
+        // TUTTI — favour PATTERN (Paul's favourite, 2026-08-19): an authored per-slice chord shape, never all-ALL (that
+        // would be a no-op / non-contributing). These fields are only read when the slot's type is .tutti.
+        s.params.tuttiMode = Int.random(in: 0...2, using: &rng) == 0 ? .coin : .pattern    // ~2/3 PATTERN
+        var slices: [TuttiSlice] = (0..<8).map { _ in [.all, .all, .low, .high, .top2, .bot2, .rest].randomElement(using: &rng)! }
+        if slices.allSatisfy({ $0 == .all }) { slices[Int.random(in: 0..<8, using: &rng)] = .rest }
+        s.params.tuttiSlices = slices
+        s.params.tuttiRate = [.r1_8, .r1_16, .r1_8t].randomElement(using: &rng)
+        s.params.tuttiRotate = Int.random(in: 0...7, using: &rng)
+        s.params.tuttiBalance = Double.random(in: 0.3...0.8, using: &rng)
+        s.params.tuttiPick = TuttiPick.allCases.randomElement(using: &rng)
         return s
     }
 
@@ -316,9 +327,8 @@ enum Dice {
                 s.type = .euclid; s.params.rate = [.r1_4, .r1_8].randomElement(using: &rng)
                 s.params.euclidSteps = 8; s.params.euclidPulses = Int.random(in: 2...4, using: &rng); s.params.octaves = 1
                 return [sp, s]
-            case .stab:                                                   // rhythmic FULL-chord hits
-                s.type = .euclid; s.params.rate = [.r1_4, .r1_8].randomElement(using: &rng)
-                s.params.euclidSteps = 8; s.params.euclidPulses = Int.random(in: 3...5, using: &rng); s.params.octaves = 1
+            case .stab:                                                   // rhythmic FULL-chord shapes via TUTTI PATTERN (Paul's favourite)
+                s.type = .tutti; s.params.tuttiMode = .pattern             // randomSlot already seeded a non-all-ALL slice pattern + rate/rotate
                 return [s]
             case .arp:                                                    // an arpeggio lead, up a register
                 s.type = .arp; s.params.pattern = [.up, .down, .upDown].randomElement(using: &rng)
