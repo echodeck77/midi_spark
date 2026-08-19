@@ -125,29 +125,46 @@ extension DiagView {
         }
     }
 
-    // PER-PART RATE (Paul 2026-08-19): the CURRENT part's step rate lives bottom-left by the reel glyph. A part deployed at
-    // a different rate plays at a DIFFERENT TEMPO in the same play grid (the multi-clock render path). "—" = the scene default.
+    // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step RATE + loop LENGTH live in the part grid's top-right
+    // corner (opposite the eye). A part deployed at a different rate plays at a DIFFERENT TEMPO; a length < 8 loops
+    // SHORTER (columns past it are outside the loop, dimmed). One corner menu, two sections. "—" rate = scene default.
     @ViewBuilder private func buildRateControl(cell: CGFloat) -> some View {
+        let len = buildPartLen ?? Snap.cols
         Menu {
-            Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
-            ForEach(StepRate.allCases, id: \.self) { r in
-                Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
+            Section("STEP RATE") {
+                Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
+                ForEach(StepRate.allCases, id: \.self) { r in
+                    Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
+                }
+            }
+            Section("LOOP LENGTH") {
+                ForEach(Array(stride(from: Snap.cols, through: 1, by: -1)), id: \.self) { n in
+                    Button { buildSetPartLen(n == Snap.cols ? nil : n) } label: {
+                        Label(n == Snap.cols ? "\(n) (full)" : "\(n)", systemImage: len == n ? "checkmark" : "circle")
+                    }
+                }
             }
         } label: {
             VStack(spacing: 0) {
-                Text("RATE").font(.system(size: min(7, cell * 0.26), weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                Text(buildPartRate?.rawValue ?? "—").font(.system(size: min(14, cell * 0.5), weight: .heavy, design: .monospaced))
+                Text(buildPartRate?.rawValue ?? "—").font(.system(size: min(13, cell * 0.44), weight: .heavy, design: .monospaced))
                     .minimumScaleFactor(0.6).lineLimit(1).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
+                Text("L\(len)").font(.system(size: min(11, cell * 0.36), weight: .heavy, design: .monospaced))
+                    .minimumScaleFactor(0.6).lineLimit(1).foregroundColor(len == Snap.cols ? buildDim : sceneAmberHue)
             }
             .frame(width: cell, height: cell)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildPartRate == nil ? Color.clear : buildCyan, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke((buildPartRate == nil && len == Snap.cols) ? Color.clear : buildCyan, lineWidth: 1.5))
             .contentShape(Rectangle())
         }
     }
     func buildSetPartRate(_ r: StepRate?) {
         buildPartRate = r
         if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
+        buildPublishScene()
+    }
+    func buildSetPartLen(_ n: Int?) {
+        buildPartLen = n
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = n }   // authoritative for performLen mapping
         buildPublishScene()
     }
 
@@ -1855,6 +1872,7 @@ extension DiagView {
                             ForEach(0..<8, id: \.self) { c in
                                 let id = buildStagingCells[c][r]
                                 let selected = buildStagingSel[c] == r   // a rung can be selected even when EMPTY (Paul 2026-08-15)
+                                let inLoop = c < (buildPartLen ?? Snap.cols)   // PER-PART LENGTH: columns past the loop are OUTSIDE it — dimmed, never sound (Paul 2026-08-19)
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill((id.flatMap { colourColor($0) } ?? buildCell).opacity(selected ? 1.0 : 0.62))   // non-selected cells slightly DIMMER (Paul 2026-08-19)
                                     .frame(width: cell, height: cell)
@@ -1865,8 +1883,9 @@ extension DiagView {
                                         if buildPendingTab == r { buildPulseOverlay() }   // PENDING tab → its row previews, pulsing
                                         // ONLY the ACTIVE RUNG sweeps: the part renders just its selected rung per column (the rest of the
                                         // scene is the DEPLOYED piece), so a non-selected part cell must NOT read the piece's sounding. (Paul 2026-08-19 bug)
-                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected, id: id)
+                                        buildNoteSweep(idx: c * 8 + r, active: buildStagingPlaying && selected && inLoop, id: id)
                                     } }
+                                    .opacity(inLoop ? 1 : 0.3)   // OUTSIDE the loop → dimmed (still tappable — extend the length to include it)
                                     .contentShape(Rectangle())
                                     .onTapGesture { buildStagingTap(c, r) }
                             }
@@ -2020,11 +2039,13 @@ extension DiagView {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
                 let held = (mask & (1 << UInt8(c))) != 0            // this grid's OWN lap set — tap/hold a key to add/remove its column
+                let inLoop = !staging || c < (buildPartLen ?? Snap.cols)   // staging: a column past the part's LENGTH is outside the loop (dimmed); perform grid mixes lengths, so never dim its keys
                 RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.22 : 0.11))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(held ? sceneAmberHue : buildEdge, lineWidth: held ? 2 : 1))
                     .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
                         .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.85 : 0.55)))
+                    .opacity(inLoop ? 1 : 0.3)                      // PER-PART LENGTH: keys past the loop are dimmed
                     .contentShape(Rectangle())                     // LOOP: tap or long-press toggles the column in THIS grid's lap set (Paul 2026-08-19)
                     .onTapGesture { buildToggleLoop(staging: staging, c) }
                     .onLongPressGesture(minimumDuration: 0.3) { buildToggleLoop(staging: staging, c) }
@@ -2250,6 +2271,8 @@ extension DiagView {
                                 let multiRung = buildPerformPart[r] >= 0 && buildPerformPartRows(buildPerformPart[r]) > 1
                                 let mutable = id != nil && buildPerformPart[r] >= 0 && !multiRung   // SINGLE-RUNG part → per-cell mute
                                 let activeRung = buildPerformActiveRung(c, r)                        // MULTI-rung: the selected rung of this column
+                                let plen = (buildPerformPart[r] >= 0 && buildPerformPart[r] < buildParts.count) ? (buildParts[buildPerformPart[r]].length ?? Snap.cols) : Snap.cols
+                                let inLoop = c < plen                                                 // PER-PART LENGTH: this row's part loops over `plen` columns — the rest are outside
                                 RoundedRectangle(cornerRadius: 7)
                                     .fill(id.flatMap { colourColor($0) } ?? Color.black.opacity(0.35))   // TRUE colour · else the empty recess (preview shows as an outline, not a fill)
                                     .frame(width: cell, height: cell)
@@ -2259,9 +2282,9 @@ extension DiagView {
                                     .overlay { if id != nil && multiRung && activeRung { RoundedRectangle(cornerRadius: 7).stroke(Color.white, lineWidth: 2.5) } }   // WHITE = the selected rung (like the part grid)
                                     .overlay { ZStack {                                            // TARGET + NOTE SWEEP (folded into one overlay to keep the cell type-checkable)
                                         if id != nil && id == ddSelectedColourID { buildTargetMark(cell * 0.55) }   // THE TARGET rides every play-grid cell matching the selected machine
-                                        buildNoteSweep(idx: c * 8 + r, active: buildPerformPlaying, id: id)   // THE NOTE SWEEP (v1) — only when the PLAY grid plays
+                                        buildNoteSweep(idx: c * 8 + r, active: buildPerformPlaying && inLoop, id: id)   // THE NOTE SWEEP (v1) — only when the PLAY grid plays
                                     } }
-                                    .opacity(muted || (id != nil && multiRung && !activeRung) ? 0.3 : 1)   // MUTED cell OR a non-selected rung dims
+                                    .opacity((!inLoop || muted || (id != nil && multiRung && !activeRung)) ? 0.3 : 1)   // OUTSIDE the loop · MUTED · non-selected rung → dim
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         if mutable { buildTogglePerformMute(c, r) }               // single-rung → mute

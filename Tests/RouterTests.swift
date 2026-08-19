@@ -173,6 +173,23 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 8, "row 1's cell laps its own column 4 — independent of row 0's loop")
         assertNothingLeftSounding(e)
     }
+    // PER-PART LENGTH (Paul 2026-08-19): a row with a loop length < 8 loops over only its first Lr columns — a cell
+    // placed beyond the length is never visited and stays silent, while a cell inside sounds. (Stage D: parts shorter
+    // than the bar.) Row 0 loops columns 0–3; its column-1 cell sounds, its column-5 cell never does.
+    func testPerRowLengthLoopsShorterThanTheBar() {
+        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
+        let b = box(colours: cs) { s in
+            s.cells[1][0] = Cell(colourID: "gold", buses: [.a])       // column 1 — INSIDE the length-4 loop
+            s.cells[5][0] = Cell(colourID: "orange", buses: [.b])     // column 5 — BEYOND it
+            s.rowLen = [4, nil, nil, nil, nil, nil, nil, nil]         // row 0 loops columns 0–3 only
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0, "column 1 is inside the 4-column loop — it sounds")
+        XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 0, "column 5 is beyond the loop length — never visited, silent")
+        assertNothingLeftSounding(e)
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {

@@ -19,11 +19,12 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   gate-ring). SPAN CELL|ROW reuses the shipped EUCLID precedent (NB: BURST's SPAN field already landed in the SPAN
   rollout — this adds the PATTERN mode + CARRY on top). Follows LENGTH's trailing-note laws.
 
-## ★★ PER-PART CLOCK — Stages A/B/C LANDED (2026-08-19; commits in CLAUDE.md status). OPEN follow-ups:
-- **Stage D — length < 8 UI.** The engine already loops a row over its `rowLength` (present + fuzzed); only the UI is
-  missing: a LENGTH control (beside the RATE menu) editing the current part's `buildPartLen`, and the play/staging
-  grids rendering a shorter loop (columns beyond `Lr` shown inert). Paul's goal: promote only LOOPED columns → parts
-  shorter than 8. Small, well-bounded.
+## ★★ PER-PART CLOCK — Stages A/B/C/D LANDED (2026-08-19; commits in CLAUDE.md status). OPEN follow-ups:
+- ~~**Stage D — length < 8 UI.**~~ DONE — the corner control now carries a LOOP LENGTH section (1…8) editing the part's
+  `buildPartLen`; staging + play grids dim columns past the loop (per-row by each row's part length); playheads already
+  wrap at length. `testPerRowLengthLoopsShorterThanTheBar` proves a short row loops shorter. (Paul's "promote only
+  LOOPED columns → parts shorter than 8" — the render + UI now support any length; the promote-picks-looped-columns
+  behaviour itself is a separate future step.)
 - **echo / mod / glide per-row clock (v1 limitation).** In the multi-clock render path these stay on the scene-default
   clock (a part's custom rate doesn't retime its echo/mod/glide). Give each `onlyRow` scoping + call them per-row in
   `Router.process`'s non-uniform branch. Watch the MOD leave-disposition (`modLastColumn` is a single shared var —

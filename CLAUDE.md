@@ -179,8 +179,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   `buildPerformPart` → its part's clock) + `stagingRate`/`stagingLen` — the wire that activates the engine. A RATE menu
   bottom-left by the reel glyph edits the current part's rate ("—" = scene default). The PLAY grid draws ONE playhead
   PER ROW at its part's own rate/length (rows drift out of phase visibly); staging's playhead follows the current part.
-  STILL OPEN: Stage D = length < 8 UI (the engine mechanism is present + fuzzed, only the length control + shorter-row
-  rendering are UI-side); echo/mod/glide per-row clock (v1 limitation).**
+  **STAGE D (length < 8 UI, 2026-08-19):** the part-grid corner control gained a LOOP LENGTH section (1…8) editing
+  `buildPartLen`; the staging + play grids DIM columns past the loop (play grid per-row by each row's part length);
+  playheads already wrap at length. `testPerRowLengthLoopsShorterThanTheBar` proves a short row loops shorter (a cell
+  beyond the length is never visited). STILL OPEN: echo/mod/glide per-row clock (v1 limitation); the promote-only-
+  looped-columns behaviour (a separate future step — the render + UI now support any length).**
 - **▶ SPAN CELL|ROW ROLLOUT — all ≥★★ processors DONE (2026-08-19, on `main`; `c01a9fb` LENGTH+MOD, `a6d8807`
   BURST/CASCADE/TUTTI/RATCHET; macOS green incl. fuzz, iOS builds; DEVICE ear owed). Generalises the EUCLID SPAN
   template to the six processors rated ★★+: ROW stretches a processor's timeline across the whole BAR (a cross-column
