@@ -50,6 +50,30 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.
 
+## ★★ NEXT (design-ratified PRIORITY) — RANDOMIZE = AN ENSEMBLE (grid-roll rework) (2026-08-19)
+Ferry `REPLY-density-audit-answered` (design-side, absorbed 2026-08-19) answered my note-density audit and set the
+PRIORITY: **THE ROLL FIRST — ahead of the note-sweep plumbing AND the display/label reconcile queue.** Rationale: the
+roll is the front door's first impression; every STAGE press sells or kills the instrument, and chrome can't rescue
+un-musical music. Order of work: **roll rework → display layer + reconcile (small, queued) → the feed + sweep.** My lean
+was endorsed AS WRITTEN: reuse `buildByRole` + archetype/register assignment + a sparse-biased density target; **NO new
+engine.** The contract:
+- **AN ENSEMBLE, not 8 rolls.** The player brings the chord; the roll hands back A BAND — contrasting archetypes across
+  the 8: pad · bass pulse · chord stab · arp lead · texture · sparkle · groove · wild-card. "Musical" = CONTRAST; the
+  current "wall of activity" IS the failure mode.
+- **Density = a SPARSE-BIASED pyramid.** Most rows sparse→medium, ONE dense, the FLOOR row GENUINELY sparse (a two-note
+  pulse must be possible). Assign each row a DENSITY BUDGET BAND (events/beat) + a REGISTER HOME (oct offset / split
+  range) BEFORE rolling → simple→complex true BY CONSTRUCTION; the complexity sort then sorts something real.
+- **Role model + rate coherence.** Adopt `buildByRole` for the grid roll (slow root under faster figures), replacing
+  `rollSimple`'s random-rate stacks.
+- **Rung-per-column = AN ARC, not random.** Sparse open → build through the middle → one breath/drop column → land;
+  call-and-response between adjacent registers as seasoning. Pure-chaos stays reachable as a dice DEPTH, never the
+  default (SURPRISE-FIRST governs flavour, not structure).
+- **Onset BUDGET** (events/beat) alongside the concurrency cap = the budget bands above. Probe fix: judge the flood CAP
+  at a 6-note worst-case chord, judge CHARACTER at 3 — cheap, closes the under-prediction.
+- SCALE-LOCK (the KEY door) = a real PROCESSOR, its OWN design session — NOT a randomize tweak. Parked.
+- Sweep-feed connection (for later): the `ReelTap` already records per-note EMITTED events at the Kernel seam — the live
+  per-cell feed the note-sweep renderer needs is that tap's COUSIN, not a from-scratch job. Start there when sweep's turn comes.
+
 ## ★ SOON — PatternSpan (SPAN: CELL | ROW) rollout to the pattern processors (Paul 2026-08-18)
 EUCLID SPAN landed (`e7e0043`, on `main`; commit line in CLAUDE.md status). `PatternSpan { cell, row }` + `euclidSpan`
 are in place. ROW stretches a processor's N-step timeline across the whole 8-column BAR (a cross-column phrase) —
