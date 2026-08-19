@@ -133,6 +133,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
         assertNothingLeftSounding(e)
     }
+    // PER-PART CLOCK (Paul 2026-08-19): two rows on DIFFERENT step rates play at different tempos in ONE grid —
+    // the multi-clock render path. Both rows are fully populated with the SAME 4-of-8 euclid; row 0 runs SLOW
+    // (2/1 = 8 beats/step) on bus A, row 1 runs FAST (1/8 = 0.5 beats/step) on bus B. Over a fixed span the fast
+    // row completes many more column cycles, so it strikes far more often. Proves the rate is per-row, not global.
+    func testPerRowStepRatePlaysDifferentTemposInOneGrid() {
+        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
+        let b = box(colours: cs) { s in
+            for col in 0..<8 {                                    // fully populate both rows so a column is always sounding
+                s.cells[col][0] = Cell(colourID: "gold", buses: [.a])
+                s.cells[col][1] = Cell(colourID: "orange", buses: [.b])
+            }
+            s.rowStepRate = [.r2_1, .r1_8, nil, nil, nil, nil, nil, nil]   // row 0 slow · row 1 fast · rest = scene default
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let slow = e.ons.filter { $0.cable == 1 }.count           // bus A (row 0)
+        let fast = e.ons.filter { $0.cable == 2 }.count           // bus B (row 1)
+        XCTAssertGreaterThan(slow, 0, "the slow row still sounds")
+        XCTAssertGreaterThan(fast, slow * 3, "the fast row (16× the step rate) strikes far more often than the slow row")
+        assertNothingLeftSounding(e)                              // and no stuck notes across the mixed-tempo edges
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {

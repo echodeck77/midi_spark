@@ -226,6 +226,15 @@ final class Router {
     private var holdCandidate = [Bool](repeating: false, count: 128)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
+    // PER-PART CLOCK (Paul 2026-08-19): the multi-clock render path. Each ROW runs its own step rate, so its
+    // column-transition edge is tracked SEPARATELY (prevEffColumnRow) and its per-window clock is derived into the
+    // scratch buffers below (fixed-size, no render-path alloc). Uniform scenes never touch any of this (fast path).
+    private var prevEffColumnRow = [Int](repeating: -1, count: Snap.rows)
+    private var rowEffColBuf = [Int](repeating: 0, count: Snap.rows)     // per-row effective column this window
+    private var rowSBuf = [Double](repeating: 0, count: Snap.rows)       // per-row step beats
+    private var rowCycBuf = [Double](repeating: 0, count: Snap.rows)     // per-row cycle beats (Lr · Sr)
+    private var rowMNowBuf = [Double](repeating: 0, count: Snap.rows)    // per-row musical position
+    private var rowPassBuf = [Int](repeating: 0, count: Snap.rows)       // per-row pass index
     // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
     // becomes column 0 ("take it from the top"). 0 = no restart (normal play is byte-identical). Reset on the
     // transport-start edge; captured = the raw beat at the restart. Shifts musicalOf + sampleOf together.
@@ -802,12 +811,14 @@ final class Router {
     /// boundary (arp tails, retrig/chance/harmonize holds, claim ghosts) EXCEPT audible IMMORTAL voices —
     /// the legato chord-holds. Those survive into `emitColumnHolds`, which then ADOPTS the ones the new
     /// column re-holds identically and closes the rest (the reconcile). Everything else re-strikes as before.
-    private func closeExceptLegatoHolds(atSample time: Int64, out: MIDIEmitter?) {
+    private func closeExceptLegatoHolds(atSample time: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         // Keep every IMMORTAL voice (offSample .max) — the audible legato drones AND, if a drone landed on a
         // CLAIM emitter, its silent ownership ghost. Both share note+bus+colour+face, so the reconcile adopts
         // or closes them in lockstep (no orphaned ghost leaking a slot). During play these are the ONLY
         // immortal voices (arp/retrig ghosts carry a finite offSample; audition is stopped-only).
-        for i in voices.indices where voices[i].active && voices[i].offSample != .max {
+        // PER-PART CLOCK: `onlyRow` scopes the truncation to ONE row (a fast part's boundary never cuts a slow part's note).
+        for i in voices.indices where voices[i].active && voices[i].offSample != .max
+            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) {
             closeVoice(i, atSample: time, out: out)
         }
     }
@@ -829,6 +840,11 @@ final class Router {
 
     private func anyVoiceActive() -> Bool {
         for v in voices where v.active { return true }
+        return false
+    }
+    /// PER-PART CLOCK: any active voice belonging to ROW `r` (cellIndex row = index % 8) — the per-row transition gate.
+    private func anyVoiceActiveInRow(_ r: Int) -> Bool {
+        for v in voices where v.active && v.cellIndex >= 0 && Int(v.cellIndex) % Snap.rows == r { return true }
         return false
     }
     /// Any active IMMORTAL legato GRID hold (a sustained drone) — offSample .max, not a BYPASS voice. Used by the
@@ -1303,6 +1319,7 @@ final class Router {
                                  beatsPerSample: Double, windowStart: Int64,
                                  windowEnd: Int64, out: MIDIEmitter?,
                                  reconcileOnly: Bool = false,   // PLAY: THIS CELL frozen-column re-run — adopt/close the immortal holds only, never re-strike
+                                 onlyRow: Int? = nil,           // PER-PART CLOCK: scope the hold reconcile + emit to ONE row
                                  diag: inout KernelDiag) {
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
@@ -1316,13 +1333,14 @@ final class Router {
         // the pass-length envelope) — so this runs even when the pool guard below skips the emit loop. Silent
         // CLAIM ghosts of a drone are candidates too (adoptLegatoBus matches them by note+bus+colour+face), so
         // a ghost adopts/closes in lockstep with its audible voice — never orphaned.
-        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0 }   // BYPASS voices are immortal but NOT grid holds — never adopt/close them here
+        for i in voices.indices { holdCandidate[i] = voices[i].active && voices[i].offSample == .max && voices[i].bypassRecv < 0
+            && (onlyRow == nil || (voices[i].cellIndex >= 0 && Int(voices[i].cellIndex) % Snap.rows == onlyRow!)) }   // BYPASS voices are immortal but NOT grid holds — never adopt/close them here; per-part clock scopes to the row
         // Proceed while the LIVE pool has notes OR any receiver is latch-armed: an armed receiver's FROZEN pool
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
         // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
         if pool.count > 0 || latchMask != 0 {
-        for r in 0..<Snap.rows {
+        for r in (onlyRow.map { [$0] } ?? Array(0..<Snap.rows)) {   // PER-PART CLOCK: one row, or all
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
@@ -1818,9 +1836,15 @@ final class Router {
         diag.activeCellParent = active.map { box.cells[effColumn * Snap.rows + $0.row].resolvedParent } ?? -1
         // (the stopped case already returned via the audition branch above, so playing is true here)
 
+        // PER-PART CLOCK (Paul 2026-08-19): uniform ⇒ every row runs the scene-default step and a full 8-wide loop
+        // (today's sound, byte-identical FAST PATH). Non-uniform ⇒ each row has its own step rate/loop length, so its
+        // column edge + hold reconcile + ticks all derive on that row's OWN clock (the multi-clock path below).
+        let uniformClock = box.rowStep.allSatisfy { $0 == S } && box.rowLength.allSatisfy { $0 == Snap.cols }
+
         // ---- column transition (§7): active column changed → truncate all voices at the boundary
         //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
         //      relocation/loop is the same edge, no special case. ----
+        if uniformClock {
         if effColumn != prevEffColumn {
             if anyVoiceActive() {
                 let boundaryMusical = columnStart(mNow, S)     // start of effColumn
@@ -1855,6 +1879,58 @@ final class Router {
                             S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
                             windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
         }
+        } else {
+            // ===== MULTI-CLOCK PATH — each row on its own step rate =====
+            let globalPass = diag.pass
+            if prevEffColumn == -1 { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge reset the whole grid this window
+            for r in 0..<Snap.rows {
+                let Sr = box.rowStep[r]
+                let Lr = box.rowLength[r]
+                let mNr = musicalOf(beatPos, stepBeats: Sr, a: a)
+                let cycR = Double(Lr) * Sr
+                let posR = mNr - (mNr / cycR).rounded(.down) * cycR
+                let trueColR = min(Lr - 1, max(0, Int(posR / Sr)))
+                let absStepR = Int((mNr / Sr).rounded(.down))
+                var effColR = lapColumn(laneMask: heldColumns, absoluteStep: absStepR, trueColumn: trueColR)
+                if forceColumnHold { effColR = forceColumn }
+                let passR = Int((mNr / cycR).rounded(.down))
+                rowSBuf[r] = Sr; rowCycBuf[r] = cycR; rowMNowBuf[r] = mNr; rowEffColBuf[r] = effColR; rowPassBuf[r] = passR
+                if effColR != prevEffColumnRow[r] {
+                    if anyVoiceActiveInRow(r) {
+                        let bMus = columnStart(mNr, Sr)
+                        let realB = realOf(bMus, stepBeats: Sr, a: a)
+                        let off = max(0, (realB - beatPos) / beatsPerSample)
+                        closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out, onlyRow: r)
+                    }
+                    prevEffColumnRow[r] = effColR
+                    lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min
+                    diag.pass = passR
+                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
+                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                    windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
+                } else if forceColumnHold {
+                    diag.pass = passR
+                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
+                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                    windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, onlyRow: r, diag: &diag)
+                } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
+                    diag.pass = passR
+                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
+                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                    windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
+                }
+            }
+            diag.pass = globalPass
+            // ECHO dry rides the GLOBAL (scene-default) clock in the multi-clock path (v1 limitation — the dry strikes
+            // on the scene-default column transition; mod/glide/tails below stay global too). The per-row content that
+            // matters (arps/euclids/holds at each part's own tempo) is handled per-row above + in the tick loop below.
+            if effColumn != prevEffColumn {
+                emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,
+                               S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+            }
+            prevEffColumn = effColumn
+        }
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
         drainEchoTails(mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
@@ -1878,10 +1954,21 @@ final class Router {
         for r in 0..<Snap.rows { articCount[r] = 0 }
         let windowBeats = Double(frameCount) * beatsPerSample
 
-        for r in 0..<Snap.rows {
-            emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
-                        box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
-                        beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
+        if uniformClock {
+            for r in 0..<Snap.rows {
+                emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
+                            box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
+            }
+        } else {
+            let globalPass = diag.pass   // per-row ticks run on each row's OWN clock (buffers filled in the transition loop)
+            for r in 0..<Snap.rows {
+                diag.pass = rowPassBuf[r]
+                emitTickRow(r: r, effColumn: rowEffColBuf[r], S: rowSBuf[r], cycleBeats: rowCycBuf[r], windowBeats: windowBeats,
+                            box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
+                            beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
+            }
+            diag.pass = globalPass
         }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding

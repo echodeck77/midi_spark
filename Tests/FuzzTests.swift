@@ -95,6 +95,13 @@ final class FuzzTests: XCTestCase {
             }
             scene.cells[col][row] = cell
         }
+        // PER-PART CLOCK (Paul 2026-08-19): ~half the docs carry mixed per-row STEP RATES (and some shorter loop
+        // lengths), driving the MULTI-CLOCK render path — each row on its own tempo. Hammered for no-stuck-notes /
+        // quiescence across every transport + snapshot edge (rows drifting in and out of phase must never strand a voice).
+        if r.chance(0.5) {
+            scene.rowStepRate = (0..<8).map { _ in r.chance(0.6) ? StepRate.allCases[r.int(StepRate.allCases.count)] : nil }
+            scene.rowLen = (0..<8).map { _ in r.chance(0.3) ? r.range(1, 8) : nil }   // some rows loop shorter than the bar
+        }
         if r.chance(0.5) { scene.masterKey = r.range(-12, 12) }        // KEY± under held chords
         var st = PluginState(colours: colours, scenes: [scene])
         if r.chance(0.2) { st.ladderMode = true }                     // LADDER (exclusive columns) resolves in the builder
