@@ -5,6 +5,18 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
+## ★★ PER-PART CLOCK — Stages A/B/C LANDED (2026-08-19; commits in CLAUDE.md status). OPEN follow-ups:
+- **Stage D — length < 8 UI.** The engine already loops a row over its `rowLength` (present + fuzzed); only the UI is
+  missing: a LENGTH control (beside the RATE menu) editing the current part's `buildPartLen`, and the play/staging
+  grids rendering a shorter loop (columns beyond `Lr` shown inert). Paul's goal: promote only LOOPED columns → parts
+  shorter than 8. Small, well-bounded.
+- **echo / mod / glide per-row clock (v1 limitation).** In the multi-clock render path these stay on the scene-default
+  clock (a part's custom rate doesn't retime its echo/mod/glide). Give each `onlyRow` scoping + call them per-row in
+  `Router.process`'s non-uniform branch. Watch the MOD leave-disposition (`modLastColumn` is a single shared var —
+  thrashes under per-row calls; CC-only, no stuck notes, but wrong resets). Do when a device pass shows it matters.
+- **DEVICE ear/eye owed:** two parts at different rates in one play grid (hear the drift); the per-row playheads drift
+  out of phase; the RATE menu placement by the reel glyph.
+
 ## ★ THE REEL-TO-REEL — STEP 1 LANDED (Paul 2026-08-18)
 The 1-pass output-tape (RECORD → REPLACE live output, LOOP; second touch resumes). Built at the Kernel seam: `ReelDeck`
 + `ReelTap` (Foundation-only, in Emission.swift, unit-tested); the tap records every emitted event with its pass-relative

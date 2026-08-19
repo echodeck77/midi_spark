@@ -159,6 +159,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PER-PART CLOCK — parts play at INDEPENDENT TEMPOS in one play grid (2026-08-19, on `main`; spec+Stage A `5cb291c`,
+  Stage B `3d45695`+`5bd3299`, Stage C `853699e`; macOS 786 green incl. multi-clock fuzz, iOS builds; DEVICE ear/eye
+  owed for the multi-tempo mix). Paul's ask: "put long sequences next to shorter ones" — each deployed PART is a TRACK
+  with its OWN step rate (and a loop length, Stage D). Spec of record: `Docs/AcceptanceCriteria/AcceptanceCriteria-per-
+  part-clock.md`. **STAGE A (model, non-breaking):** `BuildPart.rate`/`.length`, `SceneState.rowStepRate`/`.rowLen`,
+  `SnapshotBox.rowStepBeats`/`.rowLen` (raw) + resolved `rowStep`/`rowLength` (falls back to `stepBeats`/8 → uniform =
+  byte-identical); `composeScene` sets them per row (staging wins over piece). **STAGE B (multi-clock render engine):**
+  `Router.process` gained a uniform/multi-clock branch — uniform scenes take the existing byte-identical FAST PATH; a
+  scene with mixed per-row rates takes a per-row path that derives each row's OWN column edge (`prevEffColumnRow[8]` +
+  fixed scratch buffers, no render-path alloc), hold reconcile (`emitColumnHolds`/`closeExceptLegatoHolds` gained
+  `onlyRow` scoping), and ticks (`emitTickRow` extracted first, behaviour-identical). Flush edges reset the per-row
+  clocks via `prevEffColumn == -1`. v1 LIMITATION (flagged): echo/mod/glide + drainEchoTails stay on the scene-default
+  clock in the multi-clock path (the per-row content that matters — arps/euclids/holds at each part's tempo — is
+  per-row). FuzzTests randomise per-row rate + shorter loop lengths across transport-chaos + snapshot-swap (no stuck
+  notes / quiescence / determinism all hold); `testPerRowStepRatePlaysDifferentTemposInOneGrid` proves two rows at
+  different rates strike at different rates. **STAGE C (UI wiring):** `buildPartRate`/`buildPartLen` @State (loaded/saved
+  with the part + persisted on `BuildPart`); `buildPublishScene` fills `performRate`/`performLen` (per play-grid row via
+  `buildPerformPart` → its part's clock) + `stagingRate`/`stagingLen` — the wire that activates the engine. A RATE menu
+  bottom-left by the reel glyph edits the current part's rate ("—" = scene default). The PLAY grid draws ONE playhead
+  PER ROW at its part's own rate/length (rows drift out of phase visibly); staging's playhead follows the current part.
+  STILL OPEN: Stage D = length < 8 UI (the engine mechanism is present + fuzzed, only the length control + shorter-row
+  rendering are UI-side); echo/mod/glide per-row clock (v1 limitation).**
 - **▶ SPAN CELL|ROW ROLLOUT — all ≥★★ processors DONE (2026-08-19, on `main`; `c01a9fb` LENGTH+MOD, `a6d8807`
   BURST/CASCADE/TUTTI/RATCHET; macOS green incl. fuzz, iOS builds; DEVICE ear owed). Generalises the EUCLID SPAN
   template to the six processors rated ★★+: ROW stretches a processor's timeline across the whole BAR (a cross-column
