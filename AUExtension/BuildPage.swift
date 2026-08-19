@@ -412,14 +412,14 @@ extension DiagView {
     }
     // THE COLOUR TABS (Paul 2026-08-17): 8 tabs numbered 1–8, one per part-grid row. Each tab is a colour/midi-chain;
     // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
-    @ViewBuilder private func buildColourTabs(castW: CGFloat, cell: CGFloat) -> some View {
+    @ViewBuilder private func buildColourTabs(castW: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
         let gap = BuildGeom.castGap
         let tabW = (castW - gap * 7) / 8
         HStack(spacing: gap) {
-            ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell) }
+            ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: inEditor) }
         }
     }
-    @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat) -> some View {
+    @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
         let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
         let selected = cid != nil && cid == ddSelectedColourID
         let tint = cid.flatMap { colourColor($0) }              // the tab's own colour (nil = empty)
@@ -430,10 +430,53 @@ extension DiagView {
             .frame(width: w, height: cell)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : (tint ?? buildEdge), lineWidth: (selected || tint != nil) ? 2 : 1))   // SELECTED = white; populated = its colour outline; empty = the faint edge
             .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
+            .overlay { if cid != nil { buildTabNowPlaying(n).clipShape(RoundedRectangle(cornerRadius: 6)) } }   // NOW-PLAYING animation when this row sounds
             .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(selected ? .black.opacity(0.7) : (tint ?? .white.opacity(0.7))))   // populated → the colour's TEXT; empty → grey; selected → black on the fill
             .contentShape(Rectangle())
-            .onTapGesture { buildTapColourTab(n) }
+            .onTapGesture { inEditor ? buildEditorOverwriteRow(n) : buildTapColourTab(n) }   // in the editor a tab OVERWRITES that row with the current edits; else select/populate
+    }
+    // NOW-PLAYING (Paul 2026-08-19): a gentle left→right shimmer on the row-selector tab whose row is the active rung in
+    // the playing column. Cheap: 3 soft marks in one Canvas, only while that row plays.
+    @ViewBuilder private func buildTabNowPlaying(_ n: Int) -> some View {
+        let playing = d.playing && d.effColumn >= 0 && d.effColumn < buildStagingSel.count && buildStagingSel[d.effColumn] == n
+        if playing {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                Canvas { ctx, size in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    for k in 0..<3 {
+                        let phase = (t * 0.55 + Double(k) / 3.0).truncatingRemainder(dividingBy: 1.0)
+                        let x = CGFloat(phase) * size.width
+                        let a = sin(phase * .pi) * 0.45                      // fade in at the left, out at the right
+                        let rect = CGRect(x: x - 1.5, y: size.height * 0.28, width: 3, height: size.height * 0.44)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.white.opacity(max(0, a))))
+                    }
+                }
+            }.allowsHitTesting(false)
+        }
+    }
+    // PROCESSOR EDITOR — a row-selector tab OVERWRITES that row with the CURRENT edits, KEEPS the original settings on the
+    // source colour (reverts it to the open-snapshot), then FOLLOWS to the new row (everything switches). (Paul 2026-08-19)
+    private func buildEditorOverwriteRow(_ n: Int) {
+        guard let srcCid = ddSelectedColourID else { return }
+        let cur = selectedColourChain()                                     // the current edited chain
+        if let snapCid = buildEditorSnapCid, snapCid == srcCid {            // 1. keep the ORIGINAL on the source colour
+            buildWriteColourMachine(srcCid, buildEditorSnapshot)
+        }
+        let targetID: String
+        if let tgt = buildRowColour(n) {                                    // 2a. row n populated → overwrite its chain
+            buildWriteColourMachine(tgt, cur); targetID = tgt
+        } else {                                                            // 2b. row n empty → mint a colour carrying cur
+            let y = buildNewTabColour(n, machine: cur)
+            buildPartCast.append(y); buildSetRow(n, to: y)
+            if n < buildRowReceiver.count { buildRowReceiver[n] = ddStickyReceiver; buildRowEmitters[n] = ddStickyBuses }
+            targetID = y
+        }
+        for c in 0..<8 { buildStagingSel[c] = n }
+        buildSelectID(targetID)                                            // 3. FOLLOW to the new row
+        buildEditorSnapCid = targetID; buildEditorSnapshot = cur           // re-snapshot: further edits/cancel apply to the target
+        buildPendingTab = nil
+        buildStagingSyncIfPlaying()
     }
     // A breathing white pulse (the pending-tab / previewed-row highlight).
     @ViewBuilder private func buildPulseOverlay() -> some View {
@@ -2736,57 +2779,75 @@ extension DiagView {
     // touching another processor switches straight to its editor. DELETE PROCESSOR + BYPASS sit at the top. (user 2026-08-12)
     @ViewBuilder private func buildProcessorEditor(slot: Int, size: CGSize) -> some View {
         let chain = selectedColourChain()
-        let footerReserve = BuildGeom.barH + 26                // keep the footer strip uncovered → still tappable to switch processors
+        let topReserve: CGFloat = 54                           // clear the top play-button row ("Play this part") — the panel docks BELOW it
         if slot < chain.count, let cid = ddSelectedColourID {
-            ZStack {
-                VStack(spacing: 0) {                            // scrim closes on tap — but NOT over the footer
-                    Color.black.opacity(0.55).contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
-                    Color.clear.frame(height: footerReserve)
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.4).ignoresSafeArea()     // a light backdrop over the page; tapping OUTSIDE the panel = SAVE + close
+                    .contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
+                VStack(spacing: 0) {                            // DOCKED: below the play buttons, spanning the width, down to the bottom (over the I/O box)
+                    Color.clear.frame(height: topReserve)
+                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, size: size)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 12).padding(.bottom, 12)
                 }
-                .ignoresSafeArea()
-                buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, size: size)
-                    .padding(.bottom, footerReserve)
             }
+            .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
         }
+    }
+
+    // CANCEL: revert the CURRENT target colour to the snapshot taken when the editor opened, then close. (Exit any other
+    // way = SAVE the live edits.) After an overwrite-and-follow the snapshot is the target's committed chain (a no-op).
+    private func buildEditorCancel() {
+        if let cid = buildEditorSnapCid { buildWriteColourMachine(cid, buildEditorSnapshot) }
+        buildEditSlot = nil
     }
 
     @ViewBuilder private func buildProcessorPanel(slot: Int, proc: ProcessorSlot, cid: String, size: CGSize) -> some View {
         let hue = buildSelHue
-        let panelW = min(560, size.width - 80)
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {                               // HEADER: colour + name · BYPASS · DELETE PROCESSOR
+            HStack(spacing: 10) {                               // HEADER: colour + name · BYPASS · CANCEL · DELETE
                 RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
                 Text(proc.type.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)
                 Spacer()
                 Button { buildChainToggleBypass(slot) } label: {
                     Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.white)                  // white on black
+                        .foregroundColor(.white)
                         .padding(.horizontal, 14).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: 1))
                 }.buttonStyle(.plain)
+                Button { buildEditorCancel() } label: {          // CANCEL — revert to the open-snapshot (Paul 2026-08-19)
+                    Text("CANCEL").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(buildDim)
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                }.buttonStyle(.plain)
                 Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
-                    Text("DELETE PROCESSOR").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.red)                    // red on black
+                    Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.red)
                         .padding(.horizontal, 14).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.7), lineWidth: 1))
                 }.buttonStyle(.plain)
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
+            .padding(.horizontal, 16).padding(.vertical, 12)
             .background(hue.opacity(0.22))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
-            AnyView(buildColourTabs(castW: panelW - 32, cell: 28))         // the SAME colour tabs, top of the body — select a tab / populate an empty one (pulses until edited; persists on close)
-                .padding(.horizontal, 16).padding(.vertical, 8)
+            VStack(alignment: .leading, spacing: 5) {          // ROW SELECTOR — a tab OVERWRITES that row with the current edits
+                Text("TAP TO OVERWRITE ROW:").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                AnyView(buildColourTabs(castW: size.width - 56, cell: 30, inEditor: true))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
             Rectangle().fill(hue.opacity(0.25)).frame(height: 1)
             ScrollView { buildSlotBox(slot, proc, cid: cid).padding(16) }   // CONTROLS — reuse ProcessorBox (our chrome hidden)
         }
-        .frame(width: panelW).frame(maxHeight: size.height * 0.82)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(hue, lineWidth: 2))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-        .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the scrim (close)
+        .contentShape(Rectangle()).onTapGesture { }            // swallow taps inside the panel so they don't reach the backdrop (close)
     }
 
     // ProcessorBox for a BUILD colour-template slot — mirrors DiagView.slotBox but writes COLOUR-scoped (the selected

@@ -94,6 +94,10 @@ struct DiagView: View {
     @State var buildPlaceMsg: String? = nil          // the processor pop-up's PLACE feedback line ("added to row 6 — 2 remaining")
     @State var buildEditSlot: Int? = nil        // BUILD footer: which chain slot's processor pop-up editor is open (nil = closed)
     @State var buildAddSlot: Int? = nil         // BUILD footer: which empty box's ADD-PROCESSOR picker is open (nil = closed)
+    // PROCESSOR EDITOR transaction (Paul 2026-08-19): the colour's chain as it was when the editor OPENED, so CANCEL can
+    // revert (edits are live-previewed; exit keeps, cancel reverts) and the row-selector "overwrite" can restore the source.
+    @State var buildEditorSnapshot: [ProcessorSlot] = []
+    @State var buildEditorSnapCid: String? = nil
     @State var buildRowUnder: [String?] = Array(repeating: nil, count: 8)   // one-colour-per-row: each row's revert-to colour when its colour relocates
     @State var buildPlayMode: BuildGridMode = .edit      // the play grid's PLAY/EDIT radio
     @State var buildDeletedRows: [Int: [String?]] = [:]  // DELETE verb: a staging row's saved contents (for restore on 2nd press)

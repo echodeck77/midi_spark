@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR EDITOR REWORK — docked overlay · overwrite-to-row · CANCEL · now-playing tabs (2026-08-19, on `main`;
+  iOS builds; UI-only, DEVICE eye owed). Paul's 4-part rework of the BUILD processor pop-up. **A OVERLAY:**
+  `buildProcessorEditor` is now a DOCKED panel — a light backdrop over the page (tap outside = SAVE + close), the panel
+  spans the width from below the top play-button row (`topReserve` 54) down over the I/O box to the bottom (was a centred
+  560-wide modal reserving the footer). **B NOW-PLAYING:** `buildTabNowPlaying` — a gentle left→right shimmer on the
+  row-selector tab whose row is the active rung in the playing column; shared by `buildColourTab` so it shows on BOTH the
+  editor tabs and the left-column header. **C LABEL:** "TAP TO OVERWRITE ROW:" above the editor's tabs. **D TRANSACTIONAL
+  + OVERWRITE-AND-FOLLOW:** the editor snapshots the colour's chain on open (`buildEditorSnapshot`/`buildEditorSnapCid`,
+  captured in the editor's `.onAppear`); edits preview LIVE; exit any way = SAVE, a new CANCEL button reverts to the
+  snapshot. `buildColourTabs(inEditor:)` routes an editor tab-tap to `buildEditorOverwriteRow(n)`: writes the CURRENT
+  edited chain to row n (overwrite its colour, or mint one on an empty row), REVERTS the source colour to the snapshot
+  (keeps the original), FOLLOWS to row n (`buildSelectID` + staging), and re-snapshots. The header tabs keep
+  select/populate (`buildTapColourTab`). UI-only; no engine/test changes.**
 - **▶ NOTE-SWEEP PLUMBING — the per-cell per-NOTE feed LANDED (2026-08-19, on `main`; macOS 774 green, iOS builds;
   DEVICE eye owed). The feed the design side flagged as "plumbing FIRST" for the note-sweep CONTOUR axis + real-pitch
   piano rolls. `Router` records each emitted note-on's PITCH + velocity into a per-cell ring (`cellNotePitch`/`cellNoteVel`
