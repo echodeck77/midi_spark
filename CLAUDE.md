@@ -159,6 +159,30 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SPAN CELL|ROW ROLLOUT — all ≥★★ processors DONE (2026-08-19, on `main`; `c01a9fb` LENGTH+MOD, `a6d8807`
+  BURST/CASCADE/TUTTI/RATCHET; macOS green incl. fuzz, iOS builds; DEVICE ear owed). Generalises the EUCLID SPAN
+  template to the six processors rated ★★+: ROW stretches a processor's timeline across the whole BAR (a cross-column
+  phrase) vs per-column CELL. **LENGTH** (the 8-slice gate spans the bar — standalone `emitLengthRow` + composed
+  `emitLengthComposedRow`, `span = lenSpan==.row ? cyc : S`); **MOD** (one LFO/STEPS cycle per bar vs the modRate period
+  — the CC-stage SPAN sketch resolved as CELL=rate | ROW=bar, no FREE); **TUTTI PATTERN** + **RATCHET PATTERN** (the
+  8-slice set-shape / per-slice-counts span the bar, slice i = column i — `sub`/`sliceBeats = cyc/8`); **BURST** (the
+  accel/decel roll unfolds across the bar, anchored at the bar start); **CASCADE** (the reveal spreads evenly, sub =
+  bar/N). Each: an additive-Optional `xSpan` field (nil ⇒ CELL, old docs safe) + snapshot + builder + a `SPAN CELL|ROW`
+  face seg + a row-vs-cell RouterTest; the fuzz flips ROW on ~half of span-capable procs (no-stuck-notes across every
+  edge). CHANCE (★) deferred; ARP/WEAVE have PHASE; DRONE/ECHO/GLIDE already flow across boundaries.**
+- **▶ OVERNIGHT HOUSEKEEPING — survey-driven tests/refactor/dead-code/efficiency (2026-08-19, on `main`, `493cc42`;
+  macOS 779→ green, iOS builds). Three parallel survey agents (missing tests · dead code · refactor+efficiency), every
+  finding VERIFIED against the code before acting. **+5 TESTS** closing real gaps: a rolled TUTTI PATTERN sounds through
+  the Dice probe (guards the STAB archetype vs the silent-arp fallback); `composeScene` part-over-piece slot precedence;
+  `mutateNudge` in-range per control kind; the per-cell note ring caps at 6 with a valid wrap; `rollLaneForPitch`.
+  **REFACTOR:** the piano-roll pitch→lane mapping extracted to a pure `Derivations.rollLaneForPitch` (was duplicated in
+  GridUI + the VC poll). **EFFICIENCY:** the BUILD piano-roll now prunes crossed notes each tick + clears on stop, so
+  idle cell faces truly pause (was 64 TimelineViews ticking at rest). **DEAD CODE:** removed `EditPage.flowCellFace` +
+  `GridUI.dimInk` (grep-verified). **FLAGGED, NOT REMOVED:** the survey found a large orphaned BUILD view-tree (~45
+  funcs) — but CLAUDE.md records those dropped sections were "kept but uncalled, holding the plumbing for the rebuild"
+  and BuildPage is Paul's active WIP, so left for his call. Also deferred (needs-judgment): unify the two piano-roll
+  accumulators (GridUI `rollAccumulate` ⟷ VC `buildCellRoll` — different drivers/timing) + the `RollNote`/`BuildRollNote`
+  type merge.**
 - **▶ PROCESSOR EDITOR REWORK — docked overlay · overwrite-to-row · CANCEL · now-playing tabs (2026-08-19, on `main`;
   iOS builds; UI-only, DEVICE eye owed). Paul's 4-part rework of the BUILD processor pop-up. **A OVERLAY:**
   `buildProcessorEditor` is now a DOCKED panel — a light backdrop over the page (tap outside = SAVE + close), the panel
