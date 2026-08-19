@@ -1325,17 +1325,41 @@ extension DiagView {
     // — the caller owns those. (Paul 2026-08-14: single-row targets copy the selected cell regardless of row.)
     private func buildCopySelectedRow(toRow R: Int) {
         guard R >= 0, R < 8 else { return }
+        var srcRows: [Int] = []                                        // the staging rows the selected cells come from
         for c in 0..<8 {
             let sr = c < buildStagingSel.count ? buildStagingSel[c] : -1   // this column's selected (playing) cell
             if sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] {
                 buildPerformCells[c][R] = cid
                 buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
+                srcRows.append(sr)
             } else {
                 buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []   // nothing selected → blank in the play grid
             }
         }
-        buildPerformRecv[R] = buildSelReceiver                   // the row carries the deploying part's I/O
-        buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+        buildDeployRowIO(R, from: srcRows)                            // carry the SELECTED cells' OWN resolved I/O (Paul 2026-08-19)
+    }
+
+    // PER-ROW I/O on promote (Paul 2026-08-19): a deployed play-grid row carries the SELECTED cells' OWN resolved
+    // receiver + emitters (their staging row's, per-row override honoured), NOT the part DEFAULT — so a row set to
+    // emitter B stays on B when promoted (was the B→A bug). The promoted cells should all resolve to the SAME I/O;
+    // if they diverge (selected cells sit on rows with different doors/emitters), carry the first + FLAG it, since the
+    // play grid holds one I/O per row and the mix would otherwise change silently.
+    private func buildDeployRowIO(_ R: Int, from srcRows: [Int]) {
+        guard R >= 0, R < 8 else { return }
+        let emitters = srcRows.map { buildRowEmittersResolved($0) }
+        let receivers = srcRows.map { buildRowReceiverResolved($0) }
+        let emit = emitters.first ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        let recv = receivers.first ?? buildSelReceiver
+        buildPerformEmit[R] = emit
+        buildPerformRecv[R] = recv
+        if emitters.contains(where: { $0 != emit }) || receivers.contains(where: { $0 != recv }) {
+            buildFlashPromote("PROMOTED CELLS DIFFER IN I/O")        // the CHECK — the selected set wasn't uniform
+        }
+    }
+    // A brief centre banner (reuses the HOLD-TO-ALL banner surface), auto-clears. (Paul 2026-08-19)
+    private func buildFlashPromote(_ msg: String) {
+        withAnimation { buildIOHoldMsg = msg }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { if buildIOHoldMsg == msg { withAnimation { buildIOHoldMsg = nil } } }
     }
 
     // §1: deploying the current part to a SINGLE play-grid row CHRISTENS it (PART n) and copies its per-column selection
@@ -1371,8 +1395,7 @@ extension DiagView {
                         buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
                     }
                 }
-                buildPerformRecv[R] = buildSelReceiver
-                buildPerformEmit[R] = buildPartEmitters.isEmpty ? [.a] : buildPartEmitters
+                buildDeployRowIO(R, from: [sr])                       // this rung IS one staging row — carry its OWN resolved I/O (Paul 2026-08-19)
             }
         }
         buildPublishScene()
