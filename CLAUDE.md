@@ -185,8 +185,11 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   beyond the length is never visited). **ECHO/MOD/GLIDE PER-ROW (2026-08-19, `c1cb444`):** they now fire on each ROW's
   own clock in the multi-clock path (were scene-default) — `onlyRow` scoping + per-slot leave-disposition arrays
   (modLastColumn/modColumnEntryBeat/glideLastColumn, slot Snap.rows = the uniform/global call, byte-identical); +test
-  (a fast row's echo strikes far more often). STILL OPEN: MOD SPAN=ROW period still uses the scene bar (minor); the
-  promote-only-looped-columns behaviour (a separate future step).**
+  (a fast row's echo strikes far more often). **PROMOTE = LOOPED COLUMNS (2026-08-19, `82a2671`):** promoting a part
+  sets its LENGTH from the staging loop SPAN (highest looped column + 1) and drops columns past it (`buildDeployLength`/
+  `buildApplyDeployLength` + a `len` gate in `buildCopySelectedRow` + the band ladder); no loop ⇒ full 8, byte-identical.
+  The staging loop keys now double as "how long is this part." UI-only (deploy logic device-verified). STILL OPEN: MOD
+  SPAN=ROW period still uses the scene bar (minor).**
 - **▶ HOUSEKEEPING — composeScene bug + render-path allocations + coverage (2026-08-19, on `main`; `f468faf` +
   `ac7eb2b`; macOS 795→796 green, iOS builds). Survey-driven (three parallel agents: missing tests · dead code ·
   refactor/efficiency), every finding verified before acting. **BUG:** `composeScene` dropped a deployed part's short
