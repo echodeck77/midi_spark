@@ -190,6 +190,36 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 2 }.count, 0, "column 5 is beyond the loop length — never visited, silent")
         assertNothingLeftSounding(e)
     }
+    // REEL COLOUR TAG (Paul 2026-08-19): the export-page piano roll paints each note the COLOUR of the cell that played
+    // it. The render tags every note-ON with its colour's DISPLAY hue (baked into SnapColour, threaded via markColour
+    // to the ReelTap), so the recorded pass carries it. Here: an arp on a gold cell whose hue is 0xFF8800 → every note
+    // in the recorded roll is tagged 0xFF8800.
+    func testReelRollTagsNotesWithTheCellColour() {
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold")
+        let st = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [s])
+        let hue: UInt32 = 0xFF8800
+        let box = SnapshotBuilder.build(from: st, hues: ["gold": hue])
+        let router = Router(); var diag = KernelDiag()
+        let reel = ReelDeck(); let sink = RecordingEmitter()
+        let tap = ReelTap(); tap.out = sink; tap.deck = reel; tap.recording = true
+        let sr = 48_000.0, tempo = 120.0; let frames: UInt32 = 2048
+        let bps = tempo / 60.0 / sr
+        let cyc = Double(Snap.cols) * box.stepBeats
+        tap.beatsPerSample = bps; tap.cycleBeats = cyc
+        reel.startPass()
+        let pool = chord([60, 64, 67])
+        var beat = 0.0, ts = 0.0
+        while beat < cyc {
+            tap.base = beat; tap.windowStart = Int64(ts)
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: tap, diag: &diag)
+            beat += Double(frames) * bps; ts += Double(frames)
+        }
+        reel.cycleBeats = cyc; reel.promote()
+        let roll = reel.selectedRoll()
+        XCTAssertFalse(roll.isEmpty, "the pass recorded notes")
+        XCTAssertTrue(roll.allSatisfy { $0.colour == hue }, "every recorded note is tagged its cell's colour hue")
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {

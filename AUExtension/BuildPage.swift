@@ -279,16 +279,18 @@ extension DiagView {
                                with: .color(.white.opacity(0.10)), lineWidth: 0.5)
                     n += 12
                 }
-                // NOTES
+                // NOTES — each painted the COLOUR of the cell that played it (upcoming + already-played alike);
+                // falls back to the lane hue when the pass predates the colour tag. (Paul 2026-08-19)
                 for note in notes {
+                    let nc = note.colour != 0 ? Color(hex: note.colour) : hue
                     let x = CGFloat(note.start / cyc) * sz.width
                     let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
                     let y = yOf(Int(note.note))
                     let active = head.map { $0 >= note.start && $0 < note.end } ?? false
                     let base = 0.45 + 0.5 * Double(note.vel) / 127
                     let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
-                    if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(hue.opacity(0.35))) }   // glow under
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(hue.opacity(active ? 1.0 : base)))
+                    if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(nc.opacity(0.35))) }   // glow under
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(nc.opacity(active ? 1.0 : base)))
                 }
             }.frame(width: width, height: height)
             Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced))

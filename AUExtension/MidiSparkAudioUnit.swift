@@ -877,16 +877,28 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if suppressRebuild { return }
         if Thread.isMainThread {
             snapshotGeneration &+= 1
-            store.publish(SnapshotBuilder.build(from: renderDoc(), generation: snapshotGeneration))
+            let doc = renderDoc()
+            store.publish(SnapshotBuilder.build(from: doc, generation: snapshotGeneration, hues: snapHues(doc)))
         } else if !rebuildPending {
             rebuildPending = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.rebuildPending = false
                 self.snapshotGeneration &+= 1
-                self.store.publish(SnapshotBuilder.build(from: self.renderDoc(), generation: self.snapshotGeneration))
+                let doc = self.renderDoc()
+                self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc)))
             }
         }
+    }
+    // The display hue (packed RGB) per colourID — so the render can tag emitted notes with their cell's colour (the
+    // reel piano roll paints each note its colour). Same resolution the UI uses: an ephemeral override, else the
+    // canonical palette hex, else a neutral grey. (Paul 2026-08-19)
+    private func snapHues(_ doc: PluginState) -> [String: UInt32] {
+        var m: [String: UInt32] = [:]
+        for c in doc.colours {
+            m[c.colourID] = colourHueOverride[c.colourID] ?? colourIDs.firstIndex(of: c.colourID).map { colourHexes[$0] } ?? 0x808080
+        }
+        return m
     }
 
     // MARK: - Five MIDI outputs — the load-bearing line (§7b/§8). AUM shows these as five sources.

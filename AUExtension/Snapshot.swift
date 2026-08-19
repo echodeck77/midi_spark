@@ -163,6 +163,7 @@ struct SnapColour {
     var transpose: Int8 = 0
     var a = SnapParams()             // the one resolved param bag (A/B morph removed)
     var on = OnConfig()              // delta §9 item 1: the resolved ON assignments (arrive/scene = derivations,
+    var hue: UInt32 = 0              // the DISPLAY hue (packed RGB) — carried so the render can tag emitted notes with their colour (the reel piano roll paints each note its cell's colour). 0 = unknown ⇒ UI falls back.
 }                                    // tap/hold = ephemeral gestures); render reads it precomputed here.
 
 // MARK: - The box: immutable after construction → safe concurrent reads, no locks

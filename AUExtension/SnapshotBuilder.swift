@@ -7,7 +7,7 @@ import Foundation
 
 enum SnapshotBuilder {
 
-    static func build(from doc: PluginState, generation: UInt64 = 0) -> SnapshotBox {
+    static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:]) -> SnapshotBox {
         let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
         // ---- colours: resolve each Colour's single (A) param bag + its ON assignments (the A/B morph layer was
@@ -22,6 +22,7 @@ enum SnapshotBuilder {
             sc.transpose = Int8(max(-24, min(24, colour.transpose)))   // the active type's transpose
             sc.on = colour.onResolved   // delta §9 item 1: carry the ON assignments to the render (nil → unassigned)
             sc.a = resolve(colour.paramsA, type: colour.type, fallback: nil)   // morph removed: the one param bag (A)
+            sc.hue = hues[colour.colourID] ?? 0   // DISPLAY hue (packed RGB) for the reel's colour-by-cell roll; 0 ⇒ UI falls back
             colours[i] = sc
             colourIndexByID[colour.colourID] = i
         }

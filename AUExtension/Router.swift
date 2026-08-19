@@ -204,6 +204,7 @@ final class Router {
     private var soundCol = [Int8](repeating: -1, count: 48)
     private var soundCount = [Int](repeating: 0, count: 4)
     private var currentColourIndex: Int8 = -1        // the emitting cell's colourIndex (for the SEAL comet feed)
+    private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding colour's DISPLAY hue to tag the reel (Paul 2026-08-19)
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
@@ -630,6 +631,11 @@ final class Router {
             // the re-articulation off (it governs the true release only), so the note still ends solely at
             // refcount→0 and nothing is left stuck. (MERGE — the old on-only overlap — is the deferred option chip.)
             if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
+            // COLOUR TAG: hand the reel the sounding cell's DISPLAY hue just before the note-ON, so its piano roll
+            // paints each note its colour (no-op on every emitter but the ReelTap). (Paul 2026-08-19)
+            if let b = curBox, currentColourIndex >= 0, Int(currentColourIndex) < b.colours.count {
+                out.markColour(b.colours[Int(currentColourIndex)].hue)
+            }
             out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
             if refcount[idx] == 0 { distinctSounding += 1 }
             refcount[idx] += 1
@@ -1657,6 +1663,7 @@ final class Router {
         self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
+        curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);
         // else every row shares the global ephemeral lap (GRID tab = today). When set, the render goes down the per-row

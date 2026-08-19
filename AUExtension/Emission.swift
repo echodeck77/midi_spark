@@ -15,7 +15,11 @@ import Foundation
 /// channel is already baked into `b0`'s low nibble by the time it reaches here.
 protocol MIDIEmitter: AnyObject {
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8)
+    /// COLOUR TAG (Paul 2026-08-19): the render calls this just before a note-ON emit with the sounding cell's DISPLAY
+    /// hue (packed RGB), so the reel can paint each recorded note its colour. Default no-op — only the ReelTap cares.
+    func markColour(_ hue: UInt32)
 }
+extension MIDIEmitter { func markColour(_ hue: UInt32) {} }   // default: ignore the colour tag
 
 /// "Render this as soon as possible in this cycle." Mirrors AudioToolbox's `AUEventSampleTimeImmediate`
 /// (`(AUEventSampleTime)0xffffffff00000000`, i.e. −(1<<32)); defined here so the pure engine never has
@@ -30,7 +34,7 @@ let renderSampleImmediate: Int64 = Int64(bitPattern: 0xffffffff00000000)
 final class ReelDeck {
     enum State: Equatable { case off, armed, replaying }
     var state: State = .off
-    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0 }
+    struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var colour: UInt32 = 0 }
     static let cap = 16384
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
     private(set) var loop = [Ev](repeating: Ev(), count: cap); private(set) var loopN = 0
@@ -48,8 +52,8 @@ final class ReelDeck {
     private(set) var passCounter = 0                               // monotone COMPLETED-pass count (next pass = this value)
     private(set) var selectedPassNo = -1                          // the pinned selection (−1 = auto: `loop` tracks the latest)
 
-    func record(beat: Double, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
-        if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2); curN += 1 }
+    func record(beat: Double, cable: UInt8, colour: UInt32 = 0, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        if curN < ReelDeck.cap { cur[curN] = Ev(beat: beat, cable: cable, b0: b0, b1: b1, b2: b2, colour: colour); curN += 1 }
     }
     func startPass() { curN = 0 }
     /// A pass just finished: file it into the ring, and — unless a pass is PINNED (manually selected) — make it the loop.
@@ -90,23 +94,23 @@ final class ReelDeck {
 
     /// One drawable note per (cable,note) on/off pair in the SELECTED pass — for the pop-up piano roll. Cables 1–4
     /// only (0 = the All duplicate). A note still open at the pass end closes at `cycleBeats`; an unmatched off is dropped.
-    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double }
+    struct Note: Equatable { var cable: UInt8; var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var colour: UInt32 = 0 }
     func selectedRoll() -> [Note] {
         var out: [Note] = []
-        var open: [Int: (start: Double, vel: UInt8)] = [:]        // key = cable<<8 | note
+        var open: [Int: (start: Double, vel: UInt8, colour: UInt32)] = [:]   // key = cable<<8 | note
         for i in 0..<loopN {
             let e = loop[i]
             guard e.cable >= 1, e.cable <= 4 else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
-            if isOn { open[key] = (e.beat, e.b2) }
+            if isOn { open[key] = (e.beat, e.b2, e.colour) }       // the note-ON carries the sounding cell's colour
             else if isOff, let o = open.removeValue(forKey: key) {
-                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat)))
+                out.append(Note(cable: e.cable, note: e.b1, vel: o.vel, start: o.start, end: max(o.start, e.beat), colour: o.colour))
             }
         }
         for (key, o) in open {                                    // still sounding at the pass end → close at the loop length
-            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats)))
+            out.append(Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, cycleBeats), colour: o.colour))
         }
         return out
     }
@@ -139,11 +143,13 @@ final class ReelTap: MIDIEmitter {
     var recording = false
     var base = 0.0, beatsPerSample = 0.0, cycleBeats = 1.0
     var windowStart: Int64 = 0
+    private var pendingColour: UInt32 = 0            // set by the render right before each note-ON (markColour)
+    func markColour(_ hue: UInt32) { pendingColour = hue }
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if recording, cycleBeats > 0, let deck {
             var beat = base + Double(sampleTime - windowStart) * beatsPerSample
             beat -= (beat / cycleBeats).rounded(.down) * cycleBeats           // → pass-relative
-            deck.record(beat: beat, cable: cable, b0, b1, b2)
+            deck.record(beat: beat, cable: cable, colour: pendingColour, b0, b1, b2)
         }
         out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
     }
