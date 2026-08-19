@@ -43,6 +43,9 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
     beat-extrapolated one-clock) and each note LIGHTS (full hue + glow + thicker) as the head crosses it.
   - **ROLL GRID (Paul 2026-08-19)**: each lane now draws 8 CELL dividers + OCTAVE dividers (pitch framed to whole
     octaves) with the C labelled on BOTH the left + right axis, under the notes.
+  - **FULL-SCREEN + RECORDING GLYPH (Paul 2026-08-19)**: the pop-up now fills the screen (opaque backdrop, 8 equal rows
+    fill the height). The reel glyph reads as RECORDING — red tape + a pulsing red dot while the tape captures live
+    (`d.playing && !replaying`); green while a pass replays; dim stopped.
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.

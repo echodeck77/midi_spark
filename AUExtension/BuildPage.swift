@@ -86,14 +86,27 @@ extension DiagView {
             Color.clear
         }
     }
-    // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up (select a pass to replay + save).
-    // Green while a recorded pass is replaying live; dim otherwise.
+    // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
+    // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
     @ViewBuilder private func buildReelButton() -> some View {
-        let c: Color = reelState == 2 ? Color(red: 0.36, green: 0.92, blue: 0.52) : buildDim
-        Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
-            .padding(12).contentShape(Rectangle())
-            .onTapGesture { reelShowPopup = true }                            // tap = open the pass browser
-            .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
+        let replaying = reelState == 2
+        let recording = d.playing && !replaying
+        let c: Color = replaying ? Color(red: 0.36, green: 0.92, blue: 0.52) : (recording ? Color(red: 0.95, green: 0.26, blue: 0.26) : buildDim)
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
+            if recording {                                                    // a pulsing RED record dot → "it's recording"
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !recording)) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
+                        .frame(width: 7, height: 7)
+                        .opacity(0.4 + 0.6 * abs(sin(t * 2.4)))
+                        .offset(x: 3, y: -1)
+                }
+            }
+        }
+        .padding(12).contentShape(Rectangle())
+        .onTapGesture { reelShowPopup = true }                                // tap = open the pass browser
+        .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
     }
 
     // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
@@ -103,34 +116,35 @@ extension DiagView {
                                          Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
                                          Color(red: 0.85, green: 0.5,  blue: 0.95)] } // D violet
     private func buildReelPopup(size: CGSize) -> some View {
-        let gridSide = min(size.width * 0.92, size.height * 0.8)
-        let cell = (gridSide - 7 * 2) / 8                                       // 8 cells, 2pt gaps
+        let outerPad: CGFloat = 16, headerH: CGFloat = 42, gap: CGFloat = 2
+        let gridW = size.width - 2 * outerPad
+        let gridH = size.height - 2 * outerPad - headerH - 10
+        let rowH = max(16, (gridH - 7 * gap) / 8)                               // 8 equal rows fill the screen height
+        let cellW = (gridW - 7 * gap) / 8
         return ZStack {
-            Color.black.opacity(0.62).ignoresSafeArea().onTapGesture { reelShowPopup = false }
+            Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()      // FULL-SCREEN opaque backdrop
             VStack(spacing: 10) {
                 HStack {
-                    Text("REEL · PASS BROWSER").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
+                    Text("REEL · PASS BROWSER").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
                     Spacer()
                     Button { buildReelExport() } label: {
-                        Text("SAVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1)
+                        Text("SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
                             .foregroundColor(reelSelPassNo >= 0 || !reelPassNumbers.filter { $0 >= 0 }.isEmpty ? .black : buildDim)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .padding(.horizontal, 14).padding(.vertical, 7)
                             .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
                     }
                     Button { reelShowPopup = false } label: {
-                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundColor(buildDim).padding(6)
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(buildDim).padding(8)
                     }
-                }.frame(width: gridSide)
-                VStack(spacing: 2) {
+                }.frame(maxWidth: .infinity).frame(height: headerH)
+                VStack(spacing: gap) {
                     ForEach(0..<4, id: \.self) { r in                            // TOP 4 rows — the passes
-                        HStack(spacing: 2) { ForEach(0..<8, id: \.self) { c in buildReelPassCell(r * 8 + c, cell: cell) } }
+                        HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in buildReelPassCell(r * 8 + c, w: cellW, h: rowH) } }
                     }
-                    buildReelRollSection(width: gridSide, laneH: cell)           // BOTTOM 4 rows — A/B/C/D piano-roll lanes + playhead
+                    buildReelRollSection(width: gridW, laneH: rowH)              // BOTTOM 4 rows — A/B/C/D piano-roll lanes + playhead
                 }
             }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            .padding(outerPad)
         }
         .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
         .onDisappear { au?.reelSetBrowsing(false) }                              // resume recording on the next full pass
@@ -157,15 +171,15 @@ extension DiagView {
     }
     // One pass cell. Populated → shows its 1-based pass number; the pinned/replaying pass lights cyan. Tap = select+replay,
     // or (if it's already the replaying pass) stop and resume live.
-    @ViewBuilder private func buildReelPassCell(_ index: Int, cell: CGFloat) -> some View {
+    @ViewBuilder private func buildReelPassCell(_ index: Int, w: CGFloat, h: CGFloat) -> some View {
         let pass = index < reelPassNumbers.count ? reelPassNumbers[index] : -1
         let sel = pass >= 0 && pass == reelSelPassNo
         let playing = sel && reelState == 2
         RoundedRectangle(cornerRadius: 3)
             .fill(pass < 0 ? Color.white.opacity(0.03) : (sel ? buildCyan : Color.white.opacity(0.08)))
-            .frame(width: cell, height: cell)
+            .frame(width: w, height: h)
             .overlay(playing ? RoundedRectangle(cornerRadius: 3).stroke(Color(red: 0.36, green: 0.92, blue: 0.52), lineWidth: 2) : nil)
-            .overlay(pass >= 0 ? Text("\(pass + 1)").font(.system(size: min(13, cell * 0.34), weight: .heavy, design: .monospaced))
+            .overlay(pass >= 0 ? Text("\(pass + 1)").font(.system(size: min(15, min(w, h) * 0.42), weight: .heavy, design: .monospaced))
                         .foregroundColor(sel ? .black : buildCyan.opacity(0.9)) : nil)
             .contentShape(Rectangle())
             .onTapGesture {
