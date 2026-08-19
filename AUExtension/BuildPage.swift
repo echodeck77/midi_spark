@@ -89,24 +89,28 @@ extension DiagView {
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
     @ViewBuilder private func buildReelButton() -> some View {
-        let replaying = reelState == 2
-        let recording = d.playing && !replaying
-        let c: Color = replaying ? Color(red: 0.36, green: 0.92, blue: 0.52) : (recording ? Color(red: 0.95, green: 0.26, blue: 0.26) : buildDim)
-        ZStack(alignment: .topTrailing) {
-            Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
-            if recording {                                                    // a pulsing RED record dot → "it's recording"
-                TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !recording)) { tl in
-                    let t = tl.date.timeIntervalSinceReferenceDate
-                    Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
-                        .frame(width: 7, height: 7)
-                        .opacity(0.4 + 0.6 * abs(sin(t * 2.4)))
-                        .offset(x: 3, y: -1)
+        if reelShowPopup {
+            Color.clear.frame(width: 1, height: 1)                            // HIDDEN while the pass browser is open (Paul 2026-08-19)
+                .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }   // keep the share-sheet anchor alive
+        } else {
+            let recording = d.playing && reelState != 2                       // the tape captures live output while playing
+            let c: Color = recording ? Color(red: 0.95, green: 0.24, blue: 0.24) : buildDim   // RED while recording (stays red), dim stopped
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "recordingtape").font(.system(size: 24, weight: .regular)).foregroundColor(c)
+                if recording {                                                // a gently pulsing RED record dot → "it's recording" (stays clearly red)
+                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !recording)) { tl in
+                        let t = tl.date.timeIntervalSinceReferenceDate
+                        Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
+                            .frame(width: 7, height: 7)
+                            .opacity(0.7 + 0.3 * abs(sin(t * 2.4)))           // 0.7…1.0 — never fades out
+                            .offset(x: 3, y: -1)
+                    }
                 }
             }
+            .padding(12).contentShape(Rectangle())
+            .onTapGesture { reelShowPopup = true }                            // tap = open the pass browser
+            .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
         }
-        .padding(12).contentShape(Rectangle())
-        .onTapGesture { reelShowPopup = true }                                // tap = open the pass browser
-        .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
     }
 
     // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
@@ -147,7 +151,7 @@ extension DiagView {
             .padding(outerPad)
         }
         .onAppear { au?.reelSetBrowsing(true) }                                   // freeze the history tape while browsing
-        .onDisappear { au?.reelSetBrowsing(false) }                              // resume recording on the next full pass
+        .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
     }
     // The 4 piano-roll lanes + a shared PLAYHEAD that sweeps while a pass replays (notes light as it crosses them).
     private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
@@ -2550,6 +2554,13 @@ extension DiagView {
             }.frame(height: h)
         }
     }
+    // The colour currently PLAYING the cell (the active rung in the playing column) → the emitter velocity-strip tint. (Paul 2026-08-19)
+    private var buildPlayingColourHue: Color? {
+        guard d.playing, d.effColumn >= 0, d.effColumn < buildStagingSel.count else { return nil }
+        let rung = buildStagingSel[d.effColumn]
+        guard rung >= 0, let cid = buildRowColour(rung) else { return nil }
+        return colourColor(cid)
+    }
     // The interactive velocity fader: the meter (emitPeak, decayed) normally; while DRAGGED it forces the emitter's
     // output velocity (top = 127 · bottom = 0/KILL) via setVelOverride, and releases (springs back) on lift.
     @ViewBuilder private func buildEmitterFader(_ i: Int, letter: String) -> some View {
@@ -2557,11 +2568,18 @@ extension DiagView {
         VStack(spacing: 2) {
             Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
             GeometryReader { g in
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { _ in
-                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, i < emitPeak.count ? emitPeak[i] : 0))   // no decay/drop animation (Paul 2026-08-18)
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    // DECAY + note-priority (Paul 2026-08-19): the bar FALLS from the last peak; a new note resets
+                    // emitPeakAt → the bar jumps back up, so new notes take priority over the fall reaching the bottom.
+                    let level: Double = {
+                        if let o = override { return Double(o) / 127.0 }
+                        let age = tl.date.timeIntervalSince(i < emitPeakAt.count ? emitPeakAt[i] : .distantPast)
+                        return max(0, min(1, (i < emitPeak.count ? emitPeak[i] : 0) * (1 - age / 0.9)))
+                    }()
+                    let hue = override != nil ? buildPink : (buildPlayingColourHue ?? buildCyan)   // the colour currently playing the cell
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
-                        RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
+                        RoundedRectangle(cornerRadius: 3).fill(hue.opacity(0.3 + 0.6 * level)).frame(height: g.size.height * CGFloat(level))   // fade OUT as it drops
                     }
                 }
                 .contentShape(Rectangle())
