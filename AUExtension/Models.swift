@@ -530,6 +530,10 @@ struct SceneState: Codable, Equatable {
     //  old docs that still carry those keys decode fine, Codable just ignores them.)
     var stepRate: StepRate = .r1_2
     var swing: Int = 50            // 50 straight … 75 (§4 v2.3)
+    // PER-PART CLOCK (Paul 2026-08-19): per-ROW overrides of the step rate + loop length, so deployed parts play at
+    // independent tempos/lengths. Additive-Optional — old docs decode nil ⇒ every row uses `stepRate` / a full 8 (uniform).
+    var rowStepRate: [StepRate?]? = nil   // per-row step (nil entry / nil array ⇒ the scene default)
+    var rowLen: [Int?]? = nil             // per-row loop length in columns 1…8 (nil ⇒ 8)
     var tapAction: TapAction = .alt
     var quant: Quant = .off        // §6.8
     // master panel: KEY — per-scene master transpose (semitones, clamp ±12), applied to every output note.

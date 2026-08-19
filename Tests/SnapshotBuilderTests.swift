@@ -17,6 +17,25 @@ final class SnapshotBuilderTests: XCTestCase {
         return SnapshotBuilder.build(from: PluginState(colours: cs, scenes: [s]))
     }
 
+    // PER-PART CLOCK (Paul 2026-08-19): the builder resolves each row's step + loop length from the scene's per-row
+    // overrides, falling back to the scene default (uniform = today). Stage A — the box just CARRIES the values.
+    func testPerRowClockResolvesElseFallsToGlobal() {
+        let cs = colours(customizing: 0) { _ in }
+        let b = box(cs) { $0.stepRate = .r1_2 }
+        XCTAssertEqual(b.rowStep.count, Snap.rows)
+        XCTAssertTrue(b.rowStep.allSatisfy { $0 == b.stepBeats }, "no override → every row uses the scene step")
+        XCTAssertTrue(b.rowLength.allSatisfy { $0 == Snap.cols }, "no override → every row is a full 8")
+        let b2 = box(cs) {
+            $0.stepRate = .r1_2
+            $0.rowStepRate = [nil, nil, nil, .r1_8, nil, nil, nil, nil]
+            $0.rowLen = [nil, nil, nil, 4, nil, nil, nil, nil]
+        }
+        XCTAssertEqual(b2.rowStep[3], StepRate.r1_8.beats, "row 3 uses its OWN step")
+        XCTAssertEqual(b2.rowStep[0], b2.stepBeats, "an unset row falls to the scene default")
+        XCTAssertEqual(b2.rowLength[3], 4, "row 3 loops over 4 columns")
+        XCTAssertEqual(b2.rowLength[0], Snap.cols, "an unset row is a full 8")
+    }
+
     // delta §9 item 1: the builder carries each Colour's ON assignments onto its SnapColour (nil → unassigned).
     func testOnConfigResolvesOntoSnapColour() {
         var on = OnConfig()

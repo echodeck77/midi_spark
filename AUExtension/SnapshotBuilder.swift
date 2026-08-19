@@ -207,6 +207,15 @@ enum SnapshotBuilder {
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
         let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
 
+        // PER-PART CLOCK (Paul 2026-08-19): resolve each row's step + loop length from the scene's per-row overrides
+        // (nil ⇒ the scene default / a full 8 → uniform = today).
+        let rowStepBeats: [Double] = (0..<Snap.rows).map { r in
+            (scene.rowStepRate.flatMap { arr -> StepRate? in r < arr.count ? arr[r] : nil })?.beats ?? scene.stepRate.beats
+        }
+        let rowLenResolved: [Int] = (0..<Snap.rows).map { r in
+            (scene.rowLen.flatMap { arr -> Int? in r < arr.count ? arr[r] : nil }).map { max(1, min(Snap.cols, $0)) } ?? Snap.cols
+        }
+
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
@@ -249,7 +258,8 @@ enum SnapshotBuilder {
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,
-                           macroValues: macroVals)
+                           macroValues: macroVals,
+                           rowStepBeats: rowStepBeats, rowLen: rowLenResolved)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

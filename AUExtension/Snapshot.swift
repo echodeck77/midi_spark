@@ -211,6 +211,10 @@ final class SnapshotBox {
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
     let receiverPianoNotes: [[UInt8]]    // PIANO LATCH: per-receiver chosen notes (the frozen chord when armed in PIANO mode)
     let macroValues: [Double]        // MACRO MODULATION: the 24 live macro values (0…1), index = macro slot. The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
+    let rowStepBeats: [Double]       // PER-PART CLOCK (Paul 2026-08-19): per-row step width in beats; empty/0 ⇒ the global `stepBeats` (uniform = today)
+    let rowLen: [Int]                // PER-PART CLOCK: per-row LOOP length in columns; empty/0 ⇒ Snap.cols (8). A part loops over its own length.
+    let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
+    let rowLength: [Int]             // RESOLVED per-row loop length (always Snap.rows long; falls back to Snap.cols) — what the render reads
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -231,7 +235,8 @@ final class SnapshotBox {
          receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
-         macroValues: [Double] = Array(repeating: 0, count: 24)) {
+         macroValues: [Double] = Array(repeating: 0, count: 24),
+         rowStepBeats: [Double] = [], rowLen: [Int] = []) {
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing
@@ -275,6 +280,13 @@ final class SnapshotBox {
         self.receiverPianoMask = receiverPianoMask
         self.receiverPianoNotes = receiverPianoNotes
         self.macroValues = macroValues
+        self.rowStepBeats = rowStepBeats
+        self.rowLen = rowLen
+        // PER-PART CLOCK helpers: resolve a row's step + loop length, falling back to the global values (uniform = today).
+        func resolvedStep(_ r: Int) -> Double { (r >= 0 && r < rowStepBeats.count && rowStepBeats[r] > 0) ? rowStepBeats[r] : stepBeats }
+        func resolvedLen(_ r: Int) -> Int { (r >= 0 && r < rowLen.count && rowLen[r] >= 1) ? min(Snap.cols, rowLen[r]) : Snap.cols }
+        self.rowStep = (0..<Snap.rows).map(resolvedStep)
+        self.rowLength = (0..<Snap.rows).map(resolvedLen)
     }
 }
 

@@ -32,6 +32,11 @@ enum BuildSceneLogic {
         var chainMachine: [ProcessorSlot] = []         // the colour's audible chain — [] = a born-audible passthrough
         var chainReceiver = 0                          // the SELECTED colour's input door (its row's, resolved) — Paul 2026-08-18
         var chainEmitters: Set<Bus> = []               // the SELECTED colour's output emitters (its row's, resolved)
+        // PER-PART CLOCK (Paul 2026-08-19): each part is a TRACK with its own rate/length. nil ⇒ the scene default.
+        var performRate: [StepRate?] = []              // per play-grid ROW: its deployed part's rate
+        var performLen: [Int?] = []                    // per play-grid ROW: its deployed part's loop length
+        var stagingRate: StepRate? = nil               // the CURRENT part's rate (the staging audition rows)
+        var stagingLen: Int? = nil                     // the CURRENT part's loop length
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -82,6 +87,27 @@ enum BuildSceneLogic {
                     s.setCell(c, row, cell)
                 }
             }
+        }
+
+        // PER-PART CLOCK (Paul 2026-08-19): each scene ROW takes its owning part's rate/length. The STAGING (current
+        // part) rows win over the piece (they sit in front); a nil ⇒ the scene default (uniform = today).
+        var rowStepRate = [StepRate?](repeating: nil, count: 8)
+        var rowLen = [Int?](repeating: nil, count: 8)
+        if i.stagingPlaying {
+            for c in 0..<8 {
+                let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
+                if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
+                    rowStepRate[r] = i.stagingRate; rowLen[r] = i.stagingLen
+                }
+            }
+        }
+        if i.performPlaying {
+            for r in 0..<8 where rowStepRate[r] == nil {
+                if r < i.performRate.count, let rr = i.performRate[r] { rowStepRate[r] = rr; rowLen[r] = (r < i.performLen.count ? i.performLen[r] : nil) }
+            }
+        }
+        if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {
+            s.rowStepRate = rowStepRate; s.rowLen = rowLen
         }
 
         return s

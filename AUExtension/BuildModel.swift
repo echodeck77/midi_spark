@@ -21,6 +21,10 @@ struct BuildPart: Codable, Equatable {
     var rowReceiver: [Int?]? = nil
     var rowEmitters: [Set<Bus>?]? = nil
     var deployed: Bool = false        // christened (PART n) once deployed to the play grid
+    // PER-PART CLOCK (Paul 2026-08-19): the part is a TRACK — its own rate + loop length, so deployed parts play at
+    // independent tempos. Additive-Optional (old parts decode nil ⇒ the scene default rate + a full 8).
+    var rate: StepRate? = nil         // the part's step rate (nil ⇒ the scene default)
+    var length: Int? = nil            // the part's LOOP length in columns 1…8 (nil ⇒ 8; < 8 = a shorter loop, a future step)
 }
 
 // The single UNASSIGNED part saved WITH THE DOCUMENT (Paul 2026-08-16, "saving = committing"): the part plus the
