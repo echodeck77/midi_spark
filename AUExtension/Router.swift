@@ -312,6 +312,27 @@ final class Router {
     private let chainScratch = NotePool()
     private let chainA = NotePool()
     private let chainB = NotePool()
+    // The driver emitters' SOURCE chord (note + inherited velocity), filled once per cell per window into a REUSED
+    // fixed buffer (no render-path alloc — was a fresh `[(Int,UInt8)]` per generator/weave/tutti/length cell). The
+    // emitters bind `srcNoteBuf[0..<srcNoteCount]` — a view whose 0-based indices match, so their reads are unchanged.
+    private var srcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    private var srcNoteCount = 0
+    private func fillSrcFromScratch() {
+        srcNoteCount = 0
+        let c = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
+        for k in 0..<c where srcNoteCount < srcNoteBuf.count {
+            let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111)
+            srcNoteBuf[srcNoteCount] = (Int(n), chainScratch.velocity(n)); srcNoteCount += 1
+        }
+    }
+    private func fillSrcFromPool(_ cell: SnapCell, _ pool: NotePool) {
+        srcNoteCount = 0
+        let c = pool.srcCount(for: cell)
+        for k in 0..<c where srcNoteCount < srcNoteBuf.count {
+            let n = pool.srcAscending(k, for: cell)
+            srcNoteBuf[srcNoteCount] = (Int(n), pool.velocity(n)); srcNoteCount += 1
+        }
+    }
     private var lastTick = [Int64](repeating: -1, count: Snap.rows)
     // Per-row: the absolute column-step a window-scan GENERATOR (burst/cascade/drone/shift/humanize) last emitted in.
     // On a column's FIRST window it differs from the current step → scan from colStart so the DOWNBEAT (and any pulse
@@ -2220,13 +2241,13 @@ final class Router {
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let colStart = columnStart(mWinStart, S), colEnd = colStart + S
         let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
-        var srcNotes: [(note: Int, vel: UInt8)] = []
         if chainDriver > 0 {
             composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
-            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); srcNotes.append((Int(n), chainScratch.velocity(n))) }
+            fillSrcFromScratch()
         } else {
-            for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+            fillSrcFromPool(cell, pool)
         }
+        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
         let count = srcNotes.count
         guard count > 0 else { return }
         let span = max(1, min(count, p.weaveSpan))
@@ -2314,13 +2335,14 @@ final class Router {
         // cell's filtered pool directly and emits with emitArtic. `srcNotes` = the raw source notes (transpose added
         // per-strike). Composed once at colStart — the source is stable across the column.
         let hasDownstream = chainDriver >= 0 && chainDriver < cell.procs.count - 1
-        var srcNotes: [(note: Int, vel: UInt8)] = []   // each source note carries its VELOCITY (user 2026-08-09: generators inherit it)
+        // each source note carries its VELOCITY (user 2026-08-09: generators inherit it) — filled into the reused buffer
         if chainDriver > 0 {
             composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: colStart, S: S, cycleBeats: cyc)
-            for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) { let n = chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111); srcNotes.append((Int(n), chainScratch.velocity(n))) }
+            fillSrcFromScratch()
         } else {
-            for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+            fillSrcFromPool(cell, pool)
         }
+        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
 
         // ONE chord strike at musical beat `tau` (source notes, chop-routed / downstream-folded), gated `gateBeats`.
         // `velScale` is the generator's per-strike envelope level (0…1) RELATIVE to each note's inherited source
@@ -2528,8 +2550,8 @@ final class Router {
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        var srcNotes: [(note: Int, vel: UInt8)] = []
-        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+        fillSrcFromPool(cell, pool)
+        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
         let count = srcNotes.count
         guard count > 0 else { return }
         // [TUTTI PATTERN → LENGTH]: TUTTI PATTERN isn't a note-DRIVER, so a downstream LENGTH never reached the
@@ -2582,8 +2604,8 @@ final class Router {
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
-        var srcNotes: [(note: Int, vel: UInt8)] = []
-        for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
+        fillSrcFromPool(cell, pool)
+        let srcNotes = srcNoteBuf[0..<srcNoteCount]   // view, no alloc — 0-based indices match the old array
         guard !srcNotes.isEmpty else { return }
         // SPAN: CELL fits the 8 slices in each column; ROW stretches them across the whole BAR (slice i = column i) → a
         // whole-bar trance-gate phrase. Only the span width changes; the window gate keeps each cell to its own slice.
