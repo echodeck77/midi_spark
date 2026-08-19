@@ -55,6 +55,9 @@ private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
 private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
+// BUILD grid PIANO-ROLL (Paul 2026-08-19): one scrolling note mark on a cell face; `lane` = pitch (0…1), born = when it sounded.
+struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
+private let buildRollLife = 1.6   // seconds a note takes to cross the cell
 private let buildPartInk = Color(white: 1).opacity(0.9)  // §2 BRIGHTNESS = WHICH PART: a NEUTRAL bright accent (no second hue) — the part's presence across bench + stage
 
 // iteration 4: the spring-held workbench verbs that replace the drag (the house law). Skeleton: tap arms/disarms.
@@ -311,7 +314,7 @@ extension DiagView {
                 AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)
             }
             .padding(10)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildSelHue, lineWidth: 2)))   // the big section outline — the SELECTED colour (Paul 2026-08-18)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEditSlot == nil ? buildSelHue : buildEdge, lineWidth: 2)))   // the big section outline — the SELECTED colour, but NEUTRAL while the processor editor is open (Paul 2026-08-19)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -1192,13 +1195,12 @@ extension DiagView {
         buildSyncColours()
         return id
     }
-    // Seed TAB 1 (part-grid row 1) with an EMPTY PASSTHROUGH colour; tabs 2–8 stay empty. It plays + is selected.
+    // A NEW part starts EMPTY — NO default colour/midi chain, no rung selected (Paul 2026-08-19). The user adds a colour
+    // (tap a tab / RANDOMIZE) when ready. (Was: TAB 1 seeded with a default passthrough colour.)
     private func buildSeedTab1() {
-        let y1 = buildNewTabColour(0, machine: [])
-        buildSetRow(0, to: y1)
-        buildPartCast = [y1]; buildCastSlots = [:]
-        for c in 0..<8 { buildStagingSel[c] = 0 }
-        buildSelectID(y1)
+        buildPartCast = []; buildCastSlots = [:]
+        for c in 0..<8 { buildStagingSel[c] = -1 }                 // nothing selected → nothing plays until a colour is added
+        buildSelID = nil; ddColourSel = -1
     }
     // Seed the workshop ONCE, on first BUILD appear. (Was: 8×4 default cast; now the single TAB 1.) §2.
     func buildSeedCastIfNeeded() {
@@ -2198,40 +2200,30 @@ extension DiagView {
         func ch(_ s: Int) -> UInt32 { let c = Double((hex >> s) & 0xFF); return UInt32(max(0, min(255, c + (255 - c) * t))) }
         return (ch(16) << 16) | (ch(8) << 8) | ch(0)
     }
+    // THE PIANO-ROLL FACE on the BUILD grid cells (Paul 2026-08-19): soft note marks enter at the LEFT as the cell sounds
+    // and drift RIGHT at REAL pitch lanes (the per-cell note feed), tinted the cell's own bright tone. ONLY on a populated
+    // cell of the grid that is the PLAYING voice. Accumulated in the VC poll (buildCellRoll); paused when the cell rests.
     @ViewBuilder private func buildNoteSweep(idx: Int, active: Bool, id: String?) -> some View {
-      if active, let cid = id {                                    // ONLY on a POPULATED cell of the grid that is the PLAYING voice
-        let hue = Color(hex: buildLighten(buildBaseHex(cid), 0.72))  // the hue's BRIGHT tone → visible over the same-colour face
-        let hitAt = idx < cellHitAt.count ? cellHitAt[idx] : .distantPast
-        let vel = idx < cellHitVel.count ? cellHitVel[idx] : 0
-        let sounding = idx < cellSounding.count ? cellSounding[idx] : false
-        let releasedAt = idx < cellReleasedAt.count ? cellReleasedAt[idx] : .distantPast
-        let seq = idx < cellStrikeSeq.count ? cellStrikeSeq[idx] : 0
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+      if active, let cid = id {
+        let hue = Color(hex: buildLighten(buildBaseHex(cid), 0.72))
+        let notes = idx < buildCellRoll.count ? buildCellRoll[idx] : []
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || notes.isEmpty)) { tl in
+            let now = tl.date
             Canvas { ctx, size in
-                let hasRelease = releasedAt > hitAt
-                let strikeAge = tl.date.timeIntervalSince(hitAt)
-                let releaseAge = tl.date.timeIntervalSince(releasedAt)
-                // LIFE: full while the note sounds; fades ~0.45s from release; a pluck the gate missed flashes ~0.5s.
-                let life = sounding ? 1.0 : (hasRelease ? max(0, 1 - releaseAge / 0.45) : max(0, 1 - strikeAge / 0.5))
-                guard life > 0.02, strikeAge >= 0 else { return }
-                // TRAVEL: the head advances while sounding, then FREEZES at the reach it had on release.
-                let elapsed = sounding ? strikeAge : max(0, releasedAt.timeIntervalSince(hitAt))
-                let progress = min(1.0, elapsed / 0.8)                 // crosses the cell in ~0.8s of sustained sound
-                let w = size.width, h = size.height
-                let (p0, p1): (CGPoint, CGPoint)
-                switch ((seq % 4) + 4) % 4 {                           // ROTATION axis
-                case 0:  (p0, p1) = (CGPoint(x: 0, y: h / 2), CGPoint(x: w, y: h / 2))     // L→R
-                case 1:  (p0, p1) = (CGPoint(x: w / 2, y: 0), CGPoint(x: w / 2, y: h))     // T→B
-                case 2:  (p0, p1) = (CGPoint(x: w, y: h / 2), CGPoint(x: 0, y: h / 2))     // R→L
-                default: (p0, p1) = (CGPoint(x: w / 2, y: h), CGPoint(x: w / 2, y: 0))     // B→T
+                let barW = size.width * 0.17, barH = max(2.5, size.height * 0.10)
+                for n in notes {
+                    let age = now.timeIntervalSince(n.born)
+                    if age < 0 || age > buildRollLife { continue }
+                    let prog = age / buildRollLife                      // 0 (left, just sounded) → 1 (right, gone)
+                    let x = CGFloat(prog) * size.width
+                    let y = CGFloat(1 - n.lane) * size.height           // lane = pitch (high = top)
+                    let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)
+                    let a = max(0.0, min(1.0, fade)) * (0.5 + 0.5 * n.vel)
+                    let rect = CGRect(x: x - barW / 2, y: y - barH / 2, width: barW, height: barH)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(hue.opacity(a)))
                 }
-                let head = CGPoint(x: p0.x + (p1.x - p0.x) * progress, y: p0.y + (p1.y - p0.y) * progress)
-                var path = Path(); path.move(to: p0); path.addLine(to: head)
-                let weight = 1.5 + 3.0 * vel                           // VELOCITY IS THE STROKE — weight …
-                let alpha = min(1.0, (0.35 + 0.65 * vel) * life)       // … and opacity
-                ctx.stroke(path, with: .color(hue.opacity(alpha)), style: StrokeStyle(lineWidth: weight, lineCap: .round))
             }
-            .padding(3)
+            .padding(2)
         }
         .allowsHitTesting(false)
       }
@@ -2788,21 +2780,15 @@ extension DiagView {
         let landscape = size.width >= size.height
         let leftW = landscape ? max(1, (size.width - BuildGeom.colGap * 2 - 20) / 3 * 0.726) : 0
         let leftReserve = landscape ? 10 + leftW + BuildGeom.colGap : 12
-        let contentW = max(200, size.width - leftReserve - 14)
+        let contentW = max(200, size.width - leftReserve - 24)
         if slot < chain.count, let cid = ddSelectedColourID {
-            ZStack(alignment: .top) {
+            VStack(spacing: 0) {                               // NO backdrop: every control OUTSIDE the panel stays usable (the DONE button closes)
+                Color.clear.frame(height: topReserve).allowsHitTesting(false)   // pass taps through to the play-button row
                 HStack(spacing: 0) {
-                    Color.clear.frame(width: leftReserve)      // the LEFT column stays visible + interactive
-                    ZStack(alignment: .top) {
-                        Color.black.opacity(0.4)               // backdrop over the grid columns only; tap here = SAVE + close
-                            .contentShape(Rectangle()).onTapGesture { buildEditSlot = nil }
-                        VStack(spacing: 0) {                   // DOCKED: below the play buttons, down to the bottom (over the I/O box)
-                            Color.clear.frame(height: topReserve)
-                            buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: contentW)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.trailing, 10).padding(.bottom, 12)
-                        }
-                    }
+                    Color.clear.frame(width: leftReserve).allowsHitTesting(false)   // pass taps through to the LEFT column
+                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: contentW)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.trailing, 10).padding(.bottom, 12)
                 }
             }
             .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
@@ -2831,6 +2817,13 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(proc.bypassed ? 0.9 : 0.3), lineWidth: 1))
                 }.buttonStyle(.plain)
+                Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
+                    Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.7), lineWidth: 1))
+                }.buttonStyle(.plain)
                 Button { buildEditorCancel() } label: {          // CANCEL — revert to the open-snapshot (Paul 2026-08-19)
                     Text("CANCEL").font(.system(size: 12, weight: .heavy, design: .monospaced))
                         .foregroundColor(buildDim)
@@ -2838,12 +2831,11 @@ extension DiagView {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.3), lineWidth: 1))
                 }.buttonStyle(.plain)
-                Button { buildChainRemoveSlot(slot); buildEditSlot = nil } label: {
-                    Text("DELETE").font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 14).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.7), lineWidth: 1))
+                Button { buildEditSlot = nil } label: {          // DONE — keep the edits + close (Paul 2026-08-19)
+                    Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(buildCyan))
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal, 16).padding(.vertical, 12)

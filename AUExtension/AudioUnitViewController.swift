@@ -286,6 +286,10 @@ struct DiagView: View {
     @State var cellNotePitch = [UInt8](repeating: 0, count: 64 * 6)
     @State var cellNoteVel   = [UInt8](repeating: 0, count: 64 * 6)
     @State var cellNoteCount = [UInt8](repeating: 0, count: 64)
+    // BUILD grid PIANO-ROLL (Paul 2026-08-19): the BUILD cells echo a piano roll too — accumulate per-cell scrolling notes
+    // from the strike/note feed (same as the perform grid's face), read by buildNoteSweep→buildPianoRoll.
+    @State var buildCellRoll: [[BuildRollNote]] = Array(repeating: [], count: 64)
+    @State var buildRollPrevSeq = [Int](repeating: 0, count: 64)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var emitDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD emitter fader: the live drag velocity override per emitter (nil = not dragging)
@@ -1155,6 +1159,26 @@ struct DiagView: View {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
                 for i in 0..<min(64, strikes.count) where strikes[i] > 0 { at[i] = now; vel[i] = Double(strikes[i]) / 127.0; seq[i] &+= 1 }
                 cellHitAt = at; cellHitVel = vel; cellStrikeSeq = seq   // MOSAIC: advance the per-cell moment counter
+                if activeTab == .build {                            // BUILD grid PIANO-ROLL: fold new strikes into per-cell scrolling notes (at real pitch)
+                    let now = Date(); var roll = buildCellRoll; var changed = false
+                    for i in 0..<64 {
+                        roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }   // drop notes that have crossed
+                        guard cellStrikeSeq[i] > buildRollPrevSeq[i] else { continue }
+                        let cnt = Int(cellNoteCount[i])
+                        if cnt > 0 {                                // REAL pitch: one mark per emitted note
+                            for k in 0..<min(cnt, 6) where i * 6 + k < cellNotePitch.count {
+                                let lane = min(1.0, max(0.0, Double(Int(cellNotePitch[i * 6 + k]) - 36) / 48.0))   // C2…C6 → 0…1
+                                roll[i].append(BuildRollNote(born: now, vel: Double(cellNoteVel[i * 6 + k]) / 127.0, lane: lane))
+                            }
+                        } else {
+                            roll[i].append(BuildRollNote(born: now, vel: cellHitVel[i], lane: 0.35 + 0.3 * Double((i &* 40503) % 100) / 100.0))
+                        }
+                        if roll[i].count > 16 { roll[i].removeFirst(roll[i].count - 16) }
+                        changed = true
+                    }
+                    buildRollPrevSeq = cellStrikeSeq
+                    if changed { buildCellRoll = roll }
+                }
             }
             let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false
