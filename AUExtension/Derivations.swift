@@ -27,6 +27,10 @@ import Foundation
 /// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
 @inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
 
+/// Piano-roll LANE for a MIDI note: C2…C6 (36…84) → 0…1, clamped. Shared by the perform-grid + BUILD-grid piano-roll
+/// faces so the pitch→lane mapping never drifts between them. (Paul 2026-08-19)
+@inline(__always) func rollLaneForPitch(_ note: Int) -> Double { clamp(Double(note - 36) / 48.0, 0, 1) }
+
 /// The splitmix64 finalizing avalanche — mixes a seed into a well-distributed 64-bit hash. Shared by the
 /// loop-consistent RANDOM arp position and the per-note CHANCE gate so the two can't drift.
 @inline(__always) func splitmix64Mix(_ x: UInt64) -> UInt64 {

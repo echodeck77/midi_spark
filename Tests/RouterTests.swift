@@ -2145,6 +2145,28 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(router.drainCellNotes().count.allSatisfy { $0 == 0 }, "drain is read-and-clear")
     }
 
+    // The per-cell note ring CAPS at 6 and the wrap-index read returns valid pitches (Paul 2026-08-19). A cell emitting
+    // many notes before a drain must return exactly 6 (the ring size), all real chord pitches (proving the modular read).
+    func testCellNoteRingCapsAtSixWithValidWrap() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        let held: [UInt8] = [48, 50, 52, 55, 57, 60, 64]   // a 7-note chord → the arp emits far more than 6 before the drain
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<20 {
+            router.process(box: b, pool: chord(held), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let notes = router.drainCellNotes()
+        XCTAssertEqual(Int(notes.count[0]), 6, "the per-cell ring caps at 6 notes")
+        for k in 0..<6 {                                    // every returned slot holds a REAL chord pitch → the wrap arithmetic is valid (no zeros/garbage)
+            XCTAssertTrue(held.contains(notes.pitch[0 * 6 + k]), "slot \(k) is a genuine held pitch, not a wrap-index bug")
+        }
+    }
+
     // SEAL comet gate: a cell HOLDING a note reports its bit in the sounding mask (index col*8+row) for exactly as
     // long as it sounds; on release the bit clears. This is the note-on/off feed that binds the spark to the hold.
     func testCellSoundingGateReflectsHeldNoteThenClears() {

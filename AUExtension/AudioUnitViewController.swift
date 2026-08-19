@@ -1045,6 +1045,7 @@ struct DiagView: View {
                 clearReceiverPerform()                                    // receiver strip: SOLO (+ OCT/vel/latch) = weather
                 clearEmitterPerform()                                     // emitter strip: output OCT = weather
                 if !ladderPending.isEmpty { ladderPending = [:] }         // LADDER: drop un-committed arms (no "next entry" while stopped)
+                if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: 64) }   // BUILD piano-roll: clear on stop so idle faces pause
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
@@ -1170,8 +1171,7 @@ struct DiagView: View {
                         let cnt = Int(cellNoteCount[i])
                         if cnt > 0 {                                // REAL pitch: one mark per emitted note
                             for k in 0..<min(cnt, 6) where i * 6 + k < cellNotePitch.count {
-                                let lane = min(1.0, max(0.0, Double(Int(cellNotePitch[i * 6 + k]) - 36) / 48.0))   // C2…C6 → 0…1
-                                roll[i].append(BuildRollNote(born: now, vel: Double(cellNoteVel[i * 6 + k]) / 127.0, lane: lane))
+                                roll[i].append(BuildRollNote(born: now, vel: Double(cellNoteVel[i * 6 + k]) / 127.0, lane: rollLaneForPitch(Int(cellNotePitch[i * 6 + k]))))
                             }
                         } else {
                             roll[i].append(BuildRollNote(born: now, vel: cellHitVel[i], lane: 0.35 + 0.3 * Double((i &* 40503) % 100) / 100.0))
@@ -1182,6 +1182,11 @@ struct DiagView: View {
                     buildRollPrevSeq = cellStrikeSeq
                     if changed { buildCellRoll = roll }
                 }
+            }
+            if activeTab == .build && nd.playing {         // BUILD piano-roll: prune crossed notes each tick so idle faces pause (matches GridUI's beat prune)
+                let now = Date(); var roll = buildCellRoll; var pruned = false
+                for i in 0..<roll.count { let n0 = roll[i].count; roll[i].removeAll { now.timeIntervalSince($0.born) > 1.6 }; if roll[i].count != n0 { pruned = true } }
+                if pruned { buildCellRoll = roll }
             }
             let sounding = au.pollCellSounding()           // SEAL comet: per-cell note-on/off gate (edge-detected)
             var newSounding = cellSounding, relAt = cellReleasedAt, gateChanged = false

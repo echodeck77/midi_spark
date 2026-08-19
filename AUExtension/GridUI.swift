@@ -136,7 +136,6 @@ private let accentCyan = UI.cyan   // playhead / PERFORM accent
 // v56 theme tokens (mockup `T`): cell recess, edges, dim ink.
 private let cellBg = Color(hex: 0x0B0D11)
 private let cellEdge = Color(hex: 0x20242D)
-private let dimInk = Color(hex: 0x5C6472)
 
 /// The 8×8 grid — v56 FOUR-ROW cell (delta §4): input header · type+params body · emitter strip;
 /// empty cells show a row-number watermark. `scene.cells` is [column][row]. `colours` maps a cell's
@@ -288,7 +287,6 @@ struct GridView: View {
         if changed { cellRoll = roll }
         rollPrevSeq = seqs
     }
-    private func rollLaneForPitch(_ note: Int) -> Double { min(1, max(0, Double(note - 36) / 48.0)) }   // C2…C6 (36…84) → 0…1
     // Drop notes that have crossed the cell (so an idle cell's roll empties → its TimelineView pauses). Runs on the beat poll.
     private func rollPrune() {
         guard usePianoRollFace else { return }

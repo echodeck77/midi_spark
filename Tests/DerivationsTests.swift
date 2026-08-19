@@ -1567,6 +1567,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modStepsUnipolar(steps, phase: 0.0625, smooth: true), 0.5, accuracy: 0.05, "SMOOTH interpolates between steps")
     }
     // columnStart floors a beat to the step grid (the shared spelling of the Router's column-start idiom).
+    func testRollLaneForPitchMapsC2ToC6IntoUnitRangeClamped() {
+        XCTAssertEqual(rollLaneForPitch(36), 0.0, accuracy: 1e-9, "C2 → bottom")
+        XCTAssertEqual(rollLaneForPitch(84), 1.0, accuracy: 1e-9, "C6 → top")
+        XCTAssertEqual(rollLaneForPitch(60), 0.5, accuracy: 1e-9, "C4 → middle")
+        XCTAssertEqual(rollLaneForPitch(24), 0.0, accuracy: 1e-9, "below C2 clamps to 0")
+        XCTAssertEqual(rollLaneForPitch(120), 1.0, accuracy: 1e-9, "above C6 clamps to 1")
+    }
+
     func testColumnStartFloorsToTheStepGrid() {
         XCTAssertEqual(columnStart(0.0, 0.5), 0.0, accuracy: 1e-9)
         XCTAssertEqual(columnStart(0.49, 0.5), 0.0, accuracy: 1e-9)

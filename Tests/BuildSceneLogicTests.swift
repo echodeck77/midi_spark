@@ -171,4 +171,47 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(n, 5, "euclid must yield many distinct variants (was 1 — the unwired-param bug)")
     }
 
+    // composeScene precedence: the PART audition "sits in front" of the PIECE on a shared (col,row), carrying the part's
+    // I/O. Every other composeScene test puts them on different rows, so this collision path was untested. (Paul 2026-08-19)
+    func testPartAuditionSitsInFrontOfThePieceOnASlotCollision() {
+        var i = BuildSceneLogic.Input()
+        i.performPlaying = true; i.stagingPlaying = true
+        i.performActiveRung = { _, _ in true }
+        i.performCells = grid([(0, 2, "gold")])            // the PIECE occupies (0,2)
+        i.performEmit = Array(repeating: [.a], count: 8)   // piece row 2 → emitter A
+        i.stagingCells = grid([(0, 2, "teal")])            // the PART occupies the SAME slot
+        i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
+        i.selReceiver = 0; i.partEmitters = [.b]           // part default → emitter B
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.colourID, "teal", "the part/audition wins the shared slot (sits in front)")
+        XCTAssertEqual(s.cellAt(0, 2)?.buses, [.b], "and the surviving cell carries the PART's I/O, not the piece's")
+    }
+
+    // mutateNudge: each control KIND stays in-range and actually moves. Only covered transitively before. (Paul 2026-08-19)
+    func testMutateNudgeStaysInRangePerKind() {
+        var rng = DiceRNG(seed: 3)
+        let cont = MacroControlParam(key: "c", label: "C", kind: .continuous(lo: 0, hi: 1))
+        for _ in 0..<12 {
+            let v = BuildSceneLogic.mutateNudge(cont, 0.5, &rng)
+            XCTAssertTrue(v >= 0 && v <= 1, "continuous stays in [0,1]"); XCTAssertNotEqual(v, 0.5, "and moves")
+        }
+        let tog = MacroControlParam(key: "t", label: "T", kind: .toggle)
+        XCTAssertEqual(BuildSceneLogic.mutateNudge(tog, 1, &rng), 0, "toggle flips 1→0")
+        XCTAssertEqual(BuildSceneLogic.mutateNudge(tog, 0, &rng), 1, "toggle flips 0→1")
+        let step = MacroControlParam(key: "s", label: "S", kind: .stepper(lo: 2, hi: 5))
+        for _ in 0..<12 {
+            let v = BuildSceneLogic.mutateNudge(step, 5, &rng)                 // at the ceiling
+            XCTAssertTrue(v >= 2 && v <= 5, "stepper clamps to [2,5]")
+        }
+        let mask = MacroControlParam(key: "m", label: "M", kind: .mask(bits: 4))
+        for _ in 0..<12 {
+            let out = Int(BuildSceneLogic.mutateNudge(mask, 0b0101, &rng).rounded())
+            XCTAssertEqual((out ^ 0b0101).nonzeroBitCount, 1, "mask flips exactly one bit")
+        }
+        let opt = MacroControlParam(key: "o", label: "O", kind: .option(["a", "b", "c"]))
+        for _ in 0..<12 {
+            let v = Int(BuildSceneLogic.mutateNudge(opt, 1, &rng).rounded())
+            XCTAssertTrue(v >= 0 && v <= 2 && v != 1, "option steps to a DIFFERENT in-range index")
+        }
+    }
 }

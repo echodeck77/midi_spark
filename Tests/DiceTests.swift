@@ -172,4 +172,21 @@ final class DiceTests: XCTestCase {
         euclid.params.euclidPulses = 8; euclid.params.euclidSteps = 8; euclid.params.octaves = 1   // strikes the WHOLE chord every step
         XCTAssertGreaterThan(Dice.peakAt6([euclid]), Dice.evalRun([euclid]).peak, "6 held notes ring where 3 did")
     }
+
+    // TUTTI PATTERN must SOUND through the Dice probe (Paul's favourite; the STAB archetype forces it). If it rendered
+    // silent, rollArchetype's arp fallback would quietly replace it and the ensemble test wouldn't notice → STAB dead.
+    func testRolledTuttiPatternActuallySoundsThroughTheProbe() {
+        var s = ProcessorSlot(type: .tutti)
+        s.params.tuttiMode = .pattern
+        s.params.tuttiSlices = [.all, .rest, .low, .high, .all, .top2, .bot2, .all]   // a known non-all-ALL pattern
+        s.params.tuttiRate = .r1_8
+        XCTAssertFalse(Dice.signature([s]).isEmpty, "an authored TUTTI PATTERN sounds")
+        XCTAssertGreaterThanOrEqual(Dice.evalRun([s]).peak, 1)
+        // and randomSlot's seeded tutti-pattern (what the STAB archetype rides) is genuinely audible, not a dead no-op:
+        for seed: UInt64 in [1, 5, 19, 77] {
+            var rng = DiceRNG(seed: seed)
+            var sl = Dice.randomSlot(using: &rng); sl.type = .tutti; sl.params.tuttiMode = .pattern
+            XCTAssertFalse(Dice.signature([sl]).isEmpty, "randomSlot's tutti-pattern sounds (seed \(seed)) → STAB is a real tutti")
+        }
+    }
 }

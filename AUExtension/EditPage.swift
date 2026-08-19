@@ -627,15 +627,6 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 6).fill(mainDestHue.opacity(0.14)).overlay(dashed))
         }.buttonStyle(.plain)
     }
-    // The cell face, drawn to MATCH the grid cells (the same mosaic + seal hash); rectangular via the caller's frame.
-    private func flowCellFace(_ cell: Cell) -> some View {
-        RoundedRectangle(cornerRadius: 6).fill(colourColor(cell.colourID) ?? .gray)
-            .overlay(Canvas { ctx, sz in
-                let mh = UInt64(sealHash(cell, colours: docColours)); let ch = colourColor(cell.colourID) ?? .gray
-                drawMosaic(hash: mh, into: ctx, size: sz, hue: ch, breath: 0, crest: mosaicCrest(hash: mh), crestTone: mosaicCrestTone(ch))
-            }.padding(5))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.75), lineWidth: 2.5))
-    }
     // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet. `plus` adds
     // a trailing plus icon after the label (the Output Filter reads "Output Filter +"); pass a "+" label with plus:false
     // for a plus-only box (the processor ghost, user 2026-08-09).
