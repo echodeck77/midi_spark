@@ -85,7 +85,6 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
             }
             .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
-            .overlay(alignment: .bottomLeading) { buildRateControl().padding(.leading, 66) }             // PER-PART RATE (bottom-left, beside the reel glyph — Paul 2026-08-19)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
         } else {
             Color.clear
@@ -128,22 +127,22 @@ extension DiagView {
 
     // PER-PART RATE (Paul 2026-08-19): the CURRENT part's step rate lives bottom-left by the reel glyph. A part deployed at
     // a different rate plays at a DIFFERENT TEMPO in the same play grid (the multi-clock render path). "—" = the scene default.
-    @ViewBuilder private func buildRateControl() -> some View {
-        if !reelShowPopup {
-            Menu {
-                Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
-                ForEach(StepRate.allCases, id: \.self) { r in
-                    Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
-                }
-            } label: {
-                VStack(spacing: 0) {
-                    Text("RATE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                    Text(buildPartRate?.rawValue ?? "—").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
-                }
-                .frame(minWidth: 42).padding(.vertical, 5).padding(.horizontal, 8)
-                .background(RoundedRectangle(cornerRadius: 7).stroke(buildPartRate == nil ? buildDim.opacity(0.5) : buildCyan, lineWidth: 1.5))
+    @ViewBuilder private func buildRateControl(cell: CGFloat) -> some View {
+        Menu {
+            Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
+            ForEach(StepRate.allCases, id: \.self) { r in
+                Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
             }
-            .padding(.bottom, 16)
+        } label: {
+            VStack(spacing: 0) {
+                Text("RATE").font(.system(size: min(7, cell * 0.26), weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                Text(buildPartRate?.rawValue ?? "—").font(.system(size: min(14, cell * 0.5), weight: .heavy, design: .monospaced))
+                    .minimumScaleFactor(0.6).lineLimit(1).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
+            }
+            .frame(width: cell, height: cell)
+            .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildPartRate == nil ? Color.clear : buildCyan, lineWidth: 1.5))
+            .contentShape(Rectangle())
         }
     }
     func buildSetPartRate(_ r: StepRate?) {
@@ -1551,7 +1550,7 @@ extension DiagView {
     // The grid's full-screen "eye" — seated in the grid's TOP-LEFT CORNER cell (immediately left of the column
     // selectors, immediately above the row selectors). popup 0 = the part grid · 1 = the play grid. (Paul 2026-08-17)
     @ViewBuilder private func buildGridCornerEye(cell: CGFloat, popup: Int) -> some View {
-        Image(systemName: "eye").font(.system(size: min(15, cell * 0.55), weight: .semibold)).foregroundColor(buildCyan)
+        Image(systemName: "eye").font(.system(size: min(22, cell * 0.82), weight: .semibold)).foregroundColor(buildCyan)   // bigger eye (Paul 2026-08-19)
             .frame(width: cell, height: cell)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
             .contentShape(Rectangle())
@@ -1880,6 +1879,7 @@ extension DiagView {
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
+        .overlay(alignment: .topTrailing) { buildRateControl(cell: cell) }              // PER-PART RATE in the top-right corner cell (opposite the eye — Paul 2026-08-19)
     }
     // The part-grid row-button action, shared by the LEFT and RIGHT rails (Paul 2026-08-18).
     private func buildStagingRowAction(_ row: Int) {
@@ -2397,7 +2397,7 @@ extension DiagView {
         .background(RoundedRectangle(cornerRadius: 12).fill(buildPanel))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(buildSelHue.opacity(0.45), lineWidth: 1.5))   // §1 THE THREAD: the chain frame wears the machine's hue (reads with the left column)
         .overlay(alignment: .bottomTrailing) {                   // EYE (bottom-right) → the signal-flow diagram pop-up
-            Image(systemName: "eye").font(.system(size: 15, weight: .semibold)).foregroundColor(buildDim)   // §0 muted chrome: a whisper, not an accent
+            Image(systemName: "eye").font(.system(size: 21, weight: .semibold)).foregroundColor(buildDim)   // §0 muted chrome: a whisper, not an accent (bigger — Paul 2026-08-19)
                 .padding(10).contentShape(Rectangle()).onTapGesture { buildFlowOpen = true }
         }
     }
