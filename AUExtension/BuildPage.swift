@@ -85,6 +85,7 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
             }
             .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
+            .overlay(alignment: .bottomLeading) { buildRateControl().padding(.leading, 66) }             // PER-PART RATE (bottom-left, beside the reel glyph — Paul 2026-08-19)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
         } else {
             Color.clear
@@ -123,6 +124,32 @@ extension DiagView {
             .onTapGesture { reelShowPopup = true }                            // tap = open the pass browser
             .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
         }
+    }
+
+    // PER-PART RATE (Paul 2026-08-19): the CURRENT part's step rate lives bottom-left by the reel glyph. A part deployed at
+    // a different rate plays at a DIFFERENT TEMPO in the same play grid (the multi-clock render path). "—" = the scene default.
+    @ViewBuilder private func buildRateControl() -> some View {
+        if !reelShowPopup {
+            Menu {
+                Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
+                ForEach(StepRate.allCases, id: \.self) { r in
+                    Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
+                }
+            } label: {
+                VStack(spacing: 0) {
+                    Text("RATE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    Text(buildPartRate?.rawValue ?? "—").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
+                }
+                .frame(minWidth: 42).padding(.vertical, 5).padding(.horizontal, 8)
+                .background(RoundedRectangle(cornerRadius: 7).stroke(buildPartRate == nil ? buildDim.opacity(0.5) : buildCyan, lineWidth: 1.5))
+            }
+            .padding(.bottom, 16)
+        }
+    }
+    func buildSetPartRate(_ r: StepRate?) {
+        buildPartRate = r
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].rate = r }   // keep buildParts authoritative for performRate mapping
+        buildPublishScene()
     }
 
     // THE PASS BROWSER (Paul 2026-08-19): an 8×8 grid — TOP 4 rows = the last 32 passes (newest bottom-right), tap one to
@@ -787,6 +814,13 @@ extension DiagView {
         let selR = buildSelectedRow                                          // the chain audition takes the SELECTED colour's row I/O
         input.chainReceiver = selR.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         input.chainEmitters = selR.map { buildRowEmittersResolved($0) } ?? (buildPartEmitters.isEmpty ? [.a] : buildPartEmitters)
+        // PER-PART CLOCK (Paul 2026-08-19): each play-grid ROW takes its owning deployed part's rate/length; the STAGING
+        // audition takes the CURRENT part's. nil ⇒ the scene default (uniform = today). This is what makes deployed parts
+        // at different rates play at DIFFERENT tempos in one play grid.
+        input.performRate = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].rate : nil }
+        input.performLen  = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].length : nil }
+        input.stagingRate = buildPartRate
+        input.stagingLen  = buildPartLen
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
@@ -1140,6 +1174,7 @@ extension DiagView {
         p.rowChain = buildRowChain; p.rowShade = buildRowShade; p.rowUnder = buildRowUnder
         p.selID = buildSelID; p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots
         p.rowReceiver = buildRowReceiver; p.rowEmitters = buildRowEmitters   // PER-ROW I/O overrides (Paul 2026-08-18)
+        p.rate = buildPartRate; p.length = buildPartLen                      // PER-PART CLOCK (Paul 2026-08-19)
         buildParts[buildCurrentPart] = p
     }
     private func buildLoadPart(_ i: Int) {
@@ -1151,6 +1186,7 @@ extension DiagView {
         buildSelID = p.selID; ddColourSel = p.selID.flatMap { colourIDs.firstIndex(of: $0) } ?? -1; buildSelReceiver = p.receiver; buildPartEmitters = p.emitters; buildPartCast = p.cast; buildCastSlots = p.castSlots
         buildRowReceiver = p.rowReceiver ?? Array(repeating: nil, count: 8)   // PER-ROW I/O — old parts have nil → all rows inherit (Paul 2026-08-18)
         buildRowEmitters = p.rowEmitters ?? Array(repeating: nil, count: 8)
+        buildPartRate = p.rate; buildPartLen = p.length                       // PER-PART CLOCK (Paul 2026-08-19)
         buildReslotCast()                                       // migrate old parts + backfill any extra colour missing a slot
         buildEnforceCastHues()                                  // strong rule: no two palette colours share a hue
         buildPulseColourID = nil; buildAuditionID = nil; buildDeletedRows = [:]; buildPlacedOrig = [:]   // transient — never crosses a part
@@ -1169,6 +1205,7 @@ extension DiagView {
             p.stagingCells = buildStagingCells; p.stagingSel = buildStagingSel; p.rowChain = buildRowChain
             p.rowShade = buildRowShade; p.rowUnder = buildRowUnder; p.selID = buildSelID
             p.receiver = buildSelReceiver; p.emitters = buildPartEmitters; p.cast = buildPartCast; p.castSlots = buildCastSlots; p.deployed = false
+            p.rate = buildPartRate; p.length = buildPartLen         // PER-PART CLOCK (Paul 2026-08-19)
             part = p
         } else if let stored = buildParts.first(where: { !$0.deployed }) {
             part = stored                                       // viewing a deployed part → the unassigned one is stored
@@ -1812,7 +1849,7 @@ extension DiagView {
                         }
                     }
                 }
-                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying) }   // sweeps only when the PART grid plays
+                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying, stepB: buildPartRate?.beats, lenC: buildPartLen) }   // PER-PART: the current part's own rate/length
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
@@ -2203,27 +2240,60 @@ extension DiagView {
                 .background(RoundedRectangle(cornerRadius: 8).fill(buildHues[bi % buildHues.count].opacity(0.16)))   // §4 the band's hue WASH, behind the cells
             }
         }
-        .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildPerformPlaying) }   // sweeps only when the PLAY grid plays
+        .overlay(alignment: .topLeading) { buildPerformPlayheads(cell: cell) }   // PER-PART: one playhead per row at its part's tempo
     }
 
     // THE PLAYHEAD — a 2pt vertical line sweeping L→R across the 8 grid columns, phase-locked to the transport beat and
     // looping with the engine's 8-column cycle. Attached to the CELLS block only (topLeading), so it never crosses the
     // loop-key row above or the row buttons to the side. Extrapolates the polled beat between frames (like the palette
     // playhead) and warps by SWING so it tracks the real (swung) column windows. (user 2026-08-12)
-    @ViewBuilder private func buildPlayhead(cell: CGFloat, active: Bool) -> some View {
+    @ViewBuilder private func buildPlayhead(cell: CGFloat, active: Bool, stepB: Double? = nil, lenC: Int? = nil) -> some View {
         if d.playing && active {                                  // only when THIS grid is the playing voice (Paul 2026-08-14)
+            let sb = stepB ?? stepBeats                                // PER-PART CLOCK: the part's own rate (nil ⇒ scene default)
+            let cols = lenC ?? Snap.cols
             let width = cell * 8 + BuildGeom.cellGap * 7               // the cells span: 8 cells + the 7 gaps between them
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
-                let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0)) // column progress in MUSICAL (swung) time
-                let colF = stepBeats > 0 ? musical / stepBeats : 0    // continuous column index since transport start
-                let wrapped = colF.truncatingRemainder(dividingBy: Double(Snap.cols))
-                let p = wrapped < 0 ? wrapped + Double(Snap.cols) : wrapped   // 0…8 across the grid, looping with the engine
+                let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))       // column progress in MUSICAL (swung) time
+                let colF = sb > 0 ? musical / sb : 0                  // continuous column index since transport start
+                let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
+                let p = wrapped < 0 ? wrapped + Double(cols) : wrapped   // 0…len across the loop, looping with the engine
                 let x = min(width, CGFloat(p) * (cell + BuildGeom.cellGap))
                 Rectangle().fill(Color.white.opacity(0.85))
                     .frame(width: 2, height: width == 0 ? 0 : cell * 8 + BuildGeom.cellGap * 7)
                     .offset(x: x)
                     .allowsHitTesting(false)
+            }
+        }
+    }
+
+    // PER-PART PLAYHEADS (Paul 2026-08-19): the PLAY grid draws ONE playhead PER ROW, each sweeping at its owning part's
+    // OWN rate + loop length — so rows deployed at different tempos drift out of phase visibly (a row belonging to no part
+    // draws nothing). Rows share the uniform pitch (cell + gap), so each head spans one row's height at its row offset.
+    @ViewBuilder private func buildPerformPlayheads(cell: CGFloat) -> some View {
+        if d.playing && buildPerformPlaying {
+            let width = cell * 8 + BuildGeom.cellGap * 7
+            let pitch = cell + BuildGeom.cellGap
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0
+                ZStack(alignment: .topLeading) {
+                    ForEach(0..<8, id: \.self) { r in
+                        let part = buildPerformPart[r]
+                        if part >= 0 {
+                            let sb = (part < buildParts.count ? buildParts[part].rate?.beats : nil) ?? stepBeats
+                            let cols = (part < buildParts.count ? buildParts[part].length : nil) ?? Snap.cols
+                            let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))
+                            let colF = sb > 0 ? musical / sb : 0
+                            let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
+                            let p = wrapped < 0 ? wrapped + Double(cols) : wrapped
+                            let x = min(width, CGFloat(p) * pitch)
+                            Rectangle().fill(Color.white.opacity(0.85))
+                                .frame(width: 2, height: cell)
+                                .offset(x: x, y: CGFloat(r) * pitch)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                }
             }
         }
     }
