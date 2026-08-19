@@ -215,6 +215,7 @@ final class SnapshotBox {
     let rowLen: [Int]                // PER-PART CLOCK: per-row LOOP length in columns; empty/0 ⇒ Snap.cols (8). A part loops over its own length.
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
     let rowLength: [Int]             // RESOLVED per-row loop length (always Snap.rows long; falls back to Snap.cols) — what the render reads
+    let rowLaneMask: [UInt8]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row (GRID tab = today). Non-empty (count Snap.rows) ⇒ each row laps its OWN columns (0 = no loop) — so the BUILD staging + perform grids loop independently.
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -236,7 +237,8 @@ final class SnapshotBox {
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
          macroValues: [Double] = Array(repeating: 0, count: 24),
-         rowStepBeats: [Double] = [], rowLen: [Int] = []) {
+         rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = []) {
+        self.rowLaneMask = rowLaneMask
         self.generation = generation
         self.stepBeats = stepBeats
         self.swing = swing

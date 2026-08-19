@@ -215,6 +215,9 @@ enum SnapshotBuilder {
         let rowLenResolved: [Int] = (0..<Snap.rows).map { r in
             (scene.rowLen.flatMap { arr -> Int? in r < arr.count ? arr[r] : nil }).map { max(1, min(Snap.cols, $0)) } ?? Snap.cols
         }
+        // PER-ROW LAP (Paul 2026-08-19): pass the per-row loop mask through when the scene set one (BUILD's two grids),
+        // else empty ⇒ the render uses the ephemeral global lap for every row (GRID tab, byte-identical).
+        let rowLaneResolved: [UInt8] = (scene.rowLane?.count == Snap.rows) ? scene.rowLane! : []
 
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
@@ -259,7 +262,7 @@ enum SnapshotBuilder {
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,
                            macroValues: macroVals,
-                           rowStepBeats: rowStepBeats, rowLen: rowLenResolved)
+                           rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

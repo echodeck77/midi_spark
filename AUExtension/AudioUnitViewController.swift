@@ -316,6 +316,8 @@ struct DiagView: View {
     // others render inert until their increments land. EDIT mode survives alongside until verb coverage completes.
     @State var flowVariation = 0       // FLOW view (item 10): 0 = grid; 1…5 cycle the visualisations
     @State var laneMask: UInt8 = 0     // §5b lap: held column keys (bit i = column i), PERFORM only
+    @State var buildStagingLane: UInt8 = 0   // PER-ROW LAP (Paul 2026-08-19): the BUILD STAGING grid's own column-loop (independent of the play grid)
+    @State var buildPerformLane: UInt8 = 0   // PER-ROW LAP: the BUILD PLAY grid's own column-loop (baked into the composed scene per-row)
     @State var tapAltMask: UInt64 = 0  // §9 item 1 ON TAP (unified ALT): ephemeral per-cell alt flips
     @State var tapMuteMask: UInt64 = 0 // §9 item 1 ON TAP = MUTE: ephemeral per-cell mute
     @State var soloEmitterMask: UInt8 = 0  // §9 item 1 ON TAP = SOLO EMITTERS: the derived emitter solo set

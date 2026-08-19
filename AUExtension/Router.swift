@@ -235,6 +235,7 @@ final class Router {
     private var rowCycBuf = [Double](repeating: 0, count: Snap.rows)     // per-row cycle beats (Lr · Sr)
     private var rowMNowBuf = [Double](repeating: 0, count: Snap.rows)    // per-row musical position
     private var rowPassBuf = [Int](repeating: 0, count: Snap.rows)       // per-row pass index
+    private var rowHeld = [UInt8](repeating: 0, count: Snap.rows)        // PER-ROW LAP: each row's effective loop mask (box.rowLaneMask[r], or the global ephemeral lap when the scene set none)
     // MULTI-SCENE S2b RESTART-the-pass: a beat offset shifting the WHOLE playing clock so the current moment
     // becomes column 0 ("take it from the top"). 0 = no restart (normal play is byte-identical). Reset on the
     // transport-start edge; captured = the raw beat at the restart. Shifts musicalOf + sampleOf together.
@@ -1586,7 +1587,7 @@ final class Router {
             let tickTrueCol = ((tickStep % Snap.cols) + Snap.cols) % Snap.cols
             // PLAY: THIS CELL holds one column → its ticks fire EVERY window (decoupled from the timeline); normally
             // a tick fires only in its own effective column.
-            if !forceColumnHold && lapColumn(laneMask: heldColumns, absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
+            if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }   // PER-ROW LAP
             if tick == lastTick[row] { continue }
             lastTick[row] = tick
 
@@ -1657,6 +1658,11 @@ final class Router {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         heldColumns = laneMask                      // §5b lap: held column keys, this render
+        // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);
+        // else every row shares the global ephemeral lap (GRID tab = today). When set, the render goes down the per-row
+        // path (rows may lap different columns), and each row reads rowHeld[r].
+        let perRowLap = box.rowLaneMask.count == Snap.rows
+        for r in 0..<Snap.rows { rowHeld[r] = perRowLap ? box.rowLaneMask[r] : laneMask }
         busEnabledMask = box.busEnabledMask         // delta §6a: enabled emitters, this render
         // §4b THE FADER-KILL: a velocity fader at its BOTTOM = full silence (not vel-1). It folds into the
         // EFFECTIVE enabled mask, so the emission guard suppresses AND the enabled→disabled edge-close below
@@ -1840,11 +1846,12 @@ final class Router {
         // (today's sound, byte-identical FAST PATH). Non-uniform ⇒ each row has its own step rate/loop length, so its
         // column edge + hold reconcile + ticks all derive on that row's OWN clock (the multi-clock path below).
         let uniformClock = box.rowStep.allSatisfy { $0 == S } && box.rowLength.allSatisfy { $0 == Snap.cols }
+        let uniformFast = uniformClock && !perRowLap   // a per-row lap (BUILD's two grids) forces the per-row path too
 
         // ---- column transition (§7): active column changed → truncate all voices at the boundary
         //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
         //      relocation/loop is the same edge, no special case. ----
-        if uniformClock {
+        if uniformFast {
         if effColumn != prevEffColumn {
             if anyVoiceActive() {
                 let boundaryMusical = columnStart(mNow, S)     // start of effColumn
@@ -1891,7 +1898,7 @@ final class Router {
                 let posR = mNr - (mNr / cycR).rounded(.down) * cycR
                 let trueColR = min(Lr - 1, max(0, Int(posR / Sr)))
                 let absStepR = Int((mNr / Sr).rounded(.down))
-                var effColR = lapColumn(laneMask: heldColumns, absoluteStep: absStepR, trueColumn: trueColR)
+                var effColR = lapColumn(laneMask: rowHeld[r], absoluteStep: absStepR, trueColumn: trueColR)   // PER-ROW LAP
                 if forceColumnHold { effColR = forceColumn }
                 let passR = Int((mNr / cycR).rounded(.down))
                 rowSBuf[r] = Sr; rowCycBuf[r] = cycR; rowMNowBuf[r] = mNr; rowEffColBuf[r] = effColR; rowPassBuf[r] = passR
@@ -1913,7 +1920,7 @@ final class Router {
                     emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
                                     S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, onlyRow: r, diag: &diag)
-                } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
+                } else if rowHeld[r] != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
                     diag.pass = passR
                     emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
                                     S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
@@ -1954,7 +1961,7 @@ final class Router {
         for r in 0..<Snap.rows { articCount[r] = 0 }
         let windowBeats = Double(frameCount) * beatsPerSample
 
-        if uniformClock {
+        if uniformFast {
             for r in 0..<Snap.rows {
                 emitTickRow(r: r, effColumn: effColumn, S: S, cycleBeats: cycleBeats, windowBeats: windowBeats,
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,

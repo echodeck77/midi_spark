@@ -102,6 +102,9 @@ final class FuzzTests: XCTestCase {
             scene.rowStepRate = (0..<8).map { _ in r.chance(0.6) ? StepRate.allCases[r.int(StepRate.allCases.count)] : nil }
             scene.rowLen = (0..<8).map { _ in r.chance(0.3) ? r.range(1, 8) : nil }   // some rows loop shorter than the bar
         }
+        // PER-ROW LAP (Paul 2026-08-19): per-row column-loop masks (the BUILD grids loop independently) — the per-row
+        // path laps each row's OWN columns. Hammered for no-stuck-notes across every edge (rows lapping different subsets).
+        if r.chance(0.3) { scene.rowLane = (0..<8).map { _ in r.chance(0.5) ? UInt8(r.int(256)) : 0 } }
         if r.chance(0.5) { scene.masterKey = r.range(-12, 12) }        // KEY± under held chords
         var st = PluginState(colours: colours, scenes: [scene])
         if r.chance(0.2) { st.ladderMode = true }                     // LADDER (exclusive columns) resolves in the builder

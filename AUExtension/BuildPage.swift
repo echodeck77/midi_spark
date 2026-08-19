@@ -821,6 +821,8 @@ extension DiagView {
         input.performLen  = (0..<8).map { r in let p = buildPerformPart[r]; return (p >= 0 && p < buildParts.count) ? buildParts[p].length : nil }
         input.stagingRate = buildPartRate
         input.stagingLen  = buildPartLen
+        input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
+        input.performLane = buildPerformLane
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
@@ -1847,7 +1849,7 @@ extension DiagView {
         HStack(alignment: .top, spacing: BuildGeom.cellGap) {
             buildRowButtons(cell: cell, hue: hue, bands: [8]) { buildTapColourTab($0) }  // LEFT row rail — same behaviour as the top colour tabs (select the row's colour / populate if empty) (Paul 2026-08-18)
             VStack(spacing: BuildGeom.cellGap) {
-                buildLoopKeys(cell: cell)                          // the column-selector (loop-key) row
+                buildLoopKeys(cell: cell, staging: true)           // the STAGING grid's OWN column loop
                 VStack(spacing: BuildGeom.cellGap) {               // the staging grid — BLANK until stocked (PLACE)
                     ForEach(0..<8, id: \.self) { r in
                         HStack(spacing: BuildGeom.cellGap) {
@@ -2010,20 +2012,29 @@ extension DiagView {
 
     // the top-row REPLAY (column) keys — SAME STYLE as the row buttons (a filled rounded cell), FULL cell size; a ▾
     // chevron per column, a ↻ repeat glyph when the column is in the loop/replay set. Shared by staging + play.
-    @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
+    // PER-ROW LAP (Paul 2026-08-19): each grid owns its OWN column loop — the STAGING keys drive `buildStagingLane`,
+    // the PLAY keys drive `buildPerformLane`; both are baked into the composed scene per-row (composeScene), so looping
+    // one grid never loops the other. `staging` picks which mask this key row edits + shows.
+    @ViewBuilder private func buildLoopKeys(cell: CGFloat, staging: Bool) -> some View {
+        let mask = staging ? buildStagingLane : buildPerformLane
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
-                let held = (laneMask & (1 << UInt8(c))) != 0       // the REAL lap set — tap/hold a key to add/remove its column (same as the GRID tab)
+                let held = (mask & (1 << UInt8(c))) != 0            // this grid's OWN lap set — tap/hold a key to add/remove its column
                 RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.22 : 0.11))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(held ? sceneAmberHue : buildEdge, lineWidth: held ? 2 : 1))
                     .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
                         .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.85 : 0.55)))
-                    .contentShape(Rectangle())                     // LOOP: tap or long-press toggles the column in the lap set (copied from the GRID tab, Paul 2026-08-19)
-                    .onTapGesture { toggleLoopColumn(c) }
-                    .onLongPressGesture(minimumDuration: 0.3) { toggleLoopColumn(c) }
+                    .contentShape(Rectangle())                     // LOOP: tap or long-press toggles the column in THIS grid's lap set (Paul 2026-08-19)
+                    .onTapGesture { buildToggleLoop(staging: staging, c) }
+                    .onLongPressGesture(minimumDuration: 0.3) { buildToggleLoop(staging: staging, c) }
             }
         }
+    }
+    private func buildToggleLoop(staging: Bool, _ c: Int) {
+        let bit = UInt8(1) << UInt8(c)
+        if staging { buildStagingLane ^= bit } else { buildPerformLane ^= bit }
+        buildPublishScene()                                        // the per-row lap is baked into the composed scene
     }
 
     // ROW BUTTONS — a cell-sized selector per grid row on the LEFT edge; shared by both grids. `bands` is the row
@@ -2109,7 +2120,7 @@ extension DiagView {
                 AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))   // LEFT 1: the MULTI-ROW valve
                 AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))                    // LEFT 2: the SINGLE-ROW valve — both valves now on the left (FLATTEN retired, Paul 2026-08-18)
                 VStack(spacing: BuildGeom.cellGap) {
-                    buildLoopKeys(cell: cell)                     // the column-selector row
+                    buildLoopKeys(cell: cell, staging: false)    // the PLAY grid's OWN column loop
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
@@ -3125,7 +3136,7 @@ extension DiagView {
                     AnyView(HStack(alignment: .top, spacing: BuildGeom.cellGap) {
                         AnyView(buildPartButtons(cell: cell, hue: buildCyan, bands: [3, 2, 1, 1]))   // multi-row valve
                         AnyView(buildRightPartButtons(cell: cell, hue: buildCyan))                    // single-row valve — both on the left
-                        VStack(spacing: BuildGeom.cellGap) { buildLoopKeys(cell: cell); AnyView(buildPlayBands(cell: cell)) }
+                        VStack(spacing: BuildGeom.cellGap) { buildLoopKeys(cell: cell, staging: false); AnyView(buildPlayBands(cell: cell)) }
                         AnyView(buildPerformRowButtons(cell: cell))                                   // right chevrons
                     })
                 }

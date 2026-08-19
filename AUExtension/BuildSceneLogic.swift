@@ -37,6 +37,10 @@ enum BuildSceneLogic {
         var performLen: [Int?] = []                    // per play-grid ROW: its deployed part's loop length
         var stagingRate: StepRate? = nil               // the CURRENT part's rate (the staging audition rows)
         var stagingLen: Int? = nil                     // the CURRENT part's loop length
+        // PER-ROW LAP (Paul 2026-08-19): the two grids' column-loop masks, kept SEPARATE — staging (current part) rows
+        // lap `stagingLane`, piece rows lap `performLane`, so looping one grid never loops the other.
+        var stagingLane: UInt8 = 0                     // the CURRENT part's column-loop mask (staging grid)
+        var performLane: UInt8 = 0                     // the PIECE's column-loop mask (play grid)
     }
 
     /// Build the ephemeral SceneState the engine renders for the active BUILD voices, or `nil` when nothing plays.
@@ -108,6 +112,28 @@ enum BuildSceneLogic {
         }
         if rowStepRate.contains(where: { $0 != nil }) || rowLen.contains(where: { $0 != nil }) {
             s.rowStepRate = rowStepRate; s.rowLen = rowLen
+        }
+
+        // PER-ROW LAP (Paul 2026-08-19): each row takes the loop mask of whichever voice's cell landed on it — mirroring
+        // the placement precedence above (piece first, staging overwrites), so the two grids' loops stay independent.
+        if i.stagingLane != 0 || i.performLane != 0 {
+            var rowLane = [UInt8](repeating: 0, count: 8)
+            if i.performPlaying {
+                for c in 0..<8 { for r in 0..<8 {
+                    guard c < i.performCells.count, r < i.performCells[c].count, i.performCells[c][r] != nil,
+                          !i.performMute.contains(c * 8 + r), i.performActiveRung(c, r) else { continue }
+                    rowLane[r] = i.performLane
+                } }
+            }
+            if i.stagingPlaying {
+                for c in 0..<8 {
+                    let r = c < i.stagingSel.count ? i.stagingSel[c] : -1
+                    if r >= 0, r < 8, c < i.stagingCells.count, r < i.stagingCells[c].count, i.stagingCells[c][r] != nil {
+                        rowLane[r] = i.stagingLane                  // staging is in front → its loop wins the row
+                    }
+                }
+            }
+            s.rowLane = rowLane
         }
 
         return s

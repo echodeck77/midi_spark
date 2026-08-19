@@ -155,6 +155,24 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(fast, slow * 3, "the fast row (16× the step rate) strikes far more often than the slow row")
         assertNothingLeftSounding(e)                              // and no stuck notes across the mixed-tempo edges
     }
+    // PER-ROW LAP (Paul 2026-08-19): each grid ROW loops its OWN columns (the BUILD staging + perform grids loop
+    // independently). Row 0's only cell lives in column 0 and laps column 0; row 1's only cell lives in column 4 and
+    // laps column 4. With ONE global lap only a single column could loop, silencing one cell — the per-row lap lets
+    // BOTH play continuously on their own column. Proves looping one grid doesn't loop the other.
+    func testPerRowLapLoopsEachRowsOwnColumns() {
+        let cs = colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; return c }
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // row 0's only cell — column 0
+            s.cells[4][1] = Cell(colourID: "orange", buses: [.b])     // row 1's only cell — column 4
+            s.rowLane = [0b1, 0b1_0000, 0, 0, 0, 0, 0, 0]             // row 0 laps col 0 · row 1 laps col 4 · independently
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 8, "row 0's cell laps its own column 0 continuously")
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 8, "row 1's cell laps its own column 4 — independent of row 0's loop")
+        assertNothingLeftSounding(e)
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {
