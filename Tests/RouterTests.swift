@@ -487,6 +487,29 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(eCell.ons.filter { $0.cable == 1 }.count, 96, "SPAN CELL: 4 × 3 × 8 columns — the pattern repeats each column")
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
+    func testLengthSpanRowGatesAcrossTheBar() {
+        // SPAN ROW (Paul 2026-08-19): the 8 LENGTH slices span the whole bar (slice i = column i), so a SHORT/MUTE
+        // alternation strikes only the even columns → 4 columns × 3 notes = 12 ons/bar. SPAN CELL fits all 8 slices in
+        // EACH column → 4 SHORTs × 3 notes × 8 columns = 96. Same slices, different timeline (mirrors the euclid test).
+        func rowBox(_ span: PatternSpan) -> SnapshotBox {
+            box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .length)
+                c.paramsA.lenSlices = [.short, .mute, .short, .mute, .short, .mute, .short, .mute]
+                c.paramsA.lenSpan = span; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) }   // the LENGTH fills the whole row
+            }
+        }
+        // The window-scan emits the trailing bar/column downbeat at beat 16 too, so each count carries one extra chord
+        // strike (+3): ROW = 4 SHORT columns + 1 = 5 × 3 = 15; CELL = 4×8 + 1 = 33 × 3 = 99. The clean counts (12 vs 96)
+        // relate as (row−3)×8 == (cell−3) — the SPAN spreads the SAME slices across the bar instead of per column.
+        let eRow = RecordingEmitter(); run(rowBox(.row), chord([60, 64, 67]), beats: 16, into: eRow, releaseAtEnd: false)
+        let onsRow = eRow.ons.filter { $0.cable == 1 }.count
+        let eCell = RecordingEmitter(); run(rowBox(.cell), chord([60, 64, 67]), beats: 16, into: eCell, releaseAtEnd: false)
+        let onsCell = eCell.ons.filter { $0.cable == 1 }.count
+        XCTAssertEqual(onsRow, 15, "SPAN ROW: the 8-slice gate spans the bar → 4 SHORT columns (+1 boundary) × 3 notes")
+        XCTAssertEqual(onsCell, 99, "SPAN CELL: 4 SHORTs × 8 columns (+1 boundary) × 3 — the pattern repeats each column")
+        XCTAssertEqual((onsRow - 3) * 8, onsCell - 3, "ROW is the SAME slices spread across the bar, not repeated per column")
+        assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
+    }
     func testCascadeRevealsEachChordNoteOnce() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .cascade)
             c.paramsA.rate = .r1_8; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
@@ -1800,6 +1823,26 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(ccs.allSatisfy { $0.vel <= 127 }, "every value is in 0…127")
         XCTAssertTrue(e.ons.isEmpty, "a MOD cell sounds NO notes")
         assertNothingLeftSounding(e)
+    }
+    // SPAN ROW (Paul 2026-08-19): one LFO cycle spans the whole bar (vs the per-rate CELL). A RAMP resets once per
+    // cycle, so counting the big value-drops = counting cycles: ROW has far fewer than the fast per-rate CELL.
+    func testModSpanRowStretchesOneCycleAcrossTheBar() {
+        let cs = arpColours()
+        func modBox(_ span: PatternSpan) -> SnapshotBox {
+            var mod = ProcessorSlot(type: .mod)
+            mod.params.modCC = 74; mod.params.modShape = .ramp; mod.params.modRate = .r1; mod.params.modSpan = span
+            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        }
+        func resets(_ span: PatternSpan) -> Int {
+            let e = RecordingEmitter(); run(modBox(span), chord([60]), beats: 16, into: e)
+            let vals = modCC74Events(e).map { Int($0.vel) }
+            var drops = 0
+            for i in 1..<max(1, vals.count) where vals[i] + 40 < vals[i - 1] { drops += 1 }   // a RAMP wrap = a big drop
+            return drops
+        }
+        let rowResets = resets(.row), cellResets = resets(.cell)
+        XCTAssertLessThan(rowResets, cellResets, "SPAN ROW stretches ONE ramp across the bar → far fewer resets than the per-rate CELL")
+        XCTAssertLessThanOrEqual(rowResets, 3, "ROW: about one cycle per bar")
     }
     /// [ARP → MOD]: MOD is note-transparent — the arp still plays AND MOD emits its CC.
     func testArpThenModKeepsArpNotesAndEmitsCC() {

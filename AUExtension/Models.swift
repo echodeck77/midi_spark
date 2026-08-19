@@ -146,6 +146,7 @@ struct ColourParams: Codable, Equatable {
     var modSource: ModSource? = .shape  // the SOURCE spine (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN)
     var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H  (SHAPE)
     var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle) — SHAPE · STEPS (steps span one period)
+    var modSpan: PatternSpan? = nil     // CELL (the modRate period, default) | ROW (one cycle spans the whole bar) — Paul 2026-08-19
     var modFollow: ModFollow? = .register   // FOLLOW: which sounding property drives the CC
     var modSteps: [Int]? = nil          // STEPS: 8 values 0…127 (nil → a rising staircase)
     var modSmooth: Bool? = true         // STEPS: SMOOTH (interpolate) vs STEP (hold)
@@ -177,6 +178,7 @@ struct ColourParams: Codable, Equatable {
     var lenShort: Double? = 0.4         // SHORT gate = 5…95% of ONE slice (staccato)
     var lenLong: Double? = 0.7          // LONG length 0…1 → 25% of a slice … the STEP end (rings across slices)
     var lenRotate: Int? = 0             // rotate the slice pattern (0…7)
+    var lenSpan: PatternSpan? = nil     // CELL (per-column, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
     // WEAVE (Paul 2026-08-07) — the rank-clocked polyrhythm driver. BASE = the slowest (bass) clock; MODE = the ratio
     // law; SPAN = how many ranks weave (extras join the top clock); GATE (reused) is shared. Append-only Optional.
     var weaveMode: WeaveMode? = .ladder

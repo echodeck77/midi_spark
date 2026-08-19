@@ -285,6 +285,7 @@ enum SnapshotBuilder {
         if let v = p.lenShort { out.lenShort = clamp(v, 0.05, 0.95) }
         if let v = p.lenLong { out.lenLong = clamp(v, 0, 1) }
         if let v = p.lenRotate { out.lenRotate = ((v % 8) + 8) % 8 }
+        if let v = p.lenSpan { out.lenSpan = v }
         if let v = p.weaveMode { out.weaveMode = v }
         if let v = p.weaveBaseStep { out.weaveBaseBeats = max(0.03125, v.beats) }
         if let v = p.weaveSpan { out.weaveSpan = clamp(v, 1, 8) }
@@ -329,6 +330,7 @@ enum SnapshotBuilder {
         if let v = p.modSource { out.modSource = v }
         if let v = p.modShape { out.modShape = v }
         if let v = p.modRate { out.modRate = v }
+        if let v = p.modSpan { out.modSpan = v }
         if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
         if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
         if let v = p.modReset { out.modReset = v }

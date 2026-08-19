@@ -1632,6 +1632,10 @@ struct ProcessorBox: View {
                 field("FROM CC  \(ccLabelText(ec))") {
                     Slider(value: bind(Double(ec)) { v in setParam { $0.modExternCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
             }
+            if src == .shape || src == .steps {                    // SPAN only reshapes the period-driven sources (Paul 2026-08-19)
+                let mspan = p.modSpan ?? .cell
+                field("SPAN") { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
+            }
             let cc = p.modCC ?? 74
             field("SEND CC  \(ccLabelText(cc))") {
                 Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
@@ -1718,6 +1722,8 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
             field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
                 setParam { $0.lenRotate = i } } }
+            let lspan = p.lenSpan ?? .cell
+            field("SPAN") { seg(["CELL", "ROW"], sel: lspan == .row ? "ROW" : "CELL") { i in setParam { $0.lenSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column gate · ROW = the 8 slices span the bar (Paul 2026-08-19)
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
             let wmode = p.weaveMode ?? .ladder
             field("MODE") { seg(WeaveMode.allCases.map(\.rawValue), sel: wmode.rawValue) { i in

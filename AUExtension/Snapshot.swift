@@ -107,6 +107,7 @@ struct SnapParams {
     var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
     var modShape: ModShape = .sine       // WAVE
     var modRate: ModRate = .r2           // LFO period (beats/cycle)
+    var modSpan: PatternSpan = .cell     // CELL = the modRate period · ROW = one cycle spans the whole bar (Paul 2026-08-19)
     var modMin: Int = 0                  // shape floor  (MIN)
     var modMax: Int = 127                // shape ceiling (MAX); MIN > MAX inverts
     var modReset: Bool = true            // ON LEAVE: reset to MIN on column exit
@@ -133,6 +134,7 @@ struct SnapParams {
     var lenShort: Double = 0.4           // SHORT gate = 5…95% of one slice
     var lenLong: Double = 0.7            // LONG length 0…1 → 25% of a slice … the step end
     var lenRotate: Int = 0               // rotate the slice pattern (0…7)
+    var lenSpan: PatternSpan = .cell     // CELL = per-column · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
     // WEAVE — the rank-clocked polyrhythm driver. GATE is the shared `gate` field above.
     var weaveMode: WeaveMode = .ladder
     var weaveBaseBeats: Double = 1.0     // the slowest/bass clock in beats (1/4 = 1 beat)

@@ -1935,7 +1935,8 @@ final class Router {
                     if prev >= 0 && prev != p.modCC { emitModCC(cc: prev, value: ccDefault(prev), busMask: cell.busMask, atSample: windowStart, out: out) }
                     modPrevTarget[tkey] = Int16(p.modCC)
                 }
-                let period = max(0.03125, p.modRate.periodBeats)     // LFO / steps period, beats/cycle
+                // SPAN: CELL (default) = the modRate period; ROW = one cycle across the WHOLE bar (a phrase-length LFO/step sweep).
+                let period = (p.modSpan == .row) ? max(0.03125, Double(Snap.cols) * box.stepBeats) : max(0.03125, p.modRate.periodBeats)
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
@@ -2461,9 +2462,12 @@ final class Router {
         var srcNotes: [(note: Int, vel: UInt8)] = []
         for k in 0..<pool.srcCount(for: cell) { let n = pool.srcAscending(k, for: cell); srcNotes.append((Int(n), pool.velocity(n))) }
         guard !srcNotes.isEmpty else { return }
-        var col = columnStart(mWinStart, S)
+        // SPAN: CELL fits the 8 slices in each column; ROW stretches them across the whole BAR (slice i = column i) → a
+        // whole-bar trance-gate phrase. Only the span width changes; the window gate keeps each cell to its own slice.
+        let span = (p.lenSpan == .row) ? Double(Snap.cols) * S : S
+        var col = columnStart(mWinStart, span)
         while col < mWinEnd {
-            let events = lengthColumnEvents(slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: S)
+            let events = lengthColumnEvents(slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
             for e in events where e.on >= mWinStart && e.on < mWinEnd {
                 let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
@@ -2475,7 +2479,7 @@ final class Router {
                     if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, sn.vel), out: out, diag: &diag) }
                 }
             }
-            col += S
+            col += span
         }
     }
 
@@ -2496,12 +2500,13 @@ final class Router {
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
         let cycleBeats = Double(Snap.cols) * S
-        var col = columnStart(mWinStart, S)
+        let span = (lp.lenSpan == .row) ? cycleBeats : S     // SPAN: the 8 slices span the bar (ROW) vs a column (CELL)
+        var col = columnStart(mWinStart, span)
         while col < mWinEnd {
-            composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this column
+            composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this span-unit start
             let cnt = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
             if cnt > 0 {
-                let events = lengthColumnEvents(slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: S)
+                let events = lengthColumnEvents(slices: lp.lenSlices, rotate: lp.lenRotate, shortFrac: lp.lenShort, longFrac: lp.lenLong, colStart: col, S: span)
                 for e in events where e.on >= mWinStart && e.on < mWinEnd {
                     let onT = sampleOf(musical: e.on, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                     let offT = sampleOf(musical: e.off, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
@@ -2516,7 +2521,7 @@ final class Router {
                     }
                 }
             }
-            col += S
+            col += span
         }
     }
 
