@@ -220,6 +220,24 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(roll.isEmpty, "the pass recorded notes")
         XCTAssertTrue(roll.allSatisfy { $0.colour == hue }, "every recorded note is tagged its cell's colour hue")
     }
+    // PER-ROW ECHO/MOD/GLIDE (Paul 2026-08-19): in the multi-clock path echo/mod/glide fire on each ROW's own clock,
+    // not the scene default. Two echo cells in column 0: row 0 FAST (1/8), row 1 SLOW (2/1). The echo DRY strikes on
+    // each entry to its column, so the fast row re-enters column 0 far more often → far more dry strikes on its bus.
+    func testPerRowEchoFiresOnTheRowsOwnClock() {
+        let cs = colourIDs.map { Colour(colourID: $0, type: .echo) }
+        let b = box(colours: cs) { s in
+            s.cells[0][0] = Cell(colourID: "gold", buses: [.a])       // echo in column 0, row 0
+            s.cells[0][1] = Cell(colourID: "orange", buses: [.b])     // echo in column 0, row 1
+            s.rowStepRate = [.r1_8, .r2_1, nil, nil, nil, nil, nil, nil]   // row 0 FAST · row 1 SLOW
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)
+        let fast = e.ons.filter { $0.cable == 1 }.count              // row 0 (bus A)
+        let slow = e.ons.filter { $0.cable == 2 }.count              // row 1 (bus B)
+        XCTAssertGreaterThan(fast, 0, "the fast row's echo dry fires")
+        XCTAssertGreaterThan(fast, slow, "the fast row re-enters its column far more often → far more echo strikes (per-row clock)")
+        assertNothingLeftSounding(e)
+    }
     // VELOCITY INHERITANCE (user 2026-08-09): every processor takes its output velocity from the input source note,
     // not a fixed 96. Octave-invariant (an octave-arped copy keeps the source dynamic).
     func testArpInheritsSourceVelocity() {

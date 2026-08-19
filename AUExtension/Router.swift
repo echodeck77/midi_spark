@@ -256,8 +256,11 @@ final class Router {
     private var forceColumnHold = false        // PLAY: THIS CELL — the effColumn is force-held → tick emitters play UNGATED (continuous)
     // THE MOD PROCESSOR (CC generator): a beat-derived shaped CC on the active column's MOD cells. Emitted at a
     // control grid; deduped per (cable,channel,cc) so a held value doesn't re-send; RESET on column exit.
-    private var modLastColumn: Int32 = -1                                     // the column whose MOD cells emitted last (reset when it exits)
-    private var modColumnEntryBeat = 0.0                                      // STRIKE: the beat the active column became active (AR trigger)
+    // MOD leave-disposition + STRIKE trigger, PER-ROW (Paul 2026-08-19): the multi-clock path emits MOD per row at the
+    // row's own column, so each row tracks its OWN last-emitted column + entry beat. Slot Snap.rows = the uniform/global
+    // call (onlyRow == nil), byte-identical to the old single value.
+    private var modLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)  // the column whose MOD cells emitted last, per slot (reset when it exits)
+    private var modColumnEntryBeat = [Double](repeating: 0, count: Snap.rows + 1)  // STRIKE: the beat the slot's active column became active (AR trigger)
     private var modPrevTarget = [Int16](repeating: -1, count: 64 * 8)         // per (gridCell*8 + slot): the LAST CC# a MOD slot emitted — revert it when the target changes
     // GLIDE (notes→pitch-bend): one mono sliding voice per GLIDE cell. Beat-derived ramps + a sustained anchor note.
     private struct GlideVoice {
@@ -271,7 +274,7 @@ final class Router {
         var lastBend14: Int16 = -1 // dedup the emitted bend
     }
     private var glideVoices = [GlideVoice](repeating: GlideVoice(), count: 64)
-    private var glideLastColumn: Int32 = -1
+    private var glideLastColumn = [Int32](repeating: -1, count: Snap.rows + 1)   // PER-ROW phrase-end on column exit (slot Snap.rows = the uniform/global call)
     private var modLastVal = [Int16](repeating: -1, count: 5 * 16 * 128)      // [cable*2048 + ch*128 + cc] → last CC value (-1 = none sent)
     private let modCtrlBeats = 1.0 / 16.0                                     // CC control-grid resolution (16 points per beat)
     // EXTERN: the incoming controller VALUE STORE (cc → value, channel-agnostic v1) — the Kernel writes it each render
@@ -556,10 +559,10 @@ final class Router {
         for i in overrides.indices { overrides[i] = .nan }
         overrideGen = .max
         clearEchoTails()
-        modLastColumn = -1; modColumnEntryBeat = 0                              // MOD: forget the last CC + column (no reset emit — reset() has no `out`)
+        for i in modLastColumn.indices { modLastColumn[i] = -1; modColumnEntryBeat[i] = 0 }   // MOD: forget the last CC + column, every slot (no reset emit — reset() has no `out`)
         for i in modLastVal.indices { modLastVal[i] = -1 }
         for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
-        for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; glideLastColumn = -1
+        for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; for i in glideLastColumn.indices { glideLastColumn[i] = -1 }
     }
 
     // MARK: parameter overrides
@@ -1490,12 +1493,12 @@ final class Router {
     /// themselves emit from `drainEchoTails` every window.
     private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double, tempo: Double,
                                mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
-                               windowEnd: Int64, out: MIDIEmitter?, diag: inout KernelDiag) {
+                               windowEnd: Int64, out: MIDIEmitter?, onlyRow: Int? = nil, diag: inout KernelDiag) {
         guard pool.count > 0 || latchMask != 0 else { return }
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                 windowStart: windowStart, S: S, a: a)
-        for r in 0..<Snap.rows {
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }
             if soloSilenced(cell) { continue }
@@ -1943,6 +1946,9 @@ final class Router {
                     emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
                                     S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
+                    emitEchoColumn(box: box, column: effColR, pool: pool, pass: passR,   // ECHO dry on THIS row's clock (per-part)
+                                   S: Sr, a: a, tempo: tempo, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                   windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
                 } else if forceColumnHold {
                     diag.pass = passR
                     emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
@@ -1956,15 +1962,7 @@ final class Router {
                 }
             }
             diag.pass = globalPass
-            // ECHO dry rides the GLOBAL (scene-default) clock in the multi-clock path (v1 limitation — the dry strikes
-            // on the scene-default column transition; mod/glide/tails below stay global too). The per-row content that
-            // matters (arps/euclids/holds at each part's own tempo) is handled per-row above + in the tick loop below.
-            if effColumn != prevEffColumn {
-                emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,
-                               S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                               windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-            }
-            prevEffColumn = effColumn
+            prevEffColumn = effColumn   // keep the GLOBAL edge current (echo dry now fires per-row above, on each row's own clock)
         }
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
@@ -1972,12 +1970,23 @@ final class Router {
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
-        // THE MOD PROCESSOR: CC on the active column's MOD cells — BEFORE the pool guard (MOD needs no keys down).
-        emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
-                      beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-        // GLIDE: the mono sliding voices — before the pool guard (phrase-ends on an empty pool).
-        emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: Double(frameCount) * beatsPerSample,
-                        beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+        // THE MOD PROCESSOR (CC, no keys) + GLIDE (mono bend) — BEFORE the pool guard. On the uniform fast path they run
+        // once at the global column; on the multi-clock path each row's MOD/GLIDE cells fire at that ROW's own column
+        // (per-part clock), with per-row leave-disposition. (Paul 2026-08-19)
+        let modWindowBeats = Double(frameCount) * beatsPerSample
+        if uniformFast {
+            emitColumnMod(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                          beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+            emitColumnGlide(box: box, column: effColumn, pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                            beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+        } else {
+            for r in 0..<Snap.rows {
+                emitColumnMod(box: box, column: rowEffColBuf[r], pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                              beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
+                emitColumnGlide(box: box, column: rowEffColBuf[r], pool: pool, beatPos: beatPos, windowBeats: modWindowBeats,
+                                beatsPerSample: beatsPerSample, windowStart: windowStart, out: out, onlyRow: r)
+            }
+        }
 
         guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
@@ -2021,14 +2030,14 @@ final class Router {
 
     /// The unipolar [0,1] a MOD slot's SOURCE produces at beat `b` — SHAPE (LFO) · FOLLOW (sounding material) ·
     /// STEPS (8-step pattern) · STRIKE (per-entry AR) · EXTERN (incoming CC). Row-3 MIN/MAX maps it to a CC value.
-    private func modSourceUnipolar(_ p: SnapParams, cell: SnapCell, pool: NotePool, b: Double, period: Double, column: Int) -> Double {
+    private func modSourceUnipolar(_ p: SnapParams, cell: SnapCell, pool: NotePool, b: Double, period: Double, column: Int, entryBeat: Double) -> Double {
         switch p.modSource {
         case .shape:
             return modUnipolar(p.modShape, phase: b / period, column: column, cc: p.modCC, cycleIndex: Int((b / period).rounded(.down)))
         case .steps:
             return modStepsUnipolar(p.modSteps, phase: b / period, smooth: p.modSmooth)
         case .strike:
-            return modStrikeUnipolar(t: b - modColumnEntryBeat, attack: p.modAttack, release: p.modRelease)
+            return modStrikeUnipolar(t: b - entryBeat, attack: p.modAttack, release: p.modRelease)
         case .follow:
             let src = effectivePool(for: cell, live: pool)
             let n = src.srcCount(for: cell)
@@ -2045,16 +2054,18 @@ final class Router {
     /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
     /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
     private func emitColumnMod(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
-        if modLastColumn != Int32(column) {                       // LEAVE-DISPOSITION: reset the column we just left
-            if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: windowStart, out: out) }
-            modLastColumn = Int32(column)
-            modColumnEntryBeat = beatPos                          // STRIKE: the AR envelope re-triggers on column entry
+                               beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
+        let slot = onlyRow ?? Snap.rows                           // PER-ROW LEAVE-DISPOSITION: one slot per row, or the global slot
+        if modLastColumn[slot] != Int32(column) {                 // LEAVE-DISPOSITION: reset the column we just left
+            if modLastColumn[slot] >= 0 { emitModResets(box: box, column: Int(modLastColumn[slot]), atSample: windowStart, out: out, onlyRow: onlyRow) }
+            modLastColumn[slot] = Int32(column)
+            modColumnEntryBeat[slot] = beatPos                    // STRIKE: the AR envelope re-triggers on column entry
         }
+        let entryBeat = modColumnEntryBeat[slot]
         if masterMute && !previewMode { return }                  // master MUTE kills all output
         guard column >= 0 && column < Snap.cols else { return }
         let bEnd = beatPos + windowBeats
-        for r in 0..<Snap.rows {
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || soloSilenced(cell) || cellSoloedOut(column, r) { continue }
             if !cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r)) { continue }   // PLAY: THIS CELL overrides mute/dormant/tap
@@ -2074,7 +2085,7 @@ final class Router {
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
                     if b >= beatPos {
-                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: column)
+                        let s = modSourceUnipolar(p, cell: cell, pool: pool, b: b, period: period, column: column, entryBeat: entryBeat)
                         let value = modMap(s, min: p.modMin, max: p.modMax)
                         let sample = windowStart + Int64((((b - beatPos) / beatsPerSample)).rounded())
                         emitModCC(cc: p.modCC, value: value, busMask: cell.busMask, atSample: sample, out: out)
@@ -2085,9 +2096,9 @@ final class Router {
         }
     }
     /// Reset every MOD cell in `column` whose modReset is ON to its default (0) — the CC-pollution guard. Stateless.
-    private func emitModResets(box: SnapshotBox, column: Int, atSample: Int64, out: MIDIEmitter?) {
+    private func emitModResets(box: SnapshotBox, column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         guard column >= 0 && column < Snap.cols, !(masterMute && !previewMode) else { return }
-        for r in 0..<Snap.rows {
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 { continue }
             for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset {
@@ -2097,8 +2108,11 @@ final class Router {
     }
     /// Transport/scene/panic flush: reset the last MOD column (leave-disposition) + forget the dedup state.
     private func flushMod(box: SnapshotBox, atSample: Int64, out: MIDIEmitter?) {
-        if modLastColumn >= 0 { emitModResets(box: box, column: Int(modLastColumn), atSample: atSample, out: out) }
-        modLastColumn = -1
+        for slot in modLastColumn.indices {                       // reset EVERY row's last MOD column (+ the global slot)
+            let onlyRow = slot < Snap.rows ? slot : nil
+            if modLastColumn[slot] >= 0 { emitModResets(box: box, column: Int(modLastColumn[slot]), atSample: atSample, out: out, onlyRow: onlyRow) }
+            modLastColumn[slot] = -1
+        }
         for i in modLastVal.indices { modLastVal[i] = -1 }
         for i in modPrevTarget.indices { modPrevTarget[i] = -1 }
     }
@@ -2136,12 +2150,12 @@ final class Router {
         }
         glideVoices[cellIdx] = GlideVoice()
     }
-    private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?) {
+    private func glidePhraseEndColumn(_ column: Int, atSample: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
         guard column >= 0 && column < Snap.cols else { return }
-        for r in 0..<Snap.rows { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r { glidePhraseEnd(column * Snap.rows + r, atSample: atSample, out: out) }
     }
     /// Transport/scene/panic flush: the immortal glide notes are closed by allNotesOff — just forget the state.
-    private func flushGlide() { for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; glideLastColumn = -1 }
+    private func flushGlide() { for i in glideVoices.indices { glideVoices[i] = GlideVoice() }; for i in glideLastColumn.indices { glideLastColumn[i] = -1 } }
     /// The mono input note (+velocity) a GLIDE cell tracks — by PRIORITY over its filtered source pool.
     private func glidePickPool(_ pool: NotePool, cell: SnapCell, priority: GlidePriority) -> (note: Int, vel: UInt8) {
         let n = pool.srcCount(for: cell)
@@ -2157,15 +2171,16 @@ final class Router {
     /// Drive the mono glide voices for the active column's single-slot GLIDE cells: anchor on the first note, bend-ramp
     /// to each in-range target (else RE-ANCHOR / CLAMP), phrase-end on rest or column exit. Runs before the pool guard.
     private func emitColumnGlide(box: SnapshotBox, column: Int, pool: NotePool, beatPos: Double, windowBeats: Double,
-                                 beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
-        if glideLastColumn != Int32(column) {                       // PHRASE END on column exit (spec)
-            if glideLastColumn >= 0 { glidePhraseEndColumn(Int(glideLastColumn), atSample: windowStart, out: out) }
-            glideLastColumn = Int32(column)
+                                 beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?, onlyRow: Int? = nil) {
+        let slot = onlyRow ?? Snap.rows
+        if glideLastColumn[slot] != Int32(column) {                 // PHRASE END on column exit (spec)
+            if glideLastColumn[slot] >= 0 { glidePhraseEndColumn(Int(glideLastColumn[slot]), atSample: windowStart, out: out, onlyRow: onlyRow) }
+            glideLastColumn[slot] = Int32(column)
         }
         if masterMute && !previewMode { return }
         guard column >= 0 && column < Snap.cols else { return }
         let bEnd = beatPos + windowBeats
-        for r in 0..<Snap.rows {
+        for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cellIdx = column * Snap.rows + r
             let cell = box.cells[cellIdx]
             // v1: SINGLE-SLOT GLIDE only ([ARP→GLIDE] is v2 — a chain with a note driver plays the driver, GLIDE ignored).
