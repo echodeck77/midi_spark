@@ -41,6 +41,8 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
     uninterrupted, is filed — `reelRecordFromStart`). Kernel-only (not unit-tested; device-verified path).
   - **ROLL PLAYHEAD (Paul 2026-08-19)**: while a pass replays, a white playhead sweeps the piano-roll lanes (TimelineView,
     beat-extrapolated one-clock) and each note LIGHTS (full hue + glow + thicker) as the head crosses it.
+  - **ROLL GRID (Paul 2026-08-19)**: each lane now draws 8 CELL dividers + OCTAVE dividers (pitch framed to whole
+    octaves) with the C labelled on BOTH the left + right axis, under the notes.
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.

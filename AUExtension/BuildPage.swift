@@ -173,26 +173,46 @@ extension DiagView {
                 if playing { au?.reelStopReplay() } else { au?.reelSelectPass(pass) }
             }
     }
-    // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1; pitch scaled to the shared
-    // (all-lane) range, x scaled to the pass length, opacity by velocity. A note the playhead is over lights up.
+    // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1 over a reference grid: 8 CELL
+    // dividers (vertical), OCTAVE dividers (horizontal at each C) with the C labelled on the left + right axis. Pitch is
+    // framed to whole octaves and shared across all lanes; x = pass length; opacity = velocity; the playhead lights notes.
     private func buildReelLane(_ lane: Int, width: CGFloat, height: CGFloat, phase: Double?) -> some View {
         let hue = reelLaneHues[lane]
         let notes = reelRoll.filter { Int($0.cable) == lane + 1 }
         let all = reelRoll.map { Int($0.note) }
-        let lo = all.min() ?? 48, hi = all.max() ?? 72
-        let span = max(1, hi - lo)
+        let rawLo = all.min() ?? 48, rawHi = all.max() ?? 72
+        let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)   // frame to whole octaves → a C at top + bottom
+        let span = CGFloat(hi - lo)
         let cyc = max(0.0001, reelCycle)
         let head = phase.map { $0 * cyc }                                        // the playhead's beat, or nil
+        func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (height - 6) + 3 }
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             Canvas { ctx, sz in
-                for n in notes {
-                    let x = CGFloat(n.start / cyc) * sz.width
-                    let w = max(2, CGFloat((n.end - n.start) / cyc) * sz.width)
-                    let yFrac = 1 - CGFloat(Int(n.note) - lo) / CGFloat(span)
-                    let y = yFrac * (sz.height - 6) + 3
-                    let active = head.map { $0 >= n.start && $0 < n.end } ?? false
-                    let base = 0.45 + 0.5 * Double(n.vel) / 127
+                // CELL dividers — 8 columns of the bar
+                for i in 1..<8 {
+                    let x = CGFloat(i) / 8 * sz.width
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
+                               with: .color(.white.opacity(0.07)), lineWidth: 0.5)
+                }
+                // OCTAVE dividers + C labels (left + right axis)
+                var n = lo
+                while n <= hi {
+                    let y = yOf(n)
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) },
+                               with: .color(.white.opacity(0.10)), lineWidth: 0.5)
+                    let label = ctx.resolve(Text("C\(n / 12 - 1)").font(.system(size: 7, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4)))
+                    ctx.draw(label, at: CGPoint(x: 11, y: y), anchor: .center)
+                    ctx.draw(label, at: CGPoint(x: sz.width - 11, y: y), anchor: .center)
+                    n += 12
+                }
+                // NOTES
+                for note in notes {
+                    let x = CGFloat(note.start / cyc) * sz.width
+                    let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
+                    let y = yOf(Int(note.note))
+                    let active = head.map { $0 >= note.start && $0 < note.end } ?? false
+                    let base = 0.45 + 0.5 * Double(note.vel) / 127
                     let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
                     if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(hue.opacity(0.35))) }   // glow under
                     ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(hue.opacity(active ? 1.0 : base)))
