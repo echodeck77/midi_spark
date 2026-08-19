@@ -68,7 +68,8 @@ struct ArrangementBar: View {
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
                 if activeTab != .build { singleMultiSeg }                          // GRID mode SINGLE|MULTI — hidden on BUILD (focus-model §4: no jurisdiction there; staging is always SINGLE-natured, bands own their own behaviour)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
-                clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate + SWING (was the grid's CONTROLS panel)
+                swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
+                clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
                 if d.playing {
                     Text(String(format: "P%d·%.0f", d.pass + 1, d.tempo))
                         .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).fixedSize()
@@ -125,7 +126,7 @@ struct ArrangementBar: View {
     private var clockControl: some View {
         HStack(spacing: 4) {
             Image(systemName: "metronome").font(.system(size: 10, weight: .semibold))
-            Text(stepLabels[min(max(stepIndex, 0), stepLabels.count - 1)] + (swing > 50 ? "·\(swing)" : ""))
+            Text(stepLabels[min(max(stepIndex, 0), stepLabels.count - 1)])
                 .font(.system(size: 10, weight: .heavy, design: .monospaced))
         }
         .foregroundColor(barCyan)
@@ -149,12 +150,18 @@ struct ArrangementBar: View {
                     }
                 }
             }
-            Text("SWING \(swing)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5)).padding(.top, 2)
-            Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(barCyan).frame(width: 160)
         }
         .padding(14)
         .frame(width: 188)
         .background(Color(red: 0.10, green: 0.11, blue: 0.13))
+    }
+    // SWING — now STRAIGHT on the header (Paul 2026-08-19): a compact inline slider (was inside the clock popover).
+    private var swingControl: some View {
+        HStack(spacing: 4) {
+            Text("SWING").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
+            Slider(value: Binding(get: { Double(swing) }, set: { onSwing(Int($0.rounded())) }), in: 50...75).tint(barCyan).frame(width: 76)
+            Text("\(swing)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(barCyan).frame(width: 18, alignment: .leading)
+        }
     }
 
     // GRID mode SINGLE|MULTI — the two-segment toggle, in the title bar (user 2026-08-05). SINGLE = the ladder

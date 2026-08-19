@@ -762,7 +762,7 @@ extension DiagView {
     // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
-        if laneMask != 0 { setLane(0) }                          // BUILD has NO column loop yet (its loop keys are a placeholder) — a stale PERFORM/EDIT lap would lock the audition to one column (Paul 2026-08-16). Never lap the workshop.
+        // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
         var input = BuildSceneLogic.Input()
         input.stagingPlaying = buildStagingPlaying
         input.performPlaying = buildPerformPlaying
@@ -1953,12 +1953,15 @@ extension DiagView {
     @ViewBuilder private func buildLoopKeys(cell: CGFloat) -> some View {
         HStack(spacing: BuildGeom.cellGap) {
             ForEach(0..<8, id: \.self) { c in
-                let held = (laneMask & (1 << UInt8(c))) != 0       // reflect the REAL lap set (BUILD keeps it 0 — the keys aren't wired to set it yet)
+                let held = (laneMask & (1 << UInt8(c))) != 0       // the REAL lap set — tap/hold a key to add/remove its column (same as the GRID tab)
                 RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(held ? 0.22 : 0.11))   // §0 MUTED: neutral keys, held reads as a slight brightening
                     .frame(width: cell, height: cell)
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildEdge, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(held ? sceneAmberHue : buildEdge, lineWidth: held ? 2 : 1))
                     .overlay(Image(systemName: "repeat")           // ALWAYS the loop glyph (never a chevron); held shows via the fill
                         .font(.system(size: 12, weight: .heavy)).foregroundColor(.white.opacity(held ? 0.85 : 0.55)))
+                    .contentShape(Rectangle())                     // LOOP: tap or long-press toggles the column in the lap set (copied from the GRID tab, Paul 2026-08-19)
+                    .onTapGesture { toggleLoopColumn(c) }
+                    .onLongPressGesture(minimumDuration: 0.3) { toggleLoopColumn(c) }
             }
         }
     }
