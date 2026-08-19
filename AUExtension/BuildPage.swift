@@ -1343,17 +1343,34 @@ extension DiagView {
     // A SINGLE deployed row = the staging SELECTION flattened: the selected cell per column (wherever its staging row
     // sits), and a column with NOTHING selected is left BLANK. Carries the part's I/O. Does NOT set deployed/claim/publish
     // — the caller owns those. (Paul 2026-08-14: single-row targets copy the selected cell regardless of row.)
-    private func buildCopySelectedRow(toRow R: Int) {
+    // PROMOTE = LOOPED COLUMNS (Paul 2026-08-19): the staging LOOP KEYS define the deployed part's LENGTH — the looped
+    // SPAN (highest looped column + 1). Columns past it are dropped on deploy (a gap inside the span keeps its cell). No
+    // loop set ⇒ the part's own LENGTH (or a full 8). This is how you build parts shorter than the bar.
+    private func buildDeployLength() -> Int {
+        if buildStagingLane != 0 {
+            var hi = 0
+            for c in 0..<8 where (buildStagingLane & (1 << UInt8(c))) != 0 { hi = c }
+            return hi + 1
+        }
+        return buildPartLen ?? Snap.cols
+    }
+    // Set the CURRENT part's length from the deploy span (nil = a full 8), so performLen + the play-grid dimming reflect it.
+    private func buildApplyDeployLength(_ len: Int) {
+        let stored: Int? = len >= Snap.cols ? nil : len
+        buildPartLen = stored
+        if buildCurrentPart >= 0, buildCurrentPart < buildParts.count { buildParts[buildCurrentPart].length = stored }
+    }
+    private func buildCopySelectedRow(toRow R: Int, len: Int) {
         guard R >= 0, R < 8 else { return }
         var srcRows: [Int] = []                                        // the staging rows the selected cells come from
         for c in 0..<8 {
             let sr = c < buildStagingSel.count ? buildStagingSel[c] : -1   // this column's selected (playing) cell
-            if sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] {
+            if c < len, sr >= 0, sr < 8, let cid = buildStagingCells[c][sr] {   // only columns within the looped span deploy
                 buildPerformCells[c][R] = cid
                 buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
                 srcRows.append(sr)
             } else {
-                buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []   // nothing selected → blank in the play grid
+                buildPerformCells[c][R] = nil; buildPerformChain[c][R] = []   // outside the loop span OR nothing selected → blank
             }
         }
         buildDeployRowIO(R, from: srcRows)                            // carry the SELECTED cells' OWN resolved I/O (Paul 2026-08-19)
@@ -1387,7 +1404,9 @@ extension DiagView {
     func buildDeployCurrentPart(toRow R: Int) {
         guard buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }
         buildParts[buildCurrentPart].deployed = true
-        buildCopySelectedRow(toRow: R)
+        let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
+        buildApplyDeployLength(len)
+        buildCopySelectedRow(toRow: R, len: len)
         buildPerformPart[R] = buildCurrentPart                   // §2: the row now belongs to this part
         buildPerformStagingRow[R] = -1                           // a single-rung lane — no rung map (per-cell mute, not selection)
         for c in 0..<8 { buildPerformMute.remove(c * 8 + R) }    // fresh row starts unmuted
@@ -1401,15 +1420,17 @@ extension DiagView {
     func buildDeployBand(base: Int, rows: Int) {
         guard buildCurrentPart < buildParts.count else { return }
         buildParts[buildCurrentPart].deployed = true
+        let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
+        buildApplyDeployLength(len)
         for i in 0..<rows where base + i < 8 { for c in 0..<8 { buildPerformCells[c][base + i] = nil; buildPerformChain[c][base + i] = []; buildPerformMute.remove(c * 8 + base + i) }; buildPerformPart[base + i] = buildCurrentPart; buildPerformStagingRow[base + i] = -1 }   // clear the band (+ its mutes + rung map) + claim it (§2)
         if rows <= 1 {
-            buildCopySelectedRow(toRow: base)                    // a lane: the selected melody, blank where unselected
+            buildCopySelectedRow(toRow: base, len: len)          // a lane: the selected melody, blank where unselected / past the span
         } else {
             let occupied = (0..<8).filter { sr in (0..<8).contains { c in buildStagingCells[c][sr] != nil } }   // staging rows that hold ANY cell
             for (i, sr) in occupied.prefix(rows).enumerated() {  // one rung per occupied staging row (muted cells included)
                 let R = base + i; guard R < 8 else { break }
                 buildPerformStagingRow[R] = sr                   // remember which staging row this rung came from (for selection sync-back)
-                for c in 0..<8 {
+                for c in 0..<8 where c < len {                   // only columns within the looped span deploy
                     if let cid = buildStagingCells[c][sr] {
                         buildPerformCells[c][R] = cid
                         buildPerformChain[c][R] = (sr < buildRowChain.count && !buildRowChain[sr].isEmpty) ? buildRowChain[sr] : []
