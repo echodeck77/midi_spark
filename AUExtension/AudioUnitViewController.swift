@@ -277,6 +277,11 @@ struct DiagView: View {
     @State var cellSounding = [Bool](repeating: false, count: 64)
     @State var cellReleasedAt = [Date](repeating: .distantPast, count: 64)
     @State var cellStrikeSeq = [Int](repeating: 0, count: 64)        // MOSAIC: per-cell strike-moment counter (each moment → the next rectangle)
+    // NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons — pitch + velocity + count (6 slots/cell). The
+    // piano-roll faces place marks at REAL pitch. Polled from au.pollCellNotes(); stored only on a tick that carried notes.
+    @State var cellNotePitch = [UInt8](repeating: 0, count: 64 * 6)
+    @State var cellNoteVel   = [UInt8](repeating: 0, count: 64 * 6)
+    @State var cellNoteCount = [UInt8](repeating: 0, count: 64)
     @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
     @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
     @State var emitDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD emitter fader: the live drag velocity override per emitter (nil = not dragging)
@@ -1139,6 +1144,8 @@ struct DiagView: View {
             if !tapActions.isEmpty { refreshTapMasks() }   // §9 ON TAP 4c: fire quantized onsets + expire durations
             let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
             let sw = au.uiSwing();         if sw != swing { swing = sw }
+            let cn = au.pollCellNotes()                    // NOTE-SWEEP: per-cell recent emitted notes (pitch/vel/count) — drained every tick
+            if cn.count.contains(where: { $0 > 0 }) { cellNotePitch = cn.pitch; cellNoteVel = cn.vel; cellNoteCount = cn.count }
             let strikes = au.pollCellStrikes()             // SEAL comet: stamp a hit time + velocity per struck cell
             if strikes.contains(where: { $0 > 0 }) {
                 let now = Date(); var at = cellHitAt, vel = cellHitVel, seq = cellStrikeSeq
@@ -1372,6 +1379,8 @@ struct DiagView: View {
                      cellHitAt: cellHitAt, cellHitVel: cellHitVel,   // SEAL comet feed
                      cellSounding: cellSounding, cellReleasedAt: cellReleasedAt,   // SEAL comet gate
                      cellStrikeSeq: cellStrikeSeq,                   // MOSAIC: per-cell moment counter (one rectangle per moment)
+                     cellNotePitch: cellNotePitch, cellNoteVel: cellNoteVel, cellNoteCount: cellNoteCount,   // NOTE-SWEEP: real per-cell pitches
+
                      whiteBorder: activeVerb == .place ? placedThisHold : [],   // §11 placed-this-hold cells wear a white border
                      ladderDim: ladderDim, ladderArmed: ladderArmedSet, ladderBlink: ladderBlink,   // LADDER: dormant dim · armed blink
                      verbInvite: verbHasBanner ? nil : activeVerb?.hue,   // PLACE/DELETE/SELECT light the chevrons only, not cells

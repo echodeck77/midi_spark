@@ -208,6 +208,13 @@ final class Router {
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
     // UI owns the ~1s decay). `currentCellIndex` is the emitting cell's grid index, set per-cell in the emit loops.
     private var cellStrike = [UInt8](repeating: 0, count: 64)
+    // THE NOTE-SWEEP feed (Paul 2026-08-19): per-cell RECENT emitted note-ons (pitch + velocity), a small ring per cell.
+    // Drained read-and-clear like the strike feed → the piano-roll faces place marks at REAL pitch (not a hash), and the
+    // BUILD note-sweep CONTOUR axis gets its per-note pitch. Fixed storage; no allocation on the render path.
+    private var cellNotePitch = [UInt8](repeating: 0, count: 64 * 6)
+    private var cellNoteVel   = [UInt8](repeating: 0, count: 64 * 6)
+    private var cellNoteHead  = [Int](repeating: 0, count: 64)     // ring write cursor per cell
+    private var cellNoteNew   = [UInt8](repeating: 0, count: 64)   // note-ons written since the last drain (return capped at 6)
     private var currentCellIndex: Int = -1
     // THE SEAL COMET (note-on/off gate): a bitmask of the 64 cells CURRENTLY SOUNDING (≥1 active non-silent
     // voice). Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI
@@ -652,6 +659,20 @@ final class Router {
         return out
     }
 
+    /// NOTE-SWEEP feed: per cell, the note-ons emitted SINCE the last drain (up to 6 most-recent, oldest→newest) as
+    /// pitch + velocity, plus a per-cell count. FRESH copies (never share render arrays with the poll). Read-and-clear.
+    func drainCellNotes() -> (pitch: [UInt8], vel: [UInt8], count: [UInt8]) {
+        var p = [UInt8](repeating: 0, count: 64 * 6), vv = [UInt8](repeating: 0, count: 64 * 6), cnt = [UInt8](repeating: 0, count: 64)
+        for c in 0..<64 {
+            let n = Int(cellNoteNew[c]); cnt[c] = cellNoteNew[c]; cellNoteNew[c] = 0
+            for k in 0..<n {
+                let idx = ((cellNoteHead[c] - n + k) % 6 + 6) % 6
+                p[c * 6 + k] = cellNotePitch[c * 6 + idx]; vv[c * 6 + k] = cellNoteVel[c * 6 + idx]
+            }
+        }
+        return (p, vv, cnt)
+    }
+
     /// item 4 VELOCITY MARKS: read-and-clear the per-emitter note-on marks accumulated since the last poll —
     /// each a (velocity, source colourIndex). The UI latches a timestamp per mark and fades it (~250ms).
     func drainMarks() -> [[(vel: UInt8, col: Int8)]] {
@@ -1069,7 +1090,13 @@ final class Router {
         }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
-        if currentCellIndex >= 0 && currentCellIndex < 64 && v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
+        if currentCellIndex >= 0 && currentCellIndex < 64 {
+            if v > cellStrike[currentCellIndex] { cellStrike[currentCellIndex] = v }   // SEAL comet: this cell struck
+            let c = currentCellIndex, h = cellNoteHead[c]                              // NOTE-SWEEP: record the emitted pitch+vel (ring)
+            cellNotePitch[c * 6 + h] = note; cellNoteVel[c * 6 + h] = v
+            cellNoteHead[c] = (h + 1) % 6
+            if cellNoteNew[c] < 6 { cellNoteNew[c] &+= 1 }
+        }
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
             markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = currentColourIndex

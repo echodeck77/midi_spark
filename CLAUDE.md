@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ NOTE-SWEEP PLUMBING — the per-cell per-NOTE feed LANDED (2026-08-19, on `main`; macOS 774 green, iOS builds;
+  DEVICE eye owed). The feed the design side flagged as "plumbing FIRST" for the note-sweep CONTOUR axis + real-pitch
+  piano rolls. `Router` records each emitted note-on's PITCH + velocity into a per-cell ring (`cellNotePitch`/`cellNoteVel`
+  6 slots/cell, `cellNoteHead`/`cellNoteNew`; recorded at the strike site in `emitOneBus`, fixed storage, no render-path
+  alloc); `drainCellNotes()` returns per-cell the notes emitted since the last drain (up to 6, oldest→newest) + a count,
+  FRESH copies (read-and-clear, no COW-race). Forwarded `Kernel.drainCellNotes` → `AU.pollCellNotes` → VC polls into
+  `cellNotePitch/Vel/Count` (stored only on a tick carrying notes) → `GridView`. CONSUMER: the perform-grid piano-roll
+  face (`rollAccumulate`) now places one mark PER emitted note at its REAL pitch lane (`rollLaneForPitch`, C2–C6 → 0–1;
+  a chord → a vertical stack), falling back to the hash only when the feed is empty. +1 RouterTest
+  (`testCellNoteFeedRecordsEmittedPitches`). Still to consume: the BUILD note-sweep CONTOUR axis + the reel/row-select
+  faces can now read real pitch too.**
 - **▶ PIANO-ROLL CELL FACE LANDED (2026-08-19, on `main`; iOS builds; UI-only, DEVICE eye owed). Paul: "change the cell
   animation to echo a piano roll — notes passing left→right as they sound; gentle, pretty, not distracting." `GridUI`:
   a new `pianoRollFace` replaces the mosaic/comet on the grid (flag `usePianoRollFace = true`; `drawMosaic`/the seal

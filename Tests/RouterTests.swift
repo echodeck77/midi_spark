@@ -2120,6 +2120,31 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(router.drainCellStrikes().allSatisfy { $0 == 0 }, "drain is read-and-clear")
     }
 
+    // NOTE-SWEEP feed (Paul 2026-08-19): drainCellNotes records the REAL emitted pitches (+ velocities) per cell.
+    func testCellNoteFeedRecordsEmittedPitches() {
+        let cs = arpColours()
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .arp)]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<8 {
+            router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: beat, tempo: tempo,
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        let notes = router.drainCellNotes()
+        XCTAssertEqual(notes.count.count, 64)
+        XCTAssertGreaterThan(Int(notes.count[0]), 0, "cell (0,0) emitted notes → recorded at index 0")
+        XCTAssertEqual(notes.count[1], 0, "a silent cell records nothing")
+        let n0 = Int(notes.count[0])
+        for k in 0..<n0 {                                            // every recorded pitch is one the arp actually played
+            XCTAssertTrue([60, 64, 67].contains(Int(notes.pitch[0 * 6 + k])), "recorded pitch is an arp note of C-E-G")
+            XCTAssertGreaterThan(notes.vel[0 * 6 + k], 0, "each note carries a velocity")
+        }
+        XCTAssertTrue(router.drainCellNotes().count.allSatisfy { $0 == 0 }, "drain is read-and-clear")
+    }
+
     // SEAL comet gate: a cell HOLDING a note reports its bit in the sounding mask (index col*8+row) for exactly as
     // long as it sounds; on release the bit clears. This is the note-on/off feed that binds the spark to the hold.
     func testCellSoundingGateReflectsHeldNoteThenClears() {

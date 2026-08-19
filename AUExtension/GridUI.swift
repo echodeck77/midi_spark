@@ -176,6 +176,9 @@ struct GridView: View {
     var cellSounding: [Bool] = []                    // SEAL comet: per-cell note-on/off gate (currently sounding)
     var cellReleasedAt: [Date] = []                  // SEAL comet: per-cell last release time (for the fade)
     var cellStrikeSeq: [Int] = []                    // MOSAIC: per-cell moment counter (each strike moment → the next rectangle)
+    var cellNotePitch: [UInt8] = []                  // NOTE-SWEEP: per-cell recent emitted note pitches (6 slots/cell)
+    var cellNoteVel: [UInt8] = []                    // NOTE-SWEEP: their velocities
+    var cellNoteCount: [UInt8] = []                  // NOTE-SWEEP: how many notes each cell emitted since the last poll (0–6)
     var dropHoverCell: GridPos? = nil                // §5: the cell under a palette drag (highlight the drop target)
     var staging: Bool = false                        // cell-edit staging: EMPTY cells pulse a border to invite tap-to-place
     var stagingColor: Color = stagingCyan            // the staged Colour's own hue (the pulse colour)
@@ -262,20 +265,30 @@ struct GridView: View {
         .onChange(of: playing) { p in if !p { cellRoll = Array(repeating: [], count: 64); rollPrevSeq = Array(repeating: 0, count: 64) } }   // transport stop → clear the rolls (idle cells rest)
     }
 
-    // Fold each new strike MOMENT into its cell's roll (a soft note, born now, at a varied lane). Cap per cell.
+    // Fold each new strike MOMENT into its cell's roll. With the NOTE-SWEEP feed we place one mark PER emitted note at
+    // its REAL pitch lane (a chord → a vertical stack); without it, fall back to one mark at a hashed lane. Cap per cell.
     private func rollAccumulate(_ seqs: [Int]) {
         guard usePianoRollFace else { return }
         let now = Date(); var roll = cellRoll; var changed = false
         for i in 0..<min(64, seqs.count) where i < rollPrevSeq.count && seqs[i] > rollPrevSeq[i] {
-            let vel = i < cellHitVel.count ? cellHitVel[i] : 0.6
-            let h = Double((UInt64(bitPattern: Int64(i &* 2654435761 &+ seqs[i] &* 40503)) >> 8) & 0xFF) / 255.0
-            roll[i].append(RollNote(born: now, vel: vel, lane: 0.2 + 0.6 * h))
-            if roll[i].count > 12 { roll[i].removeFirst(roll[i].count - 12) }
+            let cnt = i < cellNoteCount.count ? Int(cellNoteCount[i]) : 0
+            if cnt > 0 {                                         // REAL pitch: one mark per emitted note
+                for k in 0..<min(cnt, 6) where i * 6 + k < cellNotePitch.count {
+                    let nv = i * 6 + k < cellNoteVel.count ? Double(cellNoteVel[i * 6 + k]) / 127.0 : 0.6
+                    roll[i].append(RollNote(born: now, vel: nv, lane: rollLaneForPitch(Int(cellNotePitch[i * 6 + k]))))
+                }
+            } else {                                             // fallback (no note feed yet): one mark at a hashed lane
+                let vel = i < cellHitVel.count ? cellHitVel[i] : 0.6
+                let h = Double((UInt64(bitPattern: Int64(i &* 2654435761 &+ seqs[i] &* 40503)) >> 8) & 0xFF) / 255.0
+                roll[i].append(RollNote(born: now, vel: vel, lane: 0.2 + 0.6 * h))
+            }
+            if roll[i].count > 16 { roll[i].removeFirst(roll[i].count - 16) }
             changed = true
         }
         if changed { cellRoll = roll }
         rollPrevSeq = seqs
     }
+    private func rollLaneForPitch(_ note: Int) -> Double { min(1, max(0, Double(note - 36) / 48.0)) }   // C2…C6 (36…84) → 0…1
     // Drop notes that have crossed the cell (so an idle cell's roll empties → its TimelineView pauses). Runs on the beat poll.
     private func rollPrune() {
         guard usePianoRollFace else { return }
