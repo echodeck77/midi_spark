@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ RANDOMIZE = AN ENSEMBLE — grid-roll rework LANDED (2026-08-19, on `main`; macOS 773 green, iOS builds; DEVICE
+  ear owed). Design-ratified (ferry `REPLY-density-audit-answered`): the grid RANDOMIZE hands back A BAND, not 8 rolls.
+  **`Dice.rollEnsemble`** → 8 CONTRASTING archetypes (pad · bass · stab · arp · groove · texture · sparkle · wild), each
+  a small role-appropriate chain (drone hold · split-bottom→euclid · euclid chord-stab · arp · rotated euclid ·
+  `buildByRole` for the ONE dense TEXTURE row · chance→arp sparkle · `rollSimple` wild), validated audible + under a
+  **6-note** flood cap (`Dice.peakAt6` / `cap6Chord` — the design's probe fix; CHARACTER still judged at 3). Each row
+  carries a REGISTER HOME via `Colour.transpose` (bass −12 · lead/sparkle +12 · wild wanders), threaded through the
+  ephemeral-colour path (`setBuildEphemeralColours` tuple gained `transpose`; `renderDoc` sets `col.transpose`;
+  `buildColourTranspose` store + GC prune). `buildRunRandomizeGrid` sorts the 8 by complexity (now true BY CONSTRUCTION)
+  onto rows 1–8; rung-per-column is `buildAssignArcRungs` — a **sparse→peak→breath→land ARC** with jitter, replacing the
+  old random rung. `runRecorder` gained a `chord:` param. +2 DiceTests (ensemble audible/register-spread/density-spread;
+  peak-at-6 > peak-at-3 for a whole-chord striker). `rollSimple` kept (still tested, now BUILD-unused). Open follow-ups:
+  explicit events/beat density BANDS · richer call-and-response · SCALE-LOCK (own KEY-door session). See pending-tasks.**
 - **▶ REEL-TO-REEL — THE PASS BROWSER pop-up LANDED (2026-08-19, on `main`; macOS 771 green, iOS builds; DEVICE
   ear/eye owed). Reworks the reel glyph from a tap-replay toggle into an 8×8 pass browser. **ENGINE:** `ReelDeck`
   (Emission.swift, Foundation-only) gained a 32-slot HISTORY RING — one flat `hist` buffer sliced `histCap`(8192)

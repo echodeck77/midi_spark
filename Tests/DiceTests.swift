@@ -146,4 +146,30 @@ final class DiceTests: XCTestCase {
         let big = r.chain(sliderVals: Array(repeating: 0.5, count: 8), buttonOn: Array(repeating: true, count: 8))
         XCTAssertEqual(big.count, r.base.count, "extra live values neither trap nor grow the chain")
     }
+
+    // THE ENSEMBLE ROLL (design 2026-08-19): 8 contrasting archetypes — every row audible + under the 6-note flood cap,
+    // registers separated (a low and a high present), and a real density spread (the floor sparser than the peak).
+    func testEnsembleRollIsAudibleRegisterSpreadAndDensitySpread() {
+        for seed: UInt64 in [1, 7, 42, 99, 2024] {
+            var rng = DiceRNG(seed: seed)
+            let rows = Dice.rollEnsemble(using: &rng)
+            XCTAssertEqual(rows.count, 8, "one row per archetype")
+            for (i, row) in rows.enumerated() {
+                XCTAssertFalse(Dice.signature(row.chain).isEmpty, "row \(i) sounds (seed \(seed))")
+                XCTAssertLessThanOrEqual(Dice.peakAt6(row.chain), Dice.maxConcurrency, "row \(i) stays under the 6-note flood cap")
+            }
+            let transposes = rows.map { $0.transpose }
+            XCTAssertLessThan(transposes.min()!, 0, "a LOW register is present (bass)")
+            XCTAssertGreaterThan(transposes.max()!, 0, "a HIGH register is present (lead/sparkle)")
+            let cx = rows.map { Dice.evalRun($0.chain).sig.count }.sorted()
+            XCTAssertLessThan(cx.first!, cx.last!, "a real density spread — the sparsest floor below the densest peak")
+        }
+    }
+
+    // The CAP is judged at a 6-note chord: a whole-chord striker's peak scales with chord size (an arp's does not).
+    func testPeakAtSixExceedsPeakAtThreeForAWholeChordStriker() {
+        var euclid = ProcessorSlot(type: .euclid)
+        euclid.params.euclidPulses = 8; euclid.params.euclidSteps = 8; euclid.params.octaves = 1   // strikes the WHOLE chord every step
+        XCTAssertGreaterThan(Dice.peakAt6([euclid]), Dice.evalRun([euclid]).peak, "6 held notes ring where 3 did")
+    }
 }

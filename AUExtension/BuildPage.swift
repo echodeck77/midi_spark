@@ -153,8 +153,11 @@ extension DiagView {
     private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
             let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
-            VStack(spacing: 2) {
-                ForEach(0..<4, id: \.self) { lane in buildReelLane(lane, width: width, height: laneH, phase: phase) }
+            VStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { lane in
+                    if lane > 0 { Rectangle().fill(Color.white.opacity(0.22)).frame(width: width, height: 2) }   // divider between the four outputs
+                    buildReelLane(lane, width: width, height: laneH, phase: phase)
+                }
             }
             .overlay(alignment: .leading) {
                 if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5).offset(x: CGFloat(phase) * width) }
@@ -209,15 +212,12 @@ extension DiagView {
                     ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
                                with: .color(.white.opacity(0.07)), lineWidth: 0.5)
                 }
-                // OCTAVE dividers + C labels (left + right axis)
+                // OCTAVE dividers (horizontal at each C)
                 var n = lo
                 while n <= hi {
                     let y = yOf(n)
                     ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) },
                                with: .color(.white.opacity(0.10)), lineWidth: 0.5)
-                    let label = ctx.resolve(Text("C\(n / 12 - 1)").font(.system(size: 7, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.4)))
-                    ctx.draw(label, at: CGPoint(x: 11, y: y), anchor: .center)
-                    ctx.draw(label, at: CGPoint(x: sz.width - 11, y: y), anchor: .center)
                     n += 12
                 }
                 // NOTES
@@ -734,7 +734,7 @@ extension DiagView {
         buildStagingSyncIfPlaying()
     }
     // Push the ephemeral colour registry to the AU so renderDoc appends them (their machines resolve).
-    func buildSyncColours() { au?.setBuildEphemeralColours(buildColourReg.map { (id: $0.key, machine: $0.value) }) }
+    func buildSyncColours() { au?.setBuildEphemeralColours(buildColourReg.map { (id: $0.key, machine: $0.value, transpose: buildColourTranspose[$0.key] ?? 0) }) }
     // Allocate a NEW colour carrying `machine` + a custom hue: a free DOCUMENT slot if one remains, else an unlimited
     // EPHEMERAL colour ("b<n>"). Returns its id. (Paul 2026-08-15 — lifts the 16-slot cap.)
     private func buildNewColour(hex rawHex: UInt32, machine: [ProcessorSlot]) -> String {
@@ -853,7 +853,7 @@ extension DiagView {
         for p in buildParts { if let s = p.selID { live.insert(s) } }               // C3 (Paul 2026-08-16): a part's STORED selection keeps its colour alive — else GC frees it and buildLoadPart selects a dead id
         let dead = Set(buildColourReg.keys).union(colourHueOverride.keys).subtracting(live)
         guard !dead.isEmpty else { return }
-        for id in dead { buildColourReg[id] = nil; colourHueOverride[id] = nil }   // free ephemeral + variation hues
+        for id in dead { buildColourReg[id] = nil; colourHueOverride[id] = nil; buildColourTranspose[id] = nil }   // free ephemeral + variation hues + register
         let docDead = dead.filter { colourIDs.contains($0) }                        // document VARIATION slots → undefine
         if !docDead.isEmpty {
             au?.editDocument { doc in for id in docDead { if let i = colourIDs.firstIndex(of: id), i < doc.colours.count { doc.colours[i].defined = false; doc.colours[i].templateChain = nil } } }
@@ -953,30 +953,38 @@ extension DiagView {
     }
     private func buildRunRandomizeGrid() {
         var rng = SystemRandomNumberGenerator()
-        var chains: [[ProcessorSlot]] = []
-        var seen = Set<[Int]>()
-        var budget = 200
-        while chains.count < 8 && budget > 0 {
-            budget -= 1
-            let c = Dice.rollSimple(using: &rng)   // 1–3 processors MAX, all-contributing, capped, octave-only harmonize (Paul 2026-08-18)
-            let sig = Dice.signature(c)
-            guard !sig.isEmpty, seen.insert(sig).inserted else { continue }   // NON-silent + a DISTINCT output (no two the same)
-            chains.append(c)
-        }
-        guard chains.count == 8 else { return }                              // couldn't find 8 distinct (very rare) → leave the grid alone
-        chains.sort { buildComplexity($0) < buildComplexity($1) }            // ORDER BY complexity (ascending) …
+        // AN ENSEMBLE, not 8 rolls (design-ratified 2026-08-19): 8 CONTRASTING archetypes (pad · bass · stab · arp ·
+        // groove · texture · sparkle · wild), each register-separated (transpose) with an inherent density. Sparse-biased
+        // (most sparse→medium, ONE dense, the floor genuinely sparse), so the complexity sort orders something real.
+        let scored = Dice.rollEnsemble(using: &rng)
+            .map { (row: $0, cx: buildComplexity($0.chain)) }
+            .sorted { $0.cx < $1.cx }                                        // simple→complex — true BY CONSTRUCTION now
         buildPartCast = []
-        for r in 0..<8 {                                                     // … ALLOCATE in that order to the 8 standard colours (rows 1–8)
+        for r in 0..<8 {                                                     // ALLOCATE to the 8 standard colours (rows 1–8), carrying each row's register
             if r < buildRowUnder.count { buildRowUnder[r] = nil }
-            let id = buildNewTabColour(r, machine: chains[r])                // row r → the standard hue colourHexes[r] + its chain
+            let id = buildNewTabColour(r, machine: scored[r].row.chain, transpose: scored[r].row.transpose)
             buildPartCast.append(id)
             buildSetRow(r, to: id)
         }
-        for c in 0..<8 { buildStagingSel[c] = Int.random(in: 0..<8, using: &rng) }   // a fresh random rung per column
+        buildAssignArcRungs(&rng)                                            // rung-per-column = AN ARC, not random
         buildPendingTab = nil
         buildSelectID(buildRowColour(0) ?? "")
         buildGCColours()                                                     // free the colours the old rows used
         buildStagingSyncIfPlaying()
+    }
+    // Rung-per-column = AN ARC (design 2026-08-19). Rows are complexity-sorted (0 = sparsest), so pick LOW rows to OPEN,
+    // build to a mid PEAK, take ONE breath/drop, then LAND low — a phrase, not random noise (call-and-response as jitter).
+    private func buildAssignArcRungs(_ rng: inout SystemRandomNumberGenerator) {
+        let peak = Int.random(in: 3...4, using: &rng)                        // where the build crests
+        let breath = Int.random(in: 5...6, using: &rng)                     // the one breath/drop column
+        for c in 0..<8 {
+            if c == breath { buildStagingSel[c] = Int.random(in: 0...1, using: &rng); continue }   // drop to sparse
+            let up = Double(c) / Double(max(1, peak))
+            let down = Double(7 - c) / Double(max(1, 7 - peak))
+            let t = min(1, min(up, down))                                    // 0…1 triangular arc: rise to the peak, then fall
+            let base = Int((t * 6).rounded())
+            buildStagingSel[c] = max(0, min(7, base + Int.random(in: -1...1, using: &rng)))   // jitter = call-and-response seasoning
+        }
     }
     // MUTATE (under the part grid): 8 variations of the SELECTED colour's midi chain, laid onto the EXISTING row colours
     // in order of complexity. Each variation nudges a few params across all the chain's processors (mutateChain), may
@@ -1126,11 +1134,12 @@ extension DiagView {
     }
     // Mint a TAB colour: an ephemeral colour carrying `machine` with tab n's FIXED hue (colourHexes[n]), verbatim
     // (no uniquify — a tab always shows the same colour). (Paul 2026-08-17 — the 8-tab model)
-    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot]) -> String {
+    private func buildNewTabColour(_ n: Int, machine: [ProcessorSlot], transpose: Int = 0) -> String {
         let hex = n < colourHexes.count ? colourHexes[n] : 0x808080
         buildIDCounter += 1
         let id = "b\(buildIDCounter)"
         buildColourReg[id] = machine
+        if transpose != 0 { buildColourTranspose[id] = transpose } else { buildColourTranspose[id] = nil }   // REGISTER HOME
         colourHueOverride[id] = hex
         buildSyncColours()
         return id

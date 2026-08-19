@@ -46,11 +46,20 @@ second touch resumes. macOS 762 green (4 ReelDeck tests), iOS builds. **DEVICE E
   - **FULL-SCREEN + RECORDING GLYPH (Paul 2026-08-19)**: the pop-up now fills the screen (opaque backdrop, 8 equal rows
     fill the height). The reel glyph reads as RECORDING — red tape + a pulsing red dot while the tape captures live
     (`d.playing && !replaying`); green while a pass replays; dim stopped.
+  - **ROLL DIVIDERS v2 (Paul 2026-08-19)**: kept octave + cell dividers; REMOVED the C-axis text labels; added a divider
+    line between the four output lanes.
 - v1 caveats to revisit: the pass boundary is detected at the render-block START (a few ms of slop); a brief gap on STOP
   (CC123 → the grid re-emits at the next column); the glyph is BUILD-page-only (could go global); doesn't yet snapshot
   tempo/scene changes mid-record.
 
-## ★★ NEXT (design-ratified PRIORITY) — RANDOMIZE = AN ENSEMBLE (grid-roll rework) (2026-08-19)
+## ★★ RANDOMIZE = AN ENSEMBLE (grid-roll rework) — v1 LANDED (2026-08-19; commit in CLAUDE.md status)
+**BUILT:** `Dice.rollEnsemble` → 8 archetypes (pad · bass · stab · arp · groove · texture · sparkle · wild), each
+register-separated via `Colour.transpose` (threaded through the ephemeral-colour path) + inherent density; grid RANDOMIZE
+sorts by complexity + lays them onto the 8 rows; rung-per-column is now `buildAssignArcRungs` (a sparse→peak→breath→land
+ARC, not random); the flood CAP is judged at a 6-note chord (`Dice.peakAt6`), character at 3. macOS 773 green (+2). DEVICE
+EAR OWED. Follow-ups still open from the contract below: true events/beat density BANDS (v1 uses inherent archetype
+density + the complexity sort, not an explicit per-row budget); richer call-and-response (v1 = arc + jitter); SCALE-LOCK
+(its own KEY-door session). The full ratified contract, kept for the follow-ups:
 Ferry `REPLY-density-audit-answered` (design-side, absorbed 2026-08-19) answered my note-density audit and set the
 PRIORITY: **THE ROLL FIRST — ahead of the note-sweep plumbing AND the display/label reconcile queue.** Rationale: the
 roll is the front door's first impression; every STAGE press sells or kills the instrument, and chrome can't rescue

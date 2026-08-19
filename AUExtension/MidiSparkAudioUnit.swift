@@ -367,8 +367,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// encode/persist (those read `document`).
     /// BUILD's EPHEMERAL colours (beyond the 16 document slots) — id → its machine. renderDoc appends them so cells /
     /// auditions referencing them resolve. Never persisted (encode/persist read `document`). (Paul 2026-08-15)
-    private var buildEphemeralColours: [(id: String, machine: [ProcessorSlot])] = []
-    func setBuildEphemeralColours(_ cs: [(id: String, machine: [ProcessorSlot])]) { buildEphemeralColours = cs; scheduleRebuild() }
+    private var buildEphemeralColours: [(id: String, machine: [ProcessorSlot], transpose: Int)] = []
+    func setBuildEphemeralColours(_ cs: [(id: String, machine: [ProcessorSlot], transpose: Int)]) { buildEphemeralColours = cs; scheduleRebuild() }
 
     private func renderDoc() -> PluginState {
         if stagingRenderScene == nil, previewSolo == nil, buildEphemeralColours.isEmpty { return document }
@@ -376,6 +376,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         for e in buildEphemeralColours where !temp.colours.contains(where: { $0.colourID == e.id }) {   // append BUILD ephemeral colours
             var col = Colour(colourID: e.id, type: .arp)
             col.defined = true
+            col.transpose = max(-24, min(24, e.transpose))              // REGISTER HOME (ensemble roll 2026-08-19): the row's octave offset
             // An EMPTY machine is a born-audible PASSTHROUGH, not "no chain": store the bypassed-passgate placeholder,
             // else the builder collapses [] → nil and falls to the legacy A-face (an ARP) — a seeded empty tab-1 colour
             // played as an arp despite showing an empty chain. (Paul 2026-08-17)

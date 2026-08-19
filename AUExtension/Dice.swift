@@ -124,7 +124,7 @@ enum Dice {
     /// The shared OFFLINE PROBE: install `chain` as a single cell's machine, hold C-E-G at vel 100, freeze the playhead
     /// on the column, run the REAL Router for 3 beats, and return the recorder. It's the actual engine's output for the
     /// chain against a STANDARD input (so two chains compare on equal footing), not a capture of live playing.
-    static func runRecorder(_ chain: [ProcessorSlot]) -> DiceRecorder {
+    static func runRecorder(_ chain: [ProcessorSlot], chord: [UInt8] = [60, 64, 67]) -> DiceRecorder {
         var st = PluginState(colours: [Colour(colourID: "gold", type: .passgate)], scenes: [SceneState.empty()])
         st.colours[0].templateChain = chain.isEmpty
             ? [{ var s = ProcessorSlot(type: .passgate); s.bypassed = true; return s }()] : chain
@@ -135,7 +135,7 @@ enum Dice {
         st.synthesizeReceiversIfNeeded()
         let box = SnapshotBuilder.build(from: st)
         let router = Router(); var diag = KernelDiag(); let e = DiceRecorder()
-        let pool = NotePool(); for n: UInt8 in [60, 64, 67] { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
+        let pool = NotePool(); for n in chord { pool.noteOn(n, velocity: 100, channel: 0) }; pool.rebuildSorted()
         let frames: UInt32 = 4096   // big windows → few process calls (speed: this runs 100s of times per roll)
         let wb = Double(frames) * evalTempo / 60.0 / evalSR; var beat = 0.0, ts = 0.0
         while beat < 3.0 {
@@ -286,6 +286,76 @@ enum Dice {
             while budget > 0 { budget -= 1; let one = [randomSlot(using: &rng)]; if !signature(one).isEmpty { best = one; break } }
         }
         return best
+    }
+
+    // MARK: - THE ENSEMBLE ROLL (design-ratified 2026-08-19)
+    // The grid RANDOMIZE hands back A BAND, not 8 rolls: 8 CONTRASTING archetypes (pad · bass · stab · arp · groove ·
+    // texture · sparkle · wild), each with its own REGISTER (transpose) and inherent DENSITY. The set is sparse-biased
+    // (most sparse→medium, ONE dense = texture, the FLOOR = pad), so the caller's complexity sort orders something real.
+
+    struct EnsembleRow: Equatable { var chain: [ProcessorSlot]; var transpose: Int }
+    enum Archetype: CaseIterable { case pad, bass, stab, arp, groove, texture, sparkle, wild }
+
+    /// The flood CAP is judged at a 6-note WORST-CASE chord (design 2026-08-19) — closes the under-prediction: arp-driven
+    /// chains stay low-peak, whole-chord strikers double, so a real flood shows here. CHARACTER stays judged at 3 notes.
+    static let cap6Chord: [UInt8] = [48, 52, 55, 60, 64, 67]
+    static func peakAt6(_ chain: [ProcessorSlot]) -> Int { runRecorder(chain, chord: cap6Chord).peakConcurrency }
+
+    static func rollEnsemble(using rng: inout some RandomNumberGenerator) -> [EnsembleRow] {
+        Archetype.allCases.map { rollArchetype($0, using: &rng) }
+    }
+
+    static func rollArchetype(_ a: Archetype, using rng: inout some RandomNumberGenerator) -> EnsembleRow {
+        func attempt() -> [ProcessorSlot] {
+            var s = randomSlot(using: &rng)
+            switch a {
+            case .pad:                                                    // sustained bed — the sparsest FLOOR row
+                s.type = .drone; s.params.gate = Double.random(in: 0.85...1, using: &rng); return [s]
+            case .bass:                                                   // low pulse of the BOTTOM note only
+                var sp = randomSlot(using: &rng); sp.type = .split; sp.params.splitSet = ChordSplit(mode: .bottom, n: 1)
+                s.type = .euclid; s.params.rate = [.r1_4, .r1_8].randomElement(using: &rng)
+                s.params.euclidSteps = 8; s.params.euclidPulses = Int.random(in: 2...4, using: &rng); s.params.octaves = 1
+                return [sp, s]
+            case .stab:                                                   // rhythmic FULL-chord hits
+                s.type = .euclid; s.params.rate = [.r1_4, .r1_8].randomElement(using: &rng)
+                s.params.euclidSteps = 8; s.params.euclidPulses = Int.random(in: 3...5, using: &rng); s.params.octaves = 1
+                return [s]
+            case .arp:                                                    // an arpeggio lead, up a register
+                s.type = .arp; s.params.pattern = [.up, .down, .upDown].randomElement(using: &rng)
+                s.params.rate = [.r1_16, .r1_8].randomElement(using: &rng); s.params.octaves = Int.random(in: 1...2, using: &rng)
+                return [s]
+            case .groove:                                                 // a syncopated euclid figure
+                s.type = .euclid; s.params.rate = .r1_16; s.params.euclidSteps = [8, 16].randomElement(using: &rng)!
+                s.params.euclidPulses = Int.random(in: 4...6, using: &rng); s.params.euclidRot = Int.random(in: 1...4, using: &rng); s.params.octaves = 1
+                return [s]
+            case .texture:                                                // the ONE dense row — the full role chain
+                return buildByRole(using: &rng)
+            case .sparkle:                                                // high, glittery, thinned by chance
+                var ch = randomSlot(using: &rng); ch.type = .chance; ch.params.probability = Double.random(in: 0.45...0.7, using: &rng)
+                s.type = .arp; s.params.pattern = .up; s.params.octaves = Int.random(in: 2...3, using: &rng)
+                s.params.rate = [.r1_16t, .r1_32, .r1_16].randomElement(using: &rng)
+                return [ch, s]
+            case .wild:                                                   // surprise — a short all-contributing roll
+                return rollSimple(using: &rng)
+            }
+        }
+        var chain = attempt(); var tries = 6
+        while (signature(chain).isEmpty || peakAt6(chain) > maxConcurrency) && tries > 0 { tries -= 1; chain = attempt() }
+        if signature(chain).isEmpty {                                     // guaranteed-audible fallback — never a silent row
+            var s = randomSlot(using: &rng); s.type = .arp; s.params.octaves = 1; s.params.rate = .r1_8; chain = [s]
+        }
+        return EnsembleRow(chain: chain, transpose: transposeFor(a, using: &rng))
+    }
+
+    /// REGISTER HOME per archetype — bass drops, lead/sparkle lift, the rest sit mid; wild wanders. (Colour.transpose.)
+    private static func transposeFor(_ a: Archetype, using rng: inout some RandomNumberGenerator) -> Int {
+        switch a {
+        case .bass:            return -12
+        case .pad:             return [-12, 0].randomElement(using: &rng)!
+        case .arp, .sparkle:   return 12
+        case .wild:            return [-12, 0, 12].randomElement(using: &rng)!
+        default:               return 0
+        }
     }
 
     /// Up to 4 SLIDER macros — each morphs one (slot, Double-param) toward the far end of its range, KEPT only if that
