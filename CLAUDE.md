@@ -159,6 +159,15 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PIANO-ROLL CELL FACE LANDED (2026-08-19, on `main`; iOS builds; UI-only, DEVICE eye owed). Paul: "change the cell
+  animation to echo a piano roll — notes passing left→right as they sound; gentle, pretty, not distracting." `GridUI`:
+  a new `pianoRollFace` replaces the mosaic/comet on the grid (flag `usePianoRollFace = true`; `drawMosaic`/the seal
+  stay for the edit-page identity plate). Each strike MOMENT (`cellStrikeSeq`) births a soft white note mark that enters
+  at the LEFT and drifts RIGHT over `rollLife` (1.6s), easing in/out, opacity by velocity, at a stable per-note hashed
+  LANE (pitch isn't fed per-cell yet — that's the note-sweep plumbing). Accumulated in `cellRoll[64]` via
+  `onChange(cellStrikeSeq)` → `rollAccumulate`; pruned on the beat poll (`rollPrune`) + cleared on transport stop; the
+  per-cell TimelineView pauses when the cell has no live notes (calm at rest). Identity stays the cell's HUE. Set the
+  flag false to restore the mosaic.**
 - **▶ RANDOMIZE = AN ENSEMBLE — grid-roll rework LANDED (2026-08-19, on `main`; macOS 773 green, iOS builds; DEVICE
   ear owed). Design-ratified (ferry `REPLY-density-audit-answered`): the grid RANDOMIZE hands back A BAND, not 8 rolls.
   **`Dice.rollEnsemble`** → 8 CONTRASTING archetypes (pad · bass · stab · arp · groove · texture · sparkle · wild), each

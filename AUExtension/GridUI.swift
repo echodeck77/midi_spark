@@ -201,6 +201,11 @@ struct GridView: View {
     @State private var strokeVisited: Set<GridPos> = []   // cells already painted THIS stroke (fire once each)
     @State private var lastBeat: Double = 0
     @State private var lastBeatAt = Date()
+    // THE PIANO-ROLL FACE (Paul 2026-08-19): each strike MOMENT (cellStrikeSeq) births a scrolling note mark per cell.
+    struct RollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
+    @State private var cellRoll: [[RollNote]] = Array(repeating: [], count: 64)
+    @State private var rollPrevSeq: [Int] = Array(repeating: 0, count: 64)
+    private static let rollLife = 1.6                 // seconds a note takes to cross the cell (gentle)
     // §5 drag-and-drop (EDIT): the cell being dragged + the hovered drop target; the grid's measured size
     // maps a drag location (in the "grid" coordinate space) to a cell.
     struct GridPos: Hashable { let col: Int; let row: Int }
@@ -252,7 +257,35 @@ struct GridView: View {
         .simultaneousGesture(strokeGesture)              // STROKES: drag-paint while a verb is held
         .background(GeometryReader { g in Color.clear.onAppear { gridSize = g.size }.onChange(of: g.size) { gridSize = $0 } })
         .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathe = true } }
-        .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date() }
+        .onChange(of: beat) { newBeat in lastBeat = newBeat; lastBeatAt = Date(); rollPrune() }
+        .onChange(of: cellStrikeSeq) { seqs in rollAccumulate(seqs) }   // PIANO-ROLL: a strike moment → a new scrolling note
+        .onChange(of: playing) { p in if !p { cellRoll = Array(repeating: [], count: 64); rollPrevSeq = Array(repeating: 0, count: 64) } }   // transport stop → clear the rolls (idle cells rest)
+    }
+
+    // Fold each new strike MOMENT into its cell's roll (a soft note, born now, at a varied lane). Cap per cell.
+    private func rollAccumulate(_ seqs: [Int]) {
+        guard usePianoRollFace else { return }
+        let now = Date(); var roll = cellRoll; var changed = false
+        for i in 0..<min(64, seqs.count) where i < rollPrevSeq.count && seqs[i] > rollPrevSeq[i] {
+            let vel = i < cellHitVel.count ? cellHitVel[i] : 0.6
+            let h = Double((UInt64(bitPattern: Int64(i &* 2654435761 &+ seqs[i] &* 40503)) >> 8) & 0xFF) / 255.0
+            roll[i].append(RollNote(born: now, vel: vel, lane: 0.2 + 0.6 * h))
+            if roll[i].count > 12 { roll[i].removeFirst(roll[i].count - 12) }
+            changed = true
+        }
+        if changed { cellRoll = roll }
+        rollPrevSeq = seqs
+    }
+    // Drop notes that have crossed the cell (so an idle cell's roll empties → its TimelineView pauses). Runs on the beat poll.
+    private func rollPrune() {
+        guard usePianoRollFace else { return }
+        let now = Date(); var roll = cellRoll; var changed = false
+        for i in 0..<roll.count {
+            let before = roll[i].count
+            roll[i].removeAll { now.timeIntervalSince($0.born) > Self.rollLife }
+            if roll[i].count != before { changed = true }
+        }
+        if changed { cellRoll = roll }
     }
 
     // v57 PROMINENT COLUMN KEYS — a numbered 40px key per column; the active one lights while playing.
@@ -317,7 +350,10 @@ struct GridView: View {
             if isRouteCand {
                 EmptyView()                                 // §10 a routing candidate hides ALL content — only its colour, pulse + IN/OUT label show
             } else if let cell {
-                if useMosaicFace {
+                if usePianoRollFace {
+                    // THE PIANO-ROLL FACE — note marks drift left→right as the cell sounds (identity = the hue).
+                    pianoRollFace(col * 8 + row)
+                } else if useMosaicFace {
                     // THE MOSAIC (candidate F) — the derived breathing-Mondrian face fills the whole cell (branch).
                     mosaicFace(cell, col * 8 + row, hue: colour ?? cellBg)
                 } else {
@@ -519,6 +555,31 @@ struct GridView: View {
     // white scaled by `vel × life` (the same strike-feed envelope the seal comet uses: hold while sounding, fade
     // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
     // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
+    // THE PIANO-ROLL FACE (Paul 2026-08-19) — over the cell's HUE, soft white note marks enter at the left AS the cell
+    // sounds and drift right, fading; nothing at rest. Gentle + non-distracting. Cheap: ≤12 rounded bars, one Canvas,
+    // paused when the cell has no live notes. (Pitch isn't fed per-cell yet — the lane is a stable per-note hash.)
+    @ViewBuilder private func pianoRollFace(_ idx: Int) -> some View {
+        let notes = (idx >= 0 && idx < cellRoll.count) ? cellRoll[idx] : []
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused || notes.isEmpty)) { tl in
+            let now = tl.date
+            Canvas { ctx, size in
+                let barW = size.width * 0.17, barH = max(2.5, size.height * 0.085)
+                for n in notes {
+                    let age = now.timeIntervalSince(n.born)
+                    if age < 0 || age > Self.rollLife { continue }
+                    let prog = age / Self.rollLife                       // 0 (left, just sounded) → 1 (right, gone)
+                    let x = CGFloat(prog) * size.width
+                    let y = CGFloat(1 - n.lane) * size.height
+                    let fade = min(1.0, prog / 0.10) * min(1.0, (1 - prog) / 0.45)   // ease in at the left, out at the right
+                    let a = max(0.0, min(1.0, fade)) * (0.4 + 0.55 * n.vel)
+                    let rect = CGRect(x: x - barW / 2, y: y - barH / 2, width: barW, height: barH)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(a * 0.9)))
+                }
+            }
+        }
+        .padding(4).frame(maxWidth: .infinity, maxHeight: .infinity).allowsHitTesting(false)
+    }
+
     @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int, hue: Color) -> some View {
         let mhash = UInt64(sealHash(cell, colours: colours))
         let crest = mosaicCrest(hash: mhash)                    // §2 the crown shapes on the full-height square (twin-shared)
@@ -2021,6 +2082,10 @@ struct RoutingVizOverlay: View {
 // The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships. Internal (not
 // private) so the edit-page IDENTITY plate (EditPage.swift) reads the same switch.
 let useMosaicFace = true
+// THE PIANO-ROLL FACE (Paul 2026-08-19): the perform-grid cells echo a piano roll — soft note marks enter at the left
+// and drift right AS THE CELL SOUNDS, then fade. Gentle + calm (identity stays the cell's HUE). Overrides the mosaic on
+// the grid only; drawMosaic/the seal stay for the edit-page identity plate. Set false to restore the mosaic face.
+let usePianoRollFace = true
 
 /// Draw THE MOSAIC face into a Canvas. `hue` = the cell's own colour; the blocks ARE that colour, separated by a
 /// dark GROUT (thin lines — lighter than the old seal ink) and given depth by RANK (index 0 = biggest = darker;
