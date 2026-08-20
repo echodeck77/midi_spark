@@ -65,8 +65,34 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   `rangeHi` (+`rangeLoResolved`/`rangeHiResolved`), so it's a UI-surface item, not new engine.** STILL OPEN (each needs a
   device checkpoint — the latch/kernel is delicate + verified): STAGE 3
   REPLAY = the door input ring recording (a NEW engine feature, the door-loop v1); STAGE 4 FILE = .mid playback as living
-  input ("a file is a cable"); STAGE 5 the UI — the three SHEETS + console mode badges (tap=act / hold=sheet). Stages 3/4
-  are large new engine features; do them with the user + device.
+  input ("a file is a cable"). STAGE 3 REPLAY **DONE** (2026-08-20, `6ad8e34` — DoorRing input ring, self-arm, capture at
+  N-pass boundaries, pool from the loop; byte-identical, +tests; device-ear owed). STAGE 4 FILE engine foundation **DONE**
+  (2026-08-20, `aafdc97` — `MidiFile.decode` SMF parser + `DoorRing.loadLoop`; round-trips; 811 green). Interim UI:
+  door MODE row on BUILD (`c80b7bc`/`115ce17`) — but §5/§6 below RELOCATE it.
+  **⚠ DESIGN REVISION (config-sheets §4–§9, 2026-08-20) — answers "where does MIDI I/O live? it isn't per-build":**
+  (§5 LAYER MODEL) the **console = the raw-input layer** (door CONFIG is global/infrastructure, correct as-is); the
+  **compact grids = performance** (chrome-quiet, no config furniture); the **EYE opens a SPACIOUS VIEW = the detail layer**
+  where per-row door info + row I/O pickers live (the eye is a VIEW-ZOOM, not inspection — the earlier "eyes never set"
+  law is WITHDRAWN). (§4) door OWNERSHIP is per-row (which door a row hears); the door CONFIG stays global — the two
+  grains separated. (§6) **TWO STACKED BUTTONS bottom of the page: `[MIDI CONFIG]` / `[RACK CONFIG]`** (left of the
+  receiver strips, right of the record/reel button) → the MIDI sheet (4 INPUTS + 4 OUTPUTS) / the rack sheet. (§7) the
+  sheets are the TEACHING surface — every mode carries its plain-English description in place (reuse the friendly-labels
+  copy); `[RACK CONFIG]` bears the active setup ("OUT CHAIN · 2"). **⇒ my interim door-MODE row on the BUILD grid should
+  MOVE into the MIDI CONFIG sheet (spacious view); the compact grid keeps at most a per-row door-tint edge (visibility
+  only). Don't polish the BUILD-grid version.**
+  **§9 NAMES RATIFIED (user-facing text ONLY — code identifiers NEVER rename, standing law):** "door" → **MIDI INPUT**
+  (sheet "MIDI INPUTS"; per-row badge "INPUT: A"; radio "INPUT MODE"); "rack" → **OUTPUT CHAIN** (sheet header; button
+  "OUT CHAIN · 2"; strip button "CHAIN"; the 4 configs → **SETUP 1–4**). So `DoorMode`/`rackConfigs`/`setDoorMode` etc.
+  stay as-is in code; only the LABELS change when the sheets are built.
+  STILL OPEN: STAGE 5 the UI — the MIDI CONFIG + RACK CONFIG sheets (spacious/teaching), the two bottom buttons, the
+  per-row INPUT badges, console mode badges; FILE's import (Files picker) + document storage + Kernel wiring; the
+  RECORD button move to the top-right banner (Paul's separate ask). Do the sheets with the user (big UI reframe).
+- **MOD · SPAN + INTERNAL TARGETS** (`Docs/AcceptanceCriteria/AcceptanceCriteria-mod-span-target.md`, 2026-08-20 — MOD
+  grows two axes, NOT a new processor): §1 STEPS gains **SPAN: PERIOD|ROW|ROW×2|ROW×4** (the drawn steps lock to the
+  row's columns / 16 / 32 breakpoints across passes, `stepIndex = floor(beat×rate)%N` — the polymeter law, replay-safe).
+  §2 TARGET gains **THIS CHAIN → [param picker]** (the macro-authoring param list, reused): internal mode emits NO CC —
+  it writes the param's OFFSET LANE (the macro offset engine; MEAN/last-writer; macros + MOD compose on one lane);
+  MIN/MAX re-range; ON EXIT RESET|HOLD applies to the offset. Partially lands the CC-RAIL birthstone's mapped-values half.
 - **THE MELODY/CHORD SUITE** (`Docs/AcceptanceCriteria/AcceptanceCriteria-melody-suite-UNRATIFIED.md`, UNRATIFIED —
   CAPTURE ONLY, do NOT build). RIFF (capture+remap) · TRIGGER (chords play the melody's rhythm; STAB|CLOCK) · HARMONIZE
   SOLI mode (dynamic block harmony from a door's pool) · PEDAL (hold the bar/cell's first note; FOLD-to-home register) ·

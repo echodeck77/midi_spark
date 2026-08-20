@@ -97,3 +97,127 @@ flip unseen.
 - **The circle, noted**: the reel's own SMF exports re-import as
   door material — capture the answer, feed it back as a question.
   The instrument can now listen to itself.
+
+## §4 — ROWS WEAR THEIR EARS (Paul, 2026-08-20: "the door info
+## isn't per row" — the two grains separated)
+- **The mismatch, named**: the console = the DOORS' OWN config
+  (infrastructure — global, correct as-is). Door OWNERSHIP is
+  per-row — and nothing on the rows showed it. Two grains, one
+  surface: the felt wrongness.
+- **THE ROW DOOR BADGE**: each row's edge wears a small letter
+  (A–D, in the door's tint) — per-row ownership always visible.
+  The two-depth law applies:
+  - **TAP = cycle the row to the next door** (boundary-deferred;
+    the input-side twin of the output-swap experiment — "what
+    would this row sound like hearing the pads?" in one touch).
+  - **HOLD = the row's I/O popover** (door + emitter pickers for
+    THAT row; the part-level defaults shown as the inherited
+    state).
+- **The EYE stays inspection** — it shows, it never sets; the
+  badge is the control. Eyes keep their meaning everywhere.
+- The console strips + sheets (§1–3) are unchanged: doors
+  configured at the console; rows re-eared at the rows. Each
+  grain at its own home.
+
+## §5 — CORRECTION (Paul, 2026-08-20: the eye ruling reversed;
+## the layer model established)
+- **§4's eye refusal is WITHDRAWN.** Paul's intent: the grid eyes
+  open A MORE SPACIOUS VERSION of each grid (yet to be built) —
+  a view-zoom, not inspection. My "eyes never set" law was the
+  window-popup lineage misapplied. Author intent governs.
+- **THE LAYER MODEL (Paul's, now the record)**:
+  - **The console = the RAW-INPUT layer** — the sliders are the
+    material's trim, door-adjacent, pre-derivation. Not a
+    performance surface, and correctly so.
+  - **The compact grids = PERFORMANCE** — chrome-quiet, no
+    config furniture added.
+  - **The eye's SPACIOUS VIEW = the detail layer** — where
+    per-row door info, row I/O pickers, and (later) seat-grade
+    controls get the room they need.
+- **§4 revised accordingly**: the ROW DOOR controls live in the
+  EXPANDED view (the eye is the access path — Paul's original
+  suggestion, correct). The compact grid may carry at most a
+  minimal door-tint edge per row (visibility only, no control);
+  even that awaits his glass. The two-depth badge grammar from
+  §4 transfers into the spacious view intact.
+
+## §6 — THE TWO BUTTONS (Paul, 2026-08-20: the entry points,
+## placed)
+- **Two stacked buttons, bottom of the page**: **[MIDI CONFIG]**
+  on top, **[RACK CONFIG]** below — seated LEFT of the receiver
+  strips, RIGHT of the record/reel button, below the MIDI chain
+  + emitters panel. The dead corner earns its keep.
+- **MIDI CONFIG** → the MIDI sheet: the four DOORS (§1's door
+  sheet content — mode radio LATCH·HOLD·REPLAY·KEYS·FILE, cable/
+  channel, per-door sections) + the four WIRES. One sheet, both
+  sides of the plumbing.
+- **RACK CONFIG** → the rack sheet (§1: the setups radio · the
+  membership matrix · the treatment stack).
+- **Reconciliation**: the buttons are the PRIMARY, discoverable
+  entry. §2's strip grammar survives as shortcuts (tap badge =
+  the act · hold = jump straight to that door's section of the
+  sheet). Visible furniture for finding; gestures for speed.
+
+## §7 — SPACIOUS SHEETS + TRUTHFUL BUTTONS (Paul, 2026-08-20)
+- **THE SHEETS ARE THE TEACHING SURFACE**: generous spacing, one
+  section per door, and **every mode and control carries its
+  plain-English description IN PLACE** (not hidden in tooltips) —
+  e.g. "LATCH — notes toggle in and out of the held pool" ·
+  "REPLAY — loops the last n passes of what you played" · "FILE —
+  a MIDI file plays as this door's input." **Source text = the
+  friendly-labels copy pass** (already written; reuse verbatim,
+  extend for the new modes). The chrome-quiet law's stated
+  exception: set-once surfaces may be wordy — config teaches,
+  performance stays silent (the cog precedent).
+- **THE BOTTOM BUTTONS BEAR THEIR STATE** (the chip-never-lies
+  law):
+  - Each strip's LATCH button = the DYNAMIC MODE BADGE (§2
+    ratified): **LATCH · HOLD · RPLY·4 · KEYS · FILE** — the
+    door's truth, always visible.
+  - **[RACK CONFIG] wears the active setup**: "RACK · 2" — which
+    configuration is live, readable from across the room; the
+    strip RACK marks keep showing membership as ruled.
+  - [MIDI CONFIG] stays label-only (no single state to bear;
+    the badges beside it carry the per-door truth).
+
+## §8 — NAMING (Paul, 2026-08-20: no metaphors — CANDIDATES ONLY,
+## NOTHING RATIFIED; Paul decides)
+**"Door" → lean: INPUT.** The strips already say MIDI IN — the
+literal name was there all along. Sheet = "MIDI INPUTS"; per-row
+badge = "INPUT: A"; the radio = "INPUT MODE" (LATCH · HOLD ·
+REPLAY · KEYS · FILE — all already literal). Alternates:
+RECEIVER (Paul's prose word; more technical) · SOURCE (collides
+with MOD's SOURCE — avoid). "Door" retires to design-side slang.
+
+**"Rack" → lean: OUTPUT CHAIN.** Literal (a processor chain on
+the outputs) AND consistent — the sibling of MIDI CHAIN, one
+vocabulary at two positions: "play this MIDI chain" per row, an
+OUTPUT CHAIN on the wires. Button reads "OUTPUT CHAIN · 2" (the
+active setup); membership mark = a chain-link glyph; the four
+configs = SETUP 1–4. Alternates: OUTPUT PROCESSORS (zero reuse
+of "chain," longer) · OUTPUT FX (rejected — implies audio) ·
+BUS (rejected — a metaphor again, and collides with the old bus
+dots).
+
+**Knock-ons when decided**: user-facing text only — code
+identifiers never rename (the standing law); the §0 "door chips"
+in the melody suite become INPUT chips; the door-loop ferry's
+prose updates at capture. The buttons: [MIDI CONFIG] stands (or
+MIDI SETUP — noting SETUP would then collide with the output
+chain's setups; CONFIG is safer).
+
+## §9 — NAMES RATIFIED + THE SHORT FORMS (Paul, 2026-08-20)
+- **MIDI INPUT / MIDI OUTPUT** — ratified (the sheets: "MIDI
+  INPUTS" / "MIDI OUTPUTS"; per-row badge "INPUT: A"; the radio
+  "INPUT MODE"). "Door" retires to design slang.
+- **OUTPUT CHAIN** — ratified, with the size ladder:
+  - Full contexts (the sheet header, the manual): **OUTPUT CHAIN**.
+  - The bottom config button: **OUT CHAIN · 2** (the active setup
+    borne, per §7).
+  - **The strip button: CHAIN** — on an output strip, context
+    supplies the qualifier ("this output's chain"); 5 chars fits
+    the old RACK seat. If glass ever finds it colliding with the
+    row-level MIDI chain, the fallback = the link glyph (🔗) +
+    state, zero words.
+  - The four configurations: **SETUP 1–4**.
+- Ripple: user-facing text only; identifiers stand (the law).
