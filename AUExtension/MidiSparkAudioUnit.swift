@@ -468,6 +468,16 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
     func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
     func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
+    // FILE (config-sheets stage 4): decode a loaded .mid into the door's clip (stored on the document, copy-in). Sets the
+    // door to FILE mode. Returns false if the file didn't parse into notes. Large files are capped (doc-size guard).
+    @discardableResult func setDoorFile(_ i: Int, data: Data, name: String) -> Bool {
+        guard let (notes, loopBeats) = MidiFile.decode(data), loopBeats > 0 else { return false }
+        let capped = Array(notes.prefix(8192))
+        editReceiver(i) { $0.fileClip = capped; $0.fileLoopBeats = loopBeats; $0.fileName = name; $0.doorMode = .file }
+        return true
+    }
+    func clearDoorFile(_ i: Int) { editReceiver(i) { $0.fileClip = nil; $0.fileLoopBeats = nil; $0.fileName = nil } }
+    func uiDoorFileName(_ i: Int) -> String? { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].fileName : nil }
     func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
         editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
     }

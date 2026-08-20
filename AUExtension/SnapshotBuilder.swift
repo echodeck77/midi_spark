@@ -208,6 +208,10 @@ enum SnapshotBuilder {
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
         let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
         let receiverReplayMask = packMask(doc.receiversResolved.map { $0.doorModeResolved == .replay })   // REPLAY doors
+        let receiverFile: [SnapFileClip] = doc.receiversResolved.map { r in   // FILE clips — only for a door in FILE mode with a loaded clip
+            guard r.doorModeResolved == .file, let clip = r.fileClip, !clip.isEmpty, let lb = r.fileLoopBeats, lb > 0 else { return SnapFileClip() }
+            return SnapFileClip(beats: clip.map { $0.beat }, notes: clip.map { $0.note }, vels: clip.map { $0.vel }, ons: clip.map { $0.on }, loopBeats: lb)
+        }
         let receiverReplayPasses = doc.receiversResolved.map { UInt8($0.replayPassesResolved) }
 
         // PER-PART CLOCK (Paul 2026-08-19): resolve each row's step + loop length from the scene's per-row overrides
@@ -266,6 +270,7 @@ enum SnapshotBuilder {
                            receiverPianoNotes: receiverPianoNotes,
                            receiverReplayMask: receiverReplayMask,
                            receiverReplayPasses: receiverReplayPasses,
+                           receiverFile: receiverFile,
                            macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved)
     }

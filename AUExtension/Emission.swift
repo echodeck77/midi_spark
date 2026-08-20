@@ -196,6 +196,13 @@ final class DoorRing {
         loopN = 0; loopLen = max(0, lengthBeats)
         for e in events where loopN < DoorRing.cap { loop[loopN] = Ev(beat: e.beat, note: e.note, vel: e.vel, on: e.on); loopN += 1 }
     }
+    /// Load from PARALLEL arrays (the box's SnapFileClip carries them) — no allocation, so it's safe to call on the
+    /// render thread when the FILE clip changes. Arrays are the same length; caller guarantees ordering. (Paul 2026-08-20)
+    func loadLoopParallel(beats: [Double], notes: [UInt8], vels: [UInt8], ons: [Bool], lengthBeats: Double) {
+        loopN = 0; loopLen = max(0, lengthBeats)
+        let n = min(beats.count, min(notes.count, min(vels.count, ons.count)))
+        for k in 0..<n where loopN < DoorRing.cap { loop[loopN] = Ev(beat: beats[k], note: notes[k], vel: vels[k], on: ons[k]); loopN += 1 }
+    }
 
     /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
     /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.

@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit   // ReelShareSheet (UIActivityViewController) — REEL-TO-REEL export
+import UniformTypeIdentifiers   // FILE import: the .mid content type for the door sheet's file picker
 
 // The ONE workshop voice: which SHOP section sounds — the MIDI CHAIN audition, the PART grid, or NEITHER. Each header
 // toggles its own section (play ⇄ stop) so both can be off; picking one stops the other (they never sound together).
@@ -87,6 +88,10 @@ extension DiagView {
             }
             .overlay(alignment: .bottomLeading) { buildBottomBar() }                                     // bottom-left cluster: RECORD · RATE · MIDI/OUT-CHAIN config (Paul 2026-08-20)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
+            .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
+                          allowedContentTypes: [UTType.midi, UTType(filenameExtension: "mid") ?? .data], allowsMultipleSelection: false) { result in
+                buildHandleFileImport(result)                                                             // FILE import → decode + load onto the picking door
+            }
         } else {
             Color.clear
         }
@@ -178,7 +183,7 @@ extension DiagView {
                     switch m {
                     case .keys:   buildDoorKeyboardInline(i, r)
                     case .replay: buildDoorReplayInline(i, r)
-                    case .file:   Text("Load a .mid — import coming soon.").font(.system(size: 11, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                    case .file:   buildDoorFileInline(i, r)
                     default:      EmptyView()
                     }
                 }.padding(.leading, 29)
@@ -267,6 +272,42 @@ extension DiagView {
                     }
                 }.frame(width: width, height: height)
             )
+    }
+    // FILE (inline): load a .mid → it loops as this door's input. Shows the loaded name + REMOVE, or a LOAD button.
+    @ViewBuilder private func buildDoorFileInline(_ i: Int, _ r: Receiver) -> some View {
+        HStack(spacing: 10) {
+            if let name = r.fileName {
+                Image(systemName: "music.note").font(.system(size: 12)).foregroundColor(buildCyan)
+                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9)).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+                Text("REPLACE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                    .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan.opacity(0.16)))
+                    .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
+                Text("REMOVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                    .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { au?.clearDoorFile(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            } else {
+                Text("LOAD .MID").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                    .padding(.horizontal, 14).frame(height: 30).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
+                    .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
+                Text("plays the file as this door's input").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                Spacer(minLength: 0)
+            }
+        }
+    }
+    // Handle the Files-picker result: read the .mid bytes (security-scoped) and decode onto the picking door.
+    private func buildHandleFileImport(_ result: Result<[URL], Error>) {
+        let door = buildFileImportDoor; buildFileImportDoor = nil
+        guard let door, case .success(let urls) = result, let url = urls.first else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { buildFlashPromote("COULDN'T READ THE FILE"); return }
+        if au?.setDoorFile(door, data: data, name: url.lastPathComponent) == true {
+            receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
+            buildFlashPromote("LOADED \(url.lastPathComponent)")
+        } else {
+            buildFlashPromote("NOT A READABLE MIDI FILE")
+        }
     }
     // KEYS (inline): the fresh multi-octave piano + CLEAR. (buildKeyboard is NOT reused — it's broken from a prior context.)
     @ViewBuilder private func buildDoorKeyboardInline(_ i: Int, _ r: Receiver) -> some View {

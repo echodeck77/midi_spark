@@ -248,6 +248,19 @@ final class SnapshotBuilderTests: XCTestCase {
         // REPLAY doors are NOT piano/keys-latch by construction (doorMode == .replay resolves both to false)
         XCTAssertEqual(b.receiverPianoMask & 0b0101, 0, "a REPLAY door is not a PIANO door")
     }
+    // FILE (config-sheets stage 4): a FILE door's stored clip packs into the box (only when in FILE mode with a clip).
+    func testFileClipPacksIntoTheBoxForAFileDoor() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        let clip = [MidiFile.NoteEvent(beat: 0, note: 60, vel: 100, on: true), MidiFile.NoteEvent(beat: 1, note: 60, vel: 0, on: false)]
+        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .file; r.fileClip = clip; r.fileLoopBeats = 4; return r }(),
+                        { var r = Receiver(name: "2"); r.doorMode = .replay; r.fileClip = clip; r.fileLoopBeats = 4; return r }(),   // FILE data but NOT file mode → ignored
+                        Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.receiverFile[0].loopBeats, 4, "door 0 (FILE) carries its clip")
+        XCTAssertEqual(b.receiverFile[0].notes, [60, 60])
+        XCTAssertEqual(b.receiverFile[1].loopBeats, 0, "door 1 is REPLAY, not FILE → no clip packed")
+        XCTAssertEqual(b.receiverFile[2].loopBeats, 0, "a plain door has no clip")
+    }
     func testReplayPassesClampToTheAllowedSet() {
         var r = Receiver(name: "x"); r.replayPasses = 7
         XCTAssertEqual(r.replayPassesResolved, 1, "an out-of-set value clamps to 1")

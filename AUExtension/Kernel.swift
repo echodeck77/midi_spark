@@ -156,6 +156,10 @@ final class Kernel {
     // MANUAL CATCH (Paul 2026-08-20): a REPLAY door records continuously but only LOOPS after the user presses "LAST N"
     // — that captures the last N passes as a fixed loop and ENGAGES it (press again = release, back to live input).
     private var replayEngagedMask: UInt8 = 0        // which REPLAY doors are actively looping (ephemeral)
+    // FILE (config-sheets stage 4): doors playing a loaded .mid clip. The clip arrives in the box (race-safe); on a
+    // generation change it's loaded into the door's ring, then plays like an always-engaged loop (phase = beat mod len).
+    private var fileMask: UInt8 = 0
+    private var fileClipGen: UInt64 = .max          // the box generation whose FILE clips are loaded into the rings
     private var replayAnchor = [Double](repeating: 0, count: 4)   // the beat each loop was captured at → phase = (beat − anchor) mod loopLen
     private var replayCatchToggle: UInt8 = 0        // UI request: toggle door i's catch this render (bit i)
     func toggleReplayCatch(_ i: Int) { if i >= 0 && i < 4 { replayCatchToggle |= UInt8(1 << i) } }
@@ -207,6 +211,9 @@ final class Kernel {
         for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // REPLAY: only an ENGAGED door (LAST N pressed) loops → its cells read the loop
             m |= UInt8(1 << i)
         }
+        for i in 0..<4 where (fileMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // FILE: a loaded clip plays always → self-arms
+            m |= UInt8(1 << i)
+        }
         return m
     }
     // TWO LATCH MODES: per-receiver ADD flag (from the box) + preallocated rising-edge state (ADD only).
@@ -224,13 +231,14 @@ final class Kernel {
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
             }
             guard isArmed else { continue }
-            if replayMask & bit != 0 && replayEngagedMask & bit != 0 {
-                // REPLAY (engaged): the frozen pool = the captured loop SOUNDING at the current phase. The loop was
-                // captured at replayAnchor[i] and re-based to [0, loopLen), so phase = (beat − anchor) mod loopLen plays
-                // from the loop's start at capture time. Refresh each render (pure f(beat) → replay-safe). STAMP the wire.
+            if (replayMask & bit != 0 && replayEngagedMask & bit != 0) || (fileMask & bit != 0) {
+                // REPLAY (engaged) / FILE: the frozen pool = the loop SOUNDING at the current phase. REPLAY was captured
+                // at replayAnchor[i] (phase = beat − anchor); a FILE clip plays from beat 0 (anchor 0). Re-based to
+                // [0, loopLen). Refresh each render (pure f(beat) → replay-safe). STAMP the door's wire channel.
                 let ring = doorRings[i]
                 guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
-                var phase = (renderBeatPos - replayAnchor[i]).truncatingRemainder(dividingBy: ring.loopLen)
+                let anchor = (fileMask & bit != 0) ? 0.0 : replayAnchor[i]
+                var phase = (renderBeatPos - anchor).truncatingRemainder(dividingBy: ring.loopLen)
                 if phase < 0 { phase += ring.loopLen }
                 let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf)
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
@@ -537,6 +545,7 @@ final class Kernel {
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
         reel.clear(); reelLastPass = Int.min                                     // THE REEL-TO-REEL: drop the tape on reset
         for r in doorRings { r.clearLoop() }; replayEngagedMask = 0; replayCatchToggle = 0   // REPLAY: drop each door's loop + disengage on reset
+        fileMask = 0; fileClipGen = .max                                         // FILE: force a reload of clips from the box on the next render
         router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
     }
 
@@ -556,6 +565,21 @@ final class Kernel {
         pianoNotes = box.receiverPianoNotes
         replayMask = box.receiverReplayMask             // REPLAY: which doors loop their input ring
         replayPasses = box.receiverReplayPasses
+        // FILE: load each door's clip into its ring when the snapshot generation changes (a clip edit → a new box).
+        if fileClipGen != box.generation {
+            fileClipGen = box.generation
+            var fm: UInt8 = 0
+            for i in 0..<4 {
+                let clip = box.receiverFile[i]
+                if clip.loopBeats > 0 {
+                    doorRings[i].loadLoopParallel(beats: clip.beats, notes: clip.notes, vels: clip.vels, ons: clip.ons, lengthBeats: clip.loopBeats)
+                    fm |= UInt8(1 << i)
+                } else if fileMask & (1 << UInt8(i)) != 0 {   // was FILE, now cleared → drop the ring loop
+                    doorRings[i].clearLoop()
+                }
+            }
+            fileMask = fm
+        }
         effectiveLatchMask = computeEffectiveLatchMask()   // PIANO SELF-ARM: fold PIANO-with-notes doors into the latch mask
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
