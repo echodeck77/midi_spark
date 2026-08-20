@@ -54,9 +54,15 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   REPLAY (the DOOR LOOP as a mode — input ring, PASSES 1·2·4·8 loop as living input) · KEYS (on-screen) · FILE (a loaded
   .mid loops as living input; "a FILE IS A CABLE" — CH/BLOCK/OCT/vel all apply; beat-locked f(file,beat), replay-safe).
   Console strips wear a dynamic MODE BADGE (label + tap-act: LATCH clear · RPLY·n re-catch · FILE play/pause). The RACK
-  SHEET carries the SETUPS radio (RACK 1–4) + membership matrix + treatment stack — resolves the §2 two-verbs. A large,
-  multi-part build (config-sheet infra · door modes · rack configs · FILE import). Reconcile REPLAY/FILE with the
-  door-loop ferry (siblings: remembered vs loaded input).
+  SHEET carries the SETUPS radio (RACK 1–4) + membership matrix + treatment stack — resolves the §2 two-verbs. Reconcile
+  REPLAY/FILE with the door-loop ferry (siblings: remembered vs loaded input).
+  **ENGINE MODEL — staged:** STAGE 1 the 4 RACK CONFIGS **DONE** (2026-08-20, `0933cf2` — rackConfigs/rackActiveConfig +
+  resolvers, builder reads the active config, AU edits it, byte-identical, +3 tests). STILL OPEN (each needs a device
+  checkpoint — the latch/kernel is delicate + verified): STAGE 2 the DOOR MODE enum (LATCH·HOLD·KEYS reframe the 3
+  EXISTING latch modes via a resolver from latchAdd/latchPiano — behaviour-preserving; kernel reads the mode); STAGE 3
+  REPLAY = the door input ring recording (a NEW engine feature, the door-loop v1); STAGE 4 FILE = .mid playback as living
+  input ("a file is a cable"); STAGE 5 the UI — the three SHEETS + console mode badges (tap=act / hold=sheet). Stages 3/4
+  are large new engine features; do them with the user + device.
 - **THE MELODY/CHORD SUITE** (`Docs/AcceptanceCriteria/AcceptanceCriteria-melody-suite-UNRATIFIED.md`, UNRATIFIED —
   CAPTURE ONLY, do NOT build). RIFF (capture+remap) · TRIGGER (chords play the melody's rhythm; STAB|CLOCK) · HARMONIZE
   SOLI mode (dynamic block harmony from a door's pool) · PEDAL (hold the bar/cell's first note; FOLD-to-home register) ·
