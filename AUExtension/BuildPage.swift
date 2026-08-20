@@ -414,8 +414,9 @@ extension DiagView {
                 if !reelShowPopup {
                     VStack(alignment: .trailing, spacing: 5) {  // RIGHT — the two config buttons
                         buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }
-                        buildConfigButton("OUT CHAIN")   { activeTab = .emitters }
+                        buildConfigButton("RACK CONFIG") { activeTab = .emitters }   // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
                     }
+                    .offset(y: -8)                              // nudge the config buttons up a little (Paul 2026-08-20)
                 }
             }
             if !reelShowPopup { buildRateControl() }             // CENTRE — the rate (ZStack top-centre)
