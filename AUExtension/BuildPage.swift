@@ -83,6 +83,7 @@ extension DiagView {
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
+                if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                     // THE MIDI INPUTS sheet (config-sheets stage 5)
             }
             .overlay(alignment: .bottomLeading) { buildBottomBar() }                                     // bottom-left cluster: RECORD · RATE · MIDI/OUT-CHAIN config (Paul 2026-08-20)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
@@ -100,6 +101,137 @@ extension DiagView {
     }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
+    // ── THE MIDI INPUTS SHEET (config-sheets stage 5, §1/§5/§7/§9 — Paul 2026-08-20) ─────────────────────────────────
+    // The spacious DETAIL layer for the four INPUT doors: INPUT MODE radio (LATCH·HOLD·KEYS·REPLAY·FILE, each with its
+    // plain-English line) · channel · octave · note range · the mode's own extras. Config lives at the thing; the sheet
+    // teaches (wordy is allowed here — performance stays silent elsewhere). Names per §9: "MIDI INPUTS" · "INPUT MODE".
+    private static let buildDoorModeCopy: [DoorMode: String] = [
+        .latch:  "Notes toggle in and out of the held pool.",
+        .hold:   "A new chord replaces the held pool.",
+        .keys:   "Pick the held notes on an on-screen keyboard.",
+        .replay: "Loops the last N passes of what you played, as this door's input.",
+        .file:   "A MIDI file plays as this door's input. (import coming soon)",
+    ]
+    @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
+        let recvs = au?.uiReceivers() ?? []
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildMidiConfigOpen = false }
+            VStack(spacing: 0) {
+                HStack {
+                    Text("MIDI INPUTS").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
+                    Spacer()
+                    Button { buildMidiConfigOpen = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(buildDim).padding(8)
+                    }
+                }.padding(.horizontal, 20).padding(.vertical, 14)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 14) {
+                        ForEach(0..<4, id: \.self) { i in buildDoorSection(i, r: i < recvs.count ? recvs[i] : Receiver()) }
+                    }.padding(.horizontal, 20).padding(.bottom, 24)
+                }
+            }
+            .frame(width: min(560, size.width - 40), height: min(size.height - 60, size.height))
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        }
+    }
+    @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
+        let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
+        let mode = r.doorModeResolved
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {                                    // header: INPUT letter · channel · octave
+                Text("INPUT \(["A", "B", "C", "D"][i])").font(.system(size: 14, weight: .black, design: .monospaced)).foregroundColor(hue)
+                Spacer()
+                buildDoorChannelMenu(i, r)
+                buildDoorOctave(i)
+            }
+            Text("INPUT MODE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+            ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, current: mode) }
+            if mode == .replay { buildDoorReplayPasses(i, r) }
+            if mode == .keys { buildDoorKeyboard(i, r) }
+            buildDoorRange(i, r)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(hue.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(0.3), lineWidth: 1))
+    }
+    // One INPUT MODE row: the radio + its plain-English description (the teaching line).
+    @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, current: DoorMode) -> some View {
+        let on = current == m
+        HStack(alignment: .top, spacing: 10) {
+            Circle().stroke(buildCyan.opacity(0.85), lineWidth: 1.5).frame(width: 15, height: 15)
+                .overlay(Circle().fill(buildCyan).frame(width: 8, height: 8).opacity(on ? 1 : 0)).padding(.top, 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(m.rawValue.uppercased()).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(on ? 0.95 : 0.6))
+                Text(Self.buildDoorModeCopy[m] ?? "").font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { au?.setDoorMode(i, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+    }
+    @ViewBuilder private func buildDoorReplayPasses(_ i: Int, _ r: Receiver) -> some View {
+        let cur = r.replayPassesResolved
+        HStack(spacing: 6) {
+            Text("LOOP").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            ForEach([1, 2, 4, 8], id: \.self) { n in
+                Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(cur == n ? .black : buildCyan)
+                    .frame(width: 34, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
+                    .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(i, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            }
+            Text("passes").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+            Spacer(minLength: 0)
+        }.padding(.leading, 25)
+    }
+    @ViewBuilder private func buildDoorKeyboard(_ i: Int, _ r: Receiver) -> some View {
+        HStack {
+            buildKeyboard(receiver: i, held: Set(r.pianoNotesResolved), enabled: true, width: 300)
+            Text("CLEAR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                .padding(.horizontal, 8).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
+                .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+        }.padding(.leading, 25)
+    }
+    @ViewBuilder private func buildDoorChannelMenu(_ i: Int, _ r: Receiver) -> some View {
+        Menu {
+            Button { au?.setReceiverChannel(i, 0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() } label: { Text("OMNI") }
+            ForEach(1...16, id: \.self) { ch in Button { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() } label: { Text("CH \(ch)") } }
+        } label: {
+            Text(r.channel == 0 ? "OMNI" : "CH \(r.channel)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                .padding(.horizontal, 9).frame(height: 26).background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+        }
+    }
+    @ViewBuilder private func buildDoorOctave(_ i: Int) -> some View {
+        let oct = i < receiverOctave.count ? receiverOctave[i] : 0
+        HStack(spacing: 3) {
+            Text("OCT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            buildOctBtn("−") { nudgeReceiverOctave(i, -1) }
+            Text(oct > 0 ? "+\(oct)" : "\(oct)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 22)
+            buildOctBtn("+") { nudgeReceiverOctave(i, +1) }
+        }
+    }
+    @ViewBuilder private func buildDoorRange(_ i: Int, _ r: Receiver) -> some View {
+        let lo = Int(r.rangeLoResolved), hi = Int(r.rangeHiResolved)
+        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
+        HStack(spacing: 8) {
+            Text("RANGE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            buildRangeStepper(name: midiNoteName(UInt8(lo)), dec: { au?.setReceiverRange(i, lo: max(0, lo - 1), hi: hi); refresh() },
+                              inc: { au?.setReceiverRange(i, lo: min(hi, lo + 1), hi: hi); refresh() })
+            Text("…").foregroundColor(buildDim)
+            buildRangeStepper(name: midiNoteName(UInt8(hi)), dec: { au?.setReceiverRange(i, lo: lo, hi: max(lo, hi - 1)); refresh() },
+                              inc: { au?.setReceiverRange(i, lo: lo, hi: min(127, hi + 1)); refresh() })
+            if lo == 0 && hi == 127 { Text("(all notes)").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim.opacity(0.6)) }
+            Spacer(minLength: 0)
+        }
+    }
+    @ViewBuilder private func buildRangeStepper(name: String, dec: @escaping () -> Void, inc: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            buildOctBtn("−", action: dec)
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 34)
+            buildOctBtn("+", action: inc)
+        }
+    }
+
     // THE BOTTOM-LEFT CLUSTER (Paul 2026-08-20): RECORD (reel) · RATE (per-part) · the two CONFIG buttons — MIDI CONFIG
     // (the doors) + OUT CHAIN (the rack/output-chain setups, §9 name). The record button stays leftmost; the rate sits
     // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
@@ -110,8 +242,8 @@ extension DiagView {
             if !reelShowPopup {
                 buildRateControl()
                 VStack(spacing: 5) {
-                    buildConfigButton("MIDI CONFIG") { activeTab = .receivers }   // the doors (MIDI INPUT)
-                    buildConfigButton("OUT CHAIN")   { activeTab = .emitters }    // the rack / OUTPUT CHAIN
+                    buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // the doors (MIDI INPUTS) — the spacious sheet
+                    buildConfigButton("OUT CHAIN")   { activeTab = .emitters }        // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
                 }
             }
         }
@@ -407,8 +539,7 @@ extension DiagView {
     // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {                      // (the colour TABS moved up to buildPaletteColumn, above the outlined section — Paul 2026-08-18)
-            AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6)   // the MIDI-IN (receiver) selector (Paul 2026-08-18)
-            AnyView(buildDoorModeRow(castW: castW)).padding(.bottom, 16)    // DOOR MODE — LATCH·HOLD·KEYS·REPLAY for the selected door (config-sheets, Paul 2026-08-20)
+            AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — door CONFIG moved to the MIDI CONFIG sheet (config-sheets §5, Paul 2026-08-20)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
                                               height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack
@@ -748,45 +879,6 @@ extension DiagView {
                 buildOctBtn("OCT +") { nudgeReceiverOctave(sel, +1) }
             }.frame(width: 176)
         }
-    }
-    // THE DOOR MODE on BUILD (config-sheets stages 2/3, Paul 2026-08-20): the selected door's behaviour, reachable in the
-    // workshop under the MIDI-IN chips. LATCH (toggle in/out) · HOLD (chord replaces) · KEYS (keyboard) · REPLAY (loop the
-    // input — PASSES 1·2·4·8). The selected door = the current row's receiver, else the part default (mirrors the chips).
-    @ViewBuilder private func buildDoorModeRow(castW: CGFloat) -> some View {
-        let recvs = au?.uiReceivers() ?? []
-        let sel = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-        let mode = sel < recvs.count ? recvs[sel].doorModeResolved : .latch
-        VStack(spacing: 4) {
-            Text("DOOR R\(sel + 1) MODE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(buildDim).frame(maxWidth: .infinity, alignment: .leading).frame(width: castW)
-            HStack(spacing: 3) {
-                buildDoorModeChip("LATCH", .latch, mode, sel)
-                buildDoorModeChip("HOLD", .hold, mode, sel)
-                buildDoorModeChip("KEYS", .keys, mode, sel)
-                buildDoorModeChip("REPLAY", .replay, mode, sel)
-            }.frame(width: castW)
-            if mode == .replay {                                    // REPLAY: how many passes of input loop back
-                let cur = sel < recvs.count ? recvs[sel].replayPassesResolved : 1
-                HStack(spacing: 4) {
-                    Text("LOOP").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                    ForEach([1, 2, 4, 8], id: \.self) { n in
-                        Text("\(n)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                            .foregroundColor(cur == n ? .black : buildCyan)
-                            .frame(width: 26, height: 22)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
-                            .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(sel, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-                    }
-                    Text("passes").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
-                }
-            }
-        }
-    }
-    @ViewBuilder private func buildDoorModeChip(_ label: String, _ m: DoorMode, _ cur: DoorMode, _ sel: Int) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(cur == m ? .black : buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 5).fill(cur == m ? buildCyan : buildCyan.opacity(0.13)))
-            .contentShape(Rectangle())
-            .onTapGesture { au?.setDoorMode(sel, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
     }
 
     // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
