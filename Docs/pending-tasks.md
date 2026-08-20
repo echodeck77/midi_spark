@@ -5,23 +5,26 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
-## ★ FERRY 2026-08-20 — reel PASS BROWSER fixes + BANKING workflow (Paul + design; captured, awaiting Paul's go)
-- **PASS BROWSER v1 — four DISPLAY-LAYER fixes** (`Docs/AcceptanceCriteria/AcceptanceCriteria-pass-browser-v1-fixes.md`),
-  all render-only on the reel pop-up I shipped: (1) COLLAPSE EMPTY LANES — emitter lanes with no events become thin
-  labelled strips; active lanes divide the freed height (single-emitter sessions → lane A ~4× resolution). (2) SELECTION
-  IN BOTH VIEWS — cyan wash on the selected pass's span in the roll + **tapping the roll selects the pass under the
-  finger**. (3) SAVE carries scope — button reads **SAVE PASS n**. (4) optional: dim future-slot numbers (wait unless it
-  confuses). These are small + concrete — the readiest build here.
+## ★ FERRY 2026-08-20 — REDESIGN FIXES + reel fixes + banking (much LANDED unattended 2026-08-20)
+- **REDESIGN FIXES** (`Docs/AcceptanceCriteria/AcceptanceCriteria-redesign-fixes.md`): §3 QUIET LEFT BOX DONE (`871d94d`
+  — neutral chrome frame, hue accent only when the chain audition sounds, thin hue spine on the left edge). §1 CHAIN
+  PANEL DONE (`6a43129` — ghost-dashed empties + a flow line drawing ORDER with turn marks; the flow-line GEOMETRY is a
+  first pass, device eye owed to tune). **§2 THE RACK TWO VERBS — BLOCKED, needs engine**: the "RACK ▸ [1][2][3][4]"
+  radio ("which rack setup is live") presumes 4 rack CONFIGS; the engine has ONE `rackEnabledMask`. Needs a design/engine
+  call (4 saved rack configs + membership per config) before the membership-mark + relocated-radio UI can land.
+- **PASS BROWSER v1 fixes** (`…-pass-browser-v1-fixes.md`): §1 DONE (`34b91cd` — SAVE PASS n · collapse empty lanes ·
+  neutral selection wash). DEFERRED: "tap the roll to select the pass under the finger" needs the roll to become a
+  MULTI-PASS session timeline (the shipped v1 roll is single-pass) — a larger change; §4 dim-future-slots optional.
 - **PAUL'S FOUR + THE CARRIAGE + TIMELINE PAIR** (same doc §2–§4, roadmap, Paul walks): BANK-AND-FOLLOW (overwrite-row
   switches the edit target — the ladder as a typewriter carriage `[◀][chips][BANK ▶]`, forward deals / backward visits);
   SUB-PASS + TRACK-FILTERED saves (drag a roll region / toggle lane labels); PASS RANGES (drag pass chips → SAVE PASSES
   3–6); DEEP HISTORY (the 32-ring stands + an opt-in SESSION TAPE file); REVERT-TO-HERE (per-pass state snapshots, restore
   as one forward event — "revert the revert"); PASS LABELS (per-pass changelog badges). = the reel as **TAPE·SNAPSHOTS·LOG**.
-- **THE BANKING WORKFLOW — semantic pins for the OVERWRITE strip** (`Docs/AcceptanceCriteria/AcceptanceCriteria-banking-
-  workflow.md`): EDIT-target vs BANK-targets (current chip EDITING vs tap-to-overwrite); banking = a SNAPSHOT not a link;
-  the editor STAYS after banking; rows own their hue. Clarity set: occupied/empty chip states, stamp flash + "ROW n ✓",
-  HOLD-chip = preview that row's machine, audition runs through the loop. NB: overwrite-to-row + transactional editor
-  already shipped (`853699e`-era) — these refine the DISPLAY/feel; reconcile against what's built before acting.
+- **THE BANKING WORKFLOW** (`…-banking-workflow.md`): the STAMP TELL ("ROW n ✓" on overwrite) DONE (`4f4b34a`). Design
+  confirmed the shipped overwrite-and-follow IS the §2-1 bank-and-follow ruling; the one NET-NEW mechanism is §3 THE
+  CARRIAGE `[◀][chips][BANK ▶]` (forward deals + follow · backward visits, never stamps). STILL OPEN (display polish over
+  the tuned editor tabs, device eye): EDITING vs tap-to-overwrite chip states, occupied/hollow, HOLD-chip = preview that
+  row's machine. The CARRIAGE is the buildable net-new when Paul greenlights.
 
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
