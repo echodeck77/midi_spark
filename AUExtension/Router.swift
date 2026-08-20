@@ -1596,7 +1596,7 @@ final class Router {
     /// Return from the body to skip a tick (the equivalent of `continue`).
     private func iterateTicks(row: Int, effColumn: Int, sub: Double, gateFraction: Double,
                               beatPos: Double, windowBeats: Double, windowStart: Int64,
-                              beatsPerSample: Double, S: Double, a: Double,
+                              beatsPerSample: Double, S: Double, a: Double, columns: Int = Snap.cols,
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         let mStart = musicalOf(beatPos, stepBeats: S, a: a)
@@ -1614,7 +1614,7 @@ final class Router {
             // fire during the current window even though the tick's TRUE column differs. With no lap,
             // lapColumn returns the tick's true column and this is the original `tickCol == effColumn`.
             let tickStep = Int((mTickBeat / S).rounded(.down))
-            let tickTrueCol = ((tickStep % Snap.cols) + Snap.cols) % Snap.cols
+            let tickTrueCol = ((tickStep % columns) + columns) % columns   // wrap over the ROW's loop length (Lr < 8 → the short loop re-fires each pass)
             // PLAY: THIS CELL holds one column → its ticks fire EVERY window (decoupled from the timeline); normally
             // a tick fires only in its own effective column.
             if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }   // PER-ROW LAP
@@ -2408,7 +2408,7 @@ final class Router {
             // it never reaches into the next one. (Paul 2026-08-18)
             iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                          beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                         beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, _, _ in
+                         beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
                 let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
                 if pat[step] { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
             }
@@ -2901,7 +2901,7 @@ final class Router {
 
         iterateTicks(row: r, effColumn: effColumn, sub: arpBeats, gateFraction: gate,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                     beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
+                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { tick, mTickBeat, onTime, offTime in
             let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: colour.a.phase,
                                   runStartColumn: cell.runStartColumn)
@@ -2961,7 +2961,7 @@ final class Router {
         if r == diag.activeCellRow { diag.effMorphGold = 0;   diag.effRateBeats = sub }
         iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.6,
                      beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
-                     beatsPerSample: beatsPerSample, S: S, a: a) { _, mTickBeat, onTime, offTime in
+                     beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cycleBeats / S).rounded()))) { _, mTickBeat, onTime, offTime in
             let colStart = columnStart(mTickBeat, S)
             let repIdx = Int(((mTickBeat - colStart) / sub).rounded())    // 0…repeats-1
             let tbm = chopMask(cell, m: mTickBeat, S: S, base: bm)         // §cell-edit F CHOP: routes by the 8-slice

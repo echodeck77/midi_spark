@@ -1915,7 +1915,7 @@ extension DiagView {
                         }
                     }
                 }
-                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying, stepB: buildPartRate?.beats, lenC: buildPartLen) }   // PER-PART: the current part's own rate/length
+                .overlay(alignment: .topLeading) { buildPlayhead(cell: cell, active: buildStagingPlaying, stepB: buildPartRate?.beats, lenC: buildStagingLane != 0 ? buildDeployLength() : buildPartLen) }   // PER-PART: rate/length — and when LOOPED, the playhead covers only the looped span (Paul 2026-08-19)
                 .overlay { RoundedRectangle(cornerRadius: 10).stroke(buildPartInk, lineWidth: 1.5).padding(-4) }   // §2: the STAGING FRAME — bright-ink = the current part's bench
             }
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)

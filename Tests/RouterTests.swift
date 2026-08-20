@@ -173,6 +173,25 @@ final class RouterTests: XCTestCase {
         XCTAssertGreaterThan(e.ons.filter { $0.cable == 2 }.count, 8, "row 1's cell laps its own column 4 — independent of row 0's loop")
         assertNothingLeftSounding(e)
     }
+    // REGRESSION (Paul 2026-08-19): a length-4 arp played PASS 1 then went silent — iterateTicks wrapped the tick's
+    // column at Snap.cols (8), not the row's Lr, so after the first pass the tick column (mod 8) never matched the row's
+    // effective column (mod 4) again. A short loop must keep firing on every pass.
+    func testPerRowLengthKeepsFiringOnLaterPasses() {
+        let cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        let b = box(colours: cs) { s in
+            for c in 0..<4 { s.cells[c][0] = Cell(colourID: "gold", buses: [.a]) }   // arp across the 4-column loop
+            s.rowStepRate = [.r1_4, nil, nil, nil, nil, nil, nil, nil]               // 1 beat/step → cycR = 4 beats
+            s.rowLen = [4, nil, nil, nil, nil, nil, nil, nil]                        // loop over 4 columns
+        }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 16, into: e)                             // ~4 passes of the 4-beat loop
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertGreaterThan(ons.count, 0, "the arp sounds")
+        // beat b ≈ sample b·24000 (tempo 120 · sr 48000). Pass 1 ends ~sample 96000; firing past ~150000 proves the
+        // loop re-fires on later passes (was silent after pass 1 with the mod-8 bug).
+        XCTAssertGreaterThan(ons.map { $0.sample }.max() ?? 0, Int64(150_000), "the short loop keeps firing past the first pass")
+        assertNothingLeftSounding(e)
+    }
     // PER-PART LENGTH (Paul 2026-08-19): a row with a loop length < 8 loops over only its first Lr columns — a cell
     // placed beyond the length is never visited and stays silent, while a cell inside sounds. (Stage D: parts shorter
     // than the bar.) Row 0 loops columns 0–3; its column-1 cell sounds, its column-5 cell never does.
