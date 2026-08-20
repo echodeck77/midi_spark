@@ -20,11 +20,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   SUB-PASS + TRACK-FILTERED saves (drag a roll region / toggle lane labels); PASS RANGES (drag pass chips → SAVE PASSES
   3–6); DEEP HISTORY (the 32-ring stands + an opt-in SESSION TAPE file); REVERT-TO-HERE (per-pass state snapshots, restore
   as one forward event — "revert the revert"); PASS LABELS (per-pass changelog badges). = the reel as **TAPE·SNAPSHOTS·LOG**.
-- **THE BANKING WORKFLOW** (`…-banking-workflow.md`): the STAMP TELL ("ROW n ✓" on overwrite) DONE (`4f4b34a`). Design
-  confirmed the shipped overwrite-and-follow IS the §2-1 bank-and-follow ruling; the one NET-NEW mechanism is §3 THE
-  CARRIAGE `[◀][chips][BANK ▶]` (forward deals + follow · backward visits, never stamps). STILL OPEN (display polish over
-  the tuned editor tabs, device eye): EDITING vs tap-to-overwrite chip states, occupied/hollow, HOLD-chip = preview that
-  row's machine. The CARRIAGE is the buildable net-new when Paul greenlights.
+- **THE BANKING WORKFLOW** (`…-banking-workflow.md`): STAMP TELL DONE (`4f4b34a`); THE CARRIAGE `[◀][chips][BANK ▶]` DONE
+  (`5ae1037` — BANK ▶ deals to the next row + follows, ◀ visits the previous fossil, both disable at the ends);
+  occupied=filled / empty=hollow editor chip states DONE (`0c94064`). STILL OPEN (device eye): the EDITING-vs-tap-to-
+  overwrite live-mark refinement + HOLD-chip = preview that row's machine.
 
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
