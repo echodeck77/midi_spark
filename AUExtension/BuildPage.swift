@@ -125,11 +125,12 @@ extension DiagView {
         }
     }
 
-    // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step RATE + loop LENGTH live in the part grid's top-right
-    // corner (opposite the eye). A part deployed at a different rate plays at a DIFFERENT TEMPO; a length < 8 loops
-    // SHORTER (columns past it are outside the loop, dimmed). One corner menu, two sections. "—" rate = scene default.
-    @ViewBuilder private func buildRateControl(cell: CGFloat) -> some View {
+    // PER-PART CLOCK (Paul 2026-08-19): the CURRENT part's step RATE + loop LENGTH. A prominent PILL FLOATING over the
+    // part grid's top-right (not a grid cell) — a part deployed at a different rate plays at a DIFFERENT TEMPO; a
+    // length < 8 loops SHORTER. One menu, two sections. "—" rate = scene default. (Made prominent Paul 2026-08-19.)
+    @ViewBuilder private func buildRateControl() -> some View {
         let len = buildPartLen ?? Snap.cols
+        let active = buildPartRate != nil || len < Snap.cols
         Menu {
             Section("STEP RATE") {
                 Button { buildSetPartRate(nil) } label: { Label("DEFAULT (scene rate)", systemImage: buildPartRate == nil ? "checkmark" : "circle") }
@@ -145,15 +146,22 @@ extension DiagView {
                 }
             }
         } label: {
-            VStack(spacing: 0) {
-                Text(buildPartRate?.rawValue ?? "—").font(.system(size: min(13, cell * 0.44), weight: .heavy, design: .monospaced))
-                    .minimumScaleFactor(0.6).lineLimit(1).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
-                Text("L\(len)").font(.system(size: min(11, cell * 0.36), weight: .heavy, design: .monospaced))
-                    .minimumScaleFactor(0.6).lineLimit(1).foregroundColor(len == Snap.cols ? buildDim : sceneAmberHue)
+            HStack(spacing: 9) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("RATE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    Text(buildPartRate?.rawValue ?? "—").font(.system(size: 21, weight: .black, design: .monospaced)).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
+                }
+                Rectangle().fill(Color.white.opacity(0.14)).frame(width: 1, height: 28)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("LOOP").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    Text("\(len)").font(.system(size: 21, weight: .black, design: .monospaced)).foregroundColor(len < Snap.cols ? sceneAmberHue : buildDim)
+                }
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundColor(buildDim.opacity(0.8))
             }
-            .frame(width: cell, height: cell)
-            .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke((buildPartRate == nil && len == Snap.cols) ? Color.clear : buildCyan, lineWidth: 1.5))
+            .padding(.horizontal, 13).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 11).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(active ? buildCyan.opacity(0.75) : Color.white.opacity(0.16), lineWidth: 1.5))
+            .shadow(color: .black.opacity(0.5), radius: 7, x: 0, y: 3)   // floats ABOVE the grid, not a cell of it
             .contentShape(Rectangle())
         }
     }
@@ -1921,7 +1929,7 @@ extension DiagView {
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
-        .overlay(alignment: .topTrailing) { buildRateControl(cell: cell) }              // PER-PART RATE in the top-right corner cell (opposite the eye — Paul 2026-08-19)
+        .overlay(alignment: .topTrailing) { buildRateControl().padding(.top, -4).padding(.trailing, 2) }   // PER-PART RATE — a prominent pill FLOATING over the grid's top-right (Paul 2026-08-19)
     }
     // The part-grid row-button action, shared by the LEFT and RIGHT rails (Paul 2026-08-18).
     private func buildStagingRowAction(_ row: Int) {
