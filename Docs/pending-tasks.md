@@ -5,6 +5,24 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
 
+## ★ FERRY 2026-08-20 — reel PASS BROWSER fixes + BANKING workflow (Paul + design; captured, awaiting Paul's go)
+- **PASS BROWSER v1 — four DISPLAY-LAYER fixes** (`Docs/AcceptanceCriteria/AcceptanceCriteria-pass-browser-v1-fixes.md`),
+  all render-only on the reel pop-up I shipped: (1) COLLAPSE EMPTY LANES — emitter lanes with no events become thin
+  labelled strips; active lanes divide the freed height (single-emitter sessions → lane A ~4× resolution). (2) SELECTION
+  IN BOTH VIEWS — cyan wash on the selected pass's span in the roll + **tapping the roll selects the pass under the
+  finger**. (3) SAVE carries scope — button reads **SAVE PASS n**. (4) optional: dim future-slot numbers (wait unless it
+  confuses). These are small + concrete — the readiest build here.
+- **PAUL'S FOUR + THE CARRIAGE + TIMELINE PAIR** (same doc §2–§4, roadmap, Paul walks): BANK-AND-FOLLOW (overwrite-row
+  switches the edit target — the ladder as a typewriter carriage `[◀][chips][BANK ▶]`, forward deals / backward visits);
+  SUB-PASS + TRACK-FILTERED saves (drag a roll region / toggle lane labels); PASS RANGES (drag pass chips → SAVE PASSES
+  3–6); DEEP HISTORY (the 32-ring stands + an opt-in SESSION TAPE file); REVERT-TO-HERE (per-pass state snapshots, restore
+  as one forward event — "revert the revert"); PASS LABELS (per-pass changelog badges). = the reel as **TAPE·SNAPSHOTS·LOG**.
+- **THE BANKING WORKFLOW — semantic pins for the OVERWRITE strip** (`Docs/AcceptanceCriteria/AcceptanceCriteria-banking-
+  workflow.md`): EDIT-target vs BANK-targets (current chip EDITING vs tap-to-overwrite); banking = a SNAPSHOT not a link;
+  the editor STAYS after banking; rows own their hue. Clarity set: occupied/empty chip states, stamp flash + "ROW n ✓",
+  HOLD-chip = preview that row's machine, audition runs through the loop. NB: overwrite-to-row + transactional editor
+  already shipped (`853699e`-era) — these refine the DISPLAY/feel; reconcile against what's built before acting.
+
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
   `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.
