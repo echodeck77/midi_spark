@@ -366,7 +366,12 @@ extension DiagView {
                 AnyView(buildEmitterToggles(castW: castW)).padding(.top, 16)
             }
             .padding(10)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildEditSlot == nil ? buildSelHue : buildEdge, lineWidth: 2)))   // the big section outline — the SELECTED colour, but NEUTRAL while the processor editor is open (Paul 2026-08-19)
+            // §3 THE QUIET LEFT BOX (design 2026-08-17): the frame is NEUTRAL chrome — the loud full-saturation hue box
+            // was a CHANNEL COLLISION (frames = voice/zone duty, hue = machine duty). It gains the voice accent ONLY when
+            // the chain audition is sounding (the frame doing its own job); the machine's hue speaks through the chips,
+            // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
+            .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
