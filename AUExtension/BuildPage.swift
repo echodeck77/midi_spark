@@ -84,7 +84,7 @@ extension DiagView {
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
             }
-            .overlay(alignment: .bottomLeading) { buildReelButton() }                                   // THE REEL-TO-REEL (bottom-left of the page)
+            .overlay(alignment: .bottomLeading) { buildBottomBar() }                                     // bottom-left cluster: RECORD · RATE · MIDI/OUT-CHAIN config (Paul 2026-08-20)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
         } else {
             Color.clear
@@ -100,6 +100,31 @@ extension DiagView {
     }
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
+    // THE BOTTOM-LEFT CLUSTER (Paul 2026-08-20): RECORD (reel) · RATE (per-part) · the two CONFIG buttons — MIDI CONFIG
+    // (the doors) + OUT CHAIN (the rack/output-chain setups, §9 name). The record button stays leftmost; the rate sits
+    // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
+    // an interim until the SPACIOUS SHEETS (config-sheets §5–§7) are built.
+    @ViewBuilder private func buildBottomBar() -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            buildReelButton()                                   // RECORD (hides itself + keeps the share anchor when the pass browser is open)
+            if !reelShowPopup {
+                buildRateControl()
+                VStack(spacing: 5) {
+                    buildConfigButton("MIDI CONFIG") { activeTab = .receivers }   // the doors (MIDI INPUT)
+                    buildConfigButton("OUT CHAIN")   { activeTab = .emitters }    // the rack / OUTPUT CHAIN
+                }
+            }
+        }
+        .padding(.leading, 4).padding(.bottom, 8)
+    }
+    @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(buildCyan).lineLimit(1)
+            .frame(width: 92, height: 22)
+            .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.16), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
     @ViewBuilder private func buildReelButton() -> some View {
         if reelShowPopup {
             Color.clear.frame(width: 1, height: 1)                            // HIDDEN while the pass browser is open (Paul 2026-08-19)
@@ -2026,7 +2051,6 @@ extension DiagView {
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
-        .overlay(alignment: .topTrailing) { buildRateControl().padding(.top, -2).padding(.trailing, -16) }   // PER-PART RATE — a compact pill nudged right of the grid's top-right edge, clear of the header buttons (Paul 2026-08-20)
     }
     // The part-grid row-button action, shared by the LEFT and RIGHT rails (Paul 2026-08-18).
     private func buildStagingRowAction(_ row: Int) {
