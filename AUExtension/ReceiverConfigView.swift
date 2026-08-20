@@ -78,8 +78,12 @@ struct ReceiverConfigView: View {
     }
 
     // LATCH: the arm (left) + THREE mode radios (KEYS · CHORD · PIANO). PIANO reveals the on-screen keyboard below.
+    // THE DOOR MODE (config-sheets stage 2/3 — Paul 2026-08-20): the door's behaviour radio. LATCH (notes toggle in/out
+    // of the pool) · HOLD (a chord replaces the pool) · KEYS (pick on the keyboard, self-arming) · REPLAY (the door's
+    // input ring loops as living input — PASSES 1·2·4·8, self-arming). The lock ARM freezes LATCH/HOLD; KEYS/REPLAY
+    // self-arm. (Interim on the RECEIVERS tab — the full DOOR SHEET reframe is later.)
     private func latchSection(_ i: Int, _ r: Receiver) -> some View {
-        let armed = bit(latchMask, i), keys = r.latchAddResolved, piano = r.latchPianoResolved
+        let armed = bit(latchMask, i), mode = r.doorModeResolved
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Image(systemName: armed ? "lock.fill" : "lock.open").font(.system(size: 20, weight: .heavy))
@@ -88,14 +92,32 @@ struct ReceiverConfigView: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(armed ? amber : amber.opacity(0.14)))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(amber.opacity(armed ? 0 : 0.5), lineWidth: 1))
                     .contentShape(Rectangle()).onTapGesture { onToggleLatch(i) }
-                VStack(spacing: 8) {
-                    radio("LATCH: Add new notes to pool (KEYS)", on: !piano && keys) { au?.setReceiverLatchPiano(i, false); onSetLatchKeys(i, true) }
-                    radio("LATCH: Replace pool with new notes (CHORD)", on: !piano && !keys) { au?.setReceiverLatchPiano(i, false); onSetLatchKeys(i, false) }
-                    radio("LATCH: Pick notes on the keyboard (PIANO)", on: piano) { au?.setReceiverLatchPiano(i, true); onChanged() }
+                VStack(spacing: 6) {
+                    radio("LATCH — notes toggle in/out of the pool", on: mode == .latch) { au?.setDoorMode(i, .latch); onChanged() }
+                    radio("HOLD — a chord replaces the pool", on: mode == .hold) { au?.setDoorMode(i, .hold); onChanged() }
+                    radio("KEYS — pick notes on the keyboard", on: mode == .keys) { au?.setDoorMode(i, .keys); onChanged() }
+                    radio("REPLAY — loop the door's input", on: mode == .replay) { au?.setDoorMode(i, .replay); onChanged() }
                 }
             }
-            .frame(height: 82)
-            if piano { pianoKeyboard(i, r) }
+            .frame(height: 98)
+            if mode == .keys { pianoKeyboard(i, r) }
+            if mode == .replay { replayPassesRow(i, r) }
+        }
+    }
+    // REPLAY PASSES — how much input history loops (1·2·4·8 passes). (config-sheets stage 3)
+    private func replayPassesRow(_ i: Int, _ r: Receiver) -> some View {
+        let cur = r.replayPassesResolved
+        return HStack(spacing: 8) {
+            Text("LOOP").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.6))
+            ForEach([1, 2, 4, 8], id: \.self) { n in
+                Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                    .foregroundColor(cur == n ? .black : cyan.opacity(0.9))
+                    .frame(width: 34, height: 26)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(cur == n ? cyan : cyan.opacity(0.14)))
+                    .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(i, n); onChanged() }
+            }
+            Text("passes").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4))
+            Spacer(minLength: 0)
         }
     }
     // The on-screen keyboard (PIANO latch): a 1-octave piano (C3…B3); tap a key to pick/unpick it into the frozen pool.
