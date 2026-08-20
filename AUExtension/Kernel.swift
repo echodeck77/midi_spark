@@ -146,9 +146,50 @@ final class Kernel {
     // = the lock's `latchArmMask` OR'd with every PIANO door that has notes; it is what the Router + metering + the
     // latched-pool fill all read, so the frozen chord feeds the grid (and BYPASS) the moment notes are chosen.
     private var effectiveLatchMask: UInt8 = 0
+    // REPLAY (config-sheets stage 3, Paul 2026-08-20): each door has an input RING that records its live notes always
+    // (retro-capture); in REPLAY mode the last N passes loop back as the door's LIVING INPUT (it self-arms like PIANO,
+    // its cells read the looped pool, live input flows only into the ring). Empty replayMask ⇒ zero effect (byte-
+    // identical for every existing doc). ⚠ DEVICE EAR OWED — the audible loop can't be verified off-device.
+    private let doorRings = [DoorRing(), DoorRing(), DoorRing(), DoorRing()]
+    private var replayMask: UInt8 = 0
+    private var replayPasses = [UInt8](repeating: 1, count: 4)
+    private var renderBeatPos = 0.0                 // this render's beat — read by updateLatchedPools for the REPLAY phase
+    private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
+    private var recordPlaying = false
+    // Buffers for the REPLAY pool fill (fixed, no render-path alloc).
+    private var replayNoteBuf = [UInt8](repeating: 0, count: 128)
+    private var replayVelBuf = [UInt8](repeating: 0, count: 128)
+    // REPLAY: record an incoming note into every REPLAY door that HEARS it (cable + channel + range), timestamped at the
+    // event's beat. Only while PLAYING (the loop is beat-locked; a stopped instrument has no meaningful beat window).
+    private func recordReplay(note: UInt8, vel: UInt8, on: Bool, sampleTime: AUEventSampleTime, channel: UInt8, cable: Int) {
+        guard recordPlaying, replayMask != 0 else { return }
+        let beat = recordBeatBase + Double(Int64(sampleTime) - recordWinStart) * recordBps
+        for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0
+                          && receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
+                          && receiverHears(filter: receiverChannels[i], channel: channel)
+                          && (!on || (note >= receiverRangeLo[i] && note <= receiverRangeHi[i])) {   // range gates onsets; offs always record (pair cleanly)
+            doorRings[i].record(beat: beat, note: note, vel: vel, on: on)
+        }
+    }
+    // REPLAY: at each N-pass boundary, capture the last N passes as the door's loop (retro — never armed). N·cycleBeats
+    // is a multiple of the boundary here, so playback phase = beatPos mod loopLen aligns. Runs from the reel section
+    // (where the pass index is computed). Needs ≥ N passes of history before the first capture.
+    private func captureReplayLoops(reelPass: Int, cycleBeats: Double, beatPos: Double) {
+        guard replayMask != 0, cycleBeats > 0 else { return }
+        for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0 {
+            let n = Int(replayPasses[i] == 0 ? 1 : replayPasses[i])
+            if reelPass >= n && reelPass % n == 0 {
+                doorRings[i].capture(endBeat: beatPos, lengthBeats: Double(n) * cycleBeats)
+            }
+        }
+    }
+
     private func computeEffectiveLatchMask() -> UInt8 {
         var m = latchArmMask
         for i in 0..<4 where (pianoMask & (1 << UInt8(i))) != 0 && i < pianoNotes.count && !pianoNotes[i].isEmpty {
+            m |= UInt8(1 << i)
+        }
+        for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // REPLAY: a door with a captured loop self-arms → its cells read the loop
             m |= UInt8(1 << i)
         }
         return m
@@ -168,6 +209,21 @@ final class Kernel {
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
             }
             guard isArmed else { continue }
+            if replayMask & bit != 0 {
+                // REPLAY: the frozen pool = the captured loop SOUNDING at the current phase (beatPos mod loopLen). The
+                // loop is re-based to [0, loopLen) and capture happens at N-pass boundaries, so phase = beatPos mod
+                // loopLen aligns. Refresh each render (pure f(beat) → replay-safe). STAMP the door's wire channel.
+                let ring = doorRings[i]
+                guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
+                var phase = renderBeatPos.truncatingRemainder(dividingBy: ring.loopLen)
+                if phase < 0 { phase += ring.loopLen }
+                let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf)
+                let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
+                latchedPools[i].reset()
+                for k in 0..<cnt { latchedPools[i].noteOn(replayNoteBuf[k], velocity: replayVelBuf[k], channel: stampCh) }
+                latchedPools[i].rebuildSorted()
+                continue
+            }
             if pianoMask & bit != 0 {
                 // PIANO LATCH (2026-08-10): the frozen pool is the on-screen keyboard selection — not live input.
                 // Refresh each render (static + cheap) so edits on the keyboard take effect immediately. Self-arming
@@ -458,6 +514,7 @@ final class Kernel {
         liveEmitter.out = midiOut       // pick up the current host block before flushing
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
         reel.clear(); reelLastPass = Int.min                                     // THE REEL-TO-REEL: drop the tape on reset
+        for r in doorRings { r.clearLoop() }                                     // REPLAY: drop each door's loop on reset
         router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
     }
 
@@ -475,6 +532,8 @@ final class Kernel {
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
         pianoNotes = box.receiverPianoNotes
+        replayMask = box.receiverReplayMask             // REPLAY: which doors loop their input ring
+        replayPasses = box.receiverReplayPasses
         effectiveLatchMask = computeEffectiveLatchMask()   // PIANO SELF-ARM: fold PIANO-with-notes doors into the latch mask
         receiverRangeLo = box.receiverRangeLo            // RANGE (§2): this render's per-receiver note windows (latch capture)
         receiverRangeHi = box.receiverRangeHi
@@ -506,6 +565,14 @@ final class Kernel {
             }
         }
         diag.playing = playing; diag.beat = beatPos; diag.tempo = tempo
+
+        // REPLAY (config-sheets stage 3): the beat mapping handleIncoming uses to timestamp ring recordings, + the
+        // per-render phase updateLatchedPools reads. Set BEFORE the events walk (recording) and updateLatchedPools.
+        renderBeatPos = beatPos
+        recordBeatBase = beatPos
+        recordBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
+        recordWinStart = Int64(timestamp.pointee.mSampleTime)
+        recordPlaying = playing
 
         // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
         // the processor alone (§6.4). Not auditioning / a cell that can't sound → notes still pass for
@@ -594,6 +661,7 @@ final class Kernel {
             if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
             reel.startPass(); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
+            captureReplayLoops(reelPass: reelPass, cycleBeats: reelCycleBeats, beatPos: Double(reelPass) * reelCycleBeats)   // REPLAY: refresh each door's loop at the boundary (beatPos snapped to the boundary)
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }
         reelTap.out = liveEmitter; reelTap.deck = reel
@@ -722,8 +790,10 @@ final class Kernel {
                     if recvMarkCount[i] < 8 { recvMarkVel[i][recvMarkCount[i]] = vel; recvMarkCount[i] += 1 }   // item 4 mark
                 }
             }
+            recordReplay(note: bytes[1], vel: vel, on: vel > 0, sampleTime: sampleTime, channel: channel, cable: cable)
         } else if status == 0x80, length >= 3 {
             pool.noteOff(bytes[1])
+            recordReplay(note: bytes[1], vel: 0, on: false, sampleTime: sampleTime, channel: channel, cable: cable)
         }
         if !isNote {
             diag.ccCount &+= 1

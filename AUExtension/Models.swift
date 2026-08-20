@@ -533,6 +533,10 @@ struct Receiver: Codable, Equatable {
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE. Additive-Optional — nil ⇒ derive from the legacy latch fields
     // (LATCH/HOLD/KEYS), so old docs are unchanged. When the door sheet sets it explicitly, it drives the resolvers above.
     var doorMode: DoorMode? = nil
+    // REPLAY (stage 3): how much of the door's input HISTORY loops as living input — 1 · 2 · 4 · 8 passes. Additive-
+    // Optional; nil ⇒ 1. Clamped to {1,2,4,8}.
+    var replayPasses: Int? = nil
+    var replayPassesResolved: Int { let p = replayPasses ?? 1; return [1, 2, 4, 8].contains(p) ? p : 1 }
     var doorModeResolved: DoorMode {
         if let m = doorMode { return m }
         if (latchPiano ?? false) { return .keys }

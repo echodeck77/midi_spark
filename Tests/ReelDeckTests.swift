@@ -121,4 +121,30 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(a?.note, 60); XCTAssertEqual(a?.start, 0.0); XCTAssertEqual(a?.end, 1.0)
         XCTAssertEqual(b?.note, 64); XCTAssertEqual(b?.end, 4.0, "an open note closes at the pass length")
     }
+
+    // THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20): record input, capture a loop, query sounding notes.
+    func testDoorRingCapturesAndQueriesSoundingNotes() {
+        let ring = DoorRing()
+        ring.record(beat: 0.0, note: 60, vel: 100, on: true)
+        ring.record(beat: 0.5, note: 64, vel: 90, on: true)
+        ring.record(beat: 1.0, note: 60, vel: 0, on: false)
+        ring.record(beat: 2.0, note: 64, vel: 0, on: false)
+        ring.capture(endBeat: 2.0, lengthBeats: 2.0)              // loop [0,2), start=0 → beats unchanged
+        XCTAssertEqual(ring.loopLen, 2.0)
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
+        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v); return Set((0..<c).map { n[$0] }) }
+        XCTAssertEqual(sounding(0.25), [60], "only 60 sounds at 0.25")
+        XCTAssertEqual(sounding(0.75), [60, 64], "both sound at 0.75")
+        XCTAssertEqual(sounding(1.5), [64], "60 released by 1.0 → only 64 at 1.5")
+    }
+    func testDoorRingRetroCaptureRebasesTheWindow() {
+        let ring = DoorRing()
+        ring.record(beat: 4.0, note: 48, vel: 80, on: true)      // OLD — before the captured window
+        ring.record(beat: 5.5, note: 72, vel: 110, on: true)     // inside the last 1 beat
+        ring.capture(endBeat: 6.0, lengthBeats: 1.0)             // window [5,6) → 72 only, re-based to beat 0.5
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
+        XCTAssertEqual(ring.notesSoundingAt(0.4, outNote: &n, outVel: &v), 0, "before the rebased onset → silence")
+        let c = ring.notesSoundingAt(0.6, outNote: &n, outVel: &v)
+        XCTAssertEqual(c, 1); XCTAssertEqual(n[0], 72); XCTAssertEqual(v[0], 110, "the recent note, rebased + velocity kept")
+    }
 }

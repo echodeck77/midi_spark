@@ -211,6 +211,8 @@ final class SnapshotBox {
     let receiverControllerMask: [UInt8]  // CONTROLLER ROUTING (v1): each door's emitters (A–D) it forwards incoming CC/PB/AT/PC to, re-stamped. Default ALL-LIVE.
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
     let receiverPianoNotes: [[UInt8]]    // PIANO LATCH: per-receiver chosen notes (the frozen chord when armed in PIANO mode)
+    let receiverReplayMask: UInt8        // REPLAY (config-sheets stage 3): bit i = receiver i is in REPLAY mode (its input ring loops as living input)
+    let receiverReplayPasses: [UInt8]    // REPLAY: per-receiver history length in passes (1·2·4·8) that loops
     let macroValues: [Double]        // MACRO MODULATION: the 24 live macro values (0…1), index = macro slot. The derivation reads these; the per-cell targets ride on SnapCell (added with the offset term).
     let rowStepBeats: [Double]       // PER-PART CLOCK (Paul 2026-08-19): per-row step width in beats; empty/0 ⇒ the global `stepBeats` (uniform = today)
     let rowLen: [Int]                // PER-PART CLOCK: per-row LOOP length in columns; empty/0 ⇒ Snap.cols (8). A part loops over its own length.
@@ -237,6 +239,7 @@ final class SnapshotBox {
          receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
+         receiverReplayMask: UInt8 = 0, receiverReplayPasses: [UInt8] = [1, 1, 1, 1],
          macroValues: [Double] = Array(repeating: 0, count: 24),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = []) {
         self.rowLaneMask = rowLaneMask
@@ -282,6 +285,8 @@ final class SnapshotBox {
         self.receiverControllerMask = receiverControllerMask
         self.receiverPianoMask = receiverPianoMask
         self.receiverPianoNotes = receiverPianoNotes
+        self.receiverReplayMask = receiverReplayMask
+        self.receiverReplayPasses = receiverReplayPasses
         self.macroValues = macroValues
         self.rowStepBeats = rowStepBeats
         self.rowLen = rowLen

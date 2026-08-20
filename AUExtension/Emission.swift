@@ -154,3 +154,54 @@ final class ReelTap: MIDIEmitter {
         out?.emit(sampleTime: sampleTime, cable: cable, b0, b1, b2)
     }
 }
+
+// MARK: - THE DOOR RING (config-sheets REPLAY, Paul 2026-08-20) — a per-door ring of INCOMING note events.
+// The input-side twin of ReelDeck. A door records its live input CONTINUOUSLY (retro-capture — never arm). In REPLAY
+// mode the last N passes are CAPTURED as a loop that cycles back as the door's living input: each render asks
+// `notesSoundingAt(phase)` for the pool. Foundation-only, unit-testable; pure query (no accumulation → replay-safe).
+final class DoorRing {
+    struct Ev: Equatable { var beat = 0.0; var note: UInt8 = 0; var vel: UInt8 = 0; var on = false }
+    static let cap = 4096
+    private var buf = [Ev](repeating: Ev(), count: cap)   // circular record of recent input (ABSOLUTE beat)
+    private var head = 0, count = 0
+    private var loop = [Ev](repeating: Ev(), count: cap)  // the captured playback loop (beats re-based to [0, loopLen))
+    private(set) var loopN = 0
+    private(set) var loopLen = 0.0                        // the loop length in beats (0 ⇒ nothing captured)
+    var hasLoop: Bool { loopLen > 0 }
+
+    /// Append a live note event at absolute `beat` (evict-oldest when full).
+    func record(beat: Double, note: UInt8, vel: UInt8, on: Bool) {
+        buf[head] = Ev(beat: beat, note: note, vel: vel, on: on)
+        head = (head + 1) % DoorRing.cap
+        count = min(count + 1, DoorRing.cap)
+    }
+    private func ordered(_ i: Int) -> Ev { buf[(head - count + i + DoorRing.cap * 2) % DoorRing.cap] }   // i: 0…count-1, oldest→newest
+
+    /// Capture the events in the last `lengthBeats` (ending at `endBeat`) as the playback loop, re-based to [0, len).
+    func capture(endBeat: Double, lengthBeats: Double) {
+        loopN = 0; loopLen = max(0, lengthBeats)
+        guard lengthBeats > 0 else { return }
+        let start = endBeat - lengthBeats
+        for i in 0..<count where loopN < DoorRing.cap {
+            let e = ordered(i)
+            if e.beat >= start && e.beat < endBeat { loop[loopN] = Ev(beat: e.beat - start, note: e.note, vel: e.vel, on: e.on); loopN += 1 }
+        }
+    }
+    func clearLoop() { loopN = 0; loopLen = 0 }
+
+    /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
+    /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
+    @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8]) -> Int {
+        var velByNote = [Int16](repeating: -1, count: 128)   // -1 = not sounding
+        for i in 0..<loopN {
+            let e = loop[i]
+            if e.beat > phase { break }
+            if e.note < 128 { velByNote[Int(e.note)] = (e.on && e.vel > 0) ? Int16(e.vel) : -1 }
+        }
+        var k = 0
+        for n in 0..<128 where velByNote[n] >= 0 && k < outNote.count {
+            outNote[k] = UInt8(n); outVel[k] = UInt8(velByNote[n]); k += 1
+        }
+        return k
+    }
+}

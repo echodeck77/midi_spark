@@ -233,6 +233,27 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(back.doorMode, .keys)
         XCTAssertTrue(back.latchPianoResolved)
     }
+    // REPLAY (config-sheets stage 3): the builder packs the REPLAY doors + their pass lengths into the box.
+    func testReplayMaskAndPassesPackIntoTheBox() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .replay; r.replayPasses = 4; return r }(),
+                        { var r = Receiver(name: "2"); r.doorMode = .latch; return r }(),
+                        { var r = Receiver(name: "3"); r.doorMode = .replay; r.replayPasses = 2; return r }(),
+                        Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.receiverReplayMask, 0b0101, "doors 1 + 3 are REPLAY")
+        XCTAssertEqual(b.receiverReplayPasses[0], 4)
+        XCTAssertEqual(b.receiverReplayPasses[2], 2)
+        XCTAssertEqual(b.receiverReplayPasses[1], 1, "non-replay door defaults to 1")
+        // REPLAY doors are NOT piano/keys-latch by construction (doorMode == .replay resolves both to false)
+        XCTAssertEqual(b.receiverPianoMask & 0b0101, 0, "a REPLAY door is not a PIANO door")
+    }
+    func testReplayPassesClampToTheAllowedSet() {
+        var r = Receiver(name: "x"); r.replayPasses = 7
+        XCTAssertEqual(r.replayPassesResolved, 1, "an out-of-set value clamps to 1")
+        r.replayPasses = 8; XCTAssertEqual(r.replayPassesResolved, 8)
+        r.replayPasses = nil; XCTAssertEqual(r.replayPassesResolved, 1, "nil ⇒ 1")
+    }
 
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
         // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE

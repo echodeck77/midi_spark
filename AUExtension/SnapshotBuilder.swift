@@ -207,6 +207,8 @@ enum SnapshotBuilder {
         let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
         let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
+        let receiverReplayMask = packMask(doc.receiversResolved.map { $0.doorModeResolved == .replay })   // REPLAY doors
+        let receiverReplayPasses = doc.receiversResolved.map { UInt8($0.replayPassesResolved) }
 
         // PER-PART CLOCK (Paul 2026-08-19): resolve each row's step + loop length from the scene's per-row overrides
         // (nil ⇒ the scene default / a full 8 → uniform = today).
@@ -262,6 +264,8 @@ enum SnapshotBuilder {
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,
+                           receiverReplayMask: receiverReplayMask,
+                           receiverReplayPasses: receiverReplayPasses,
                            macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved)
     }
