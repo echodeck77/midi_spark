@@ -721,7 +721,43 @@ extension DiagView {
                     .foregroundColor(buildCyan).frame(minWidth: 30)
                 buildOctBtn("OCT +") { nudgeReceiverOctave(sel, +1) }
             }.frame(width: 176)
+            buildDoorModeRow(sel: sel, recvs: recvs, castW: castW)   // DOOR MODE — LATCH·HOLD·KEYS·REPLAY (config-sheets, Paul 2026-08-20)
         }
+    }
+    // THE DOOR MODE on BUILD (config-sheets stages 2/3, Paul 2026-08-20): the selected door's behaviour, reachable in the
+    // workshop. LATCH (toggle in/out) · HOLD (chord replaces) · KEYS (keyboard) · REPLAY (loop the input — PASSES 1·2·4·8).
+    @ViewBuilder private func buildDoorModeRow(sel: Int, recvs: [Receiver], castW: CGFloat) -> some View {
+        let mode = sel < recvs.count ? recvs[sel].doorModeResolved : .latch
+        VStack(spacing: 4) {
+            HStack(spacing: 3) {
+                buildDoorModeChip("LATCH", .latch, mode, sel)
+                buildDoorModeChip("HOLD", .hold, mode, sel)
+                buildDoorModeChip("KEYS", .keys, mode, sel)
+                buildDoorModeChip("REPLAY", .replay, mode, sel)
+            }.frame(width: castW)
+            if mode == .replay {                                    // REPLAY: how many passes of input loop back
+                let cur = sel < recvs.count ? recvs[sel].replayPassesResolved : 1
+                HStack(spacing: 4) {
+                    Text("LOOP").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                    ForEach([1, 2, 4, 8], id: \.self) { n in
+                        Text("\(n)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .foregroundColor(cur == n ? .black : buildCyan)
+                            .frame(width: 26, height: 22)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
+                            .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(sel, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                    }
+                    Text("passes").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                }
+            }
+        }
+    }
+    @ViewBuilder private func buildDoorModeChip(_ label: String, _ m: DoorMode, _ cur: DoorMode, _ sel: Int) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(cur == m ? .black : buildCyan.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 5).fill(cur == m ? buildCyan : buildCyan.opacity(0.13)))
+            .contentShape(Rectangle())
+            .onTapGesture { au?.setDoorMode(sel, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
     }
 
     // §2: the INPUT door is PART-owned — one door for the whole part (every colour follows). Applied uniformly at
@@ -738,7 +774,7 @@ extension DiagView {
     // Flip the SELECTED door between MIDI-in and the in-app piano. Mirroring `receivers` guarantees SwiftUI
     // invalidates this row immediately (buildInputSection reads uiReceivers live, but the mirror forces the update).
     private func buildSetSource(_ i: Int, piano: Bool) {
-        au?.setReceiverLatchPiano(i, piano)
+        au?.setDoorMode(i, piano ? .keys : .latch)   // route through the door mode (ONE source of truth): piano ⇒ KEYS, DIN ⇒ LATCH (preserves BUILD's live-input behaviour) — Paul 2026-08-20
         receivers = au?.uiReceivers() ?? receivers
         refreshFromDocument()
     }
