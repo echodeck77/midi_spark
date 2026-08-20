@@ -484,11 +484,47 @@ extension DiagView {
     // the SELECTED tab drives the processor block + MIDI + visuals. A SET tab shows its colour; an empty tab reads blank.
     @ViewBuilder private func buildColourTabs(castW: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
         let gap = BuildGeom.castGap
-        let tabW = (castW - gap * 7) / 8
-        HStack(spacing: gap) {
-            ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: inEditor) }
+        if inEditor {
+            // §banking THE CARRIAGE (design 2026-08-17): [◀] [8 chips] [BANK ▶]. BANK ▶ deals the current machine to the
+            // NEXT row (next empty preferred, else the next) and follows — a typewriter carriage, no aiming. ◀ walks BACK
+            // to a fossil (select, never stamp). The chips stay random-access aimed deals. Forward deals · backward visits.
+            let btnW = cell * 1.1
+            let tabW = (castW - gap * 9 - btnW * 2) / 8
+            HStack(spacing: gap) {
+                buildCarriageBtn(back: true, w: btnW, h: cell)
+                ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: true) }
+                buildCarriageBtn(back: false, w: btnW, h: cell)
+            }
+        } else {
+            let tabW = (castW - gap * 7) / 8
+            HStack(spacing: gap) {
+                ForEach(0..<8, id: \.self) { n in buildColourTab(n, w: tabW, cell: cell, inEditor: false) }
+            }
         }
     }
+    // THE CARRIAGE buttons — ◀ visits the previous fossil (never stamps); BANK ▶ deals to the next row + follows.
+    @ViewBuilder private func buildCarriageBtn(back: Bool, w: CGFloat, h: CGFloat) -> some View {
+        let enabled = back ? (buildCarriageBackTarget() != nil) : (buildCarriageBankTarget() != nil)
+        Button { if back { buildCarriageBack() } else { buildCarriageBank() } } label: {
+            Image(systemName: back ? "chevron.left" : "chevron.right.2")
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundColor(!enabled ? buildDim.opacity(0.4) : (back ? .white.opacity(0.85) : .black))
+                .frame(width: w, height: h)
+                .background(RoundedRectangle(cornerRadius: 6).fill(back ? buildRowButtonFill : (enabled ? buildCyan : buildRowButtonFill)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(back ? buildEdge : Color.clear, lineWidth: 1))
+        }.disabled(!enabled)
+    }
+    private func buildCarriageBankTarget() -> Int? {           // next EMPTY row forward, else the immediate next row (overwrite)
+        let cur = buildSelectedRow ?? -1
+        if cur + 1 < 8, let empty = (cur + 1..<8).first(where: { buildRowColour($0) == nil }) { return empty }
+        return cur + 1 < 8 ? cur + 1 : nil
+    }
+    private func buildCarriageBank() { if let t = buildCarriageBankTarget() { buildEditorOverwriteRow(t) } }   // deal + follow (reuses the shipped mechanism)
+    private func buildCarriageBackTarget() -> Int? {           // the previous OCCUPIED fossil to visit
+        let cur = buildSelectedRow ?? 8
+        return (0..<cur).reversed().first { buildRowColour($0) != nil }
+    }
+    private func buildCarriageBack() { if let p = buildCarriageBackTarget() { buildTapColourTab(p) } }   // VISIT (select + play), never stamps
     @ViewBuilder private func buildColourTab(_ n: Int, w: CGFloat, cell: CGFloat, inEditor: Bool = false) -> some View {
         let cid = buildRowColour(n)                              // tab N's colour = the colour on part-grid row N
         let selected = cid != nil && cid == ddSelectedColourID
@@ -1946,7 +1982,7 @@ extension DiagView {
             buildStagingRightRail(cell: cell)                                               // RIGHT rail — static right-pointing chevrons (Paul 2026-08-18)
         }
         .overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 0) }   // the eye in the grid's top-left corner cell
-        .overlay(alignment: .topTrailing) { buildRateControl().padding(.top, -2).padding(.trailing, -4) }   // PER-PART RATE — a compact pill hugging the grid's top-right edge (Paul 2026-08-19)
+        .overlay(alignment: .topTrailing) { buildRateControl().padding(.top, -2).padding(.trailing, -16) }   // PER-PART RATE — a compact pill nudged right of the grid's top-right edge, clear of the header buttons (Paul 2026-08-20)
     }
     // The part-grid row-button action, shared by the LEFT and RIGHT rails (Paul 2026-08-18).
     private func buildStagingRowAction(_ row: Int) {
