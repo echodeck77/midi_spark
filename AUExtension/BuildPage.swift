@@ -227,18 +227,30 @@ extension DiagView {
             .overlay(
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
                     Canvas { ctx, sz in
-                        let cols = passes * Snap.cols                             // 8 columns per pass
-                        for c in 1..<cols {                                       // CELL dividers; heavier on a PASS boundary
-                            let x = CGFloat(c) / CGFloat(cols) * sz.width
-                            let isPass = c % Snap.cols == 0
-                            ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
-                                       with: .color(.white.opacity(isPass ? 0.22 : 0.07)), lineWidth: isPass ? 1 : 0.5)
+                        let now = tl.date
+                        // The CELL / PASS dividers SCROLL with the notes (Paul 2026-08-20): a boundary at reference time
+                        // `tb` maps to the SAME x as a note born then, so the grid drifts left in lockstep. Heavier on a
+                        // pass boundary (every Snap.cols cells).
+                        let cellSec = passSec / Double(Snap.cols)               // one column in seconds
+                        if cellSec > 0.01 {
+                            let nowSec = now.timeIntervalSinceReferenceDate
+                            var k = Int(floor(nowSec / cellSec))
+                            while true {
+                                let tb = Double(k) * cellSec
+                                let x = sz.width * (1 - CGFloat((nowSec - tb) / life))
+                                if x < 0 { break }
+                                if x <= sz.width {
+                                    let isPass = (((k % Snap.cols) + Snap.cols) % Snap.cols) == 0
+                                    ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
+                                               with: .color(.white.opacity(isPass ? 0.22 : 0.07)), lineWidth: isPass ? 1 : 0.5)
+                                }
+                                k -= 1
+                            }
                         }
-                        for n in stride(from: lo, through: hi, by: 12) {         // octave lines (C)
+                        for n in stride(from: lo, through: hi, by: 12) {         // octave lines (C) — pitch, static
                             let y = (1 - CGFloat(n - lo) / span) * (sz.height - 6) + 3
                             ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
                         }
-                        let now = tl.date
                         for m in marks {
                             let age = now.timeIntervalSince(m.born)
                             if age < 0 || age > life { continue }
@@ -352,18 +364,20 @@ extension DiagView {
             buildReelButton()                                   // RECORD (hides itself + keeps the share anchor when the pass browser is open)
             if !reelShowPopup {
                 buildRateControl()
+                Spacer(minLength: 20)                           // push the config buttons to the RIGHT (Paul 2026-08-20)
                 VStack(spacing: 5) {
                     buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // the doors (MIDI INPUTS) — the spacious sheet
                     buildConfigButton("OUT CHAIN")   { activeTab = .emitters }        // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
                 }
             }
         }
-        .padding(.leading, 4).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)        // full width so the Spacer right-aligns the config buttons
+        .padding(.leading, 4).padding(.trailing, 16).padding(.bottom, 8)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5)
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(buildCyan).lineLimit(1)
-            .frame(width: 92, height: 22)
+            .frame(width: 92, height: 44)                                   // doubled height (Paul 2026-08-20)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.16), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
@@ -375,15 +389,18 @@ extension DiagView {
         } else {
             let recording = d.playing && reelState != 2                       // the tape captures live output while playing
             let c: Color = recording ? Color(red: 0.95, green: 0.24, blue: 0.24) : buildDim   // RED while recording (stays red), dim stopped
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "recordingtape").font(.system(size: 36, weight: .regular)).foregroundColor(c)
-                if recording {                                                // a gently pulsing RED record dot → "it's recording" (stays clearly red)
-                    TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !recording)) { tl in
-                        let t = tl.date.timeIntervalSinceReferenceDate
+            // ANIMATED while recording (Paul 2026-08-20): the whole tape glyph BREATHES (scale + a soft red glow) and the
+            // record dot pulses — so "it's recording" reads at a glance. Static + dim when stopped.
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !recording)) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                let p = recording ? abs(sin(t * 2.4)) : 0.0                    // 0…1 breathing
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "recordingtape").font(.system(size: 36, weight: .regular)).foregroundColor(c)
+                        .scaleEffect(1.0 + 0.07 * p)
+                        .shadow(color: Color(red: 0.98, green: 0.2, blue: 0.2).opacity(recording ? 0.35 + 0.4 * p : 0), radius: 7)
+                    if recording {
                         Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
-                            .frame(width: 10, height: 10)
-                            .opacity(0.7 + 0.3 * abs(sin(t * 2.4)))           // 0.7…1.0 — never fades out
-                            .offset(x: 4, y: -1)
+                            .frame(width: 10, height: 10).opacity(0.7 + 0.3 * p).offset(x: 4, y: -1)
                     }
                 }
             }
@@ -403,16 +420,13 @@ extension DiagView {
                 Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
             }
         } label: {
-            HStack(spacing: 5) {
-                Text("RATE").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-                Text(buildPartRate?.rawValue ?? "—").font(.system(size: 17, weight: .black, design: .monospaced)).foregroundColor(buildPartRate == nil ? buildDim : buildCyan)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(buildDim.opacity(0.8))
-            }
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 9).fill(buildPanel))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildPartRate != nil ? buildCyan.opacity(0.75) : Color.white.opacity(0.16), lineWidth: 1.5))
-            .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)   // floats ABOVE the grid, not a cell of it
-            .contentShape(Rectangle())
+            Text(buildPartRate?.rawValue ?? "—").font(.system(size: 19, weight: .black, design: .monospaced))   // RATE VALUE ONLY, bright (Paul 2026-08-20)
+                .foregroundColor(buildCyan)
+                .padding(.horizontal, 11).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 9).fill(buildPanel))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildCyan.opacity(0.9), lineWidth: 1.5))
+                .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)   // floats ABOVE the grid, not a cell of it
+                .contentShape(Rectangle())
         }
     }
     func buildSetPartRate(_ r: StepRate?) {
