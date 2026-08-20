@@ -209,6 +209,31 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(SnapshotBuilder.build(from: st).latchAddMask, 0b1111, "default (nil) ⇒ all KEYS")
     }
 
+    // THE CONFIG SHEETS (Paul 2026-08-20): the door MODE reframes the 3 existing latch modes, behaviour-preserving.
+    func testDoorModeDerivesFromLegacyLatchFields() {
+        func mode(_ f: (inout Receiver) -> Void) -> DoorMode { var r = Receiver(name: "x"); f(&r); return r.doorModeResolved }
+        XCTAssertEqual(mode { _ in }, .latch, "default (nil latch) ⇒ LATCH (the old KEYS default)")
+        XCTAssertEqual(mode { $0.latchAdd = false }, .hold, "CHORD ⇒ HOLD")
+        XCTAssertEqual(mode { $0.latchPiano = true }, .keys, "PIANO ⇒ KEYS")
+        // the legacy resolvers are UNCHANGED for old docs (byte-identical)
+        var chord = Receiver(name: "c"); chord.latchAdd = false
+        XCTAssertFalse(chord.latchAddResolved); XCTAssertFalse(chord.latchPianoResolved)
+        XCTAssertTrue(Receiver(name: "d").latchAddResolved, "nil ⇒ KEYS latch (true)")
+    }
+    func testExplicitDoorModeDrivesTheLatchResolvers() {
+        func r(_ m: DoorMode) -> Receiver { var x = Receiver(name: "x"); x.doorMode = m; return x }
+        XCTAssertTrue(r(.latch).latchAddResolved);   XCTAssertFalse(r(.latch).latchPianoResolved)
+        XCTAssertFalse(r(.hold).latchAddResolved);   XCTAssertFalse(r(.hold).latchPianoResolved)
+        XCTAssertFalse(r(.keys).latchAddResolved);   XCTAssertTrue(r(.keys).latchPianoResolved)
+        XCTAssertFalse(r(.replay).latchAddResolved); XCTAssertFalse(r(.replay).latchPianoResolved)   // HOLD-like fallback until stage 3
+    }
+    func testDoorModeCodableRoundTrip() throws {
+        var r = Receiver(name: "x"); r.doorMode = .keys
+        let back = try JSONDecoder().decode(Receiver.self, from: try JSONEncoder().encode(r))
+        XCTAssertEqual(back.doorMode, .keys)
+        XCTAssertTrue(back.latchPianoResolved)
+    }
+
     func testSnapshotTransposeFollowsActiveTypeAfterSwitch() {
         // End-to-end proof of the per-type isolation fix: the snapshot's transpose reflects the ACTIVE
         // type's own value, not a stash left over from a different type. (The render reads SnapColour

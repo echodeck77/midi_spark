@@ -57,9 +57,13 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   SHEET carries the SETUPS radio (RACK 1–4) + membership matrix + treatment stack — resolves the §2 two-verbs. Reconcile
   REPLAY/FILE with the door-loop ferry (siblings: remembered vs loaded input).
   **ENGINE MODEL — staged:** STAGE 1 the 4 RACK CONFIGS **DONE** (2026-08-20, `0933cf2` — rackConfigs/rackActiveConfig +
-  resolvers, builder reads the active config, AU edits it, byte-identical, +3 tests). STILL OPEN (each needs a device
-  checkpoint — the latch/kernel is delicate + verified): STAGE 2 the DOOR MODE enum (LATCH·HOLD·KEYS reframe the 3
-  EXISTING latch modes via a resolver from latchAdd/latchPiano — behaviour-preserving; kernel reads the mode); STAGE 3
+  resolvers, builder reads the active config, AU edits it, byte-identical, +3 tests). STAGE 2 the DOOR MODE enum **DONE**
+  (2026-08-20 — `DoorMode {latch·hold·keys·replay·file}` + `Receiver.doorMode` + `doorModeResolved`; the latch resolvers
+  honour it when set, else fall through to the legacy latchAdd/latchPiano EXACTLY → byte-identical; AU `setDoorMode`/
+  `uiDoorMode` sync the legacy fields; REPLAY/FILE resolve to a HOLD-like fallback until stages 3/4; +3 tests, 803 green).
+  **DOOR RANGE (Paul 2026-08-20): the door sheet must ALSO expose the note RANGE — the model ALREADY has `rangeLo`/
+  `rangeHi` (+`rangeLoResolved`/`rangeHiResolved`), so it's a UI-surface item, not new engine.** STILL OPEN (each needs a
+  device checkpoint — the latch/kernel is delicate + verified): STAGE 3
   REPLAY = the door input ring recording (a NEW engine feature, the door-loop v1); STAGE 4 FILE = .mid playback as living
   input ("a file is a cable"); STAGE 5 the UI — the three SHEETS + console mode badges (tap=act / hold=sheet). Stages 3/4
   are large new engine features; do them with the user + device.

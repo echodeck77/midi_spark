@@ -447,6 +447,20 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
     func setReceiverLatchPiano(_ i: Int, _ on: Bool) { editReceiver(i) { $0.latchPiano = on } }   // PIANO latch mode
+    // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3
+    // existing modes (lossless downgrade). REPLAY/FILE store the mode only (their behaviour lands in stages 3/4).
+    func uiDoorMode(_ i: Int) -> DoorMode { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].doorModeResolved : .latch }
+    func setDoorMode(_ i: Int, _ mode: DoorMode) {
+        editReceiver(i) { r in
+            r.doorMode = mode
+            switch mode {
+            case .latch: r.latchAdd = true;  r.latchPiano = false
+            case .hold:  r.latchAdd = false; r.latchPiano = false
+            case .keys:  r.latchPiano = true
+            case .replay, .file: break
+            }
+        }
+    }
     func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
         editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
     }

@@ -462,6 +462,13 @@ struct ProcessorSlot: Codable, Equatable {
 /// the §6a emitter mute) and a per-receiver MPE-merge flag (the "MPE front door" — field only for now;
 /// merge semantics are their own later mini-spec). Receiver COLOUR is assigned by index (the fixed
 /// infrastructure family), not stored. note-RANGE (register splits) is a later addition — no field yet.
+/// THE CONFIG SHEETS (Paul 2026-08-20): a door's MODE — LATCH (notes toggle in/out of the pool, the old KEYS latch) ·
+/// HOLD (chord-detect-and-replace, the old CHORD latch) · KEYS (the on-screen keyboard, the old PIANO latch) · REPLAY
+/// (the door input ring loops as living input — stage 3) · FILE (a loaded .mid loops as living input — stage 4). The 3
+/// EXISTING modes map to the legacy latchAdd/latchPiano fields; REPLAY/FILE are reserved (not yet wired → a HOLD-like
+/// fallback until their stages land).
+enum DoorMode: String, Codable, CaseIterable { case latch, hold, keys, replay, file }
+
 struct Receiver: Codable, Equatable {
     var name: String = ""
     var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
@@ -511,15 +518,26 @@ struct Receiver: Codable, Equatable {
     // nil ⇒ KEYS. Mode-switching NEVER clears the pool (the Kernel only resets on the arm rising edge); latch-off
     // releases all, in both modes.
     var latchAdd: Bool? = nil
-    /// The latch mode, nil-safe: missing ⇒ KEYS (true — the redesign default). Non-persisting read helper.
-    var latchAddResolved: Bool { latchAdd ?? true }
+    /// The latch mode, nil-safe: missing ⇒ KEYS (true — the redesign default). Non-persisting read helper. When an
+    /// explicit `doorMode` is set it wins (LATCH ⇒ true, everything else ⇒ false); else falls through to the legacy
+    /// field EXACTLY (byte-identical for old docs).
+    var latchAddResolved: Bool { doorMode.map { $0 == .latch } ?? (latchAdd ?? true) }
     // PIANO latch (2026-08-10): a third latch mode — the frozen pool is CHOSEN from an on-screen keyboard, not captured
     // from live input. When on (+ the latch armed), `pianoNotes` feed the grid as the frozen chord. Optional so old
     // docs decode nil ⇒ off. Persisted rig config. `latchPiano` overrides KEYS|CHORD when true.
     var latchPiano: Bool? = nil
     var pianoNotes: [Int]? = nil
-    var latchPianoResolved: Bool { latchPiano ?? false }
+    /// KEYS (on-screen keyboard) when an explicit `doorMode == .keys`; else the legacy field EXACTLY (byte-identical).
+    var latchPianoResolved: Bool { doorMode.map { $0 == .keys } ?? (latchPiano ?? false) }
     var pianoNotesResolved: [Int] { (pianoNotes ?? []).filter { $0 >= 0 && $0 <= 127 } }
+    // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE. Additive-Optional — nil ⇒ derive from the legacy latch fields
+    // (LATCH/HOLD/KEYS), so old docs are unchanged. When the door sheet sets it explicitly, it drives the resolvers above.
+    var doorMode: DoorMode? = nil
+    var doorModeResolved: DoorMode {
+        if let m = doorMode { return m }
+        if (latchPiano ?? false) { return .keys }
+        return (latchAdd ?? true) ? .latch : .hold
+    }
 }
 
 // MARK: - Scene & document — §9
