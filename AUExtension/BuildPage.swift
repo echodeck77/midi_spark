@@ -531,10 +531,14 @@ extension DiagView {
         let tint = cid.flatMap { colourColor($0) }              // the tab's own colour (nil = empty)
         // Styled like the part-grid ROW buttons: the muted RAIL (light grey on dark grey) when empty or unselected;
         // a populated tab shows its colour as the NUMBER's text; the SELECTED tab keeps its solid-colour look. (Paul 2026-08-18)
+        // §banking chip states (design 2026-08-17): in the EDITOR strip, OCCUPIED rows read FILLED, EMPTY rows HOLLOW
+        // (dashed) — what a tap would destroy is visible before the tap; the current row (EDITING) keeps the white mark.
+        let editorEmpty = inEditor && cid == nil
         RoundedRectangle(cornerRadius: 6)
-            .fill(selected ? (tint ?? buildRowButtonFill) : buildRowButtonFill)
+            .fill(selected ? (tint ?? buildRowButtonFill) : (inEditor && cid != nil ? (tint ?? buildRowButtonFill).opacity(0.4) : buildRowButtonFill))
             .frame(width: w, height: cell)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : (tint ?? buildEdge), lineWidth: (selected || tint != nil) ? 2 : 1))   // SELECTED = white; populated = its colour outline; empty = the faint edge
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Color.white : (tint ?? (editorEmpty ? Color.clear : buildEdge)), lineWidth: (selected || tint != nil) ? 2 : 1))   // SELECTED = white; populated = its colour outline; empty = the faint edge
+            .overlay { if editorEmpty { RoundedRectangle(cornerRadius: 6).stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(buildEdge) } }   // HOLLOW empty
             .overlay { if buildPendingTab == n { buildPulseOverlay() } }   // PENDING (copied, unedited) → pulses
             .overlay { if cid != nil { buildTabNowPlaying(n).clipShape(RoundedRectangle(cornerRadius: 6)) } }   // NOW-PLAYING animation when this row sounds
             .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
