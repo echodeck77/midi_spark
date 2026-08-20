@@ -600,6 +600,25 @@ extension DiagView {
                 }
             }
         }
+        // §1 THE FLOW LINE (design 2026-08-17): the dotted thread draws ORDER (the numbers' old job) — door ┈▶ slot 0 ┈▶
+        // … ┈▶ slot 7 ┈▶ wire, in chain order, with a TURN MARK at each row wrap (the boustrophedon made visible).
+        .background(buildChainFlowLine(boxW: boxW, boxH: boxH, gap: gap))
+    }
+    private func buildChainFlowLine(boxW: CGFloat, boxH: CGFloat, gap: CGFloat) -> some View {
+        Canvas { ctx, size in
+            func center(_ i: Int) -> CGPoint {
+                CGPoint(x: CGFloat(i % 2) * (boxW + gap) + boxW / 2, y: CGFloat(i / 2) * (boxH + gap) + boxH / 2)
+            }
+            var path = Path()
+            path.move(to: CGPoint(x: 0, y: center(0).y)); path.addLine(to: center(0))   // DOOR entry
+            for i in 1..<8 { path.addLine(to: center(i)) }                               // chain order 0→…→7
+            path.addLine(to: CGPoint(x: size.width, y: center(7).y))                     // WIRE exit
+            ctx.stroke(path, with: .color(buildSelHue.opacity(0.32)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 3]))
+            for wrap in [1, 3, 5] {                                                      // TURN MARK at each row wrap (slot 1→2, 3→4, 5→6)
+                let a = center(wrap), b = center(wrap + 1); let m = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+                ctx.fill(Path(ellipseIn: CGRect(x: m.x - 2, y: m.y - 2, width: 4, height: 4)), with: .color(buildSelHue.opacity(0.5)))
+            }
+        }
     }
 
     @ViewBuilder private func buildProcBox(_ i: Int, chain: [ProcessorSlot], w: CGFloat, h: CGFloat) -> some View {
@@ -615,12 +634,14 @@ extension DiagView {
                     .background(RoundedRectangle(cornerRadius: 8).fill(buildSelHue))
                     .overlay { if chain[i].bypassed { RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.45)) } }
             } else {
-                Text("\(i + 1)")                                   // the slot NUMBER — prominent (big + black weight)
-                    .font(.system(size: min(bh * 0.6, 26), weight: .black, design: .monospaced))
-                    .foregroundColor(Color(white: 0.62))
+                // §1 GHOST-DASHED EMPTY (design 2026-08-17): numbers OUT (the FLOW LINE now carries ORDER) — the house
+                // grammar for an empty slot is a dashed ghost + a faint "+" add-invitation.
+                Image(systemName: "plus")
+                    .font(.system(size: min(bh * 0.34, 15), weight: .semibold))
+                    .foregroundColor(Color(white: 0.4))
                     .frame(width: bw, height: bh)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(buildCell))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(buildEdge, lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(buildCell.opacity(0.5)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 3])).foregroundColor(buildEdge))
             }
         }
         .frame(width: w, height: h)                               // … centred in the full cell footprint
