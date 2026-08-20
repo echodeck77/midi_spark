@@ -422,7 +422,7 @@ extension DiagView {
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(buildCyan).lineLimit(1)
-            .frame(width: 92, height: 44)                                   // doubled height (Paul 2026-08-20)
+            .frame(width: 92, height: 33)                                   // −25% from 44 (Paul 2026-08-20)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.16), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
