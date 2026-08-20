@@ -431,6 +431,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollWithheldMarks() -> [[(vel: UInt8, col: Int8)]] { kernel.drainWithheldMarks() }   // §6a the withheld tell
     func pollReceiverMarks() -> [[UInt8]] { kernel.drainReceiverMarks() }
     func pollReceiverSounding() -> [[UInt8]] { kernel.pollReceiverSounding() }   // duration: currently-held input notes (latch-aware meter)
+    func pollReceiverSoundingNotes() -> [[UInt8]] { kernel.pollReceiverSoundingNotes() }   // PITCHES held per door (REPLAY roll)
     func pollReceiverLiveHeld() -> UInt8 { kernel.pollReceiverLiveHeld() }       // the header dot: bit i = a LIVE accepted note is held (scalar, race-safe)
     func pollEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterSounding() }   // §strips-done: currently-sounding per emitter (cargo-tinted)
 
@@ -445,6 +446,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
     // latch keeps feeding the grid; a mute (below) is what stops the feed. Persisted, like mute.
     func toggleReceiverEnabled(_ i: Int)          { editReceiver(i) { $0.inputEnabled = !($0.inputEnabledResolved) } }
+    func setReceiverEnabled(_ i: Int, _ on: Bool) { editReceiver(i) { $0.inputEnabled = on } }   // config-sheets: the channel NONE option blocks the door (Paul 2026-08-20)
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
     func setReceiverLatchPiano(_ i: Int, _ on: Bool) { editReceiver(i) { $0.latchPiano = on } }   // PIANO latch mode
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3

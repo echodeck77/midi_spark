@@ -73,6 +73,9 @@ enum AppTab: String, CaseIterable {
     var live: Bool { self != .macros && self != .automation }
 }
 
+/// One scrolling mark in the MIDI CONFIG REPLAY input roll: a note that ONSET at `born`, drifting right→left. (Paul 2026-08-20)
+struct InputMark: Equatable { let note: UInt8; let born: Date }
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -305,6 +308,8 @@ struct DiagView: View {
     @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
     @State var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
+    @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
+    @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
     @State var recvLiveHeld: [Bool] = [false, false, false, false]   // header dot: a LIVE (never latch) accepted note is held per receiver
     @State var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
     @State var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
@@ -1132,6 +1137,22 @@ struct DiagView: View {
             }
             if rel != recvRelease { recvRelease = rel }
             if held != recvHeld { recvHeld = held }
+            // config-sheets REPLAY roll: while the MIDI CONFIG sheet is open, accumulate per-door input ONSETS (a pitch
+            // newly in the held set) as scrolling marks; prune to ~4s. Gated on the sheet so it costs nothing otherwise.
+            if buildMidiConfigOpen {
+                let notes = au.pollReceiverSoundingNotes()
+                var roll = recvInputRoll
+                for i in 0..<4 {
+                    let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
+                    for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow)) }   // a new onset
+                    roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 4.0 }
+                    if roll[i].count > 96 { roll[i] = Array(roll[i].suffix(96)) }
+                }
+                recvInputRoll = roll
+                recvHeldNotes = notes
+            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) {
+                recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet closed → drop the marks
+            }
             let liveMask = au.pollReceiverLiveHeld()                   // header dot: LIVE (not latch) accepted-note-held per receiver (scalar mask)
             let live = (0..<4).map { liveMask & (1 << UInt8($0)) != 0 }   // unpack into a FRESH array (never shares the Kernel's buffer)
             if live != recvLiveHeld { recvLiveHeld = live }

@@ -102,132 +102,230 @@ extension DiagView {
     // THE REEL-TO-REEL glyph (Paul 2026-08-19): tap → open the PASS BROWSER pop-up. The tape is ALWAYS capturing live
     // output while playing, so it reads as RECORDING — red with a pulsing record dot; GREEN while a pass replays; dim stopped.
     // ── THE MIDI INPUTS SHEET (config-sheets stage 5, §1/§5/§7/§9 — Paul 2026-08-20) ─────────────────────────────────
-    // The spacious DETAIL layer for the four INPUT doors: INPUT MODE radio (LATCH·HOLD·KEYS·REPLAY·FILE, each with its
-    // plain-English line) · channel · octave · note range · the mode's own extras. Config lives at the thing; the sheet
-    // teaches (wordy is allowed here — performance stays silent elsewhere). Names per §9: "MIDI INPUTS" · "INPUT MODE".
-    private static let buildDoorModeCopy: [DoorMode: String] = [
-        .latch:  "Notes toggle in and out of the held pool.",
-        .hold:   "A new chord replaces the held pool.",
-        .keys:   "Pick the held notes on an on-screen keyboard.",
-        .replay: "Loops the last N passes of what you played, as this door's input.",
-        .file:   "A MIDI file plays as this door's input. (import coming soon)",
-    ]
+    // The SPACIOUS detail layer for the four INPUT doors. Each door: header (INPUT letter · channel [NONE/OMNI/1-16] ·
+    // octave · range) + the INPUT MODE list where the SELECTED mode's own controls appear INLINE beneath it (KEYS = a
+    // fresh multi-octave piano; REPLAY = passes + a realtime right→left input roll; FILE = import placeholder). Config
+    // teaches here (wordy allowed); performance stays silent elsewhere. Names per §9: "MIDI INPUTS" · "INPUT MODE".
+    private func buildDoorModeCopy(_ m: DoorMode) -> String {
+        switch m {
+        case .latch:  return "Notes toggle in and out of the held pool — build a voicing one key at a time."
+        case .hold:   return "A new chord replaces the held pool — each grab is a fresh camera."
+        case .keys:   return "Pick the held notes on an on-screen keyboard — no live input needed."
+        case .replay: return "Loops the last few passes of what you played, as this door's own input."
+        case .file:   return "A MIDI file plays as this door's input. (import coming soon)"
+        }
+    }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
         let recvs = au?.uiReceivers() ?? []
         ZStack {
-            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildMidiConfigOpen = false }
+            Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildMidiConfigOpen = false }
             VStack(spacing: 0) {
                 HStack {
-                    Text("MIDI INPUTS").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
+                    Text("MIDI INPUTS").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildCyan)
                     Spacer()
                     Button { buildMidiConfigOpen = false } label: {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(buildDim).padding(8)
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundColor(buildDim).padding(10)
                     }
-                }.padding(.horizontal, 20).padding(.vertical, 14)
+                }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 14) {
+                    VStack(spacing: 18) {
                         ForEach(0..<4, id: \.self) { i in buildDoorSection(i, r: i < recvs.count ? recvs[i] : Receiver()) }
-                    }.padding(.horizontal, 20).padding(.bottom, 24)
+                    }.padding(.horizontal, 26).padding(.bottom, 30)
                 }
             }
-            .frame(width: min(560, size.width - 40), height: min(size.height - 60, size.height))
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .frame(width: min(720, size.width - 32), height: size.height - 40)
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
         }
     }
     @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
         let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
         let mode = r.doorModeResolved
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {                                    // header: INPUT letter · channel · octave
-                Text("INPUT \(["A", "B", "C", "D"][i])").font(.system(size: 14, weight: .black, design: .monospaced)).foregroundColor(hue)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {                                    // header: INPUT letter · channel · octave · range
+                Text("INPUT \(["A", "B", "C", "D"][i])").font(.system(size: 17, weight: .black, design: .monospaced)).foregroundColor(hue)
                 Spacer()
                 buildDoorChannelMenu(i, r)
                 buildDoorOctave(i)
+                buildDoorRange(i, r)
             }
-            Text("INPUT MODE").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
-            ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, current: mode) }
-            if mode == .replay { buildDoorReplayPasses(i, r) }
-            if mode == .keys { buildDoorKeyboard(i, r) }
-            buildDoorRange(i, r)
+            VStack(alignment: .leading, spacing: 8) {               // the mode list — selected mode carries its controls inline
+                ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, current: mode, r: r) }
+            }
         }
-        .padding(16)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(hue.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(hue.opacity(0.3), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(hue.opacity(0.3), lineWidth: 1))
     }
-    // One INPUT MODE row: the radio + its plain-English description (the teaching line).
-    @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, current: DoorMode) -> some View {
+    // One INPUT MODE row: the radio + description, and — when SELECTED — its own controls INLINE beneath (Paul 2026-08-20).
+    @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, current: DoorMode, r: Receiver) -> some View {
         let on = current == m
-        HStack(alignment: .top, spacing: 10) {
-            Circle().stroke(buildCyan.opacity(0.85), lineWidth: 1.5).frame(width: 15, height: 15)
-                .overlay(Circle().fill(buildCyan).frame(width: 8, height: 8).opacity(on ? 1 : 0)).padding(.top, 1)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(m.rawValue.uppercased()).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(on ? 0.95 : 0.6))
-                Text(Self.buildDoorModeCopy[m] ?? "").font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Circle().stroke(buildCyan.opacity(0.85), lineWidth: 1.5).frame(width: 17, height: 17)
+                    .overlay(Circle().fill(buildCyan).frame(width: 9, height: 9).opacity(on ? 1 : 0)).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.rawValue.uppercased()).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(on ? 0.98 : 0.55))
+                    Text(buildDoorModeCopy(m)).font(.system(size: 11, weight: .regular, design: .monospaced)).foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .contentShape(Rectangle())
+            .onTapGesture { au?.setDoorMode(i, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            if on {                                                 // the SELECTED mode's controls, inline (§ "controls next to the item")
+                Group {
+                    switch m {
+                    case .keys:   buildDoorKeyboardInline(i, r)
+                    case .replay: buildDoorReplayInline(i, r)
+                    case .file:   Text("Load a .mid — import coming soon.").font(.system(size: 11, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                    default:      EmptyView()
+                    }
+                }.padding(.leading, 29)
+            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { au?.setDoorMode(i, m); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 9).fill(on ? buildCyan.opacity(0.1) : Color.clear))
     }
-    @ViewBuilder private func buildDoorReplayPasses(_ i: Int, _ r: Receiver) -> some View {
+    // REPLAY (inline): the loop-length passes + a REALTIME right→left input piano-roll (see what's being looped).
+    @ViewBuilder private func buildDoorReplayInline(_ i: Int, _ r: Receiver) -> some View {
         let cur = r.replayPassesResolved
-        HStack(spacing: 6) {
-            Text("LOOP").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-            ForEach([1, 2, 4, 8], id: \.self) { n in
-                Text("\(n)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(cur == n ? .black : buildCyan)
-                    .frame(width: 34, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
-                    .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(i, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("LOOP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                ForEach([1, 2, 4, 8], id: \.self) { n in
+                    Text("\(n)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(cur == n ? .black : buildCyan)
+                        .frame(width: 38, height: 28).background(RoundedRectangle(cornerRadius: 6).fill(cur == n ? buildCyan : buildCyan.opacity(0.14)))
+                        .contentShape(Rectangle()).onTapGesture { au?.setReplayPasses(i, n); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                }
+                Text("passes").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                Spacer(minLength: 0)
             }
-            Text("passes").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
-            Spacer(minLength: 0)
-        }.padding(.leading, 25)
+            buildReplayInputRoll(door: i, width: 360, height: 84)
+        }
     }
-    @ViewBuilder private func buildDoorKeyboard(_ i: Int, _ r: Receiver) -> some View {
-        HStack {
-            buildKeyboard(receiver: i, held: Set(r.pianoNotesResolved), enabled: true, width: 300)
-            Text("CLEAR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                .padding(.horizontal, 8).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
-        }.padding(.leading, 25)
+    // The realtime INPUT ROLL: notes ONSET at the RIGHT and drift LEFT over ~4s; 8 vertical CELL lines; pitch framed to
+    // whole octaves. Driven by recvInputRoll (the 4Hz onset feed). Shows what REPLAY is recording. (Paul 2026-08-20)
+    @ViewBuilder private func buildReplayInputRoll(door i: Int, width: CGFloat, height: CGFloat) -> some View {
+        let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
+        let life = 4.0
+        let ns = marks.map { Int($0.note) }
+        let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
+        let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
+        let span = CGFloat(max(12, hi - lo))
+        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
+            .overlay(
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
+                    Canvas { ctx, sz in
+                        for c in 1..<8 {                              // 8 CELL dividers (vertical lines)
+                            let x = CGFloat(c) / 8 * sz.width
+                            ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) }, with: .color(.white.opacity(0.08)), lineWidth: 0.5)
+                        }
+                        for n in stride(from: lo, through: hi, by: 12) {   // octave lines (C)
+                            let y = (1 - CGFloat(n - lo) / span) * (sz.height - 6) + 3
+                            ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
+                        }
+                        let now = tl.date
+                        for m in marks {
+                            let age = now.timeIntervalSince(m.born)
+                            if age < 0 || age > life { continue }
+                            let x = sz.width * (1 - CGFloat(age / life))   // born at the RIGHT, drifts LEFT
+                            let y = (1 - CGFloat(Int(m.note) - lo) / span) * (sz.height - 6) + 3
+                            let a = max(0.0, min(1.0, (1 - age / life)))
+                            ctx.fill(Path(roundedRect: CGRect(x: x - 6, y: y - 2.5, width: 12, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.35 + 0.6 * a)))
+                        }
+                    }
+                }.frame(width: width, height: height)
+            )
+    }
+    // KEYS (inline): the fresh multi-octave piano + CLEAR. (buildKeyboard is NOT reused — it's broken from a prior context.)
+    @ViewBuilder private func buildDoorKeyboardInline(_ i: Int, _ r: Receiver) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            buildInputPiano(receiver: i, held: Set(r.pianoNotesResolved), width: 380)
+            HStack {
+                Text("\(r.pianoNotesResolved.count) note\(r.pianoNotesResolved.count == 1 ? "" : "s") picked").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                Spacer()
+                Text("CLEAR").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                    .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+                    .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+            }.frame(width: 380)
+        }
+    }
+    // A BRAND-NEW multi-octave piano (C2…B4, 3 octaves): white keys in a row, black keys overlaid; tap = pick/unpick a
+    // note into the door's held set. Built fresh (buildKeyboard was broken by an earlier reuse). (Paul 2026-08-20)
+    @ViewBuilder private func buildInputPiano(receiver i: Int, held: Set<Int>, width: CGFloat) -> some View {
+        let startOct = 2, octaves = 3
+        let base = (startOct + 1) * 12                              // MIDI C2 = 36
+        let whiteSemis = [0, 2, 4, 5, 7, 9, 11]
+        let blackSemis: [Int?] = [1, 3, nil, 6, 8, 10, nil]        // the black key to the RIGHT of each white (nil = none)
+        let whiteCount = octaves * 7
+        let gap: CGFloat = 1
+        let ww = (width - CGFloat(whiteCount - 1) * gap) / CGFloat(whiteCount)
+        let height: CGFloat = 68, bw = ww * 0.62, bh = height * 0.6
+        func pick(_ note: Int) { au?.toggleReceiverPianoNote(i, note); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: gap) {                                  // WHITE keys
+                ForEach(0..<whiteCount, id: \.self) { wi in
+                    let note = base + (wi / 7) * 12 + whiteSemis[wi % 7]
+                    RoundedRectangle(cornerRadius: 3).fill(held.contains(note) ? buildCyan : Color.white.opacity(0.85))
+                        .frame(width: ww, height: height)
+                        .overlay(alignment: .bottom) { if wi % 7 == 0 { Text("C\(startOct + wi / 7)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(.black.opacity(0.45)).padding(.bottom, 2) } }
+                        .contentShape(Rectangle()).onTapGesture { pick(note) }
+                }
+            }
+            ForEach(0..<whiteCount, id: \.self) { wi in            // BLACK keys, overlaid at the white-key boundaries
+                if let bs = blackSemis[wi % 7] {
+                    let note = base + (wi / 7) * 12 + bs
+                    RoundedRectangle(cornerRadius: 2).fill(held.contains(note) ? buildCyan : Color.black)
+                        .frame(width: bw, height: bh)
+                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+                        .offset(x: CGFloat(wi + 1) * (ww + gap) - bw / 2 - gap / 2, y: 0)
+                        .contentShape(Rectangle()).onTapGesture { pick(note) }
+                }
+            }
+        }.frame(width: width, height: height, alignment: .topLeading)
     }
     @ViewBuilder private func buildDoorChannelMenu(_ i: Int, _ r: Receiver) -> some View {
+        let enabled = r.inputEnabledResolved                        // NONE = the door blocked; OMNI = all channels; CH n = one channel
+        let label = !enabled ? "NONE" : (r.channel == 0 ? "OMNI" : "CH \(r.channel)")
+        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
         Menu {
-            Button { au?.setReceiverChannel(i, 0); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() } label: { Text("OMNI") }
-            ForEach(1...16, id: \.self) { ch in Button { au?.setReceiverChannel(i, ch); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() } label: { Text("CH \(ch)") } }
+            Button { au?.setReceiverEnabled(i, false); refresh() } label: { Label("NONE — block this input", systemImage: !enabled ? "checkmark" : "circle") }
+            Button { au?.setReceiverEnabled(i, true); au?.setReceiverChannel(i, 0); refresh() } label: { Label("OMNI — all 16 channels", systemImage: enabled && r.channel == 0 ? "checkmark" : "circle") }
+            ForEach(1...16, id: \.self) { ch in Button { au?.setReceiverEnabled(i, true); au?.setReceiverChannel(i, ch); refresh() } label: { Label("CH \(ch)", systemImage: enabled && r.channel == ch ? "checkmark" : "circle") } }
         } label: {
-            Text(r.channel == 0 ? "OMNI" : "CH \(r.channel)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
-                .padding(.horizontal, 9).frame(height: 26).background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+            Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(!enabled ? Color(red: 0.9, green: 0.4, blue: 0.4) : buildCyan)
+                .padding(.horizontal, 11).frame(height: 30).background(RoundedRectangle(cornerRadius: 7).fill(buildPanel))
         }
     }
     @ViewBuilder private func buildDoorOctave(_ i: Int) -> some View {
         let oct = i < receiverOctave.count ? receiverOctave[i] : 0
-        HStack(spacing: 3) {
-            Text("OCT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+        HStack(spacing: 4) {
+            Text("OCT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
             buildOctBtn("−") { nudgeReceiverOctave(i, -1) }
-            Text(oct > 0 ? "+\(oct)" : "\(oct)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 22)
+            Text(oct > 0 ? "+\(oct)" : "\(oct)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 24)
             buildOctBtn("+") { nudgeReceiverOctave(i, +1) }
         }
     }
     @ViewBuilder private func buildDoorRange(_ i: Int, _ r: Receiver) -> some View {
         let lo = Int(r.rangeLoResolved), hi = Int(r.rangeHiResolved)
         let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text("RANGE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-            buildRangeStepper(name: midiNoteName(UInt8(lo)), dec: { au?.setReceiverRange(i, lo: max(0, lo - 1), hi: hi); refresh() },
+            buildRangeStepper(name: (lo == 0 && hi == 127) ? "ALL" : midiNoteName(UInt8(lo)),
+                              dec: { au?.setReceiverRange(i, lo: max(0, lo - 1), hi: hi); refresh() },
                               inc: { au?.setReceiverRange(i, lo: min(hi, lo + 1), hi: hi); refresh() })
-            Text("…").foregroundColor(buildDim)
-            buildRangeStepper(name: midiNoteName(UInt8(hi)), dec: { au?.setReceiverRange(i, lo: lo, hi: max(lo, hi - 1)); refresh() },
-                              inc: { au?.setReceiverRange(i, lo: lo, hi: min(127, hi + 1)); refresh() })
-            if lo == 0 && hi == 127 { Text("(all notes)").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim.opacity(0.6)) }
-            Spacer(minLength: 0)
+            if !(lo == 0 && hi == 127) {
+                Text("–").foregroundColor(buildDim)
+                buildRangeStepper(name: midiNoteName(UInt8(hi)), dec: { au?.setReceiverRange(i, lo: lo, hi: max(lo, hi - 1)); refresh() },
+                                  inc: { au?.setReceiverRange(i, lo: lo, hi: min(127, hi + 1)); refresh() })
+            }
         }
     }
     @ViewBuilder private func buildRangeStepper(name: String, dec: @escaping () -> Void, inc: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             buildOctBtn("−", action: dec)
-            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 34)
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 30)
             buildOctBtn("+", action: inc)
         }
     }

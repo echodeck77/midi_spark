@@ -333,6 +333,7 @@ final class Kernel {
     // the UI reads it so a held-chord line/mark shows WHILE the chord is down and vanishes on release. A muted
     // receiver (filter ≥ 17) matches nothing → empty, as it should.
     private var recvHeldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
+    private var recvHeldNote = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)   // parallel PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     private var recvHeldCount = [Int](repeating: 0, count: 4)
     // the header DOT: bit i = a LIVE (never latch) accepted note held on receiver i. A SCALAR mask, published in one
     // store — NOT a shared array. (A [Bool] returned by reference and retained by the UI kept the Kernel's buffer
@@ -341,6 +342,11 @@ final class Kernel {
     private var recvLiveHeldMask: UInt8 = 0
     func pollReceiverSounding() -> [[UInt8]] {
         var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldVel[i][0..<recvHeldCount[i]])) }
+        return out
+    }
+    /// The PITCHES currently held per door (a fresh copy — race-safe like pollReceiverSounding). Drives the REPLAY roll.
+    func pollReceiverSoundingNotes() -> [[UInt8]] {
+        var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldNote[i][0..<recvHeldCount[i]])) }
         return out
     }
     func pollReceiverLiveHeld() -> UInt8 { recvLiveHeldMask }
@@ -365,6 +371,7 @@ final class Kernel {
             let n = src.srcCount(filter: filter, cableMask: cable)
             for k in 0..<n where recvHeldCount[i] < 12 {
                 let note = src.srcAscending(k, filter: filter, cableMask: cable)
+                recvHeldNote[i][recvHeldCount[i]] = note
                 recvHeldVel[i][recvHeldCount[i]] = src.velocity(note); recvHeldCount[i] += 1
             }
         }
