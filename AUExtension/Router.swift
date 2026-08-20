@@ -320,6 +320,13 @@ final class Router {
     // emitters bind `srcNoteBuf[0..<srcNoteCount]` — a view whose 0-based indices match, so their reads are unchanged.
     private var srcNoteBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var srcNoteCount = 0
+    // Render-hot-loop scratch for the pattern helpers (no per-window array alloc — invariant 3). euclid/burst are
+    // weave-XOR-generator per cell (never nested) → one buffer each; tutti CAN nest ([TUTTI-pattern → TUTTI] folds the
+    // emitter through applyStage) → the emitter (A) and applyStage (B) take SEPARATE rank buffers.
+    private var euclidBuf = [Bool](repeating: false, count: 16)
+    private var burstBuf = [Double](repeating: 0, count: 16)
+    private var tuttiRankBufA = [Int](repeating: 0, count: 128)
+    private var tuttiRankBufB = [Int](repeating: 0, count: 128)
     private func fillSrcFromScratch() {
         srcNoteCount = 0
         let c = chainScratch.srcCount(filter: 0, cableMask: 0b1111)
@@ -2286,9 +2293,9 @@ final class Router {
             let vel = srcNotes[rank].vel
             if p.weaveMode == .euclid {            // each rank plays an interlocking euclidean pattern (bass sparse → top dense)
                 let M = max(2, min(16, p.weaveEuclidSteps))
-                let pat = euclidPattern(pulses: max(1, min(M, 2 * clockRank + 1)), steps: M, rotation: 0)
+                euclidPatternInto(&euclidBuf, pulses: max(1, min(M, 2 * clockRank + 1)), steps: M, rotation: 0)
                 let sub = S / Double(M)
-                for stepI in 0..<M where pat[stepI] {
+                for stepI in 0..<M where euclidBuf[stepI] {
                     let tau = colStart + Double(stepI) * sub
                     guard tau >= mWinStart && tau < mWinEnd else { continue }
                     emitWeaveStrike(cell: cell, row: r, note: n, vel: vel, tau: tau, off: min(colEnd, tau + sub * gateFrac), bm: bm,
@@ -2396,7 +2403,7 @@ final class Router {
         case .euclid:
             let n = max(2, min(16, p.euclidSteps))
             let k = p.euclidPulsesFromPool ? srcNotes.count : p.euclidPulses   // POOL: K = held-note count (composed set if chained)
-            let pat = euclidPattern(pulses: k, steps: n, rotation: p.euclidRot)
+            euclidPatternInto(&euclidBuf, pulses: k, steps: n, rotation: p.euclidRot)
             // SPAN: CELL fits N steps in one column (repeats each column); ROW stretches the SAME N steps across the
             // whole bar (a cross-column phrase). Only `sub` changes — the column gate below keeps each cell voicing
             // only the pulses that fall in its own column, so a euclid on a full row plays as one phrase. (Paul 2026-08-18)
@@ -2410,18 +2417,18 @@ final class Router {
                          beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                          beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
                 let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
-                if pat[step] { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
+                if euclidBuf[step] { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
-            let fracs = burstFractions(count: count, curve: p.curve)
+            burstFractionsInto(&burstBuf, count: count, curve: p.curve)
             // SPAN: CELL fills each column with the roll; ROW unfolds the SAME roll across the whole BAR (anchored at the
             // bar start). The window gate keeps each cell to the strikes that fall in its own column. (Paul 2026-08-19)
             let bWidth = (p.burstSpan == .row) ? cyc : S
             let bAnchor = (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart
             let minGap = bWidth / Double(count) * 0.9
-            for (i, f) in fracs.enumerated() {
-                let tau = bAnchor + f * bWidth
+            for i in 0..<count {
+                let tau = bAnchor + burstBuf[i] * bWidth
                 if inWindow(tau) {
                     let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
                     strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
@@ -2582,8 +2589,8 @@ final class Router {
             let tau = Double(g) * sub
             guard tau >= mWinStart && tau < mWinEnd else { continue }
             let idx = (((g + p.tuttiRotate) % 8) + 8) % 8
-            let (ranks, oct) = tuttiSliceRanks(idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
-            guard !ranks.isEmpty else { continue }                 // REST → silent slice
+            let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufA, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
+            guard rankCount > 0 else { continue }                  // REST → silent slice
             var offBeat = tau + sub * 0.9                           // TUTTI's own ~90%-of-slice gate
             if let lp = lenP {                                     // downstream LENGTH overrides THIS slice's gate
                 let sIdx = ((chopSlice(tau, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
@@ -2597,7 +2604,8 @@ final class Router {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let offT = sampleOf(musical: offBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             let tbm = chopMask(cell, m: tau, S: S, base: bm)
-            for rank in ranks where rank >= 0 && rank < count {
+            for ri in 0..<rankCount {
+                let rank = tuttiRankBufA[ri]; guard rank >= 0 && rank < count else { continue }
                 let n = srcNotes[rank].note + transpose + oct
                 guard n >= 0 && n <= 127 else { continue }
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
@@ -2722,8 +2730,9 @@ final class Router {
             } else {                                            // PATTERN: the authored slice shape at beat m
                 let sub = max(0.03125, p.tuttiSliceBeats)
                 let idx = (((tuttiSliceOf(m, sliceBeats: sub) + p.tuttiRotate) % 8) + 8) % 8
-                let (ranks, oct) = tuttiSliceRanks(idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: cCnt)
-                for rank in ranks where rank >= 0 && rank < cCnt {
+                let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufB, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: cCnt)
+                for ri in 0..<rankCount {
+                    let rank = tuttiRankBufB[ri]; guard rank >= 0 && rank < cCnt else { continue }
                     let n = src.srcAscending(rank, filter: 0, cableMask: 0b1111)
                     let shifted = Int(n) + oct
                     if shifted >= 0 && shifted <= 127 { dst.noteOn(UInt8(shifted), velocity: max(1, src.velocity(n)), channel: 0) }

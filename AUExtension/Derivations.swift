@@ -548,18 +548,25 @@ func tuttiSliceOf(_ mBeat: Double, sliceBeats: Double) -> Int {
 
 /// TUTTI PATTERN — the ascending-rank indices a slice STATE emits + their octave shift (semitones). `count` = the
 /// held set size (rank 0 = lowest … count−1 = highest). REST → none; the ±oct variants shift the emitted pitch. Pure.
-func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: Int) {
-    guard count > 0 else { return ([], 0) }
+// Fill `buf[0..<rankCount]` with the slice's ranks (indices into the sorted chord) — no-alloc form for the render hot
+// loop. Returns (rankCount, octave). The array `tuttiSliceRanks` below wraps it for the tests.
+func tuttiSliceRanksInto(_ buf: inout [Int], _ state: TuttiSlice, count: Int) -> (rankCount: Int, octave: Int) {
+    guard count > 0, buf.count >= count else { return (0, 0) }
     switch state {
-    case .all:        return (Array(0..<count), 0)
-    case .low:        return ([0], 0)
-    case .high:       return ([count - 1], 0)
-    case .top2:       return (count >= 2 ? [count - 2, count - 1] : [0], 0)
-    case .bot2:       return (count >= 2 ? [0, 1] : [0], 0)
-    case .lowOct:     return ([0], 12)
-    case .allDownOct: return (Array(0..<count), -12)
-    case .rest:       return ([], 0)
+    case .all:        for i in 0..<count { buf[i] = i }; return (count, 0)
+    case .low:        buf[0] = 0; return (1, 0)
+    case .high:       buf[0] = count - 1; return (1, 0)
+    case .top2:       if count >= 2 { buf[0] = count - 2; buf[1] = count - 1; return (2, 0) }; buf[0] = 0; return (1, 0)
+    case .bot2:       if count >= 2 { buf[0] = 0; buf[1] = 1; return (2, 0) }; buf[0] = 0; return (1, 0)
+    case .lowOct:     buf[0] = 0; return (1, 12)
+    case .allDownOct: for i in 0..<count { buf[i] = i }; return (count, -12)
+    case .rest:       return (0, 0)
     }
+}
+func tuttiSliceRanks(_ state: TuttiSlice, count: Int) -> (ranks: [Int], octave: Int) {
+    var buf = [Int](repeating: 0, count: max(1, count))
+    let (n, oct) = tuttiSliceRanksInto(&buf, state, count: count)
+    return (Array(buf[0..<n]), oct)
 }
 
 // MARK: - LENGTH (Paul 2026-08-05): per-slice GATE override — 8 slices of the STEP, PASS/MUTE/SHORT/LONG
@@ -1224,23 +1231,39 @@ func emblemSymbol(_ t: ProcessorType) -> String {
 
 /// EUCLID — the K-of-N euclidean rhythm: `pulses` hits spread as evenly as possible across `steps`, a hit on step 0
 /// (before rotation). `pattern[i] == true` ⇒ strike on step i. Exactly `pulses` hits. `rotation` cycles the pattern.
-func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
+// Fill `buf[0..<n]` with the euclidean pattern (n = the resolved step count) — the no-alloc form for the render hot
+// loop (buf is a caller-owned fixed buffer). Returns n. The array `euclidPattern` below wraps it for the tests.
+@discardableResult func euclidPatternInto(_ buf: inout [Bool], pulses: Int, steps: Int, rotation: Int = 0) -> Int {
     let n = max(1, min(64, steps))
+    guard buf.count >= n else { return 0 }
     let k = max(0, min(n, pulses))
-    var p = (0..<n).map { ($0 * k) % n < k }              // the Bresenham/euclidean spread — a hit at step 0
     let rot = ((rotation % n) + n) % n
-    if rot != 0 { p = (0..<n).map { p[($0 + rot) % n] } }
-    return p
+    for i in 0..<n { let src = (i + rot) % n; buf[i] = (src * k) % n < k }   // hit at step 0, rotated
+    return n
+}
+func euclidPattern(pulses: Int, steps: Int, rotation: Int = 0) -> [Bool] {
+    var buf = [Bool](repeating: false, count: max(1, min(64, steps)))
+    let n = euclidPatternInto(&buf, pulses: pulses, steps: steps, rotation: rotation)
+    return Array(buf[0..<n])
 }
 
 /// BURST — the fractional positions (0…<1 of the step) of a `count`-strike roll. `curve` bends the spacing:
 /// 0 = even, +1 = ACCELERATE (gaps shrink → strikes bunch late), −1 = DECELERATE (gaps grow → bunch early).
 /// The first strike is always at 0 (step entry). Pure/testable.
-func burstFractions(count: Int, curve: Double) -> [Double] {
+// Fill `buf[0..<c]` with the roll's fractional positions (c = the resolved strike count) — no-alloc form for the render
+// hot loop. Returns c. The array `burstFractions` below wraps it for the tests.
+@discardableResult func burstFractionsInto(_ buf: inout [Double], count: Int, curve: Double) -> Int {
     let c = max(1, min(16, count))
-    if c == 1 { return [0] }
+    guard buf.count >= c else { return 0 }
+    if c == 1 { buf[0] = 0; return 1 }
     let gamma = pow(2.0, -max(-1.0, min(1.0, curve)))     // +1 → 0.5 (accel) · 0 → 1 (even) · −1 → 2 (decel)
-    return (0..<c).map { pow(Double($0) / Double(c), gamma) }
+    for i in 0..<c { buf[i] = pow(Double(i) / Double(c), gamma) }
+    return c
+}
+func burstFractions(count: Int, curve: Double) -> [Double] {
+    var buf = [Double](repeating: 0, count: max(1, min(16, count)))
+    let c = burstFractionsInto(&buf, count: count, curve: curve)
+    return Array(buf[0..<c])
 }
 
 // MARK: - THE SEAL (the derived cell face) — Docs/AcceptanceCriteria/AcceptanceCriteria-seal-face.md
