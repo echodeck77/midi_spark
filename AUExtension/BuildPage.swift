@@ -544,7 +544,8 @@ extension DiagView {
             .overlay(Text("\(n + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced))
                 .foregroundColor(selected ? .black.opacity(0.7) : (tint ?? .white.opacity(0.7))))   // populated → the colour's TEXT; empty → grey; selected → black on the fill
             .contentShape(Rectangle())
-            .onTapGesture { inEditor ? buildEditorOverwriteRow(n) : buildTapColourTab(n) }   // in the editor a tab OVERWRITES that row with the current edits; else select/populate
+            .onTapGesture { buildTapColourTab(n) }   // TAP = select/visit that row's colour (never stamps — Paul 2026-08-20)
+            .onLongPressGesture(minimumDuration: 0.35) { if inEditor { buildEditorOverwriteRow(n) } }   // in the editor, HOLD = apply a COPY of the current machine to that row
     }
     // NOW-PLAYING (Paul 2026-08-19): a gentle left→right shimmer on the row-selector tab whose row is the active rung in
     // the playing column. Cheap: 3 soft marks in one Canvas, only while that row plays.
@@ -597,9 +598,8 @@ extension DiagView {
         }
     }
     private func buildTapColourTab(_ n: Int) {
-        if let cid = buildRowColour(n) {                         // a SET tab → select its colour + play its row
-            for c in 0..<8 { buildStagingSel[c] = n }
-            buildSelectID(cid)
+        if let cid = buildRowColour(n) {                         // a SET tab → SELECT its colour ONLY (does NOT set the playing rung — Paul 2026-08-20)
+            buildSelectID(cid)                                   // the grid cells / loop keys set the rung; the row button just picks the colour to edit
             buildStagingSyncIfPlaying()
         } else {
             buildPopulateTab(n)                                  // an EMPTY tab → create/copy/place, then pulse until edited
@@ -3095,7 +3095,7 @@ extension DiagView {
             .background(hue.opacity(0.22))
             Rectangle().fill(hue.opacity(0.5)).frame(height: 1)
             VStack(alignment: .leading, spacing: 5) {          // ROW SELECTOR — a tab OVERWRITES that row with the current edits
-                Text("TAP TO OVERWRITE ROW:").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
+                Text("HOLD A ROW TO APPLY A COPY:").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).tracking(1)
                 AnyView(buildColourTabs(castW: contentW - 40, cell: 30, inEditor: true))
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
