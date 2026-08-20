@@ -42,4 +42,58 @@ final class MidiFileTests: XCTestCase {
         // 120 BPM → 500000 µs/quarter = 0x07A120
         XCTAssertNotNil(data.range(of: Data([0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20])))
     }
+
+    // DECODE (config-sheets FILE mode, Paul 2026-08-20): parse SMF bytes into note events + loop length.
+
+    func testEncodeDecodeRoundTrip() {
+        // The strongest test: encode a known set → decode → the same notes, beat-accurate at the PPQ grid.
+        let ev: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] = [
+            (0.0, 0x90, 60, 100),   // C on
+            (0.5, 0x90, 64, 90),    // E on
+            (1.0, 0x80, 60, 0),     // C off
+            (2.0, 0x80, 64, 0),     // E off
+        ]
+        let data = MidiFile.encode(events: ev, bpm: 120, ppq: 480, loopBeats: 4.0)
+        guard let (notes, loopBeats) = MidiFile.decode(data) else { return XCTFail("decode failed") }
+        XCTAssertEqual(loopBeats, 4.0, accuracy: 0.001, "the end-of-track sets the loop length")
+        XCTAssertEqual(notes.count, 4)
+        XCTAssertEqual(notes[0], MidiFile.NoteEvent(beat: 0.0, note: 60, vel: 100, on: true))
+        XCTAssertEqual(notes[1], MidiFile.NoteEvent(beat: 0.5, note: 64, vel: 90, on: true))
+        XCTAssertEqual(notes.first { $0.note == 60 && !$0.on }?.beat ?? -1, 1.0, accuracy: 0.001)
+        XCTAssertEqual(notes.first { $0.note == 64 && !$0.on }?.beat ?? -1, 2.0, accuracy: 0.001)
+    }
+    func testDecodeHandlesRunningStatusAndZeroVelOff() {
+        // A hand-built track with RUNNING STATUS (0x90 then two note-ons without repeating status) + a vel-0 note-on = off.
+        var trk: [UInt8] = []
+        trk += [0x00, 0x90, 60, 100]   // C on
+        trk += [0x00, 64, 90]          // running status → E on (no 0x90)
+        trk += [0x60, 60, 0]           // running status, vel 0 → C off (delta 96 ticks)
+        trk += [0x00, 0xFF, 0x2F, 0x00]
+        var out: [UInt8] = []
+        out += Array("MThd".utf8); out += [0,0,0,6, 0,0, 0,1, 0x00, 0x60]   // format 0, 1 track, ppq 96
+        out += Array("MTrk".utf8); out += [0,0,0, UInt8(trk.count)]; out += trk
+        guard let (notes, _) = MidiFile.decode(Data(out)) else { return XCTFail("decode failed") }
+        XCTAssertEqual(notes.count, 3)
+        XCTAssertTrue(notes.contains(MidiFile.NoteEvent(beat: 0, note: 64, vel: 90, on: true)), "running status parsed")
+        XCTAssertTrue(notes.contains { $0.note == 60 && !$0.on && abs($0.beat - 1.0) < 0.001 }, "vel-0 note-on = off, at beat 1 (96/96)")
+    }
+    func testDecodeRejectsMalformedBytes() {
+        XCTAssertNil(MidiFile.decode(Data([0x00, 0x01, 0x02])), "not an SMF → nil")
+        XCTAssertNil(MidiFile.decode(Data()), "empty → nil")
+        XCTAssertNil(MidiFile.decode(Data(Array("MThd".utf8) + [0,0,0,6, 0,0, 0,1])), "truncated header → nil")
+    }
+    func testFileClipDrivesTheDoorRing() {
+        // The FILE→DoorRing bridge: decode → loadLoop → notesSoundingAt (the REPLAY playback path, reused).
+        let ev: [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] = [
+            (0.0, 0x90, 60, 100), (0.5, 0x90, 67, 100), (1.0, 0x80, 60, 0), (2.0, 0x80, 67, 0),
+        ]
+        guard let (notes, loopBeats) = MidiFile.decode(MidiFile.encode(events: ev, bpm: 120, ppq: 480, loopBeats: 4.0)) else { return XCTFail() }
+        let ring = DoorRing()
+        ring.loadLoop(notes.map { (beat: $0.beat, note: $0.note, vel: $0.vel, on: $0.on) }, lengthBeats: loopBeats)
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
+        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v); return Set((0..<c).map { n[$0] }) }
+        XCTAssertEqual(sounding(0.25), [60], "only C at 0.25")
+        XCTAssertEqual(sounding(0.75), [60, 67], "C + G at 0.75")
+        XCTAssertEqual(sounding(1.5), [67], "C released → only G at 1.5")
+    }
 }

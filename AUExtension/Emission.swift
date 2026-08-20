@@ -189,6 +189,14 @@ final class DoorRing {
     }
     func clearLoop() { loopN = 0; loopLen = 0 }
 
+    /// Load an EXTERNAL loop (config-sheets FILE mode): a parsed .mid clip's note events drive the same playback path
+    /// as a captured REPLAY loop, so a FILE door reuses `notesSoundingAt`. Events are (beat, note, vel, on), already in
+    /// [0, lengthBeats); time-ordered by the caller (MidiFile.decode sorts, off-before-on at ties).
+    func loadLoop(_ events: [(beat: Double, note: UInt8, vel: UInt8, on: Bool)], lengthBeats: Double) {
+        loopN = 0; loopLen = max(0, lengthBeats)
+        for e in events where loopN < DoorRing.cap { loop[loopN] = Ev(beat: e.beat, note: e.note, vel: e.vel, on: e.on); loopN += 1 }
+    }
+
     /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
     /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
     @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8]) -> Int {
