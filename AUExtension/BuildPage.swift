@@ -177,7 +177,7 @@ extension DiagView {
                     Text("REEL · PASS BROWSER").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
                     Spacer()
                     Button { buildReelExport() } label: {
-                        Text("SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
+                        Text(reelSelPassNo >= 0 ? "SAVE PASS \(reelSelPassNo + 1)" : "SAVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)   // SAVE carries its scope (design §1.3)
                             .foregroundColor(reelSelPassNo >= 0 || !reelPassNumbers.filter { $0 >= 0 }.isEmpty ? .black : buildDim)
                             .padding(.horizontal, 14).padding(.vertical, 7)
                             .background(RoundedRectangle(cornerRadius: 6).fill(buildCyan.opacity(0.9)))
@@ -200,14 +200,22 @@ extension DiagView {
     }
     // The 4 piano-roll lanes + a shared PLAYHEAD that sweeps while a pass replays (notes light as it crosses them).
     private func buildReelRollSection(width: CGFloat, laneH: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
+        // COLLAPSE EMPTY LANES (design §1.1): a lane with no events shrinks to a thin labelled strip; the active lanes
+        // share the freed height (a single-emitter session gives lane A ~4× the pitch resolution — the common case).
+        let active = (0..<4).filter { lane in reelRoll.contains { Int($0.cable) == lane + 1 } }
+        let thin: CGFloat = 16
+        let total = laneH * 4                                                     // the four lanes' combined height
+        let activeH = active.isEmpty ? laneH : max(thin, (total - CGFloat(4 - active.count) * thin) / CGFloat(max(1, active.count)))
+        func heightFor(_ lane: Int) -> CGFloat { active.isEmpty ? laneH : (active.contains(lane) ? activeH : thin) }
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reelState != 2)) { tl in
             let phase = reelPlayheadPhase(tl.date)                                // 0…1 across the pass, or nil (not replaying)
             VStack(spacing: 0) {
                 ForEach(0..<4, id: \.self) { lane in
                     if lane > 0 { Rectangle().fill(Color.white.opacity(0.22)).frame(width: width, height: 2) }   // divider between the four outputs
-                    buildReelLane(lane, width: width, height: laneH, phase: phase)
+                    buildReelLane(lane, width: width, height: heightFor(lane), phase: phase)
                 }
             }
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(reelSelPassNo >= 0 ? 0.05 : 0)))   // SELECTION WASH (design §1.2) — neutral ink BENEATH the hued notes; links the cyan chip to the roll
             .overlay(alignment: .leading) {
                 if let phase { Rectangle().fill(Color.white.opacity(0.75)).frame(width: 1.5).offset(x: CGFloat(phase) * width) }
             }
