@@ -28,9 +28,9 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
   `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.
-  (2) STILL OPEN: `euclidPattern`→`[Bool]` allocates **per RANK per window** in `emitWeaveRow`, plus
-  `burstFractions`/`tuttiSliceRanks` array returns in the hot loop — add fill-into-buffer variants in Derivations (keep
-  the array versions for the unit tests). Low-magnitude; a tested Router+Derivations pass. (3) STILL OPEN: `process()`
+  (2) ~~`euclidPattern`/`burstFractions`/`tuttiSliceRanks` array returns in the hot loop~~ DONE (2026-08-20, `a87e492`)
+  — `*Into(&buf,…)` no-alloc variants in Derivations (array versions wrap them for the tests); Router reused buffers,
+  separate tutti A/B for the `[TUTTI→TUTTI]` nest; byte-identical. (3) STILL OPEN: `process()`
   uniform-vs-multi-clock block is ~duplicated (transition + tick loops) — an `emitColumnTransition` extraction would
   dedup; same item as codebase-review §12 "split Router.process".
 - **UI dead-code (grep-clean, FLAGGED not removed — the EDIT/verb surface may be intentional WIP like BuildPage):**
