@@ -547,6 +547,7 @@ extension DiagView {
         buildEditorSnapCid = targetID; buildEditorSnapshot = cur           // re-snapshot: further edits/cancel apply to the target
         buildPendingTab = nil
         buildStagingSyncIfPlaying()
+        buildFlashPromote("ROW \(n + 1) ✓")                               // §banking: the STAMP TELL — confirm the deal (design 2026-08-17)
     }
     // A breathing white pulse (the pending-tab / previewed-row highlight).
     @ViewBuilder private func buildPulseOverlay() -> some View {
