@@ -310,6 +310,7 @@ struct DiagView: View {
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
+    @State var replayEngagedMask: UInt8 = 0                     // which REPLAY doors are actively looping (the "LAST N" toggle state)
     @State var recvLiveHeld: [Bool] = [false, false, false, false]   // header dot: a LIVE (never latch) accepted note is held per receiver
     @State var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
     @State var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
@@ -1150,6 +1151,7 @@ struct DiagView: View {
                 }
                 recvInputRoll = roll
                 recvHeldNotes = notes
+                let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
             } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) {
                 recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet closed → drop the marks
             }

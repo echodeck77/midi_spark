@@ -108,11 +108,11 @@ extension DiagView {
     // teaches here (wordy allowed); performance stays silent elsewhere. Names per §9: "MIDI INPUTS" · "INPUT MODE".
     private func buildDoorModeCopy(_ m: DoorMode) -> String {
         switch m {
-        case .latch:  return "Notes toggle in and out of the held pool — build a voicing one key at a time."
-        case .hold:   return "A new chord replaces the held pool — each grab is a fresh camera."
-        case .keys:   return "Pick the held notes on an on-screen keyboard — no live input needed."
-        case .replay: return "Loops the last few passes of what you played, as this door's own input."
-        case .file:   return "A MIDI file plays as this door's input. (import coming soon)"
+        case .latch:  return "Each note toggles in or out of the held pool."
+        case .hold:   return "A new chord replaces the held pool."
+        case .keys:   return "Pick the held notes on the keyboard below."
+        case .replay: return "Records this door's input and loops the last N passes back in."
+        case .file:   return "Plays a loaded MIDI file as this door's input."
         }
     }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
@@ -187,9 +187,11 @@ extension DiagView {
         .padding(11)
         .background(RoundedRectangle(cornerRadius: 9).fill(on ? buildCyan.opacity(0.1) : Color.clear))
     }
-    // REPLAY (inline): the loop-length passes + a REALTIME right→left input piano-roll (see what's being looped).
+    // REPLAY (inline): the loop-length passes · a "LAST N" catch button (capture+loop / release) · a realtime right→left
+    // input roll whose visible window = the N passes selected.
     @ViewBuilder private func buildDoorReplayInline(_ i: Int, _ r: Receiver) -> some View {
         let cur = r.replayPassesResolved
+        let engaged = (replayEngagedMask & (1 << UInt8(i))) != 0
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text("LOOP").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
@@ -200,15 +202,23 @@ extension DiagView {
                 }
                 Text("passes").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
                 Spacer(minLength: 0)
+                // LAST N — capture the last N passes NOW and loop them; press again to release (back to live). Lit while looping.
+                Text(engaged ? "LOOPING · TAP TO STOP" : "LAST \(cur)").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundColor(engaged ? .black : buildCyan)
+                    .padding(.horizontal, 12).frame(height: 28)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(engaged ? Color(red: 0.36, green: 0.92, blue: 0.52) : buildCyan.opacity(0.18)))
+                    .contentShape(Rectangle()).onTapGesture { au?.toggleReplayCatch(i) }
             }
-            buildReplayInputRoll(door: i, width: 360, height: 84)
+            buildReplayInputRoll(door: i, passes: cur, width: 360, height: 84)
         }
     }
-    // The realtime INPUT ROLL: notes ONSET at the RIGHT and drift LEFT over ~4s; 8 vertical CELL lines; pitch framed to
-    // whole octaves. Driven by recvInputRoll (the 4Hz onset feed). Shows what REPLAY is recording. (Paul 2026-08-20)
-    @ViewBuilder private func buildReplayInputRoll(door i: Int, width: CGFloat, height: CGFloat) -> some View {
+    // The realtime INPUT ROLL: notes ONSET at the RIGHT and drift LEFT; the visible WINDOW = the N passes selected (so the
+    // roll shows exactly the material a LAST-N catch would grab). Vertical CELL lines every column (8 per pass) with
+    // heavier PASS dividers; pitch framed to whole octaves. Fed by recvInputRoll (the 4Hz onset feed). (Paul 2026-08-20)
+    @ViewBuilder private func buildReplayInputRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
         let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
-        let life = 4.0
+        let passSec = Double(Snap.cols) * stepBeats * 60.0 / max(1.0, d.tempo)   // one pass in seconds (global clock)
+        let life = max(0.5, Double(passes) * passSec)                            // the window spans N passes
         let ns = marks.map { Int($0.note) }
         let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
@@ -217,11 +227,14 @@ extension DiagView {
             .overlay(
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
                     Canvas { ctx, sz in
-                        for c in 1..<8 {                              // 8 CELL dividers (vertical lines)
-                            let x = CGFloat(c) / 8 * sz.width
-                            ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) }, with: .color(.white.opacity(0.08)), lineWidth: 0.5)
+                        let cols = passes * Snap.cols                             // 8 columns per pass
+                        for c in 1..<cols {                                       // CELL dividers; heavier on a PASS boundary
+                            let x = CGFloat(c) / CGFloat(cols) * sz.width
+                            let isPass = c % Snap.cols == 0
+                            ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
+                                       with: .color(.white.opacity(isPass ? 0.22 : 0.07)), lineWidth: isPass ? 1 : 0.5)
                         }
-                        for n in stride(from: lo, through: hi, by: 12) {   // octave lines (C)
+                        for n in stride(from: lo, through: hi, by: 12) {         // octave lines (C)
                             let y = (1 - CGFloat(n - lo) / span) * (sz.height - 6) + 3
                             ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
                         }
@@ -229,10 +242,10 @@ extension DiagView {
                         for m in marks {
                             let age = now.timeIntervalSince(m.born)
                             if age < 0 || age > life { continue }
-                            let x = sz.width * (1 - CGFloat(age / life))   // born at the RIGHT, drifts LEFT
+                            let x = sz.width * (1 - CGFloat(age / life))          // born at the RIGHT, drifts LEFT across the N-pass window
                             let y = (1 - CGFloat(Int(m.note) - lo) / span) * (sz.height - 6) + 3
                             let a = max(0.0, min(1.0, (1 - age / life)))
-                            ctx.fill(Path(roundedRect: CGRect(x: x - 6, y: y - 2.5, width: 12, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.35 + 0.6 * a)))
+                            ctx.fill(Path(roundedRect: CGRect(x: x - 5, y: y - 2.5, width: 10, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.35 + 0.6 * a)))
                         }
                     }
                 }.frame(width: width, height: height)

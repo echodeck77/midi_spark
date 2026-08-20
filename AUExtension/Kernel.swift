@@ -153,6 +153,13 @@ final class Kernel {
     private let doorRings = [DoorRing(), DoorRing(), DoorRing(), DoorRing()]
     private var replayMask: UInt8 = 0
     private var replayPasses = [UInt8](repeating: 1, count: 4)
+    // MANUAL CATCH (Paul 2026-08-20): a REPLAY door records continuously but only LOOPS after the user presses "LAST N"
+    // — that captures the last N passes as a fixed loop and ENGAGES it (press again = release, back to live input).
+    private var replayEngagedMask: UInt8 = 0        // which REPLAY doors are actively looping (ephemeral)
+    private var replayAnchor = [Double](repeating: 0, count: 4)   // the beat each loop was captured at → phase = (beat − anchor) mod loopLen
+    private var replayCatchToggle: UInt8 = 0        // UI request: toggle door i's catch this render (bit i)
+    func toggleReplayCatch(_ i: Int) { if i >= 0 && i < 4 { replayCatchToggle |= UInt8(1 << i) } }
+    func replayEngaged() -> UInt8 { replayEngagedMask }
     private var renderBeatPos = 0.0                 // this render's beat — read by updateLatchedPools for the REPLAY phase
     private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
     private var recordPlaying = false
@@ -174,14 +181,22 @@ final class Kernel {
     // REPLAY: at each N-pass boundary, capture the last N passes as the door's loop (retro — never armed). N·cycleBeats
     // is a multiple of the boundary here, so playback phase = beatPos mod loopLen aligns. Runs from the reel section
     // (where the pass index is computed). Needs ≥ N passes of history before the first capture.
-    private func captureReplayLoops(reelPass: Int, cycleBeats: Double, beatPos: Double) {
-        guard replayMask != 0, cycleBeats > 0 else { return }
-        for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0 {
-            let n = Int(replayPasses[i] == 0 ? 1 : replayPasses[i])
-            if reelPass >= n && reelPass % n == 0 {
+    // MANUAL CATCH: consume the UI's "LAST N" toggle requests. Press → capture the last N passes NOW (anchored at this
+    // beat so the loop plays from its start) + ENGAGE looping; press again → release (clear the loop, back to live input).
+    private func processReplayCatch(cycleBeats: Double, beatPos: Double) {
+        guard replayCatchToggle != 0 else { return }
+        for i in 0..<4 where (replayCatchToggle & (1 << UInt8(i))) != 0 {
+            let bit = UInt8(1 << i)
+            if replayEngagedMask & bit != 0 {                      // engaged → release
+                doorRings[i].clearLoop(); replayEngagedMask &= ~bit
+            } else if cycleBeats > 0 {                             // not engaged → capture the last N passes + engage
+                let n = Int(replayPasses[i] == 0 ? 1 : replayPasses[i])
                 doorRings[i].capture(endBeat: beatPos, lengthBeats: Double(n) * cycleBeats)
+                replayAnchor[i] = beatPos; replayEngagedMask |= bit
             }
         }
+        replayCatchToggle = 0
+        effectiveLatchMask = computeEffectiveLatchMask()           // re-fold: a newly-engaged door self-arms this render
     }
 
     private func computeEffectiveLatchMask() -> UInt8 {
@@ -189,7 +204,7 @@ final class Kernel {
         for i in 0..<4 where (pianoMask & (1 << UInt8(i))) != 0 && i < pianoNotes.count && !pianoNotes[i].isEmpty {
             m |= UInt8(1 << i)
         }
-        for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // REPLAY: a door with a captured loop self-arms → its cells read the loop
+        for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 && doorRings[i].hasLoop {   // REPLAY: only an ENGAGED door (LAST N pressed) loops → its cells read the loop
             m |= UInt8(1 << i)
         }
         return m
@@ -209,13 +224,13 @@ final class Kernel {
                 for n in 0..<128 { latchPrevHeld[i][n] = false }          // ...and clear the ADD edge state
             }
             guard isArmed else { continue }
-            if replayMask & bit != 0 {
-                // REPLAY: the frozen pool = the captured loop SOUNDING at the current phase (beatPos mod loopLen). The
-                // loop is re-based to [0, loopLen) and capture happens at N-pass boundaries, so phase = beatPos mod
-                // loopLen aligns. Refresh each render (pure f(beat) → replay-safe). STAMP the door's wire channel.
+            if replayMask & bit != 0 && replayEngagedMask & bit != 0 {
+                // REPLAY (engaged): the frozen pool = the captured loop SOUNDING at the current phase. The loop was
+                // captured at replayAnchor[i] and re-based to [0, loopLen), so phase = (beat − anchor) mod loopLen plays
+                // from the loop's start at capture time. Refresh each render (pure f(beat) → replay-safe). STAMP the wire.
                 let ring = doorRings[i]
                 guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
-                var phase = renderBeatPos.truncatingRemainder(dividingBy: ring.loopLen)
+                var phase = (renderBeatPos - replayAnchor[i]).truncatingRemainder(dividingBy: ring.loopLen)
                 if phase < 0 { phase += ring.loopLen }
                 let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf)
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
@@ -521,7 +536,7 @@ final class Kernel {
         liveEmitter.out = midiOut       // pick up the current host block before flushing
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
         reel.clear(); reelLastPass = Int.min                                     // THE REEL-TO-REEL: drop the tape on reset
-        for r in doorRings { r.clearLoop() }                                     // REPLAY: drop each door's loop on reset
+        for r in doorRings { r.clearLoop() }; replayEngagedMask = 0; replayCatchToggle = 0   // REPLAY: drop each door's loop + disengage on reset
         router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
     }
 
@@ -632,6 +647,8 @@ final class Kernel {
             ev = UnsafePointer(head.next)
         }
 
+        // REPLAY manual catch: consume any "LAST N" toggle (capture+engage / release) BEFORE the latch fill reads the loop.
+        processReplayCatch(cycleBeats: Double(Snap.cols) * box.stepBeats, beatPos: renderBeatPos)
         // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
         updateLatchedPools()
         updateReceiverSounding()        // duration feed: snapshot the currently-held input notes per receiver
@@ -668,7 +685,6 @@ final class Kernel {
             if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
             reel.startPass(); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
-            captureReplayLoops(reelPass: reelPass, cycleBeats: reelCycleBeats, beatPos: Double(reelPass) * reelCycleBeats)   // REPLAY: refresh each door's loop at the boundary (beatPos snapped to the boundary)
         }
         if reelExitFlush { reelExitFlush = false; reelBlanketOff(out: liveEmitter) }
         reelTap.out = liveEmitter; reelTap.deck = reel

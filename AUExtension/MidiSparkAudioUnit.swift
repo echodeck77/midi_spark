@@ -466,6 +466,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // REPLAY (stage 3): how much input history loops (1·2·4·8 passes).
     func uiReplayPasses(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].replayPassesResolved : 1 }
     func setReplayPasses(_ i: Int, _ passes: Int) { editReceiver(i) { $0.replayPasses = [1, 2, 4, 8].contains(passes) ? passes : 1 } }
+    func toggleReplayCatch(_ i: Int) { kernel.toggleReplayCatch(i) }   // "LAST N" — capture+loop / release (config-sheets, Paul 2026-08-20)
+    func replayEngaged() -> UInt8 { kernel.replayEngaged() }           // which REPLAY doors are actively looping
     func toggleReceiverPianoNote(_ i: Int, _ note: Int) {   // pick/unpick a note on the on-screen keyboard
         editReceiver(i) { var s = Set($0.pianoNotes ?? []); if s.contains(note) { s.remove(note) } else { s.insert(note) }; $0.pianoNotes = s.sorted() }
     }
