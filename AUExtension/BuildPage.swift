@@ -382,7 +382,8 @@ extension DiagView {
     // chain-as-boxes (rows 5–8) stack to exactly 8 grid cells tall, so all three columns read at equal height.
     @ViewBuilder private func buildMachineBlock(castW: CGFloat, cell: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {                      // (the colour TABS moved up to buildPaletteColumn, above the outlined section — Paul 2026-08-18)
-            AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6).padding(.bottom, 16)   // the MIDI-IN (receiver) selector — more space below it (Paul 2026-08-18)
+            AnyView(buildReceiverSelector(castW: castW)).padding(.top, 6)   // the MIDI-IN (receiver) selector (Paul 2026-08-18)
+            AnyView(buildDoorModeRow(castW: castW)).padding(.bottom, 16)    // DOOR MODE — LATCH·HOLD·KEYS·REPLAY for the selected door (config-sheets, Paul 2026-08-20)
             AnyView(HStack(alignment: .top, spacing: BuildGeom.castGap) {   // the CHAIN verb stack (LEFT) + the VERTICAL 2×4 MIDI chain (RIGHT) — Paul 2026-08-18
                 AnyView(buildChainButtonStack(width: (castW / 2 - BuildGeom.castGap / 2) * 0.75,
                                               height: 4 * (cell * 2 + BuildGeom.castGap) + 3 * BuildGeom.castGap))   // LEFT: centred verb stack
@@ -721,14 +722,17 @@ extension DiagView {
                     .foregroundColor(buildCyan).frame(minWidth: 30)
                 buildOctBtn("OCT +") { nudgeReceiverOctave(sel, +1) }
             }.frame(width: 176)
-            buildDoorModeRow(sel: sel, recvs: recvs, castW: castW)   // DOOR MODE — LATCH·HOLD·KEYS·REPLAY (config-sheets, Paul 2026-08-20)
         }
     }
     // THE DOOR MODE on BUILD (config-sheets stages 2/3, Paul 2026-08-20): the selected door's behaviour, reachable in the
-    // workshop. LATCH (toggle in/out) · HOLD (chord replaces) · KEYS (keyboard) · REPLAY (loop the input — PASSES 1·2·4·8).
-    @ViewBuilder private func buildDoorModeRow(sel: Int, recvs: [Receiver], castW: CGFloat) -> some View {
+    // workshop under the MIDI-IN chips. LATCH (toggle in/out) · HOLD (chord replaces) · KEYS (keyboard) · REPLAY (loop the
+    // input — PASSES 1·2·4·8). The selected door = the current row's receiver, else the part default (mirrors the chips).
+    @ViewBuilder private func buildDoorModeRow(castW: CGFloat) -> some View {
+        let recvs = au?.uiReceivers() ?? []
+        let sel = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
         let mode = sel < recvs.count ? recvs[sel].doorModeResolved : .latch
         VStack(spacing: 4) {
+            Text("DOOR R\(sel + 1) MODE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(buildDim).frame(maxWidth: .infinity, alignment: .leading).frame(width: castW)
             HStack(spacing: 3) {
                 buildDoorModeChip("LATCH", .latch, mode, sel)
                 buildDoorModeChip("HOLD", .hold, mode, sel)
