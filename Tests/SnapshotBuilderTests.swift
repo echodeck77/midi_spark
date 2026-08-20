@@ -47,6 +47,33 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.rowLength[3], Snap.cols, "nil falls to a full 8")
     }
 
+    // THE CONFIG SHEETS (Paul 2026-08-20): the RACK has 4 CONFIGS; the render reads the ACTIVE config's membership.
+    func testRackConfigResolvesToLegacyMaskWhenUnset() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.rackEnabledMask = 0b0101                                  // legacy: emitters A + C in path
+        XCTAssertEqual(st.rackConfigsResolved, [0b0101, 0b1111, 0b1111, 0b1111], "no configs → config 0 = the legacy mask, rest all-in")
+        XCTAssertEqual(st.rackMaskResolved, 0b0101, "the active config (0) is the legacy mask")
+        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0101, "the box is byte-identical for an old doc")
+    }
+    func testActiveRackConfigDrivesTheRenderMask() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.rackConfigs = [0b0001, 0b0010, 0b0100, 0b1000]; st.rackActiveConfig = 2
+        XCTAssertEqual(st.rackMaskResolved, 0b0100)
+        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0100, "config 2 is live")
+        st.rackActiveConfig = 0
+        XCTAssertEqual(SnapshotBuilder.build(from: st).rackMask, 0b0001, "switching the live config switches the render mask")
+        st.rackActiveConfig = 9
+        XCTAssertEqual(st.rackActiveConfigResolved, 3, "an out-of-range active config clamps to 0…3")
+    }
+    func testRackConfigsSurviveCodableRoundTrip() throws {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.rackConfigs = [0b0001, 0b0010, 0b0100, 0b1000]; st.rackActiveConfig = 2
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
+        XCTAssertEqual(back.rackConfigs, [0b0001, 0b0010, 0b0100, 0b1000])
+        XCTAssertEqual(back.rackActiveConfig, 2)
+        XCTAssertEqual(back.rackMaskResolved, 0b0100)
+    }
+
     // delta §9 item 1: the builder carries each Colour's ON assignments onto its SnapColour (nil → unassigned).
     func testOnConfigResolvesOntoSnapColour() {
         var on = OnConfig()

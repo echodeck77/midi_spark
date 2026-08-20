@@ -152,7 +152,7 @@ enum SnapshotBuilder {
         // the raw wire regardless of the matrix (no claim ghost/reservation, no duck, no alt turn). The raw doc
         // masks stay the "armed" truth the matrix UI reads directly; only the RENDER sees the gated masks. nil/old
         // docs ⇒ 0b1111 (all racks in path) so existing claim/duck/alt keep applying unchanged.
-        let rackMask = doc.rackEnabledResolved
+        let rackMask = doc.rackMaskResolved   // THE CONFIG SHEETS: the ACTIVE rack config's membership (== rackEnabledResolved for old docs)
         func gated(_ m: UInt8?) -> UInt8 { (m ?? 0) & rackMask }   // the two-tier law: a treatment mask is off wherever its emitter's rack is out of path
         // delta §6a CLAIM v2: the claim MASK (from claimMask, or derived from the legacy single field) + the
         // per-claimant LEAK % (0 = full suppression = v1). Gated by the rack.

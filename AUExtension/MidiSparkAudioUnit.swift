@@ -486,13 +486,31 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// THE RACK (design-the-rack §3): the four per-emitter "board in the signal path" gates (nil/old docs ⇒ all
     /// ON), and the toggle (persisted, undoable). Lit ⇒ the emitter's armed treatments apply; off ⇒ raw wire (the
     /// builder pre-ANDs this into claim/duck/alt). Distinct from LIVE (which silences the output entirely).
-    func uiRackMask() -> UInt8 { document.rackEnabledResolved }
+    func uiRackMask() -> UInt8 { document.rackMaskResolved }          // the ACTIVE config's membership
+    func uiRackConfig() -> Int { document.rackActiveConfigResolved } // which of the 4 configs is live
+    // Toggle emitter `bus`'s board membership IN THE ACTIVE CONFIG. Writes rackConfigs[active] + keeps the legacy
+    // rackEnabledMask synced to the active config (lossless downgrade). (THE CONFIG SHEETS, Paul 2026-08-20)
     func setRack(_ bus: Int, _ on: Bool) {
         guard (0..<4).contains(bus) else { return }
         editDocument { d in
-            var m = d.rackEnabledResolved
+            var configs = d.rackConfigsResolved
+            let active = d.rackActiveConfigResolved
+            var m = configs[active]
             if on { m |= UInt8(1 << bus) } else { m &= ~UInt8(1 << bus) }
-            d.rackEnabledMask = m
+            configs[active] = m
+            d.rackConfigs = configs
+            d.rackActiveConfig = active
+            d.rackEnabledMask = m                                    // legacy mirror = the active config
+        }
+    }
+    // Switch the LIVE rack config (0…3). Syncs the legacy rackEnabledMask to the newly-live config.
+    func setRackConfig(_ i: Int) {
+        guard (0..<4).contains(i) else { return }
+        editDocument { d in
+            let configs = d.rackConfigsResolved
+            d.rackConfigs = configs
+            d.rackActiveConfig = i
+            d.rackEnabledMask = configs[i]                           // legacy mirror = the newly-live config
         }
     }
 

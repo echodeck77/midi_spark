@@ -749,6 +749,22 @@ struct PluginState: Codable, Equatable {
     var rackEnabledMask: UInt8? = nil
     /// The rack gate (bits A–D); missing ⇒ 0b1111 (all racks in path). Non-persisting read helper.
     var rackEnabledResolved: UInt8 { (rackEnabledMask ?? 0b1111) & 0b1111 }
+    // THE CONFIG SHEETS (Paul 2026-08-20): the RACK has 4 saved CONFIGS (setups). Each config is a membership mask
+    // (which emitters' boards are in-path); one is LIVE at a time. The render uses the ACTIVE config's mask. Additive-
+    // Optional: a clean/old doc (rackConfigs nil) derives config 0 = the legacy `rackEnabledMask`, configs 1–3 = all-in,
+    // active = 0 → `rackMaskResolved` == `rackEnabledResolved`, byte-identical. `rackEnabledMask` stays SYNCED to the
+    // active config (the AU writes both) so an old reader still sees the live membership (lossless downgrade).
+    var rackConfigs: [UInt8]? = nil        // 4 per-config membership masks (bits A–D)
+    var rackActiveConfig: Int? = nil       // which config is LIVE (0…3)
+    /// The 4 configs, resolved (a clean/old doc → config 0 is the legacy mask, the rest all-in).
+    var rackConfigsResolved: [UInt8] {
+        if let c = rackConfigs, c.count == 4 { return c.map { $0 & 0b1111 } }
+        return [rackEnabledResolved, 0b1111, 0b1111, 0b1111]
+    }
+    /// Which config is live (0…3, clamped).
+    var rackActiveConfigResolved: Int { max(0, min(3, rackActiveConfig ?? 0)) }
+    /// The EFFECTIVE rack membership the render reads = the active config's mask.
+    var rackMaskResolved: UInt8 { rackConfigsResolved[rackActiveConfigResolved] }
     // MACRO MODULATION (macro-panel spec): 24 macros in three banks (0–7 sliders · 8–15 buttons · 16–23 timelines).
     // Macros MODULATE (offset) targets at derivation; bases are NEVER rewritten, so identity/seals are unaffected
     // (performance, not edit). Values are GLOBAL v1 (not per-scene). Persisted; Optional → old docs decode nil (no
