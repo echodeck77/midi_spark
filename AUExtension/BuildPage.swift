@@ -407,8 +407,8 @@ extension DiagView {
     @ViewBuilder private func buildBottomBar() -> some View {
         // The invisible box: RECORDER left-aligned · RATE centred · CONFIG buttons right-aligned. The ZStack lets the
         // rate sit at the TRUE centre regardless of the side widths. No padding on the box. (Paul 2026-08-20)
-        ZStack {
-            HStack(spacing: 0) {
+        ZStack(alignment: .top) {                               // TOP-aligned so nothing sits low + the box is only as tall as its content
+            HStack(alignment: .top, spacing: 0) {
                 buildReelButton()                               // LEFT — the recorder (keeps its share anchor + pass-browser hide)
                 Spacer(minLength: 0)
                 if !reelShowPopup {
@@ -418,9 +418,10 @@ extension DiagView {
                     }
                 }
             }
-            if !reelShowPopup { buildRateControl() }             // CENTRE — the rate (ZStack-centred)
+            if !reelShowPopup { buildRateControl() }             // CENTRE — the rate (ZStack top-centre)
         }
         .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)           // the box hugs its content height (never clipped)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -703,8 +704,8 @@ extension DiagView {
             // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
             .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
-            Spacer(minLength: 8)                                  // clears the machine box above (no overlap)
-            AnyView(buildBottomBar())                            // THE INVISIBLE BOX: RECORD · RATE · MIDI CONFIG · OUT CHAIN, at the bottom of the left column (Paul 2026-08-20)
+            AnyView(buildBottomBar()).padding(.top, 8)          // THE INVISIBLE BOX: RECORD · RATE · MIDI CONFIG · OUT CHAIN — directly below the machine box (Paul 2026-08-20)
+            Spacer(minLength: 0)                                 // any remaining column space sits BELOW the box (keeps it up, never clipped)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
