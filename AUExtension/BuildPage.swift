@@ -405,19 +405,22 @@ extension DiagView {
     // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
     // an interim until the SPACIOUS SHEETS (config-sheets §5–§7) are built.
     @ViewBuilder private func buildBottomBar() -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            buildReelButton()                                   // RECORD (hides itself + keeps the share anchor when the pass browser is open)
-            if !reelShowPopup {
-                buildRateControl()
-                Spacer(minLength: 6)
-                VStack(alignment: .trailing, spacing: 5) {      // the two config buttons, right-aligned within the box
-                    buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // the doors (MIDI INPUTS) — the spacious sheet
-                    buildConfigButton("OUT CHAIN")   { activeTab = .emitters }        // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
+        // The invisible box: RECORDER left-aligned · RATE centred · CONFIG buttons right-aligned. The ZStack lets the
+        // rate sit at the TRUE centre regardless of the side widths. No padding on the box. (Paul 2026-08-20)
+        ZStack {
+            HStack(spacing: 0) {
+                buildReelButton()                               // LEFT — the recorder (keeps its share anchor + pass-browser hide)
+                Spacer(minLength: 0)
+                if !reelShowPopup {
+                    VStack(alignment: .trailing, spacing: 5) {  // RIGHT — the two config buttons
+                        buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }
+                        buildConfigButton("OUT CHAIN")   { activeTab = .emitters }
+                    }
                 }
             }
+            if !reelShowPopup { buildRateControl() }             // CENTRE — the rate (ZStack-centred)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)        // the invisible box fills the left column width
-        .padding(.horizontal, 2).padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -449,7 +452,7 @@ extension DiagView {
                     }
                 }
             }
-            .padding(12).contentShape(Rectangle())
+            .contentShape(Rectangle())                                        // no padding — flush-left in the box (Paul 2026-08-20)
             .onTapGesture { reelShowPopup = true }                            // tap = open the pass browser
             .sheet(isPresented: $reelShowShare) { ReelShareSheet(urls: reelShareURLs) }
         }
@@ -465,7 +468,8 @@ extension DiagView {
                 Button { buildSetPartRate(r) } label: { Label(r.rawValue, systemImage: buildPartRate == r ? "checkmark" : "circle") }
             }
         } label: {
-            Text(buildPartRate?.rawValue ?? "—").font(.system(size: 19, weight: .black, design: .monospaced))   // RATE VALUE ONLY, bright (Paul 2026-08-20)
+            let effRate = buildPartRate ?? StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)]   // the ACTUAL rate — the part override, else the scene default
+            Text(effRate.rawValue).font(.system(size: 19, weight: .black, design: .monospaced))   // RATE VALUE ONLY, bright (Paul 2026-08-20)
                 .foregroundColor(buildCyan)
                 .padding(.horizontal, 11).padding(.vertical, 7)
                 .background(RoundedRectangle(cornerRadius: 9).fill(buildPanel))
