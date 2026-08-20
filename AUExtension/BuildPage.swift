@@ -86,7 +86,6 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
                 if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                     // THE MIDI INPUTS sheet (config-sheets stage 5)
             }
-            .overlay(alignment: .bottomLeading) { buildBottomBar() }                                     // bottom-left cluster: RECORD · RATE · MIDI/OUT-CHAIN config (Paul 2026-08-20)
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
             .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
                           allowedContentTypes: [UTType.midi, UTType(filenameExtension: "mid") ?? .data], allowsMultipleSelection: false) { result in
@@ -406,17 +405,19 @@ extension DiagView {
     // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
     // an interim until the SPACIOUS SHEETS (config-sheets §5–§7) are built.
     @ViewBuilder private func buildBottomBar() -> some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 8) {
             buildReelButton()                                   // RECORD (hides itself + keeps the share anchor when the pass browser is open)
             if !reelShowPopup {
                 buildRateControl()
-                VStack(alignment: .trailing, spacing: 5) {      // the two config buttons, right-aligned within the left cluster
+                Spacer(minLength: 6)
+                VStack(alignment: .trailing, spacing: 5) {      // the two config buttons, right-aligned within the box
                     buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // the doors (MIDI INPUTS) — the spacious sheet
                     buildConfigButton("OUT CHAIN")   { activeTab = .emitters }        // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
                 }
             }
         }
-        .padding(.leading, 4).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)        // the invisible box fills the left column width
+        .padding(.horizontal, 2).padding(.bottom, 4)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -698,7 +699,8 @@ extension DiagView {
             // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
             .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)                                  // clears the machine box above (no overlap)
+            AnyView(buildBottomBar())                            // THE INVISIBLE BOX: RECORD · RATE · MIDI CONFIG · OUT CHAIN, at the bottom of the left column (Paul 2026-08-20)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
