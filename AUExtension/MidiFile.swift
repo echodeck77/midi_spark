@@ -49,8 +49,9 @@ enum MidiFile {
 
     // MARK: - DECODE (config-sheets FILE mode, Paul 2026-08-20)
 
-    /// One parsed note event: pass-relative beat (quarter notes), pitch, velocity, on/off.
-    struct NoteEvent: Equatable { var beat: Double; var note: UInt8; var vel: UInt8; var on: Bool }
+    /// One parsed note event: pass-relative beat (quarter notes), pitch, velocity, on/off. Codable so a loaded FILE
+    /// clip persists on the document (copy-in — self-contained, survives transfer; large files bloat the doc, flagged).
+    struct NoteEvent: Equatable, Codable { var beat: Double; var note: UInt8; var vel: UInt8; var on: Bool }
 
     /// Parse a Standard MIDI File (format 0 or 1) into note events + the clip length in beats. Handles multi-track
     /// merge (format 1 shares one timeline), running status, PPQ division. Skips CC/PB/AT/PC/meta/sysex (a FILE door

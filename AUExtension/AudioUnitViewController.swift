@@ -1146,8 +1146,8 @@ struct DiagView: View {
                 for i in 0..<4 {
                     let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
                     for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow)) }   // a new onset
-                    roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 4.0 }
-                    if roll[i].count > 96 { roll[i] = Array(roll[i].suffix(96)) }
+                    roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
+                    if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
                 }
                 recvInputRoll = roll
                 recvHeldNotes = notes

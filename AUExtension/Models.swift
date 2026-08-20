@@ -537,6 +537,11 @@ struct Receiver: Codable, Equatable {
     // Optional; nil ⇒ 1. Clamped to {1,2,4,8}.
     var replayPasses: Int? = nil
     var replayPassesResolved: Int { let p = replayPasses ?? 1; return [1, 2, 4, 8].contains(p) ? p : 1 }
+    // FILE (config-sheets stage 4): a loaded .mid clip that loops as this door's input. Decoded events are stored on the
+    // document (copy-in — self-contained). Additive-Optional. `fileName` is display-only.
+    var fileClip: [MidiFile.NoteEvent]? = nil
+    var fileLoopBeats: Double? = nil
+    var fileName: String? = nil
     var doorModeResolved: DoorMode {
         if let m = doorMode { return m }
         if (latchPiano ?? false) { return .keys }

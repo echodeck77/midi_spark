@@ -217,15 +217,16 @@ extension DiagView {
     // heavier PASS dividers; pitch framed to whole octaves. Fed by recvInputRoll (the 4Hz onset feed). (Paul 2026-08-20)
     @ViewBuilder private func buildReplayInputRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
         let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
+        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []                // CURRENTLY-held input — drawn LIVE at the right edge
         let passSec = Double(Snap.cols) * stepBeats * 60.0 / max(1.0, d.tempo)   // one pass in seconds (global clock)
         let life = max(0.5, Double(passes) * passSec)                            // the window spans N passes
-        let ns = marks.map { Int($0.note) }
+        let ns = marks.map { Int($0.note) } + held.map { Int($0) }
         let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
         let span = CGFloat(max(12, hi - lo))
         RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             .overlay(
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || marks.isEmpty)) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || (marks.isEmpty && held.isEmpty))) { tl in
                     Canvas { ctx, sz in
                         let now = tl.date
                         // The CELL / PASS dividers SCROLL with the notes (Paul 2026-08-20): a boundary at reference time
@@ -258,6 +259,10 @@ extension DiagView {
                             let y = (1 - CGFloat(Int(m.note) - lo) / span) * (sz.height - 6) + 3
                             let a = max(0.0, min(1.0, (1 - age / life)))
                             ctx.fill(Path(roundedRect: CGRect(x: x - 5, y: y - 2.5, width: 10, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.35 + 0.6 * a)))
+                        }
+                        for note in held {                                       // CURRENTLY-held notes — a bright bar pinned at the RIGHT edge (live input, always visible)
+                            let y = (1 - CGFloat(Int(note) - lo) / span) * (sz.height - 6) + 3
+                            ctx.fill(Path(roundedRect: CGRect(x: sz.width - 13, y: y - 3, width: 12, height: 6), cornerRadius: 3), with: .color(Color(red: 0.36, green: 0.92, blue: 0.52)))
                         }
                     }
                 }.frame(width: width, height: height)
@@ -364,15 +369,13 @@ extension DiagView {
             buildReelButton()                                   // RECORD (hides itself + keeps the share anchor when the pass browser is open)
             if !reelShowPopup {
                 buildRateControl()
-                Spacer(minLength: 20)                           // push the config buttons to the RIGHT (Paul 2026-08-20)
-                VStack(spacing: 5) {
+                VStack(alignment: .trailing, spacing: 5) {      // the two config buttons, right-aligned within the left cluster
                     buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // the doors (MIDI INPUTS) — the spacious sheet
                     buildConfigButton("OUT CHAIN")   { activeTab = .emitters }        // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)        // full width so the Spacer right-aligns the config buttons
-        .padding(.leading, 4).padding(.trailing, 16).padding(.bottom, 8)
+        .padding(.leading, 4).padding(.bottom, 8)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
