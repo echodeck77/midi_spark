@@ -85,6 +85,7 @@ extension DiagView {
                 if let kind = buildGridPopup { AnyView(buildGridPopupView(kind, size: size)) }          // the full-screen grid pop-up
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
                 if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                     // THE MIDI INPUTS sheet (config-sheets stage 5)
+                if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                     // THE OUTPUT CHAIN sheet (config-sheets §6)
             }
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
             .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
@@ -142,6 +143,105 @@ extension DiagView {
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
             .padding(.top, 20)
         }
+    }
+    // THE OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21) — the twin of MIDI INPUTS. A SETUPS radio (RACK 1–4 =
+    // the 4 membership configs) over a per-emitter MEMBERSHIP toggle (on the board / bypassed = raw wire) + a read-only
+    // TREATMENT summary. Deep per-treatment editing still lives in the full EMITTERS tab (reached via EDIT TREATMENTS →).
+    @ViewBuilder private func buildRackConfigSheet(size: CGSize) -> some View {
+        let active = au?.uiRackConfig() ?? 0
+        let mask = au?.uiRackMask() ?? 0b1111
+        let chans = au?.uiBusChannels() ?? [1, 2, 3, 4]
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false }
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("OUTPUT CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildCyan)
+                    Text("SETUP · \(active + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                        .padding(.horizontal, 8).frame(height: 22).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan))
+                    Spacer()
+                    Button { buildRackConfigOpen = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundColor(buildDim).padding(10)
+                    }
+                }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        buildRackSetupsRadio(active)                // RACK 1 · 2 · 3 · 4
+                        ForEach(0..<4, id: \.self) { b in buildEmitterConfigSection(b, mask: mask, chans: chans) }
+                        Text("EDIT TREATMENTS →").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                            .frame(maxWidth: .infinity).frame(height: 40).background(RoundedRectangle(cornerRadius: 9).fill(buildCyan))
+                            .contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false; activeTab = .emitters }
+                    }.padding(.horizontal, 26).padding(.bottom, 30)
+                }
+            }
+            .frame(width: min(720, size.width - 32), height: size.height - 96)
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.top, 20)
+        }
+    }
+    // SETUPS radio: the 4 rack CONFIGS — tap to make one LIVE (setRackConfig). Membership edits below write the live one.
+    @ViewBuilder private func buildRackSetupsRadio(_ active: Int) -> some View {
+        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SETUPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+            HStack(spacing: 8) {
+                ForEach(0..<4, id: \.self) { c in
+                    let on = c == active
+                    Text("RACK \(c + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : buildCyan)
+                        .frame(maxWidth: .infinity).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCyan.opacity(0.14)))
+                        .contentShape(Rectangle()).onTapGesture { au?.setRackConfig(c); refresh() }
+                }
+            }
+        }
+    }
+    // One emitter row on the OUTPUT CHAIN sheet: the letter + stamp channel, the board-membership toggle, the treatments.
+    @ViewBuilder private func buildEmitterConfigSection(_ b: Int, mask: UInt8, chans: [Int]) -> some View {
+        let hue = buildCyan
+        let onBoard = (mask & (UInt8(1) << UInt8(b))) != 0
+        let ch = b < chans.count ? chans[b] : b + 1
+        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
+        let treatments = buildEmitterTreatments(b)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text("EMITTER \(["A", "B", "C", "D"][b])").font(.system(size: 15, weight: .black, design: .monospaced)).foregroundColor(hue)
+                Text("CH \(ch)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                Spacer()
+            }
+            // MEMBERSHIP — on the board (its treatments are in the path) vs bypassed (a raw wire).
+            HStack(spacing: 8) {
+                buildRackMemberButton("ON THE BOARD", active: onBoard) { if !onBoard { au?.setRack(b, true); refresh() } }
+                buildRackMemberButton("BYPASSED", active: !onBoard) { if onBoard { au?.setRack(b, false); refresh() } }
+            }
+            Text(treatments.isEmpty ? "No treatments armed" : treatments.joined(separator: " · "))
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .foregroundColor(onBoard && !treatments.isEmpty ? buildCyan : buildDim)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(hue.opacity(0.3), lineWidth: 1))
+    }
+    @ViewBuilder private func buildRackMemberButton(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
+        let green = Color(red: 0.36, green: 0.92, blue: 0.52)
+        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : green)
+            .frame(maxWidth: .infinity).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 7).fill(active ? green : green.opacity(0.14)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    // The armed treatments for emitter b (read-only summary; deep editing = the EMITTERS tab). Reads the polled masks.
+    private func buildEmitterTreatments(_ b: Int) -> [String] {
+        func on(_ m: UInt8) -> Bool { (m & (UInt8(1) << UInt8(b))) != 0 }
+        var out: [String] = []
+        if on(claimMask)   { out.append("OWNS") }
+        if on(flattenMask) { out.append("KEY") }
+        if on(altMask)     { out.append("TURNS") }
+        if on(monoMask)    { out.append("MONO") }
+        if on(fenceMask)   { out.append("FENCE") }
+        if on(curveMask)   { out.append("CURVE") }
+        if on(pocketMask)  { out.append("POCKET") }
+        if convLead == b   { out.append("LEADS") }
+        return out
     }
     @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
         let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
@@ -525,7 +625,7 @@ extension DiagView {
                 if !reelShowPopup {
                     VStack(alignment: .trailing, spacing: 5) {  // RIGHT — the two config buttons
                         buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }
-                        buildConfigButton("RACK CONFIG") { activeTab = .emitters }   // the rack / OUTPUT CHAIN (interim: the emitters tab, until its sheet)
+                        buildConfigButton("RACK CONFIG") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
                     }
                     .offset(y: -8)                              // nudge the config buttons up a little (Paul 2026-08-20)
                 }
