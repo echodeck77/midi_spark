@@ -116,8 +116,8 @@ extension DiagView {
         case .latch:  return "Each note toggles in or out of the held pool."
         case .hold:   return "A new chord replaces the held pool."
         case .keys:   return "Pick the held notes on the keyboard below."
-        case .replay: return "Records this door's input and loops the last N passes back in."
-        case .file:   return "Plays a loaded MIDI file as this door's input."
+        case .replay: return "Records this input and loops the last N passes back in."
+        case .file:   return "Plays a loaded MIDI file as this input's live source."
         }
     }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
@@ -186,7 +186,7 @@ extension DiagView {
             HStack(spacing: 8) {
                 ForEach(0..<4, id: \.self) { c in
                     let on = c == active
-                    Text("RACK \(c + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : buildCyan)
+                    Text("SETUP \(c + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : buildCyan)
                         .frame(maxWidth: .infinity).frame(height: 34)
                         .background(RoundedRectangle(cornerRadius: 7).fill(on ? buildCyan : buildCyan.opacity(0.14)))
                         .contentShape(Rectangle()).onTapGesture { au?.setRackConfig(c); refresh() }
@@ -510,7 +510,7 @@ extension DiagView {
                 Text("LOAD .MID").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                     .padding(.horizontal, 14).frame(height: 30).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
                     .contentShape(Rectangle()).onTapGesture { buildFileImportDoor = i }
-                Text("plays the file as this door's input").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
+                Text("plays the file as this input's live source").font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim.opacity(0.7))
                 Spacer(minLength: 0)
             }
         }
@@ -930,13 +930,19 @@ extension DiagView {
             buildChainBtn("CLEAR")     { buildClearGrid() }       // deselect the grid
         }
     }
-    // Four RACK placeholder buttons below the play grid — same style as the grid verbs; no action yet. (Paul 2026-08-18)
+    // The four OUTPUT-CHAIN SETUPS below the play grid — pick the LIVE config (§9 name "SETUP 1–4"; the same 4 configs
+    // the OUTPUT CHAIN sheet's SETUPS radio edits). Now WIRED (the 4-config engine exists): tap = go live, active is lit.
     @ViewBuilder private func buildRackButtons() -> some View {
+        let active = au?.uiRackConfig() ?? 0
         HStack(spacing: 6) {
-            buildChainBtn("RACK 1") { }
-            buildChainBtn("RACK 2") { }
-            buildChainBtn("RACK 3") { }
-            buildChainBtn("RACK 4") { }
+            ForEach(0..<4, id: \.self) { c in
+                let on = c == active
+                Text("SETUP \(c + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
+                    .foregroundColor(on ? .black : .white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
+                    .frame(maxWidth: .infinity).frame(height: 33)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : buildCell))
+                    .contentShape(Rectangle()).onTapGesture { au?.setRackConfig(c); refreshFromDocument() }
+            }
         }
     }
     @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
