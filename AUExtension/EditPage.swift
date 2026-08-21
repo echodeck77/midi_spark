@@ -216,7 +216,6 @@ extension DiagView {
     // the SAME `laneMask` the PERFORM column-hold drives (one loop mechanism, two surfaces). BUG FIX (Paul, device
     // 2026-08-05): the EDIT page drives the ONE perform mirror `setLane` (was a separate `editLoopMask`), so the loop
     // is page-independent — it keeps playing and shows its glyph on the GRID page too. Toggled keys show the LOOP glyph.
-    func toggleLoopColumn(_ c: Int) { setLane(laneMask ^ (1 << UInt8(c))) }
 
     // The grid instance for the spike page — the same GridView component. In EDIT mode a tap builds the selection
     // set (white ring) AND auto-selects the tapped cell's TWINS (user 2026-08-07: they JOIN the selection — the
