@@ -97,7 +97,11 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   device checkpoint — the latch/kernel is delicate + verified): STAGE 3
   REPLAY = the door input ring recording (a NEW engine feature, the door-loop v1); STAGE 4 FILE = .mid playback as living
   input ("a file is a cable"). STAGE 3 REPLAY **DONE** (2026-08-20, `6ad8e34` — DoorRing input ring, self-arm, capture at
-  N-pass boundaries, pool from the loop; byte-identical, +tests; device-ear owed). STAGE 4 FILE engine foundation **DONE**
+  N-pass boundaries, pool from the loop; byte-identical, +tests; device-ear owed). **BUGFIX (`5b8b0d6`, Paul reported
+  "REPLAY works sometimes, other times not"):** `capture` now seeds beat-0 note-ons for notes HELD across the catch
+  window start (their on was before the window → previously dropped → silent). OPEN follow-ups (device-verify): a note
+  still held at the catch END drones (on, no off in the window); a host that LOOPS transport makes the ring's absolute
+  beats discontinuous. STAGE 4 FILE engine foundation **DONE**
   (2026-08-20, `aafdc97` — `MidiFile.decode` SMF parser + `DoorRing.loadLoop`; round-trips; 811 green). Interim UI:
   door MODE row on BUILD (`c80b7bc`/`115ce17`) — but §5/§6 below RELOCATE it.
   **⚠ DESIGN REVISION (config-sheets §4–§9, 2026-08-20) — answers "where does MIDI I/O live? it isn't per-build":**
