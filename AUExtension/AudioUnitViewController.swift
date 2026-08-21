@@ -308,6 +308,10 @@ struct DiagView: View {
     // ON-TAP overlay: TapKind/TapOverlay + the apply/mask logic are pure functions in Derivations (testable).
     @State var tapActions: [TapOverlay] = []
     let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+    // A dedicated ~30 Hz drain for the peak METERS only (output + input velocity indicators), decoupled from the 4 Hz
+    // poll so they track live input instead of lagging up to 250 ms (Paul 2026-08-21). Cheap read-and-clear; when idle
+    // the feed returns 0 → no @State write → no re-render.
+    let meterTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
 
     // §5b COLUMN-SUBSET LAP: the PERFORM multi-column hold reports the held-set bitmask here. Push it to
     // the engine (ephemeral, never persisted) and keep a copy for the key LOOP highlight. Cleared to 0
@@ -703,6 +707,13 @@ struct DiagView: View {
         .onChange(of: d.beat) { _ in                          // LADDER: blink the armed rungs (beat-driven, like the scene arm)
             if !ladderPending.isEmpty { ladderBlink.toggle() } else if ladderBlink { ladderBlink = false }
         }
+        .onReceive(meterTimer) { _ in
+            guard uiAppeared, let au else { return }   // ~30fps peak metering → the velocity indicators track live (not the 4Hz poll)
+            let act = au.pollEmitterActivity()
+            for i in 0..<4 where i < act.events.count && act.events[i] > 0 { emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date() }
+            let rin = au.pollReceiverActivity()
+            for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 { receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date() }
+        }
         .onReceive(timer) { _ in
             guard let au else { return }
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
@@ -762,17 +773,7 @@ struct DiagView: View {
             let se = au.uiScenes().map { $0.isEmpty }; if se != sceneEmpty { sceneEmpty = se }   // MULTI-SCENE strip sync
             let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi; editArmed = false }   // §cell-edit A6: a scene switch auto-closes EDIT
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
-            // §6a metering: drain the per-emitter event feed and latch peaks; the meter view decays them.
-            let act = au.pollEmitterActivity()
-            for i in 0..<4 where i < act.events.count && act.events[i] > 0 {
-                emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date()
-            }
-            let rin = au.pollReceiverActivity()      // §9 item 11: per-receiver INPUT metering (+ §MPE channel spread)
-            for i in 0..<4 {
-                if i < rin.events.count && rin.events[i] > 0 {
-                    receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date()
-                }
-            }
+            // §6a metering: the per-emitter/receiver PEAK feeds are drained by the ~30fps meterTimer above (low latency).
             // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
             let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), wmk = au.pollWithheldMarks(), mnow = Date()
             var markE = emitMarks, markR = recvMarks
