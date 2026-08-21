@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MULTI-CHANNEL INPUT — a door hears an arbitrary channel SUBSET + the door-sheet redesign (2026-08-21, on `main`;
+  ENGINE `fae473a`, DOOR-SHEET UI `f497bea`; macOS 814 green byte-identical, iOS builds; DEVICE eye owed).
+  Paul: "can midi input come from multiple sources?" — yes. **ENGINE (byte-identical):** a 16-bit channel mask replaces
+  the single-channel filter WITHOUT disturbing it — `Receiver.channelMask: UInt16?` + `channelMaskResolved` (nil ⇒
+  legacy: OMNI→0xFFFF, ch n→single bit), `SnapCell.inputChanMask`, `SnapshotBox.receiverChannelMask[4]`; Derivations
+  gained parallel `chanMask` overloads (`matchesMask`/`srcCount(chanMask:)`/`srcAscending(chanMask:)`/`captureFiltered
+  (chanMask:)`/`latchAddStep(chanMask:)`) + global `receiverHearsMask`; the Kernel's latch/sounding/metering/replay
+  paths all read the mask. OMNI/single-channel produce identical match sets → the whole suite stays byte-identical
+  (`testChannelMaskResolvesFromLegacyAndExplicit` + `testMultiChannelSubsetPacksIntoTheBoxAndCell`). AU `toggleReceiver
+  Channel`/`setReceiverChannelMask`. **DOOR-SHEET UI (`f497bea`, UI-only):** the MIDI INPUTS sheet's per-door section
+  rebuilt — CHANNELS = 16 buttons (2×8) multi-select (lit per mask) + ALL(0xFFFF)/NONE(0); OCT −/+ beside a RANGE row
+  ("Range: Full"/"C2–C5") whose tap opens a 6-octave keyboard (`buildRangePiano`) to pick MIN then MAX (active bound
+  highlights, auto-ordered, range washes cyan; FULL resets, DONE closes) — replaces the old OMNI/CH menu + ±note
+  steppers. The mode radio (`buildDoorModeOption`) stays as the mode selector (Paul's ruling). `@State buildRangeKbdDoor`/
+  `buildRangeSetHi`; removed orphaned `buildDoorChannelMenu`/`buildDoorRange`/`buildRangeStepper`.**
 - **▶ PER-PART CLOCK — parts play at INDEPENDENT TEMPOS in one play grid (2026-08-19, on `main`; spec+Stage A `5cb291c`,
   Stage B `3d45695`+`5bd3299`, Stage C `853699e`; macOS 786 green incl. multi-clock fuzz, iOS builds; DEVICE ear/eye
   owed for the multi-tempo mix). Paul's ask: "put long sequences next to shorter ones" — each deployed PART is a TRACK
