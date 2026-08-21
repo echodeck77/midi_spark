@@ -629,11 +629,6 @@ struct DiagView: View {
     }
 
     var selected: TestSessions.Session? { TestSessions.all.first { $0.id == loadedID } }
-    var sceneName: String {
-        guard loadedID.hasPrefix("S"), let i = Int(loadedID.dropFirst()), i >= 1, i <= SceneFactory.scenes.count
-        else { return "1–16 · the factory curriculum" }
-        return SceneFactory.scenes[i - 1].name
-    }
 
     func load(_ s: TestSessions.Session) {
         au?.loadTestSession(s)          // main thread: SwiftUI actions already are

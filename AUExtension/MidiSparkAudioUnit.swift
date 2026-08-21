@@ -244,7 +244,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         var c = Cell(colourID: colourID); c.processors = chain; c.buses = []
         return CellLibraryStore.save(c, as: name)
     }
-    func listLibraryCells() -> [String] { CellLibraryStore.list() }
     // Browser rows for SAVED cells: name + chain processor types + star rating (loads each cell).
     func libraryCellSummaries() -> [LibEntry] {
         CellLibraryStore.list().map { name in
@@ -263,7 +262,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     func loadLibraryCell(name: String) -> Cell? { CellLibraryStore.load(name) }
     func deleteLibraryCell(name: String) { CellLibraryStore.delete(name) }
-    func factoryLibraryCells() -> [(name: String, cell: Cell)] { CellLibraryStore.factory() }
     func factoryLibraryCell(name: String) -> Cell? { CellLibraryStore.factory().first { $0.name == name }?.cell }
 
     // delta §5 / a6: bounded document-value undo/redo at the mutation choke point. Scope-lean — EDIT-mode
@@ -788,7 +786,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             s.activeRow = ar
         }
     }
-    func uiEffColumn() -> Int { kernel.diag.effColumn }   // LADDER: the live playhead column, polled to commit an armed rung at its next entry
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
@@ -875,9 +872,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
     /// A/B AUTHORING: replace a cell's chain wholesale — used to RESTORE the A state after a live B demonstration
     /// (the demonstration is heard at full while authoring; committing binds the delta, then the base returns to A).
-    func setCellChain(_ col: Int, _ row: Int, _ chain: [ProcessorSlot]) {
-        withChainCells([(col: col, row: row)]) { $0 = chain }
-    }
     /// A/B AUTHORING: bind (append) offset targets to a macro — the delta vector (B − A per touched param). Overlaps
     /// on the same param SUM at derivation (the offset law), so appending is correct even across sections/cells.
     func addMacroTargets(_ index: Int, _ targets: [MacroTarget]) {
@@ -1114,17 +1108,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
-    func loadFactoryScene(_ index: Int) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard index >= 0, index < SceneFactory.scenes.count else { return }
-        document = SceneFactory.load(index)
-        document.migrateLegacyRoutingIfNeeded()   // no-op (scenes are v3) but keeps the one load path
-        loadedTestSession = "S\(index + 1)"
-        suppressRebuild = true
-        syncParameterTreeToDocument()
-        suppressRebuild = false
-        scheduleRebuild()
-    }
 
     // MARK: - MULTI-SCENE — the strip switches activeScene within one document (2026-07-27)
     func uiScenes() -> [SceneState] { document.scenes }
@@ -1194,10 +1177,8 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         willChangeValue(forKey: "currentPreset"); _currentPreset = p; didChangeValue(forKey: "currentPreset")
     }
 
-    /// The document the host would persist right now (preview restored, exactly like `fullState`).
-    private var documentToSave: PluginState {
-        previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
-    }
+    /// The document the host would persist right now (== `fullState`; the preview-overlay path was retired).
+    private var documentToSave: PluginState { document }
     /// Apply a preset's document — ONE undoable step (§3), voices closed via the transition machinery. No host
     /// notification (the caller owns that): used by both our LOAD and the host's `currentPreset` setter.
     private func applyPresetDocument(named name: String) {
@@ -1302,9 +1283,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     // Staging live-preview overlay (main thread): while a staged cell is transiently placed on the grid
     // for the in-context preview, this records where + the cell it displaced, so fullState encodes the
     // RESTORED cell — a host autosave mid-hover must never persist the transient preview into a preset.
-    private var previewOverlay: (col: Int, row: Int, under: Cell?)? = nil
-    func setPreviewOverlay(col: Int, row: Int, under: Cell?) { previewOverlay = (col, row, under) }
-    func clearPreviewOverlay() { previewOverlay = nil }
 
     // BUILD pushes its single UNASSIGNED workshop part here (via setBuildUnassigned) so `fullState` saves it with the
     // document. Session-only side-field — the stored `document` is never mutated by it (the encode copy carries it).
@@ -1320,7 +1298,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     public override var fullState: [String: Any]? {
         get {
             var state = super.fullState ?? [:]
-            var encodeDoc = previewOverlay.map { document.restoringCell(col: $0.col, row: $0.row, to: $0.under) } ?? document
+            var encodeDoc = document
             encodeDoc.buildUnassigned = pendingBuildUnassigned   // BUILD's half-built piece travels with the save (Paul 2026-08-16)
             if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
