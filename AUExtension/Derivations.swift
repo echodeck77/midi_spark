@@ -92,12 +92,13 @@ func modFollowUnipolar(_ what: ModFollow, count: Int, meanNote: Double, meanVel:
 /// interpolates to the next (wrapping). Pure.
 @inline(__always)
 func modStepsUnipolar(_ steps: [Int], phase: Double, smooth: Bool) -> Double {
-    guard steps.count >= 8 else { return 0 }
-    let p = positiveFract(phase) * 8
-    let i = Swift.min(7, Int(p)); let frac = p - Double(i)
+    let n = steps.count                                   // 8 (PERIOD/ROW), 16 (ROW×2) or 32 (ROW×4)
+    guard n >= 1 else { return 0 }
+    let p = positiveFract(phase) * Double(n)
+    let i = Swift.min(n - 1, Int(p)); let frac = p - Double(i)
     let a = Double(steps[i]) / 127.0
     if !smooth { return a }
-    let b = Double(steps[(i + 1) % 8]) / 127.0
+    let b = Double(steps[(i + 1) % n]) / 127.0
     return a + (b - a) * frac
 }
 

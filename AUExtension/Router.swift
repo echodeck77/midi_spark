@@ -2081,8 +2081,20 @@ final class Router {
                     if prev >= 0 && prev != p.modCC { emitModCC(cc: prev, value: ccDefault(prev), busMask: cell.busMask, atSample: windowStart, out: out) }
                     modPrevTarget[tkey] = Int16(p.modCC)
                 }
-                // SPAN: CELL (default) = the modRate period; ROW = one cycle across the WHOLE bar (a phrase-length LFO/step sweep).
-                let period = (p.modSpan == .row) ? max(0.03125, Double(Snap.cols) * box.stepBeats) : max(0.03125, p.modRate.periodBeats)
+                // SPAN — SHAPE: CELL = the modRate period · ROW = one cycle across the WHOLE bar. STEPS: PERIOD = the
+                // rate period · ROW/ROW×2/ROW×4 = the 8/16/32 breakpoints span 1/2/4 bars (the box carries N steps).
+                let bar = Double(Snap.cols) * box.stepBeats
+                let period: Double
+                if p.modSource == .steps {
+                    switch p.modStepSpan {
+                    case .period: period = max(0.03125, p.modRate.periodBeats)
+                    case .row:    period = max(0.03125, bar)
+                    case .row2:   period = max(0.03125, 2 * bar)
+                    case .row4:   period = max(0.03125, 4 * bar)
+                    }
+                } else {
+                    period = (p.modSpan == .row) ? max(0.03125, bar) : max(0.03125, p.modRate.periodBeats)
+                }
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats

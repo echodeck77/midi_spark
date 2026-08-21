@@ -362,11 +362,18 @@ enum SnapshotBuilder {
         if let v = p.modShape { out.modShape = v }
         if let v = p.modRate { out.modRate = v }
         if let v = p.modSpan { out.modSpan = v }
+        // MIGRATE the old cell|row STEPS span onto modStepSpan when unset: row→ROW, cell→PERIOD (both 8 steps → byte-
+        // identical). A doc that never touched STEPS is unaffected (modStepSpan only reshapes the STEPS source).
+        if let v = p.modStepSpan { out.modStepSpan = v } else { out.modStepSpan = (out.modSpan == .row) ? .row : .period }
         if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
         if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
         if let v = p.modReset { out.modReset = v }
         if let v = p.modFollow { out.modFollow = v }
-        if let v = p.modSteps, !v.isEmpty { out.modSteps = (0..<8).map { clamp(v[$0 % v.count], 0, 127) } }
+        // STEPS SPAN (Paul 2026-08-20): the box carries EXACTLY `stepCount` (8/16/32) breakpoints — tile the source
+        // (custom or the 8-default) up to N. N=8 (PERIOD/ROW) reproduces the old exactly-8 pack → byte-identical.
+        let stepN = out.modStepSpan.stepCount
+        let stepSrc = { () -> [Int] in if let v = p.modSteps, !v.isEmpty { return v }; return out.modSteps }()
+        out.modSteps = (0..<stepN).map { clamp(stepSrc[$0 % stepSrc.count], 0, 127) }
         if let v = p.modSmooth { out.modSmooth = v }
         if let v = p.modAttack { out.modAttack = clamp(v, 0.01, 4) }
         if let v = p.modRelease { out.modRelease = clamp(v, 0.01, 4) }

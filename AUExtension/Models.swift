@@ -49,6 +49,14 @@ enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = 
 // (N steps = one column); ROW stretches the SAME N steps across the whole 8-column bar (a cross-column phrase). The
 // column gate makes each cell voice only the pulses landing in its own column. Shared across EUCLID/LENGTH/TUTTI/… .
 enum PatternSpan: String, Codable, CaseIterable { case cell = "CELL", row = "ROW" }
+// MOD STEPS span (Paul 2026-08-20): PERIOD = today (8 steps over the modRate period) · ROW = 8 steps over the bar ·
+// ROW×2 / ROW×4 = 16 / 32 breakpoints across 2 / 4 bars (the sequence longer than the row). `stepCount` = the # of
+// breakpoints; `barMultiple` = how many bars the sequence spans (period → 1, but it uses the rate period, not the bar).
+enum ModStepSpan: String, Codable, CaseIterable {
+    case period = "PERIOD", row = "ROW", row2 = "ROW×2", row4 = "ROW×4"
+    var stepCount: Int { switch self { case .period, .row: return 8; case .row2: return 16; case .row4: return 32 } }
+    var barMultiple: Int { switch self { case .row2: return 2; case .row4: return 4; default: return 1 } }
+}
 enum StepRate: String, Codable, CaseIterable {
     case r2_1 = "2/1", r1_1 = "1/1", r1_2 = "1/2", r1_2d = "1/2.", r1_4 = "1/4", r1_8 = "1/8"
     var beats: Double {
@@ -148,7 +156,8 @@ struct ColourParams: Codable, Equatable {
     var modSource: ModSource? = .shape  // the SOURCE spine (SHAPE · FOLLOW · STEPS · STRIKE · EXTERN)
     var modShape: ModShape? = .sine     // WAVE — SINE · TRI · SQR · RAMP · S&H  (SHAPE)
     var modRate: ModRate? = .r2         // LFO PERIOD (beats per cycle) — SHAPE · STEPS (steps span one period)
-    var modSpan: PatternSpan? = nil     // CELL (the modRate period, default) | ROW (one cycle spans the whole bar) — Paul 2026-08-19
+    var modSpan: PatternSpan? = nil     // SHAPE: CELL (the modRate period, default) | ROW (one cycle spans the whole bar) — Paul 2026-08-19
+    var modStepSpan: ModStepSpan? = nil // STEPS: PERIOD (rate period, default) | ROW | ROW×2 | ROW×4 (16/32 breakpoints) — Paul 2026-08-20
     var modFollow: ModFollow? = .register   // FOLLOW: which sounding property drives the CC
     var modSteps: [Int]? = nil          // STEPS: 8 values 0…127 (nil → a rising staircase)
     var modSmooth: Bool? = true         // STEPS: SMOOTH (interpolate) vs STEP (hold)

@@ -2032,6 +2032,24 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(rowResets, cellResets, "SPAN ROW stretches ONE ramp across the bar → far fewer resets than the per-rate CELL")
         XCTAssertLessThanOrEqual(rowResets, 3, "ROW: about one cycle per bar")
     }
+    // STEPS SPAN ROW×2 (Paul 2026-08-20): 16 breakpoints across TWO bars. With bar1's steps ≈30 and bar2's ≈100,
+    // ROW (8 steps, repeats each bar) only ever emits ≈30; ROW×2 reaches the second-bar breakpoints (≈100) too.
+    func testModStepsSpanRow2ReachesSecondBarBreakpoints() {
+        let cs = arpColours()
+        func modBox(_ span: ModStepSpan) -> SnapshotBox {
+            var mod = ProcessorSlot(type: .mod)
+            mod.params.modCC = 74; mod.params.modSource = .steps; mod.params.modSmooth = false; mod.params.modStepSpan = span
+            mod.params.modSteps = Array(repeating: 30, count: 8) + Array(repeating: 100, count: 8)   // bar1 ≈30 · bar2 ≈100
+            mod.params.modMin = 0; mod.params.modMax = 127
+            return box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [mod]; return c }() }
+        }
+        func values(_ span: ModStepSpan) -> Set<Int> {
+            let e = RecordingEmitter(); run(modBox(span), chord([60]), beats: 16, into: e)
+            return Set(modCC74Events(e).map { Int($0.vel) })
+        }
+        XCTAssertFalse(values(.row).contains(where: { $0 > 60 }), "ROW sees only the first 8 breakpoints (≈30)")
+        XCTAssertTrue(values(.row2).contains(where: { $0 > 60 }), "ROW×2 reaches the second-bar breakpoints (≈100)")
+    }
     /// [ARP → MOD]: MOD is note-transparent — the arp still plays AND MOD emits its CC.
     func testArpThenModKeepsArpNotesAndEmitsCC() {
         let cs = arpColours()

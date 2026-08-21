@@ -1589,11 +1589,15 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(modFollowUnipolar(.density, count: 8, meanNote: 60, meanVel: 100), 1.0, accuracy: 1e-9)
         XCTAssertEqual(modFollowUnipolar(.density, count: 16, meanNote: 60, meanVel: 100), 1.0, accuracy: 1e-9, "clamped at 1")
     }
-    // modStepsUnipolar edges: a <8-step array returns 0 (guard); SMOOTH wraps step 7 → step 0 via (i+1)%8.
-    func testModStepsWrapAndGuard() {
-        XCTAssertEqual(modStepsUnipolar([1, 2, 3], phase: 0.5, smooth: false), 0, accuracy: 1e-9, "short array (<8) → 0")
+    // modStepsUnipolar generalises to N steps (8/16/32 by SPAN, Paul 2026-08-20): empty → 0; a 16-step ROW×2 sequence
+    // addresses breakpoints the old 8-cap couldn't reach; SMOOTH wraps the last step → the first via (i+1)%N.
+    func testModStepsUnipolarNStepsAndWrap() {
+        XCTAssertEqual(modStepsUnipolar([], phase: 0.5, smooth: false), 0, accuracy: 1e-9, "empty → 0")
+        var s16 = [Int](repeating: 0, count: 16); s16[9] = 127
+        XCTAssertEqual(modStepsUnipolar(s16, phase: 9.5 / 16, smooth: false), 1, accuracy: 1e-9, "16-step: breakpoint 9 is reachable")
+        XCTAssertEqual(modStepsUnipolar(s16, phase: 3.0 / 16, smooth: false), 0, accuracy: 1e-9, "16-step: breakpoint 3 is low")
         let steps = [0, 0, 0, 0, 0, 0, 0, 127]
-        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.9375, smooth: true), 0.5, accuracy: 0.02, "SMOOTH wraps step 7 → step 0")
+        XCTAssertEqual(modStepsUnipolar(steps, phase: 0.9375, smooth: true), 0.5, accuracy: 0.02, "SMOOTH wraps step 7 → step 0 (8-step)")
     }
     // ccDefault — the resting value a MOD target reverts to when abandoned (so a sweep past CC7 doesn't leave volume down).
     func testCcDefaultRestingValues() {

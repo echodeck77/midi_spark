@@ -137,6 +137,24 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(legacy.cells[0].procs.first?.type, .arp, "no override, no template → the legacy A face")
     }
 
+    // MOD STEPS SPAN (Paul 2026-08-20): the box carries 8/16/32 breakpoints by SPAN (tiled from the stored steps);
+    // the old cell|row modSpan migrates onto modStepSpan (byte-identical, 8 steps).
+    func testModStepSpanPacksNStepsAndMigratesOldSpan() {
+        var cs = colourIDs.map { Colour(colourID: $0, type: .arp) }
+        cs[0].templateChain = [{ var s = ProcessorSlot(type: .mod); s.params.modSource = .steps; s.params.modStepSpan = .row2
+                                 s.params.modSteps = [0, 10, 20, 30, 40, 50, 60, 70]; return s }()]
+        let b = box(cs) { $0.cells[0][0] = Cell(colourID: colourIDs[0], buses: [.a]) }
+        let p = b.cells[0].procs.first!
+        XCTAssertEqual(p.modStepSpan, .row2)
+        XCTAssertEqual(p.modSteps.count, 16, "ROW×2 packs 16 breakpoints")
+        XCTAssertEqual(Array(p.modSteps.prefix(8)), [0, 10, 20, 30, 40, 50, 60, 70], "the first bar keeps the stored 8")
+        XCTAssertEqual(Array(p.modSteps.suffix(8)), [0, 10, 20, 30, 40, 50, 60, 70], "the second bar tiles the 8 (default)")
+        // MIGRATION: an old doc set modSpan=.row for STEPS + no modStepSpan → modStepSpan.row (still 8 steps).
+        cs[1].templateChain = [{ var s = ProcessorSlot(type: .mod); s.params.modSource = .steps; s.params.modSpan = .row; return s }()]
+        let m = box(cs) { $0.cells[0][0] = Cell(colourID: colourIDs[1], buses: [.a]) }
+        XCTAssertEqual(m.cells[0].procs.first?.modStepSpan, .row, "old modSpan=.row migrates to modStepSpan=.row")
+        XCTAssertEqual(m.cells[0].procs.first?.modSteps.count, 8, "ROW is 8 breakpoints (byte-identical)")
+    }
     // LADDER: a DORMANT rung breaks the legato run — otherwise a full-8×8 ladder reads as one run from column 0
     // and each active rung's legato arp arrives badly phase-advanced (the "starts late / sounds random" bug).
     func testLadderDormantBreaksTheLegatoRun() {

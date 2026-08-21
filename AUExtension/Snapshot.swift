@@ -110,7 +110,8 @@ struct SnapParams {
     var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
     var modShape: ModShape = .sine       // WAVE
     var modRate: ModRate = .r2           // LFO period (beats/cycle)
-    var modSpan: PatternSpan = .cell     // CELL = the modRate period · ROW = one cycle spans the whole bar (Paul 2026-08-19)
+    var modSpan: PatternSpan = .cell     // SHAPE: CELL = the modRate period · ROW = one cycle spans the whole bar (Paul 2026-08-19)
+    var modStepSpan: ModStepSpan = .period   // STEPS: PERIOD (rate period) · ROW · ROW×2 · ROW×4 — the resolved box carries `modSteps.count` = 8/16/32 (Paul 2026-08-20)
     var modMin: Int = 0                  // shape floor  (MIN)
     var modMax: Int = 127                // shape ceiling (MAX); MIN > MAX inverts
     var modReset: Bool = true            // ON LEAVE: reset to MIN on column exit

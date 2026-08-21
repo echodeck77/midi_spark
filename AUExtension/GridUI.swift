@@ -1055,9 +1055,14 @@ struct ProcessorBox: View {
             case .follow:
                 field("LISTEN TO") { seg(ModFollow.allCases.map(\.rawValue), sel: (p.modFollow ?? .register).rawValue) { i in setParam { $0.modFollow = ModFollow.allCases[i] } } }
             case .steps:
-                field("STEPS  (drag to draw)") { modStepBars(p.modSteps ?? [0, 18, 36, 54, 72, 90, 108, 127]) { i, v in
-                    setParam { var s = $0.modSteps ?? [0, 18, 36, 54, 72, 90, 108, 127]; while s.count < 8 { s.append(0) }; s[i] = v; $0.modSteps = s } } }
-                field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } }
+                let sspan = p.modStepSpan ?? ((p.modSpan == .row) ? .row : .period)   // migrate the old cell|row span for display
+                let n = sspan.stepCount
+                let base = [0, 18, 36, 54, 72, 90, 108, 127]
+                let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
+                field("STEPS  (drag to draw · \(n))") { modStepBars(shown, count: n) { i, v in
+                    setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
+                field("SPAN") { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // PERIOD (rate) · ROW · ROW×2 · ROW×4 (16/32 breakpoints)
+                if sspan == .period { field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
                 field("GLIDE") { seg(["SMOOTH", "STEP"], sel: (p.modSmooth ?? true) ? "SMOOTH" : "STEP") { i in setParam { $0.modSmooth = (i == 0) } } }
             case .strike:
                 field("RISE  \(String(format: "%.2f", p.modAttack ?? 0.15)) beats") {
@@ -1069,7 +1074,7 @@ struct ProcessorBox: View {
                 field("FROM CC  \(ccLabelText(ec))") {
                     Slider(value: bind(Double(ec)) { v in setParam { $0.modExternCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
             }
-            if src == .shape || src == .steps {                    // SPAN only reshapes the period-driven sources (Paul 2026-08-19)
+            if src == .shape {                                     // SHAPE keeps CELL|ROW; STEPS has its own 4-way SPAN above
                 let mspan = p.modSpan ?? .cell
                 field("SPAN") { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
             }
@@ -1328,10 +1333,10 @@ struct ProcessorBox: View {
 
     // CC-stage §1: a labelled CC number ("74 · CUTOFF" for the named dozen, else the bare number).
     private func ccLabelText(_ n: Int) -> String { ccName(n).map { "\(n) · \($0)" } ?? "\(n)" }
-    // STEPS "drag to draw": eight vertical bars; drag a column to set its 0…127 value.
-    private func modStepBars(_ steps: [Int], _ set: @escaping (Int, Int) -> Void) -> some View {
-        HStack(spacing: 4) {
-            ForEach(0..<8, id: \.self) { i in
+    // STEPS "drag to draw": `count` vertical bars (8/16/32 by SPAN); drag a column to set its 0…127 value.
+    private func modStepBars(_ steps: [Int], count: Int = 8, _ set: @escaping (Int, Int) -> Void) -> some View {
+        HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
+            ForEach(0..<count, id: \.self) { i in
                 let v = i < steps.count ? steps[i] : 0
                 GeometryReader { g in
                     ZStack(alignment: .bottom) {
