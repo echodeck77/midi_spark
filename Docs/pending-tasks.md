@@ -122,11 +122,18 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   Kernel reloads the DoorRing; +`testFileClipSurvivesDocumentRoundTripAndRebuilds`. Follow-up if heavy: store raw .mid
   bytes + decode-on-load instead of decoded notes).
 - **MOD · SPAN + INTERNAL TARGETS** (`Docs/AcceptanceCriteria/AcceptanceCriteria-mod-span-target.md`, 2026-08-20 — MOD
-  grows two axes, NOT a new processor): §1 STEPS gains **SPAN: PERIOD|ROW|ROW×2|ROW×4** (the drawn steps lock to the
-  row's columns / 16 / 32 breakpoints across passes, `stepIndex = floor(beat×rate)%N` — the polymeter law, replay-safe).
-  §2 TARGET gains **THIS CHAIN → [param picker]** (the macro-authoring param list, reused): internal mode emits NO CC —
-  it writes the param's OFFSET LANE (the macro offset engine; MEAN/last-writer; macros + MOD compose on one lane);
-  MIN/MAX re-range; ON EXIT RESET|HOLD applies to the offset. Partially lands the CC-RAIL birthstone's mapped-values half.
+  grows two axes, NOT a new processor): **§1 STEPS SPAN DONE** (2026-08-21, `8334342` — PERIOD|ROW|ROW×2|ROW×4 = 8/16/32
+  breakpoints across 1/2/4 bars; `ModStepSpan` enum, box carries N breakpoints, `modStepsUnipolar` generalised to N,
+  Router derives the STEPS period from it, 4-way SPAN seg + N-bar step editor; old cell|row modSpan migrates, byte-
+  identical; +3 tests). **§2 TARGET → THIS CHAIN — STILL OPEN, needs a Paul steer before building:** internal mode emits
+  NO CC — it writes the target param's OFFSET LANE (`applyMacros` engine). TWO blockers found in investigation: (a) it is
+  RENDER-TIME per-column param modulation — the SAME deferred infra the macro TIMELINE bank needs (macros bake at build;
+  MOD is dynamic). FEASIBLE via a contained hook: copy the SnapCell at the top of `emitTickRow`/`emitColumnHolds`, sample
+  each internal MOD's BOUNDARY value, apply the offset to the target slot's params (byte-identical when target=CC → only
+  cells with an internal MOD change). (b) the per-param OFFSET-MAPPING semantics are ambiguous: MIN/MAX are 0…127 (CC-
+  scale) but the targets have mixed scales (gate 0.05–1 · curve/velTilt −1…1 · modMin/Max 0–127); need the exact "MOD
+  unipolar × MIN/MAX → offset in the param's units" rule. MOD features are Paul-walked — get the mapping rule + confirm
+  the render-time approach, then build. Partially lands the CC-RAIL birthstone's mapped-values half.
 - **THE MELODY/CHORD SUITE** (`Docs/AcceptanceCriteria/AcceptanceCriteria-melody-suite-UNRATIFIED.md`, UNRATIFIED —
   CAPTURE ONLY, do NOT build). RIFF (capture+remap) · TRIGGER (chords play the melody's rhythm; STAB|CLOCK) · HARMONIZE
   SOLI mode (dynamic block harmony from a door's pool) · PEDAL (hold the bar/cell's first note; FOLD-to-home register) ·
