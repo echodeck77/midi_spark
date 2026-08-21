@@ -125,15 +125,15 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   grows two axes, NOT a new processor): **§1 STEPS SPAN DONE** (2026-08-21, `8334342` — PERIOD|ROW|ROW×2|ROW×4 = 8/16/32
   breakpoints across 1/2/4 bars; `ModStepSpan` enum, box carries N breakpoints, `modStepsUnipolar` generalised to N,
   Router derives the STEPS period from it, 4-way SPAN seg + N-bar step editor; old cell|row modSpan migrates, byte-
-  identical; +3 tests). **§2 TARGET → THIS CHAIN — STILL OPEN, needs a Paul steer before building:** internal mode emits
-  NO CC — it writes the target param's OFFSET LANE (`applyMacros` engine). TWO blockers found in investigation: (a) it is
-  RENDER-TIME per-column param modulation — the SAME deferred infra the macro TIMELINE bank needs (macros bake at build;
-  MOD is dynamic). FEASIBLE via a contained hook: copy the SnapCell at the top of `emitTickRow`/`emitColumnHolds`, sample
-  each internal MOD's BOUNDARY value, apply the offset to the target slot's params (byte-identical when target=CC → only
-  cells with an internal MOD change). (b) the per-param OFFSET-MAPPING semantics are ambiguous: MIN/MAX are 0…127 (CC-
-  scale) but the targets have mixed scales (gate 0.05–1 · curve/velTilt −1…1 · modMin/Max 0–127); need the exact "MOD
-  unipolar × MIN/MAX → offset in the param's units" rule. MOD features are Paul-walked — get the mapping rule + confirm
-  the render-time approach, then build. Partially lands the CC-RAIL birthstone's mapped-values half.
+  identical; +3 tests). **§2 TARGET → THIS CHAIN DONE** (2026-08-21, `8896219`, Paul-approved v1 mapping): `ModTarget
+  {cc,chain}` + `modChainParam`; render-time BOUNDARY-DEFERRED — `applyInternalMods` copies the SnapCell at the top of
+  `emitTickRow`/`emitColumnHolds`, samples each internal MOD once at the column start, re-ranges by MIN/MAX (MIN>MAX
+  inverts), scales by the param's span (`macroParamSpan`), adds to every slot's param (`applyModChainOffset`, clamped
+  like macros — composes on one lane); no render-path alloc; emitColumnMod skips CC + reset for internal; UI SEND = CC |
+  THIS CHAIN + a param menu. Byte-identical when target=CC (oracle + fuzz green). +3 tests. Mapping of record: `offset =
+  (min/127 + u·(max−min)/127) × param-span`, added to base + clamped. v1 boundaries (device-tune): STRIKE sampled at
+  t=0 (≈0); ON EXIT HOLD nominal (the param only applies while the cell renders its column). Partially lands the CC-RAIL
+  birthstone's mapped-values half. **DEVICE ear owed on the feel + mapping.** MOD · SPAN + INTERNAL TARGETS = COMPLETE.
 - **THE MELODY/CHORD SUITE** (`Docs/AcceptanceCriteria/AcceptanceCriteria-melody-suite-UNRATIFIED.md`, UNRATIFIED —
   CAPTURE ONLY, do NOT build). RIFF (capture+remap) · TRIGGER (chords play the melody's rhythm; STAB|CLOCK) · HARMONIZE
   SOLI mode (dynamic block harmony from a door's pool) · PEDAL (hold the bar/cell's first note; FOLD-to-home register) ·
