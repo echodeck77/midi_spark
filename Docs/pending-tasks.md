@@ -108,8 +108,12 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   surface: SETUPS radio RACK 1–4 · a compact ON BOARD membership row (A·B·C·D chips, lit=in path / dim=RAW) · the full
   RackMatrix treatment editor INLINE (`RackMatrix.embedded` mode drops its header/scroll/panel; OWNS/KEY/TURNS/MONO/
   FENCE/CURVE/POCKET/CONVERSATION edited in place); the read-only summary + EDIT TREATMENTS jump + the separate overlay
-  are gone). STILL OPEN: the per-row INPUT badges + console mode badges;
-  the ~~RECORD button move to the top-right banner~~ TRIED + REVERTED (2026-08-21, `43ba611`→revert — Paul prefers the
+  are gone). **PER-ROW INPUT·MODE INDICATORS DONE** (2026-08-21, `969f745` — re-scoped onto BUILD: each staging row
+  button shows a per-row door-tint EDGE stripe + an "A·L" badge = INPUT letter (A–D) · door mode glyph (L/H/K/R/F) in
+  the door's hue; reads buildRowReceiverResolved + receivers[door].doorModeResolved. Open: legibility eye on the ~34pt
+  buttons; mirror onto the perform-grid part buttons?; the full per-row I/O PICKER still belongs in the future spacious
+  "eye" view, not the compact grid).
+  The ~~RECORD button move to the top-right banner~~ TRIED + REVERTED (2026-08-21, `43ba611`→revert — Paul prefers the
   reel/RECORD glyph in the bottom-left cluster where it was; don't re-move it). DEVICE eye owed on the inline matrix (it now
   lays out in a ~640pt sheet, not the old full width). **§9 LABEL RENAME DONE** (2026-08-21, `c566054` — SETUPS radio +
   the 4 play-grid buttons "RACK n"→"SETUP n" (the buttons now WIRED to setRackConfig, active lit); dropped "door" wording;
