@@ -108,10 +108,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   surface: SETUPS radio RACK 1–4 · a compact ON BOARD membership row (A·B·C·D chips, lit=in path / dim=RAW) · the full
   RackMatrix treatment editor INLINE (`RackMatrix.embedded` mode drops its header/scroll/panel; OWNS/KEY/TURNS/MONO/
   FENCE/CURVE/POCKET/CONVERSATION edited in place); the read-only summary + EDIT TREATMENTS jump + the separate overlay
-  are gone). STILL OPEN: the per-row INPUT badges + console mode badges; FILE's import is built (Files picker + decode +
-  DoorRing) — reconcile storage; the RECORD button move to the top-right banner (Paul's separate ask); §9 user-facing
-  LABEL rename ("door"→"MIDI INPUT" etc. — code identifiers NEVER rename). DEVICE eye owed on the inline matrix (it now
-  lays out in a ~640pt sheet, not the old full width).
+  are gone). STILL OPEN: the per-row INPUT badges + console mode badges;
+  the RECORD button move to the top-right banner (Paul's separate ask). DEVICE eye owed on the inline matrix (it now
+  lays out in a ~640pt sheet, not the old full width). **§9 LABEL RENAME DONE** (2026-08-21, `c566054` — SETUPS radio +
+  the 4 play-grid buttons "RACK n"→"SETUP n" (the buttons now WIRED to setRackConfig, active lit); dropped "door" wording;
+  the "RACK CONFIG" button keeps Paul's override). **FILE STORAGE RECONCILE DONE** (2026-08-21, `89d2432` — the imported
+  clip persists on Receiver.fileClip (Codable, capped 8192) through the document round-trip + rebuilds into the box + the
+  Kernel reloads the DoorRing; +`testFileClipSurvivesDocumentRoundTripAndRebuilds`. Follow-up if heavy: store raw .mid
+  bytes + decode-on-load instead of decoded notes).
 - **MOD · SPAN + INTERNAL TARGETS** (`Docs/AcceptanceCriteria/AcceptanceCriteria-mod-span-target.md`, 2026-08-20 — MOD
   grows two axes, NOT a new processor): §1 STEPS gains **SPAN: PERIOD|ROW|ROW×2|ROW×4** (the drawn steps lock to the
   row's columns / 16 / 32 breakpoints across passes, `stepIndex = floor(beat×rate)%N` — the polymeter law, replay-safe).
