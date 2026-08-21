@@ -177,7 +177,7 @@ final class Kernel {
         let beat = recordBeatBase + Double(Int64(sampleTime) - recordWinStart) * recordBps
         for i in 0..<4 where (replayMask & (1 << UInt8(i))) != 0
                           && receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
-                          && receiverHears(filter: receiverChannels[i], channel: channel)
+                          && receiverHearsMask(receiverChanMask[i], channel: channel)
                           && (!on || (note >= receiverRangeLo[i] && note <= receiverRangeHi[i])) {   // range gates onsets; offs always record (pair cleanly)
             doorRings[i].record(beat: beat, note: note, vel: vel, on: on)
         }
@@ -261,12 +261,12 @@ final class Kernel {
             let rLo = receiverRangeLo[i], rHi = receiverRangeHi[i]   // RANGE (§2): the latch admits only in-window notes
             if latchAddMask & bit != 0 {
                 // KEYS (was ADD): note-toggle accumulation — each new note-on flips its membership in the frozen pool.
-                latchedPools[i].latchAddStep(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                latchedPools[i].latchAddStep(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                              noteLo: rLo, noteHi: rHi, prevHeld: &latchPrevHeld[i])
-            } else if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+            } else if pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                     velLo: 0, velHi: 127, noteLo: rLo, noteHi: rHi) > 0 {
                 // CHORD: detect-and-replace while fingers are down; freeze the last chord when they lift.
-                latchedPools[i].captureFiltered(from: pool, filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+                latchedPools[i].captureFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                                                 noteLo: rLo, noteHi: rHi)
             }
         }
@@ -325,6 +325,7 @@ final class Kernel {
     // delta §9 item 11: INPUT metering — per-receiver peak velocity + event count since the last poll (the
     // input twin of §6a). `receiverChannels` is this render's filters (0 = OMNI, 1–16), set from the box.
     private var receiverChannels: [UInt8] = [0, 0, 0, 0]
+    private var receiverChanMask: [UInt16] = [0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]   // MULTI-CHANNEL: this render's per-door channel subset (for metering + latch capture)
     private var receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]   // §item 11: cable bitmasks (for metering)
     private var receiverRangeLo: [UInt8] = [0, 0, 0, 0]                       // RANGE (§2): note window for the latch capture (upstream of latch)
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
@@ -379,21 +380,21 @@ final class Kernel {
         for i in 0..<4 {
             // The header DOT lights whenever a LIVE input note that this door ACCEPTS (channel+cable+RANGE) is held —
             // never the latch (the latched pool is frozen, not live). Independent of the meter's latch-aware display.
-            if pool.srcCount(filter: receiverChannels[i], cableMask: Int(receiverCables[i]),
+            if pool.srcCount(chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
                              velLo: 0, velHi: 127, noteLo: receiverRangeLo[i], noteHi: receiverRangeHi[i]) > 0 {
                 liveMask |= 1 << UInt8(i)
             }
             recvHeldCount[i] = 0
             // When a receiver is ARMED, the meter shows the notes the LATCH holds (they keep sounding after the keys
             // lift). The latched pool is already receiver-filtered, so read it OMNI; otherwise read the live pool
-            // through this receiver's filter.
+            // through this receiver's channel subset.
             let armed = effectiveLatchMask & (1 << UInt8(i)) != 0   // incl. self-armed PIANO doors
             let src = armed ? latchedPools[i] : pool
-            let filter: UInt8 = armed ? 0 : receiverChannels[i]
+            let chMask: UInt16 = armed ? 0xFFFF : receiverChanMask[i]
             let cable = armed ? 0b1111 : Int(receiverCables[i])
-            let n = src.srcCount(filter: filter, cableMask: cable)
+            let n = src.srcCount(chanMask: chMask, cableMask: cable)
             for k in 0..<n where recvHeldCount[i] < 12 {
-                let note = src.srcAscending(k, filter: filter, cableMask: cable)
+                let note = src.srcAscending(k, chanMask: chMask, cableMask: cable)
                 recvHeldNote[i][recvHeldCount[i]] = note
                 recvHeldVel[i][recvHeldCount[i]] = src.velocity(note); recvHeldCount[i] += 1
             }
@@ -558,6 +559,7 @@ final class Kernel {
         guard let box = store?.acquire() else { return }
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         receiverChannels = box.receiverChannels        // delta §9 item 11: this render's input filters (for metering)
+        receiverChanMask = box.receiverChannelMask      // MULTI-CHANNEL: this render's per-door channel subsets
         receiverCables = box.receiverCables             // §item 11: this render's cable bitmasks
         receiverControllerMask = box.receiverControllerMask   // CONTROLLER ROUTING: per-door forward masks
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
@@ -830,7 +832,7 @@ final class Kernel {
             let vel = bytes[2]
             if vel > 0 {
                 for i in 0..<4 where receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
-                                  && receiverHears(filter: receiverChannels[i], channel: channel) {
+                                  && receiverHearsMask(receiverChanMask[i], channel: channel) {
                     if vel > inputPeak[i] { inputPeak[i] = vel }
                     inputEvents[i] &+= 1
                     inputChannelMask[i] |= UInt16(1) << UInt16(channel)   // §MPE: track the channel spread this window
@@ -862,7 +864,7 @@ final class Kernel {
         if isForwardableController(bytes[0]), let out = midiOut {
             var hearing = [false, false, false, false]
             for i in 0..<4 where receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
-                              && receiverHears(filter: receiverChannels[i], channel: channel) { hearing[i] = true }
+                              && receiverHearsMask(receiverChanMask[i], channel: channel) { hearing[i] = true }
             let fwd = controllerForwardMask(hearing: hearing, masks: receiverControllerMask)
             if fwd != 0 {
                 let n = min(length, 3)

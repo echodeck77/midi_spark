@@ -275,6 +275,40 @@ final class NotePool {
         (filter == 0 || chan[Int(note)] == filter - 1)
             && receiverHearsCable(mask: cableMask, eventCable: Int(cbl[Int(note)]))
     }
+    // MULTI-CHANNEL (Paul 2026-08-21): a door can hear an arbitrary SUBSET of channels — a 16-bit mask (bit c = channel
+    // c+1). 0xFFFF = all (OMNI). The single-channel `matches` above stays as the fast/OMNI path; a cell carrying a
+    // non-full mask reads through these. `chanMaskOf` expands the legacy single filter, so the two agree exactly.
+    @inline(__always) private func matchesMask(_ note: UInt8, _ chanMask: UInt16, _ cableMask: Int) -> Bool {
+        (chanMask & (UInt16(1) << UInt16(chan[Int(note)]))) != 0
+            && receiverHearsCable(mask: cableMask, eventCable: Int(cbl[Int(note)]))
+    }
+    func srcCount(chanMask: UInt16, cableMask: Int = 0b1111) -> Int {
+        if chanMask == 0xFFFF && cableMask == 0b1111 { return count }
+        var n = 0; for i in 0..<count where matchesMask(sorted[i], chanMask, cableMask) { n += 1 }; return n
+    }
+    func srcAscending(_ k: Int, chanMask: UInt16, cableMask: Int = 0b1111) -> UInt8 {
+        if chanMask == 0xFFFF && cableMask == 0b1111 { return k < count ? sorted[k] : 255 }
+        var seen = 0
+        for i in 0..<count where matchesMask(sorted[i], chanMask, cableMask) { if seen == k { return sorted[i] }; seen += 1 }
+        return 255
+    }
+    func srcCount(chanMask: UInt16, cableMask: Int, velLo: UInt8, velHi: UInt8, noteLo: UInt8, noteHi: UInt8) -> Int {
+        var n = 0
+        for i in 0..<count where matchesMask(sorted[i], chanMask, cableMask) {
+            let note = sorted[i]; guard note >= noteLo && note <= noteHi else { continue }
+            let v = vel[Int(note)]; if v >= velLo && v <= velHi { n += 1 }
+        }
+        return n
+    }
+    func srcAscending(_ k: Int, chanMask: UInt16, cableMask: Int, velLo: UInt8, velHi: UInt8, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
+        var seen = 0
+        for i in 0..<count where matchesMask(sorted[i], chanMask, cableMask) {
+            let note = sorted[i]; guard note >= noteLo && note <= noteHi else { continue }
+            let v = vel[Int(note)]; guard v >= velLo && v <= velHi else { continue }
+            if seen == k { return note }; seen += 1
+        }
+        return 255
+    }
 
     /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
     func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
@@ -344,14 +378,14 @@ final class NotePool {
     // full → the fast readers; either narrower → the combined reader.
     private func srcCountFiltered(_ cell: SnapCell) -> Int {
         (cell.velFloor <= 1 && cell.velCeil >= 127 && cell.inputRangeLo <= 0 && cell.inputRangeHi >= 127)
-            ? srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
-            : srcCount(filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+            ? srcCount(chanMask: cell.inputChanMask, cableMask: Int(cell.inputCableMask))
+            : srcCount(chanMask: cell.inputChanMask, cableMask: Int(cell.inputCableMask),
                        velLo: cell.velFloor, velHi: cell.velCeil, noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)
     }
     private func srcAscendingFiltered(_ k: Int, _ cell: SnapCell) -> UInt8 {
         (cell.velFloor <= 1 && cell.velCeil >= 127 && cell.inputRangeLo <= 0 && cell.inputRangeHi >= 127)
-            ? srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask))
-            : srcAscending(k, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
+            ? srcAscending(k, chanMask: cell.inputChanMask, cableMask: Int(cell.inputCableMask))
+            : srcAscending(k, chanMask: cell.inputChanMask, cableMask: Int(cell.inputCableMask),
                            velLo: cell.velFloor, velHi: cell.velCeil, noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)
     }
     // Full per-cell source read: velocity window (admission), THEN the chord split (a window on that list).
@@ -402,6 +436,30 @@ final class NotePool {
             if held && !prevHeld[n] {                       // rising edge → toggle membership
                 if vel[n] != 0 { noteOff(note) }            // already in the frozen pool → leave
                 else { noteOn(note, velocity: live.vel[n], channel: live.chan[n], cable: live.cbl[n]) }   // → join
+            }
+            prevHeld[n] = held
+        }
+        rebuildSorted()
+    }
+    // MULTI-CHANNEL (Paul 2026-08-21): the mask twins of the latch-capture readers — a door hearing a channel SUBSET
+    // freezes from all its channels. Byte-identical to the single-filter versions for OMNI (0xFFFF) / a single channel.
+    func captureFiltered(from src: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) {
+        reset()
+        for i in 0..<src.count {
+            let note = src.sorted[i]
+            if note >= noteLo && note <= noteHi && src.matchesMask(note, chanMask, cableMask) {
+                noteOn(note, velocity: src.vel[Int(note)], channel: src.chan[Int(note)], cable: src.cbl[Int(note)])
+            }
+        }
+        rebuildSorted()
+    }
+    func latchAddStep(from live: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127, prevHeld: inout [Bool]) {
+        for n in 0..<128 {
+            let note = UInt8(n)
+            let held = live.vel[n] != 0 && note >= noteLo && note <= noteHi && live.matchesMask(note, chanMask, cableMask)
+            if held && !prevHeld[n] {
+                if vel[n] != 0 { noteOff(note) }
+                else { noteOn(note, velocity: live.vel[n], channel: live.chan[n], cable: live.cbl[n]) }
             }
             prevHeld[n] = held
         }
@@ -828,6 +886,10 @@ enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, eu
 /// Wire channel = filter − 1. Used for input metering attribution (and mirrors NotePool's source filter).
 @inline(__always) func receiverHears(filter: UInt8, channel: UInt8) -> Bool {
     filter == 0 || filter == channel + 1
+}
+// MULTI-CHANNEL (Paul 2026-08-21): does a door's channel SUBSET hear this channel? (bit c = channel c+1.)
+@inline(__always) func receiverHearsMask(_ chanMask: UInt16, channel: UInt8) -> Bool {
+    (chanMask & (UInt16(1) << UInt16(channel))) != 0
 }
 
 /// INPUT CABLES admission (§item 11): does a receiver whose cable BITMASK is `mask` (bit i = cable i+1)

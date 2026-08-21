@@ -40,6 +40,7 @@ struct SnapCell {
     var inputChannel: UInt8 = 0     // delta §7: source filter, 0 = OMNI, 1–16 channel, ≥17 = match-nothing
                                     // (a muted receiver; Snap.mutedSourceFilter). Resolved from the cell's
                                     // receiver at build time — MIDI-IN cells only; render just reads it.
+    var inputChanMask: UInt16 = 0xFFFF   // MULTI-CHANNEL (Paul 2026-08-21): the cell's channel bitmask (bit c = channel c+1); 0xFFFF = OMNI. The render filters on THIS; `inputChannel` above stays for metering/compat.
     var resolvedReceiver: Int8 = -1 // delta §9 item 11: the receiver a MIDI-IN cell reads (0–3), else −1
     var inputCableMask: UInt8 = 0b1111  // §item 11 INPUT CABLES: the receiver's cable bitmask (ANY = all); render just reads it
     var chordSplit = ChordSplit()   // §cell-edit D: which held source notes this cell takes (ALL default); render reads via srcCount/srcAscending(for:)
@@ -211,6 +212,7 @@ final class SnapshotBox {
     let masterMute: Bool             // master panel: global emission kill
     let thruReceiver: Int8           // receiver strip: the THRU-pip receiver (0–3) passthrough follows (default 0 = R1)
     let receiverChannels: [UInt8]    // delta §9 item 11: the 4 receivers' channel filters (0 = OMNI, 1–16) — input metering
+    let receiverChannelMask: [UInt16]  // MULTI-CHANNEL (Paul 2026-08-21): the 4 receivers' channel SUBSET masks (bit c = channel c+1; 0xFFFF = OMNI, 0 = none) — the door's own admission (metering + latch capture)
     let receiverCables: [UInt8]      // §item 11 INPUT CABLES: the 4 receivers' cable bitmasks (ANY = 0b1111) — input metering
     let latchAddMask: UInt8          // TWO LATCH MODES: bit i = receiver i latches in ADD (toggle) mode; 0 = CHORD
     let receiverDisabledMask: UInt8  // INPUT ENABLE: bit i = receiver i is DISABLED (not listening) — its frozen latch still feeds the grid, but no new live notes reach its cells
@@ -244,6 +246,7 @@ final class SnapshotBox {
          convLead: Int8 = -1, convStance: [UInt8] = [0, 0, 0, 0], rackMask: UInt8 = 0b1111,
          masterKey: Int8 = 0, masterMute: Bool = false,
          thruReceiver: Int8 = 0, receiverChannels: [UInt8] = [0, 0, 0, 0],
+         receiverChannelMask: [UInt16] = [0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF],
          receiverCables: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111], latchAddMask: UInt8 = 0,
          receiverDisabledMask: UInt8 = 0,
          receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127],
@@ -287,6 +290,7 @@ final class SnapshotBox {
         self.masterMute = masterMute
         self.thruReceiver = thruReceiver
         self.receiverChannels = receiverChannels
+        self.receiverChannelMask = receiverChannelMask
         self.receiverCables = receiverCables
         self.latchAddMask = latchAddMask
         self.receiverDisabledMask = receiverDisabledMask

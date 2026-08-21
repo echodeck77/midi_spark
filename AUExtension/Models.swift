@@ -472,6 +472,14 @@ enum DoorMode: String, Codable, CaseIterable { case latch, hold, keys, replay, f
 struct Receiver: Codable, Equatable {
     var name: String = ""
     var channel: Int = 0        // 0 = OMNI (default), 1–16 = single wire channel (wire ch = channel − 1)
+    // MULTI-CHANNEL (Paul 2026-08-21): a door can hear an arbitrary SUBSET of channels — a 16-bit mask (bit c = channel
+    // c+1). Additive-Optional: nil ⇒ derive from the legacy `channel` (OMNI/single), byte-identical for old docs. 0xFFFF
+    // = all (OMNI). 0 = none (hears nothing — the door is effectively closed by channel).
+    var channelMask: UInt16? = nil
+    var channelMaskResolved: UInt16 {
+        if let m = channelMask { return m }
+        return channel == 0 ? 0xFFFF : (UInt16(1) << UInt16(max(1, min(16, channel)) - 1))
+    }
     var mpeMerge: Bool = false  // per-receiver MPE-merge (the front door); engine semantics deferred
     var muted: Bool = false     // input mute (PERSISTED) — a muted receiver feeds its subscribers nothing
     // INPUT ENABLE (2026-08-03): whether this door LISTENS for incoming notes. DISABLED = admit no NEW notes

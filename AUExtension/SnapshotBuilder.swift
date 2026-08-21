@@ -99,11 +99,13 @@ enum SnapshotBuilder {
                     sc.resolvedReceiver = Int8(ri)
                     sc.inputChannel = recs[ri].muted ? Snap.mutedSourceFilter
                                                      : UInt8(max(0, min(16, recs[ri].channel)))
+                    sc.inputChanMask = recs[ri].muted ? 0 : recs[ri].channelMaskResolved   // MULTI-CHANNEL: the door's channel subset (0 = muted → nothing)
                     sc.inputCableMask = 0b1111   // COG SIMPLIFICATION (2026-08-03): always accept ALL input cables (union) — cables retired from the UI
                     sc.inputRangeLo = recs[ri].rangeLoResolved   // RANGE (§2): the door's note window, admitted before the split/vel window
                     sc.inputRangeHi = recs[ri].rangeHiResolved
                 } else {
                     sc.inputChannel = UInt8(max(0, min(16, cell.inputChannel)))   // legacy / no receivers
+                    let f = sc.inputChannel; sc.inputChanMask = f == 0 ? 0xFFFF : (f >= 1 && f <= 16 ? (UInt16(1) << UInt16(f - 1)) : 0)
                 }
                 // MACRO MODULATION: fold any macro offsets targeting this cell's slots into the resolved chain.
                 if !macroMods.isEmpty {
@@ -192,6 +194,7 @@ enum SnapshotBuilder {
         let recvCh = doc.receiversResolved.map {
             ($0.muted || !$0.inputEnabledResolved) ? Snap.mutedSourceFilter : UInt8(max(0, min(16, $0.channel)))
         }
+        let recvChMask = doc.receiversResolved.map { UInt16($0.muted || !$0.inputEnabledResolved ? 0 : $0.channelMaskResolved) }   // MULTI-CHANNEL: the door's admission subset (0 = muted/disabled)
         let recvCable = doc.receiversResolved.map { _ in UInt8(0b1111) }   // COG SIMPLIFICATION: always accept ALL input cables (union)
         // TWO LATCH MODES: pack the per-receiver ADD flag into a mask (bit i = receiver i toggles, not replaces).
         let latchAddMask = packMask(doc.receiversResolved.map { $0.latchAddResolved })
@@ -258,6 +261,7 @@ enum SnapshotBuilder {
                            masterMute: doc.masterMute ?? false,
                            thruReceiver: Int8(doc.thruReceiverResolved),
                            receiverChannels: recvCh,
+                           receiverChannelMask: recvChMask,
                            receiverCables: recvCable,
                            latchAddMask: latchAddMask,
                            receiverDisabledMask: receiverDisabledMask,

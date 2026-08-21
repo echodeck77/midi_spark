@@ -47,6 +47,24 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.rowLength[3], Snap.cols, "nil falls to a full 8")
     }
 
+    // MULTI-CHANNEL (Paul 2026-08-21): a door can hear an arbitrary channel SUBSET; the mask resolves + packs into the box.
+    func testChannelMaskResolvesFromLegacyAndExplicit() {
+        var r = Receiver(name: "x")
+        XCTAssertEqual(r.channelMaskResolved, 0xFFFF, "default (OMNI) → all channels")
+        r.channel = 3; XCTAssertEqual(r.channelMaskResolved, 0b100, "single channel 3 → bit 2")
+        r.channelMask = 0b10101; XCTAssertEqual(r.channelMaskResolved, 0b10101, "explicit mask wins (channels 1+3+5)")
+        r.channelMask = 0; XCTAssertEqual(r.channelMaskResolved, 0, "explicit 0 = none")
+    }
+    func testMultiChannelSubsetPacksIntoTheBoxAndCell() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [{ var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold"); s.cells[0][0]?.inputReceiver = 0; return s }()])
+        st.receivers = [{ var r = Receiver(name: "1"); r.channelMask = 0b10101; return r }(), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]   // door 0 hears 1+3+5
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.receiverChannelMask[0], 0b10101, "the door's subset packs into the box")
+        XCTAssertEqual(b.cells[0].inputChanMask, 0b10101, "the cell inherits the door's channel subset")
+        // a plain OMNI door → 0xFFFF, byte-identical to before
+        XCTAssertEqual(b.receiverChannelMask[1], 0xFFFF)
+    }
+
     // THE CONFIG SHEETS (Paul 2026-08-20): the RACK has 4 CONFIGS; the render reads the ACTIVE config's membership.
     func testRackConfigResolvesToLegacyMaskWhenUnset() {
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
