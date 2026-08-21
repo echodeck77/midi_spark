@@ -31,9 +31,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.
   (2) ~~`euclidPattern`/`burstFractions`/`tuttiSliceRanks` array returns in the hot loop~~ DONE (2026-08-20, `a87e492`)
   — `*Into(&buf,…)` no-alloc variants in Derivations (array versions wrap them for the tests); Router reused buffers,
-  separate tutti A/B for the `[TUTTI→TUTTI]` nest; byte-identical. (3) STILL OPEN: `process()`
-  uniform-vs-multi-clock block is ~duplicated (transition + tick loops) — an `emitColumnTransition` extraction would
-  dedup; same item as codebase-review §12 "split Router.process".
+  separate tutti A/B for the `[TUTTI→TUTTI]` nest; byte-identical. (3) ~~`process()` uniform-vs-multi-clock transition
+  block ~duplicated~~ DONE (2026-08-21, `c338eda` — `emitColumnTransition(effCol:prevEdge:onlyRow:…)`; onlyRow nil =
+  global clock, r = per-row; byte-identical, proven by the acceptance oracle + fuzz determinism). The TICK loops
+  (`emitTickRow`) were already shared; only the trivial MOD/GLIDE per-row loop stays inline. Closes codebase-review §12.
 - **UI dead-code (grep-clean, FLAGGED not removed — the EDIT/verb surface may be intentional WIP like BuildPage):**
   `AudioUnitViewController` `toggleHold`/`onVerbEngaged`/`clearSelectionUndo`/`selectionMixed`/`sceneName`; `EditPage`
   `setEditMode`/`commitSession`/`revertSession`/`editGridLongPress`/`editGridLongEnd`/`midiSectionHeader`/
