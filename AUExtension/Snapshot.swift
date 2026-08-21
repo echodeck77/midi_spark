@@ -115,6 +115,8 @@ struct SnapParams {
     var modMin: Int = 0                  // shape floor  (MIN)
     var modMax: Int = 127                // shape ceiling (MAX); MIN > MAX inverts
     var modReset: Bool = true            // ON LEAVE: reset to MIN on column exit
+    var modTarget: ModTarget = .cc       // SEND: CC (emit, default) · CHAIN (modulate a chain param INTERNALLY, no CC) — Paul 2026-08-20
+    var modChainParam: MacroParam = .gate    // CHAIN target: which param the internal offset lands on
     var modFollow: ModFollow = .register // FOLLOW: which property
     var modSteps: [Int] = [0, 18, 36, 54, 72, 90, 108, 127]   // STEPS: 8 values 0…127 (default rising staircase)
     var modSmooth: Bool = true           // STEPS: SMOOTH vs STEP
@@ -319,7 +321,7 @@ final class SnapshotBox {
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)
 
 /// The continuous params a macro may modulate (raw values are `MacroTarget.param` strings). Append-only.
-enum MacroParam: String, CaseIterable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax, tuttiBalance, lenShort, lenLong, rtcChance }
+enum MacroParam: String, CaseIterable, Codable { case gate, ramp, spread, curve, velTilt, probability, harmVelScale, modMin, modMax, tuttiBalance, lenShort, lenLong, rtcChance }
 
 /// One resolved modulation on a slot: macro index + which param + the authored A→B delta. Built from the document
 /// targets at snapshot time (main thread); folded into the resolved `SnapParams` so every render read path sees it.
@@ -365,6 +367,39 @@ func applyMacros(_ p: SnapParams, mods: [MacroMod], values: [Double]) -> SnapPar
     if dLenS != 0 { r.lenShort = clamp(r.lenShort + dLenS, 0.05, 0.95) }
     if dLenL != 0 { r.lenLong = clamp(r.lenLong + dLenL, 0, 1) }
     if dRtc != 0 { r.rtcChance = clamp(r.rtcChance + dRtc, 0, 1) }   // live-automatable ratchet density (COIN)
+    return r
+}
+
+// MOD §2 INTERNAL TARGET (Paul 2026-08-20): the modulated range of each foldable param — the offset the MOD writes is
+// (its MIN/MAX-ranged unipolar value) × this span, so a full MIN..MAX sweep can traverse the param's whole range.
+func macroParamSpan(_ param: MacroParam) -> Double {
+    switch param {
+    case .curve, .velTilt:            return 2.0    // −1…1
+    case .modMin, .modMax:            return 127.0  // 0…127
+    case .harmVelScale, .lenShort:    return 0.9    // 0.1…1 · 0.05…0.95
+    default:                          return 1.0    // 0…1 (gate/ramp/spread/probability/tuttiBalance/lenLong/rtcChance)
+    }
+}
+// Add `offset` to `param`'s base, clamped to the param's valid range (same clamps as applyMacros — MOD + macros compose
+// on this one lane). Used by the render-time internal-MOD application (Router.applyInternalMods).
+func applyModChainOffset(_ p: SnapParams, param: MacroParam, offset: Double) -> SnapParams {
+    guard offset != 0 else { return p }
+    var r = p
+    switch param {
+    case .gate:         r.gate = clamp(r.gate + offset, 0.05, 1)
+    case .ramp:         r.ramp = clamp(r.ramp + offset, 0, 1)
+    case .spread:       r.spread = clamp(r.spread + offset, 0, 1)
+    case .curve:        r.curve = clamp(r.curve + offset, -1, 1)
+    case .velTilt:      r.velTilt = clamp(r.velTilt + offset, -1, 1)
+    case .probability:  r.probability = clamp(r.probability + offset, 0, 1)
+    case .harmVelScale: r.harmVelScale = clamp(r.harmVelScale + offset, 0.1, 1)
+    case .modMin:       r.modMin = clamp(r.modMin + Int(offset.rounded()), 0, 127)
+    case .modMax:       r.modMax = clamp(r.modMax + Int(offset.rounded()), 0, 127)
+    case .tuttiBalance: r.tuttiBalance = clamp(r.tuttiBalance + offset, 0, 1)
+    case .lenShort:     r.lenShort = clamp(r.lenShort + offset, 0.05, 0.95)
+    case .lenLong:      r.lenLong = clamp(r.lenLong + offset, 0, 1)
+    case .rtcChance:    r.rtcChance = clamp(r.rtcChance + offset, 0, 1)
+    }
     return r
 }
 

@@ -2050,6 +2050,37 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(values(.row).contains(where: { $0 > 60 }), "ROW sees only the first 8 breakpoints (≈30)")
         XCTAssertTrue(values(.row2).contains(where: { $0 > 60 }), "ROW×2 reaches the second-bar breakpoints (≈100)")
     }
+    // §2 INTERNAL TARGET (Paul 2026-08-20): a MOD set to THIS CHAIN emits NO CC — it modulates a chain param instead.
+    func testModInternalTargetEmitsNoCC() {
+        let cs = arpColours()
+        var mod = ProcessorSlot(type: .mod)
+        mod.params.modTarget = .chain; mod.params.modChainParam = .spread; mod.params.modShape = .sine
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [ProcessorSlot(type: .strum), mod]; return c }() }
+        let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+        XCTAssertTrue(e.events.filter { $0.status == 0xB0 }.isEmpty, "an internal-target MOD emits NO CC")
+        XCTAssertFalse(e.ons.isEmpty, "the strum still plays")
+        assertNothingLeftSounding(e)
+    }
+    // §2: the internal MOD actually MOVES the target param. A strum with base spread=0 rakes near-simultaneously; a MOD
+    // → SPREAD pinned at max (MIN=MAX=127 → constant offset 1.0) forces spread=1, so the onsets fan out much wider.
+    func testModInternalTargetModulatesSpread() {
+        let cs = arpColours()
+        func onsetSpan(withMod: Bool) -> Int {
+            var strum = ProcessorSlot(type: .strum); strum.params.spread = 0
+            var chain = [strum]
+            if withMod {
+                var mod = ProcessorSlot(type: .mod)
+                mod.params.modTarget = .chain; mod.params.modChainParam = .spread
+                mod.params.modMin = 127; mod.params.modMax = 127   // constant → offset = 1.0 → spread pinned to 1
+                chain.append(mod)
+            }
+            let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = chain; return c }() }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 8, into: e)
+            let ons = e.ons.map { Int($0.sample) }
+            return (ons.max() ?? 0) - (ons.min() ?? 0)
+        }
+        XCTAssertGreaterThan(onsetSpan(withMod: true), onsetSpan(withMod: false), "MOD → SPREAD at max fans the strum onsets much wider")
+    }
     /// [ARP → MOD]: MOD is note-transparent — the arp still plays AND MOD emits its CC.
     func testArpThenModKeepsArpNotesAndEmitsCC() {
         let cs = arpColours()

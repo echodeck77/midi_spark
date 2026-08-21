@@ -368,6 +368,8 @@ enum SnapshotBuilder {
         if let v = p.modMin { out.modMin = clamp(v, 0, 127) }
         if let v = p.modMax { out.modMax = clamp(v, 0, 127) }
         if let v = p.modReset { out.modReset = v }
+        if let v = p.modTarget { out.modTarget = v }
+        if let v = p.modChainParam { out.modChainParam = v }
         if let v = p.modFollow { out.modFollow = v }
         // STEPS SPAN (Paul 2026-08-20): the box carries EXACTLY `stepCount` (8/16/32) breakpoints — tile the source
         // (custom or the 8-default) up to N. N=8 (PERIOD/ROW) reproduces the old exactly-8 pack → byte-identical.

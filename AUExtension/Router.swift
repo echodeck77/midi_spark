@@ -1223,8 +1223,9 @@ final class Router {
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, heldCell: Int, out: MIDIEmitter?, diag: inout KernelDiag) {
-            let cell = box.cells[effColumn * Snap.rows + r]
+            var cell = box.cells[effColumn * Snap.rows + r]
             if cell.colourIndex < 0 || cellSoloedOut(effColumn, r) || (!cellSoloForced(effColumn, r) && (cell.muted || cell.dormant || tapMuted(effColumn, r))) { return }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            applyInternalMods(&cell, column: effColumn, pool: pool, mNow: musicalOf(beatPos, stepBeats: S, a: a), S: S, box: box)   // §2 INTERNAL MOD: modulate this cell's chain params (no-op unless a MOD targets the chain)
             if soloSilenced(cell) { return }   // receiver strip: input SOLO excludes this cell's receiver
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
@@ -1379,8 +1380,9 @@ final class Router {
         // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
         if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
-            let cell = box.cells[column * Snap.rows + r]
+            var cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
             if isEchoTail(cell) { continue }       // ECHO: an echo-tail cell fires its dry + tail in emitEchoColumn, never a hold here
@@ -2052,6 +2054,37 @@ final class Router {
         }
     }
 
+    // SPAN — SHAPE: CELL = the modRate period · ROW = the whole bar. STEPS: PERIOD = the rate period · ROW/×2/×4 =
+    // 1/2/4 bars. Shared by the CC emit path and the §2 internal-target sampler.
+    private func modPeriodBeats(_ p: SnapParams, box: SnapshotBox) -> Double {
+        let bar = Double(Snap.cols) * box.stepBeats
+        if p.modSource == .steps {
+            switch p.modStepSpan {
+            case .period: return max(0.03125, p.modRate.periodBeats)
+            case .row:    return max(0.03125, bar)
+            case .row2:   return max(0.03125, 2 * bar)
+            case .row4:   return max(0.03125, 4 * bar)
+            }
+        }
+        return (p.modSpan == .row) ? max(0.03125, bar) : max(0.03125, p.modRate.periodBeats)
+    }
+
+    // §2 INTERNAL TARGET (Paul 2026-08-20): apply each internal-target MOD's BOUNDARY value (sampled once at the column
+    // start — boundary-deferred) to the cell's chain params, on the offset lane. Byte-identical when no MOD targets the
+    // chain (the loop finds none → cell untouched). Applied to EVERY slot (harmless where the param is unused) + the head.
+    private func applyInternalMods(_ cell: inout SnapCell, column: Int, pool: NotePool, mNow: Double, S: Double, box: SnapshotBox) {
+        let boundary = columnStart(mNow, S)   // no render-path allocation — apply each internal MOD's offset inline (invariant 3)
+        for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modTarget == .chain {
+            let mp = cell.procs[si]
+            let u = modSourceUnipolar(mp, cell: cell, pool: pool, b: boundary, period: modPeriodBeats(mp, box: box), column: column, entryBeat: boundary)
+            let out = Double(mp.modMin) / 127 + u * Double(mp.modMax - mp.modMin) / 127   // MIN/MAX re-range (MIN>MAX inverts)
+            let off = out * macroParamSpan(mp.modChainParam)                               // scale to the param's span (approved v1 mapping)
+            if off == 0 { continue }
+            let param = mp.modChainParam
+            for sj in 0..<cell.procs.count { cell.procs[sj] = applyModChainOffset(cell.procs[sj], param: param, offset: off) }   // every slot (harmless where unused); `proc` = procs[0]
+        }
+    }
+
     /// Emit each active-column MOD slot's CC over this window at a control grid (block-size invariant, replay-safe),
     /// on every ENABLED bus's cable + All, on the bus's stamp channel. Runs BEFORE the held-note guard — MOD needs no
     /// keys down. When the playhead LEAVES a column, the departed column's MOD cells (modReset) send their default (0).
@@ -2081,20 +2114,8 @@ final class Router {
                     if prev >= 0 && prev != p.modCC { emitModCC(cc: prev, value: ccDefault(prev), busMask: cell.busMask, atSample: windowStart, out: out) }
                     modPrevTarget[tkey] = Int16(p.modCC)
                 }
-                // SPAN — SHAPE: CELL = the modRate period · ROW = one cycle across the WHOLE bar. STEPS: PERIOD = the
-                // rate period · ROW/ROW×2/ROW×4 = the 8/16/32 breakpoints span 1/2/4 bars (the box carries N steps).
-                let bar = Double(Snap.cols) * box.stepBeats
-                let period: Double
-                if p.modSource == .steps {
-                    switch p.modStepSpan {
-                    case .period: period = max(0.03125, p.modRate.periodBeats)
-                    case .row:    period = max(0.03125, bar)
-                    case .row2:   period = max(0.03125, 2 * bar)
-                    case .row4:   period = max(0.03125, 4 * bar)
-                    }
-                } else {
-                    period = (p.modSpan == .row) ? max(0.03125, bar) : max(0.03125, p.modRate.periodBeats)
-                }
+                if p.modTarget == .chain { continue }   // §2 INTERNAL TARGET: emits NO CC — the offset is applied to the chain in emitTickRow/emitColumnHolds
+                let period = modPeriodBeats(p, box: box)
                 var k = Int((beatPos / modCtrlBeats).rounded(.up))    // control-grid points in [beatPos, bEnd)
                 while Double(k) * modCtrlBeats < bEnd {
                     let b = Double(k) * modCtrlBeats
@@ -2115,8 +2136,8 @@ final class Router {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {
             let cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 { continue }
-            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset {
-                emitModCC(cc: cell.procs[si].modCC, value: cell.procs[si].modMin, busMask: cell.busMask, atSample: atSample, out: out)   // RESET → MIN
+            for si in 0..<cell.procs.count where !cell.slotBypass[si] && cell.procs[si].type == .mod && cell.procs[si].modReset && cell.procs[si].modTarget == .cc {
+                emitModCC(cc: cell.procs[si].modCC, value: cell.procs[si].modMin, busMask: cell.busMask, atSample: atSample, out: out)   // RESET → MIN (CC targets only; internal has no CC)
             }
         }
     }

@@ -1078,9 +1078,25 @@ struct ProcessorBox: View {
                 let mspan = p.modSpan ?? .cell
                 field("SPAN") { seg(["CELL", "ROW"], sel: mspan == .row ? "ROW" : "CELL") { i in setParam { $0.modSpan = (i == 1) ? .row : .cell } } }   // CELL = the CYCLE period · ROW = one cycle spans the bar
             }
-            let cc = p.modCC ?? 74
-            field("SEND CC  \(ccLabelText(cc))") {
-                Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            let target = p.modTarget ?? .cc
+            field("SEND") { seg(ModTarget.allCases.map { $0 == .chain ? "THIS CHAIN" : $0.rawValue }, sel: target == .chain ? "THIS CHAIN" : "CC") { i in setParam { $0.modTarget = ModTarget.allCases[i] } } }   // §2: CC (emit) | THIS CHAIN (modulate a chain param, no CC)
+            if target == .cc {
+                let cc = p.modCC ?? 74
+                field("SEND CC  \(ccLabelText(cc))") {
+                    Slider(value: bind(Double(cc)) { v in setParam { $0.modCC = Int(v.rounded()) } }, in: 0...127).tint(accent) }
+            } else {
+                let params: [MacroParam] = [.gate, .ramp, .spread, .curve, .velTilt, .probability, .harmVelScale, .tuttiBalance, .lenShort, .lenLong, .rtcChance]
+                let cur = p.modChainParam ?? .gate
+                field("CHAIN PARAM") {
+                    Menu {
+                        ForEach(params, id: \.self) { pp in Button(pp.rawValue.uppercased()) { setParam { $0.modChainParam = pp } } }
+                    } label: {
+                        Text(cur.rawValue.uppercased()).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(accent)
+                            .padding(.horizontal, 10).frame(height: 30).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+                    }
+                }
+            }
             let lo = p.modMin ?? 0, hi = p.modMax ?? 127
             field("MIN  \(lo)") {
                 Slider(value: bind(Double(lo)) { v in setParam { $0.modMin = Int(v.rounded()) } }, in: 0...127).tint(accent) }

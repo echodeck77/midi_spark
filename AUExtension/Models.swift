@@ -39,6 +39,9 @@ enum ModRate: String, Codable, CaseIterable {
 // CC-stage §1 SOURCE — the stage's spine. SHAPE = an LFO · FOLLOW = tracks the sounding material · STEPS = an
 // 8-step pattern · STRIKE = a per-entry AR envelope · EXTERN = re-emits an incoming CC, transformed. §12 append-only.
 enum ModSource: String, Codable, CaseIterable { case shape = "SHAPE", follow = "FOLLOW", steps = "STEPS", strike = "STRIKE", extern = "EXTERN" }
+// MOD TARGET (Paul 2026-08-20): CC = emit a MIDI CC (today) · CHAIN = modulate a chain param INTERNALLY (no CC), writing
+// the param's offset lane — MOD composes with macros on the same lane. `modChainParam` = which param (the macro list).
+enum ModTarget: String, Codable, CaseIterable { case cc = "CC", chain = "CHAIN" }
 // FOLLOW — WHICH property of the sounding material drives the CC. §12 append-only.
 enum ModFollow: String, Codable, CaseIterable { case density = "DENSITY", register = "REGISTER", count = "COUNT", vel = "VEL" }
 // GLIDE — which held note the mono voice tracks when several sound at once. §12 append-only.
@@ -169,6 +172,8 @@ struct ColourParams: Codable, Equatable {
     var modMin: Int? = 0                // the shape's floor (0…127)
     var modMax: Int? = 127              // the shape's ceiling (0…127)
     var modReset: Bool? = true          // ON LEAVE: reset to MIN on column exit · OFF = leave-as-landed
+    var modTarget: ModTarget? = nil     // SEND: CC (emit a controller, default) | CHAIN (modulate a chain param, no CC) — Paul 2026-08-20
+    var modChainParam: MacroParam? = nil    // CHAIN target: which param (gate · spread · curve · …) the offset lands on
     // GLIDE (notes→pitch-bend translator). Append-only Optional.
     var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
     var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth

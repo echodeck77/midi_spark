@@ -1599,6 +1599,19 @@ final class DerivationsTests: XCTestCase {
         let steps = [0, 0, 0, 0, 0, 0, 0, 127]
         XCTAssertEqual(modStepsUnipolar(steps, phase: 0.9375, smooth: true), 0.5, accuracy: 0.02, "SMOOTH wraps step 7 → step 0 (8-step)")
     }
+    // §2 INTERNAL TARGET (Paul 2026-08-20): applyModChainOffset adds to the base param + clamps to its range; the span
+    // scales a full MIN..MAX MOD sweep to the param's whole range.
+    func testApplyModChainOffsetAddsAndClamps() {
+        var p = SnapParams(); p.gate = 0.5; p.curve = 0; p.spread = 0.9
+        XCTAssertEqual(applyModChainOffset(p, param: .gate, offset: 0.3).gate, 0.8, accuracy: 1e-9, "adds to base")
+        XCTAssertEqual(applyModChainOffset(p, param: .gate, offset: 5).gate, 1.0, accuracy: 1e-9, "clamps to the param max")
+        XCTAssertEqual(applyModChainOffset(p, param: .curve, offset: -3).curve, -1.0, accuracy: 1e-9, "curve clamps to −1")
+        XCTAssertEqual(applyModChainOffset(p, param: .spread, offset: 0.5).spread, 1.0, accuracy: 1e-9, "spread clamps to 1")
+        XCTAssertEqual(applyModChainOffset(p, param: .gate, offset: 0).gate, 0.5, accuracy: 1e-9, "zero offset = no change")
+        XCTAssertEqual(macroParamSpan(.curve), 2.0, "−1…1")
+        XCTAssertEqual(macroParamSpan(.modMin), 127.0, "0…127")
+        XCTAssertEqual(macroParamSpan(.gate), 1.0, "0…1")
+    }
     // ccDefault — the resting value a MOD target reverts to when abandoned (so a sweep past CC7 doesn't leave volume down).
     func testCcDefaultRestingValues() {
         XCTAssertEqual(ccDefault(7), 127, "volume → full")
