@@ -121,7 +121,7 @@ extension DiagView {
     }
     @ViewBuilder private func buildMidiConfigSheet(size: CGSize) -> some View {
         let recvs = au?.uiReceivers() ?? []
-        ZStack {
+        ZStack(alignment: .top) {                                   // TOP-aligned so the sheet sits high on the screen (Paul 2026-08-21)
             Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildMidiConfigOpen = false }
             VStack(spacing: 0) {
                 HStack {
@@ -137,9 +137,10 @@ extension DiagView {
                     }.padding(.horizontal, 26).padding(.bottom, 30)
                 }
             }
-            .frame(width: min(720, size.width - 32), height: size.height - 40)
+            .frame(width: min(720, size.width - 32), height: size.height - 96)
             .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.top, 20)
         }
     }
     @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
@@ -156,13 +157,15 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 8) {               // the mode list — selected mode carries its controls inline
                 ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, current: mode, r: r) }
             }
+            buildDoorEngage(i, r)                                   // TEST in place: LIVE INPUT ⟷ engage the selected mode
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(hue.opacity(0.3), lineWidth: 1))
     }
-    // CHANNELS (multi-channel, Paul 2026-08-21): 1–16 each independently on/off (the door hears the SUBSET) + ALL + NONE.
+    // CHANNELS (multi-channel, Paul 2026-08-21): 1–16 each independently on/off (the door hears the SUBSET). ALL leads
+    // row 1 (before CH 1), NONE leads row 2 (before CH 9) — both amber like NONE (a set-the-whole-mask control).
     @ViewBuilder private func buildChannelButtons(_ i: Int, _ r: Receiver) -> some View {
         let mask = r.channelMaskResolved
         let enabled = r.inputEnabledResolved
@@ -171,6 +174,11 @@ extension DiagView {
             Text("CHANNELS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
             ForEach(0..<2, id: \.self) { row in
                 HStack(spacing: 4) {
+                    if row == 0 {                                   // ALL — left of channel 1
+                        buildChanSideButton("ALL", active: enabled && mask == 0xFFFF) { au?.setReceiverChannelMask(i, 0xFFFF); refresh() }
+                    } else {                                        // NONE — left of channel 9
+                        buildChanSideButton("NONE", active: !enabled || mask == 0) { au?.setReceiverChannelMask(i, 0); refresh() }
+                    }
                     ForEach(0..<8, id: \.self) { coln in
                         let ch = row * 8 + coln + 1
                         let on = enabled && (mask & (UInt16(1) << UInt16(ch - 1))) != 0
@@ -181,17 +189,14 @@ extension DiagView {
                     }
                 }
             }
-            HStack(spacing: 6) {
-                let isAll = enabled && mask == 0xFFFF, isNone = !enabled || mask == 0
-                Text("ALL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(isAll ? .black : buildCyan)
-                    .frame(width: 70, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(isAll ? buildCyan : buildCyan.opacity(0.14)))
-                    .contentShape(Rectangle()).onTapGesture { au?.setReceiverChannelMask(i, 0xFFFF); refresh() }
-                Text("NONE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(isNone ? .black : Color(red: 0.9, green: 0.4, blue: 0.4))
-                    .frame(width: 70, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(isNone ? Color(red: 0.9, green: 0.4, blue: 0.4) : Color.white.opacity(0.08)))
-                    .contentShape(Rectangle()).onTapGesture { au?.setReceiverChannelMask(i, 0); refresh() }
-                Spacer(minLength: 0)
-            }
         }
+    }
+    // ALL / NONE — the amber whole-mask control (both share NONE's styling).
+    @ViewBuilder private func buildChanSideButton(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
+        let amber = Color(red: 0.9, green: 0.4, blue: 0.4)
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : amber)
+            .frame(width: 54, height: 30).background(RoundedRectangle(cornerRadius: 5).fill(active ? amber : Color.white.opacity(0.08)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
     // RANGE row: "Range: Full" / "Range: C2–C5" — tap to open the large keyboard picker.
     @ViewBuilder private func buildDoorRangeRow(_ i: Int, _ r: Receiver) -> some View {
@@ -267,6 +272,42 @@ extension DiagView {
                 }
             }
         }.frame(width: width, height: height, alignment: .topLeading)
+    }
+    // TEST-IN-PLACE (Paul 2026-08-21): two buttons so a mode can be auditioned WITHOUT leaving for the main page.
+    // LIVE INPUT (left) = the door passes live input untreated; the DYNAMIC button (right, labelled by the selected mode)
+    // ENGAGES it — LATCH/HOLD/KEYS arm the pool (the SAME arm as the main-page LATCH button, so it's reflected there),
+    // REPLAY catches the last N passes, .MID re-plays. Active button = the current state.
+    @ViewBuilder private func buildDoorEngage(_ i: Int, _ r: Receiver) -> some View {
+        let mode = r.doorModeResolved
+        let engaged = mode == .replay ? (replayEngagedMask & (1 << UInt8(i))) != 0
+                                      : (latchMask & (1 << UInt8(i))) != 0
+        let modeLabel: String = {
+            switch mode {
+            case .latch:  return "LATCH"
+            case .hold:   return "HOLD"
+            case .keys:   return "KEYS"
+            case .replay: return "REPLAY · \(r.replayPassesResolved)"
+            case .file:   return ".MID"
+            }
+        }()
+        let toggle = {
+            if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
+            receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("TEST").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+            HStack(spacing: 8) {
+                buildEngageButton("LIVE INPUT", active: !engaged) { if engaged { toggle() } }   // return to raw live input
+                buildEngageButton(modeLabel, active: engaged) { if !engaged { toggle() } }       // engage the selected mode
+            }
+        }
+    }
+    @ViewBuilder private func buildEngageButton(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
+        let green = Color(red: 0.36, green: 0.92, blue: 0.52)
+        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : green)
+            .frame(maxWidth: .infinity).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 7).fill(active ? green : green.opacity(0.14)))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
     }
     // One INPUT MODE row: the radio + description, and — when SELECTED — its own controls INLINE beneath (Paul 2026-08-20).
     @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, current: DoorMode, r: Receiver) -> some View {
@@ -463,12 +504,12 @@ extension DiagView {
     }
     @ViewBuilder private func buildDoorOctave(_ i: Int) -> some View {
         let oct = i < receiverOctave.count ? receiverOctave[i] : 0
-        HStack(spacing: 4) {
+        HStack(spacing: 4) {                                        // hug the content — the OCT ± keys are narrow, not full-width
             Text("OCT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-            buildOctBtn("−") { nudgeReceiverOctave(i, -1) }
+            buildOctBtn("−") { nudgeReceiverOctave(i, -1) }.frame(width: 40)
             Text(oct > 0 ? "+\(oct)" : "\(oct)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(minWidth: 24)
-            buildOctBtn("+") { nudgeReceiverOctave(i, +1) }
-        }
+            buildOctBtn("+") { nudgeReceiverOctave(i, +1) }.frame(width: 40)
+        }.fixedSize()
     }
     // THE BOTTOM-LEFT CLUSTER (Paul 2026-08-20): RECORD (reel) · RATE (per-part) · the two CONFIG buttons — MIDI CONFIG
     // (the doors) + OUT CHAIN (the rack/output-chain setups, §9 name). The record button stays leftmost; the rate sits
