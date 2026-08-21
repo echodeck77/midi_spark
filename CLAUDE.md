@@ -174,6 +174,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   highlights, auto-ordered, range washes cyan; FULL resets, DONE closes) — replaces the old OMNI/CH menu + ±note
   steppers. The mode radio (`buildDoorModeOption`) stays as the mode selector (Paul's ruling). `@State buildRangeKbdDoor`/
   `buildRangeSetHi`; removed orphaned `buildDoorChannelMenu`/`buildDoorRange`/`buildRangeStepper`.**
+  **DEVICE-PASS FOLLOW-UP (`e87c55c`, UI-only):** (1) TEST-IN-PLACE — a `LIVE INPUT | [MODE]` button pair per door
+  (`buildDoorEngage`) so a mode can be AUDITIONED without leaving for the main page. LIVE INPUT = raw live input; the
+  DYNAMIC button (labelled by the selected mode — LATCH/HOLD/KEYS/REPLAY·N/.MID) ENGAGES it: LATCH/HOLD/KEYS drive the
+  SAME `latchMask` arm as the main-page LATCH button (`toggleReceiverLatch` — so it's genuinely reflected there); REPLAY
+  drives `toggleReplayCatch` (reflected in `replayEngagedMask`). This satisfies the original ask's "two buttons · reflected
+  on the main page". (2) ALL leads channel-row 1 (before CH 1), NONE leads row 2 (before CH 9) — both amber like NONE
+  (`buildChanSideButton`); the trailing ALL/NONE row is gone. (3) OCT ± are fixed-width (40, `.fixedSize()`), not stretched.
+  (4) the sheet is TOP-aligned + shorter (`size.height - 96`, `.padding(.top,20)`) so it sits high. ⚠ KNOWN GAP: FILE mode's
+  `.MID` engage nominally drives the latch arm (no dedicated "play the clip now" AU method — the clip auto-plays on load);
+  fine for now, flag if Paul wants a real FILE re-trigger.**
 - **▶ PER-PART CLOCK — parts play at INDEPENDENT TEMPOS in one play grid (2026-08-19, on `main`; spec+Stage A `5cb291c`,
   Stage B `3d45695`+`5bd3299`, Stage C `853699e`; macOS 786 green incl. multi-clock fuzz, iOS builds; DEVICE ear/eye
   owed for the multi-tempo mix). Paul's ask: "put long sequences next to shorter ones" — each deployed PART is a TRACK

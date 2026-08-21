@@ -62,7 +62,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   honour it when set, else fall through to the legacy latchAdd/latchPiano EXACTLY → byte-identical; AU `setDoorMode`/
   `uiDoorMode` sync the legacy fields; REPLAY/FILE resolve to a HOLD-like fallback until stages 3/4; +3 tests, 803 green).
   **DOOR RANGE (Paul 2026-08-20): the door sheet must ALSO expose the note RANGE — the model ALREADY has `rangeLo`/
-  `rangeHi` (+`rangeLoResolved`/`rangeHiResolved`), so it's a UI-surface item, not new engine.** STILL OPEN (each needs a
+  `rangeHi` (+`rangeLoResolved`/`rangeHiResolved`), so it's a UI-surface item, not new engine.** **DONE (2026-08-21,
+  `f497bea`/`e87c55c` — the MIDI INPUTS sheet's door section: 16-channel multi-select buttons + ALL/NONE, OCT ±, a
+  RANGE row → a 6-octave keyboard MIN/MAX picker, the mode radio, and a LIVE INPUT|[MODE] test-in-place engage pair.
+  Rides the MULTI-CHANNEL engine `fae473a`.)** STILL OPEN (each needs a
   device checkpoint — the latch/kernel is delicate + verified): STAGE 3
   REPLAY = the door input ring recording (a NEW engine feature, the door-loop v1); STAGE 4 FILE = .mid playback as living
   input ("a file is a cable"). STAGE 3 REPLAY **DONE** (2026-08-20, `6ad8e34` — DoorRing input ring, self-arm, capture at
