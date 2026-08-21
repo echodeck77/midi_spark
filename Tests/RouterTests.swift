@@ -649,6 +649,34 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(onsRow, onsCell, "SPAN ROW unfolds ONE roll across the bar; CELL re-rolls each column")
         assertNothingLeftSounding(eRow); assertNothingLeftSounding(eCell)
     }
+    // BURST PATTERN + CARRY (Paul 2026-08-19): in CELL mode the 8 slices subdivide the column; a BURST with contiguous
+    // CARRY slices STRETCHES the roll across the wider span → its onsets fan out wider than a lone BURST (1 slice).
+    func testBurstPatternCarryStretchesTheRoll() {
+        func onsetSpan(_ slices: [BurstSlice]) -> Int64 {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+                c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstMode = .pattern; c.paramsA.burstSlices = slices; c.paramsA.burstSpan = .cell; return c }) {
+                $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e)
+            let ons = e.ons.filter { $0.cable == 1 }.map { $0.sample }
+            return (ons.max() ?? 0) - (ons.min() ?? 0)
+        }
+        let carried = onsetSpan([.burst, .carry, .carry, .rest, .rest, .rest, .rest, .rest])   // span 3 slices
+        let lone = onsetSpan([.burst, .rest, .rest, .rest, .rest, .rest, .rest, .rest])         // span 1 slice
+        XCTAssertGreaterThan(carried, lone, "CARRY stretches the roll → wider onset span than a lone burst")
+    }
+    // BURST COIN (Paul 2026-08-19): a seeded chance-of-burst per step — chance 0 silent, chance 1 every step, monotone.
+    func testBurstCoinChanceIsMonotone() {
+        func onCount(_ chance: Double) -> Int {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .burst)
+                c.paramsA.count = 4; c.paramsA.curve = 0; c.paramsA.burstMode = .coin; c.paramsA.burstChance = chance; return c }) {
+                for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e, releaseAtEnd: false)
+            let n = e.ons.filter { $0.cable == 1 }.count; assertNothingLeftSounding(e); return n
+        }
+        XCTAssertEqual(onCount(0), 0, "chance 0 → no bursts")
+        XCTAssertGreaterThan(onCount(1), onCount(0.3), "higher chance → more bursts")
+        XCTAssertGreaterThan(onCount(0.3), 0, "some fire at 0.3")
+    }
     func testCascadeSpanRowRevealsAcrossTheBar() {
         // SPAN ROW (Paul 2026-08-19): the chord reveals across the whole bar; SPAN CELL re-reveals in each column.
         func rowBox(_ span: PatternSpan) -> SnapshotBox {

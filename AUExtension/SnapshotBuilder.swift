@@ -355,6 +355,11 @@ enum SnapshotBuilder {
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         if let v = p.euclidSpan { out.euclidSpan = v }
         if let v = p.burstSpan { out.burstSpan = v }
+        if let v = p.burstMode { out.burstMode = v }
+        if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }
+        if let v = p.burstRate { out.burstRateBeats = max(0.03125, v.beats) }
+        if let v = p.burstRotate { out.burstRotate = ((v % 8) + 8) % 8 }
+        if let v = p.burstChance { out.burstChance = clamp(v, 0, 1) }
         if let v = p.cascadeSpan { out.cascadeSpan = v }
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
         if let v = p.modCC { out.modCC = clamp(v, 0, 127) }

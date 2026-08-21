@@ -104,6 +104,11 @@ enum WeaveMode: String, Codable, CaseIterable { case ladder = "LADDER", harmonic
 // COIN = a seeded chance per step to ratchet-or-plain (a count range varies the burst); PATTERN = an 8-slice row of
 // per-slice counts (0=plain · 2/3/4) painted across the bar. Append-only; ALL is the migration-invisible default.
 enum RatchetMode: String, Codable, CaseIterable { case all = "ALL", coin = "COIN", pattern = "PATTERN" }
+// BURST family (Paul 2026-08-19): ONCE = today (fire at column entry) · COIN = seeded chance-of-burst per step ·
+// PATTERN = an 8-slice BURST/CARRY/REST row (pick-then-paint). CARRY = span-stretch: the roll's strikes + curve
+// redistribute across the burst slice + its contiguous carries (one breathing roll over the painted span).
+enum BurstMode: String, Codable, CaseIterable { case once = "ONCE", coin = "COIN", pattern = "PATTERN" }
+enum BurstSlice: String, Codable, CaseIterable { case burst = "B", carry = "C", rest = "R" }
 
 let colourIDs: [String] = ["gold","orange","vermilion","wine","magenta","blush","purple","violet",
                            "indigo","azure","cyan","teal","mint","green","chartreuse","slate"]
@@ -152,6 +157,11 @@ struct ColourParams: Codable, Equatable {
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
     var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
+    var burstMode: BurstMode? = nil           // BURST family: ONCE (default) | COIN | PATTERN — Paul 2026-08-19
+    var burstSlices: [BurstSlice]? = nil      // PATTERN: 8 slices (B/C/R), pick-then-paint (nil ⇒ a default figure)
+    var burstRate: ArpRate? = .r1_8           // PATTERN: slices per window (walks the span)
+    var burstRotate: Int? = 0                 // PATTERN: rotate the slice figure (0…7)
+    var burstChance: Double? = 0.5            // COIN: seeded chance-of-burst per step (0…1)
     var cascadeSpan: PatternSpan? = nil       // CASCADE: CELL (reveal per column) | ROW (the reveal spans the bar) — Paul 2026-08-19
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.

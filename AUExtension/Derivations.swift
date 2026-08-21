@@ -689,6 +689,34 @@ func lengthGateFor(_ state: LenState, onset: Double, shortFrac: Double, longFrac
     }
 }
 
+// MARK: - BURST family (Paul 2026-08-19): PATTERN carry-span + COIN chance
+
+/// A rotated, safe read of an 8-slice BURST pattern (loaded docs may carry <8 → REST).
+@inline(__always)
+func burstSliceAt(_ slices: [BurstSlice], _ i: Int, rotate: Int) -> BurstSlice {
+    guard !slices.isEmpty else { return .rest }
+    let j = (((i - rotate) % 8) + 8) % 8
+    return j < slices.count ? slices[j] : .rest
+}
+/// The SPAN of a burst launched at slice `i` — 1 (the burst slice) + the run of contiguous CARRY slices after it.
+/// A carry with no preceding burst (or a rest) contributes nothing; the roll's strikes+curve stretch over this many
+/// slices. (Paul 2026-08-19: CARRY = span-stretch, not gate-ring.)
+@inline(__always)
+func burstCarryRun(_ slices: [BurstSlice], at i: Int, rotate: Int) -> Int {
+    guard burstSliceAt(slices, i, rotate: rotate) == .burst else { return 0 }
+    var run = 1
+    while i + run < 8 && burstSliceAt(slices, i + run, rotate: rotate) == .carry { run += 1 }
+    return run
+}
+/// Whether this STEP fires a burst under COIN — seeded, deterministic per step, salted apart from RATCHET/CHANCE.
+@inline(__always)
+func burstCoinFires(step: Int, chance: Double) -> Bool {
+    if chance >= 1 { return true }
+    if chance <= 0 { return false }
+    let h = splitmix64Mix(UInt64(bitPattern: Int64(step)) &* 0x9E3779B97F4A7C15 &+ 0x1D8E4E27C47D124F)
+    return Double(h >> 11) * (1.0 / 9_007_199_254_740_992.0) < chance
+}
+
 // MARK: - RATCHET COIN (Paul 2026-08-16): a seeded per-STEP roll — ratchet-or-plain, and the burst count
 
 /// Whether this STEP ratchets (vs a plain single hit). DETERMINISTIC per step index (a hash — loop-consistent,

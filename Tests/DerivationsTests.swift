@@ -470,6 +470,18 @@ final class DerivationsTests: XCTestCase {
         XCTAssertLessThan(decel[1] - decel[0], decel[4] - decel[3], "DECEL: gaps grow over the roll")
     }
 
+    // BURST PATTERN + CARRY (Paul 2026-08-19): a burst's SPAN = 1 + its contiguous CARRY run; COIN is seeded per step.
+    func testBurstCarryRunRotateAndCoin() {
+        let pat: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
+        XCTAssertEqual(burstCarryRun(pat, at: 0, rotate: 0), 3, "B·C·C → span 3 slices")
+        XCTAssertEqual(burstCarryRun(pat, at: 1, rotate: 0), 0, "a CARRY slice launches nothing (consumed by the burst)")
+        XCTAssertEqual(burstCarryRun(pat, at: 3, rotate: 0), 0, "REST launches nothing")
+        XCTAssertEqual(burstCarryRun(pat, at: 4, rotate: 0), 1, "a lone BURST → span 1")
+        XCTAssertEqual(burstSliceAt(pat, 1, rotate: 1), .burst, "ROTATE 1 slides the figure: slice 1 reads slice 0")
+        XCTAssertTrue(burstCoinFires(step: 0, chance: 1), "chance 1 always fires")
+        XCTAssertFalse(burstCoinFires(step: 0, chance: 0), "chance 0 never fires")
+        XCTAssertEqual(burstCoinFires(step: 5, chance: 0.5), burstCoinFires(step: 5, chance: 0.5), "deterministic per step")
+    }
     func testAsPlayedHonoursCableMask() {
         let p = NotePool()
         p.noteOn(67, velocity: 100, channel: 0, cable: 2)   // press order: 67 …

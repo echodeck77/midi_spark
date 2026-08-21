@@ -2449,17 +2449,35 @@ final class Router {
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
-            burstFractionsInto(&burstBuf, count: count, curve: p.curve)
-            // SPAN: CELL fills each column with the roll; ROW unfolds the SAME roll across the whole BAR (anchored at the
-            // bar start). The window gate keeps each cell to the strikes that fall in its own column. (Paul 2026-08-19)
-            let bWidth = (p.burstSpan == .row) ? cyc : S
-            let bAnchor = (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart
-            let minGap = bWidth / Double(count) * 0.9
-            for i in 0..<count {
-                let tau = bAnchor + burstBuf[i] * bWidth
-                if inWindow(tau) {
-                    let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
-                    strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
+            // Lay ONE accel/decel roll of `count` strikes across [anchor, anchor+width], window-gated (reused burstBuf,
+            // no alloc). Shared by all three modes; ONCE reproduces the old inline loop → byte-identical.
+            func layBurst(anchor: Double, width: Double) {
+                burstFractionsInto(&burstBuf, count: count, curve: p.curve)
+                let minGap = width / Double(count) * 0.9
+                for i in 0..<count {
+                    let tau = anchor + burstBuf[i] * width
+                    if inWindow(tau) {
+                        let velScale = max(0.05, Double(100 - i * (60 / max(1, count))) / 100.0)   // fade across the roll (relative)
+                        strikeChord(tau: tau, velScale: velScale, gateBeats: minGap)
+                    }
+                }
+            }
+            switch p.burstMode {
+            case .once:
+                // SPAN: CELL fills each column with the roll; ROW unfolds the SAME roll across the whole BAR (anchored at
+                // the bar start). The window gate keeps each cell to the strikes that fall in its own column. (Paul 2026-08-19)
+                layBurst(anchor: (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart, width: (p.burstSpan == .row) ? cyc : S)
+            case .coin:
+                // seeded chance-of-burst per column-step — the roll fills THIS column when it fires (replay-exact)
+                if burstCoinFires(step: Int((colStart / S).rounded()), chance: p.burstChance) { layBurst(anchor: colStart, width: S) }
+            case .pattern:
+                // 8 slices: CELL subdivides this column (S/8) · ROW maps to the row's 8 columns (cyc/8). At each BURST
+                // slice the roll STRETCHES over its carry-run (CARRY = span-stretch); CARRY/REST slices launch nothing.
+                let sliceW = ((p.burstSpan == .row) ? cyc : S) / 8
+                let patAnchor = (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart
+                for i in 0..<8 {
+                    let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate)
+                    if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
                 }
             }
         case .cascade:

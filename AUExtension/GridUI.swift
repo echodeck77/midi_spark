@@ -744,6 +744,7 @@ struct ProcessorBox: View {
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
     @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
+    @State private var burstPaint: BurstSlice = .carry   // BURST PATTERN: the brush (defaults to CARRY — the novel state — so a first tap visibly paints)
     @State private var lenPaint: LenState = .mute        // LENGTH: the brush — defaults to MUTE so it contrasts with the all-PASS slices (first tap carves a visible rest)
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
     @State private var rtcBrush: Int = 3                 // RATCHET PATTERN: the count loaded on the brush (0 = plain)
@@ -1024,13 +1025,44 @@ struct ProcessorBox: View {
             field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
             let span = p.euclidSpan ?? .cell
             field("SPAN") { seg(["CELL", "ROW"], sel: span == .row ? "ROW" : "CELL") { i in setParam { $0.euclidSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column · ROW = N steps span the bar (Paul 2026-08-18)
-        case .burst:    // GENERATOR — accel/decel roll
+        case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
+            let bmode = p.burstMode ?? .once
+            field("MODE") { seg(BurstMode.allCases.map(\.rawValue), sel: bmode.rawValue) { i in setParam { $0.burstMode = BurstMode.allCases[i] } } }
             field("HITS  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }
             let cv = p.curve ?? 0
             field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
                 Slider(value: bind(cv) { v in setParam { $0.curve = v } }, in: -1...1).tint(accent) }
+            if bmode == .coin {
+                let ch = p.burstChance ?? 0.5
+                field("CHANCE  \(Int(ch * 100))%") { Slider(value: bind(ch) { v in setParam { $0.burstChance = v } }, in: 0...1).tint(accent) }
+            }
+            if bmode == .pattern {
+                let brush = burstPaint
+                field("PAINT") { HStack(spacing: 4) {
+                    ForEach(BurstSlice.allCases, id: \.self) { st in
+                        Text(burstSliceName(st)).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(brush == st ? .black : accent)
+                            .frame(maxWidth: .infinity).frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(brush == st ? accent : accent.opacity(0.14)))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(brush == st ? Color.white : .clear, lineWidth: 2))
+                            .contentShape(Rectangle()).onTapGesture { burstPaint = st }
+                    }
+                } }
+                field("SLICES — B launch · C carry · R rest") { HStack(spacing: 4) {
+                    ForEach(0..<8, id: \.self) { i in
+                        let s = p.burstSlices ?? [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
+                        let cur = i < s.count ? s[i] : .rest
+                        Text(cur.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(cur == .rest ? .white.opacity(0.4) : .black)
+                            .frame(maxWidth: .infinity).frame(height: 40)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(burstSliceFill(cur, accent)))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture { setParam { var s2 = $0.burstSlices ?? [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]; while s2.count < 8 { s2.append(.rest) }; s2[i] = brush; $0.burstSlices = s2 } }
+                    }
+                } }
+                field("ROTATE  (\(p.burstRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.burstRotate ?? 0)") { i in setParam { $0.burstRotate = i } } }
+            }
             let bspan = p.burstSpan ?? .cell
-            field("SPAN") { seg(["CELL", "ROW"], sel: bspan == .row ? "ROW" : "CELL") { i in setParam { $0.burstSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column roll · ROW = unfolds across the bar (Paul 2026-08-19)
+            field("SPAN") { seg(["CELL", "ROW"], sel: bspan == .row ? "ROW" : "CELL") { i in setParam { $0.burstSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column roll (or 8 slices in the column) · ROW = across the bar (Paul 2026-08-19)
         case .cascade:  // GENERATOR — incremental chord reveal
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
@@ -1254,6 +1286,10 @@ struct ProcessorBox: View {
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .all
     }
     /// TUTTI PATTERN — the shape's plain-English name (the caption teaches the vocabulary without a legend).
+    private func burstSliceName(_ s: BurstSlice) -> String { s == .burst ? "BURST" : (s == .carry ? "CARRY" : "REST") }
+    private func burstSliceFill(_ s: BurstSlice, _ accent: Color) -> Color {
+        switch s { case .burst: return accent.opacity(0.85); case .carry: return accent.opacity(0.45); case .rest: return Color.white.opacity(0.06) }
+    }
     private func tuttiName(_ s: TuttiSlice) -> String {
         switch s {
         case .all:        return "ALL — the whole chord"

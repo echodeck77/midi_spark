@@ -71,6 +71,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .weave && r.chance(0.6) { applyRandomWeave(&c.paramsA, &r) }
             if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
             if c.type == .ratchet && r.chance(0.5) { applyRandomRtc(&c.paramsA, &r) }
+            if c.type == .burst && r.chance(0.5) { applyRandomBurst(&c.paramsA, &r) }
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
         }
@@ -89,6 +90,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .weave && r.chance(0.6) { applyRandomWeave(&s.params, &r) }
                     if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
                     if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
+                    if s.type == .burst && r.chance(0.5) { applyRandomBurst(&s.params, &r) }
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
                 }
@@ -167,6 +169,12 @@ final class FuzzTests: XCTestCase {
         p.rtcSlices = (0..<8).map { _ in [0, 2, 3, 4][r.int(4)] }             // incl. plain (0) + rolls
         p.rtcRate = ArpRate.allCases[r.int(ArpRate.allCases.count)]
         p.rtcRotate = r.int(8)
+    }
+    private func applyRandomBurst(_ p: inout ColourParams, _ r: inout FuzzRNG) {
+        p.burstMode = BurstMode.allCases[r.int(BurstMode.allCases.count)]     // ONCE · COIN · PATTERN
+        p.burstChance = Double(r.range(0, 100)) / 100
+        p.burstSlices = (0..<8).map { _ in BurstSlice.allCases[r.int(BurstSlice.allCases.count)] }   // B · C · R (incl. orphan carries)
+        p.burstRotate = r.int(8)
     }
     private func randomBuses(_ r: inout FuzzRNG) -> Set<Bus> {
         var s = Set<Bus>()

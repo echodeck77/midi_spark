@@ -104,6 +104,11 @@ struct SnapParams {
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
     var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
+    var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)
+    var burstSlices: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]   // PATTERN: 8 slices (B/C/R)
+    var burstRateBeats: Double = 0.5         // PATTERN: slice width in beats (from burstRate)
+    var burstRotate: Int = 0                 // PATTERN: rotate the slice figure
+    var burstChance: Double = 0.5            // COIN: seeded chance-of-burst per step
     var cascadeSpan: PatternSpan = .cell     // CASCADE: CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
