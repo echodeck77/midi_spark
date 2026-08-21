@@ -268,16 +268,10 @@ struct DiagView: View {
     @State var recvDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD receiver fader: the live drag input-velocity override per door (nil = not dragging)
     @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
     @State var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
-    @State var emitMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating output velocity marks (Colour-tinted)
-    @State var recvMarks: [[VelMark]] = [[], [], [], []]      // item 4: floating input velocity marks (strip hue)
-    @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1)
+    @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
     @State var replayEngagedMask: UInt8 = 0                     // which REPLAY doors are actively looping (the "LAST N" toggle state)
-    @State var recvLiveHeld: [Bool] = [false, false, false, false]   // header dot: a LIVE (never latch) accepted note is held per receiver
-    @State var recvRelease: [[VelMark]] = [[], [], [], []]    // ③ marks left FADING (~250ms) as held input notes release
-    @State var emitHeld: [[SoundMark]] = [[], [], [], []]     // §strips-done: notes currently sounding per emitter (steady, cargo-tinted)
-    @State var emitRelease: [[VelMark]] = [[], [], [], []]    // §strips-done: marks FADING (~250ms) as sounding notes release
     @State var docColours: [Colour] = []
     @State var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
     @State var stepIndex = 2
@@ -769,36 +763,8 @@ struct DiagView: View {
             let asi = au.uiActiveScene();  if asi != activeSceneIdx { activeSceneIdx = asi; editArmed = false }   // §cell-edit A6: a scene switch auto-closes EDIT
             let mk = au.uiMasterKey();     if mk != masterKey { masterKey = mk }
             // §6a metering: the per-emitter/receiver PEAK feeds are drained by the ~30fps meterTimer above (low latency).
-            // item 4 VELOCITY MARKS: drain the per-note feeds, append new marks (born now), expire >250ms, cap 6.
-            let emk = au.pollEmitterMarks(), rmk = au.pollReceiverMarks(), wmk = au.pollWithheldMarks(), mnow = Date()
-            var markE = emitMarks, markR = recvMarks
-            for i in 0..<4 {
-                markE[i] = markE[i].filter { mnow.timeIntervalSince($0.born) < ($0.withheld ? 0.4 : 0.25) }
-                for m in emk[i] { markE[i].append(VelMark(vel: Double(m.vel) / 127.0, col: m.col, born: mnow)) }
-                for m in wmk[i] { markE[i].append(VelMark(vel: Double(m.vel) / 127.0, col: m.col, born: mnow, withheld: true)) }   // §6a the withheld tell
-                if markE[i].count > 6 { markE[i] = Array(markE[i].suffix(6)) }
-                markR[i] = markR[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
-                for v in rmk[i] { markR[i].append(VelMark(vel: Double(v) / 127.0, col: -1, born: mnow)) }
-                if markR[i].count > 6 { markR[i] = Array(markR[i].suffix(6)) }
-            }
-            if markE != emitMarks { emitMarks = markE }
-            if markR != recvMarks { recvMarks = markR }
-            // duration: the currently-held input notes per receiver (present-while-held → the MIDI-IN line + hold-while-ringing marks)
-            let held = au.pollReceiverSounding().map { $0.map { Double($0) / 127.0 } }
-            // ③ FADE-ON-RELEASE: a held input velocity that dropped from the set leaves a fading mark (~250ms),
-            // so the receiver meter holds while sounding then fades on release (multiset-diff old held vs new).
-            var rel = recvRelease
-            for i in 0..<4 {
-                rel[i] = rel[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
-                var newCounts: [Int: Int] = [:]
-                for v in (i < held.count ? held[i] : []) { newCounts[Int((v * 127).rounded()), default: 0] += 1 }
-                for v in (i < recvHeld.count ? recvHeld[i] : []) {
-                    let k = Int((v * 127).rounded())
-                    if let c = newCounts[k], c > 0 { newCounts[k] = c - 1 } else { rel[i].append(VelMark(vel: v, col: -1, born: mnow)) }
-                }
-                if rel[i].count > 6 { rel[i] = Array(rel[i].suffix(6)) }
-            }
-            if rel != recvRelease { recvRelease = rel }
+            // duration: the currently-held input notes per receiver (present-while-held → the MIDI-IN length bar reads recvHeld)
+            let held = au.pollReceiverSounding().map { $0.map { Double($0) / 127.0 } }, mnow = Date()
             if held != recvHeld { recvHeld = held }
             // config-sheets REPLAY roll: while the MIDI CONFIG sheet is open, accumulate per-door input ONSETS (a pitch
             // newly in the held set) as scrolling marks; prune to ~4s. Gated on the sheet so it costs nothing otherwise.
@@ -817,29 +783,6 @@ struct DiagView: View {
             } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) {
                 recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet closed → drop the marks
             }
-            let liveMask = au.pollReceiverLiveHeld()                   // header dot: LIVE (not latch) accepted-note-held per receiver (scalar mask)
-            let live = (0..<4).map { liveMask & (1 << UInt8($0)) != 0 }   // unpack into a FRESH array (never shares the Kernel's buffer)
-            if live != recvLiveHeld { recvLiveHeld = live }
-            // §strips-done: the EMITTER twin — notes currently sounding per emitter (steady, cargo-tinted) + a
-            // fade on release. Same multiset-diff as the receiver above, keyed on (velocity, source colour).
-            let esnd = au.pollEmitterSounding()
-            var eheld = [[SoundMark]](repeating: [], count: 4)
-            var erel = emitRelease
-            for i in 0..<4 {
-                erel[i] = erel[i].filter { mnow.timeIntervalSince($0.born) < 0.25 }
-                let cur = (i < esnd.count ? esnd[i] : [])
-                for m in cur { eheld[i].append(SoundMark(vel: Double(m.vel) / 127.0, col: m.col)) }
-                var newCounts: [Int: Int] = [:]
-                for m in cur { newCounts[Int(m.vel) * 64 + Int(m.col) + 1, default: 0] += 1 }   // note-proxy key
-                for old in (i < emitHeld.count ? emitHeld[i] : []) {
-                    let k = Int((old.vel * 127).rounded()) * 64 + Int(old.col) + 1
-                    if let c = newCounts[k], c > 0 { newCounts[k] = c - 1 }                      // still sounding
-                    else { erel[i].append(VelMark(vel: old.vel, col: old.col, born: mnow)) }     // gone → fade it
-                }
-                if erel[i].count > 6 { erel[i] = Array(erel[i].suffix(6)) }
-            }
-            if erel != emitRelease { emitRelease = erel }
-            if eheld != emitHeld { emitHeld = eheld }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }
             let ns = au.uiScene();         if ns != scene { scene = ns }
