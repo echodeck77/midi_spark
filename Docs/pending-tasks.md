@@ -26,6 +26,19 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   occupied=filled / empty=hollow editor chip states DONE (`0c94064`). STILL OPEN (device eye): the EDITING-vs-tap-to-
   overwrite live-mark refinement + HOLD-chip = preview that row's machine.
 
+## ★ AUDIO CRACKLE IN AUM (Paul reported 2026-08-21 — UI actions glitch the host audio; may be partly AUM/other apps)
+- **Render (audio) thread is real-time-safe** — verified: pre-allocated scratch buffers (Router), lock-free `store.acquire()`,
+  no locks/dispatch/ObjC/allocation on the audio thread for normal use. So the plugin isn't inherently glitching the graph.
+- **Cause = main-thread CPU pressure** starving the audio thread on a loaded host: (a) presenting a SwiftUI Menu (e.g. the
+  RATE selector) re-evaluates the HEAVY BuildPage body — the "opened the rate selector, it crackled" case; (b) every doc
+  edit ran `SnapshotBuilder.build` synchronously on main — repeated spikes during interaction.
+- **DONE (`3a0fb30`):** coalesced `scheduleRebuild` → one build per runloop (was N synchronous builds per gesture).
+- **STILL OPEN (device-verify + bigger):** reduce the BuildPage body's re-evaluation cost (the menu-open spike) — a
+  SwiftUI-perf pass (Equatable views / smaller diffed subtrees / fewer poll-driven @State re-renders). Also: the new 30fps
+  `meterTimer` adds some main-thread load (trade against the velocity-indicator latency fix if needed). And a KNOWN niche
+  invariant-3 spot: MOD §2 `applyInternalMods` COW-allocates when a cell uses an INTERNAL-target MOD (unused today; fix
+  if that feature sees use). Device factors outside us: AUM's audio buffer size + whatever else is running.
+
 ## ★ HOUSEKEEPING FLAGS — surveyed + verified 2026-08-19, DEFERRED (need a focused tested pass, not unattended)
 - **Render-path allocations (invariant 3):** (1) ~~`srcNotes` local array in the 4 driver emitters~~ DONE (2026-08-19,
   `ac7eb2b`) — a reused `srcNoteBuf`/`srcNoteCount` + `srcNoteBuf[0..<srcNoteCount]` slice view; byte-identical.
