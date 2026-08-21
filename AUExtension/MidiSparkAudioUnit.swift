@@ -441,6 +441,13 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
     func uiReceivers() -> [Receiver] { document.receiversResolved }
     func setReceiverChannel(_ i: Int, _ ch: Int) { editReceiver(i) { $0.channel = max(0, min(16, ch)) } }
+    // MULTI-CHANNEL (Paul 2026-08-21): a door hears an arbitrary channel SUBSET (16-bit mask). Toggle one channel (1–16),
+    // or set the whole mask (ALL = 0xFFFF, NONE = 0). Enables the door (so ALL/a channel un-blocks it).
+    func toggleReceiverChannel(_ i: Int, _ ch: Int) {
+        guard ch >= 1 && ch <= 16 else { return }
+        editReceiver(i) { r in r.channelMask = r.channelMaskResolved ^ (UInt16(1) << UInt16(ch - 1)); r.inputEnabled = true }
+    }
+    func setReceiverChannelMask(_ i: Int, _ mask: UInt16) { editReceiver(i) { $0.channelMask = mask; $0.inputEnabled = true } }
     // setReceiverCable retired 2026-08-03 (COG SIMPLIFICATION — cables gone from the UI; the render hears all cables).
     func toggleReceiverMute(_ i: Int)             { editReceiver(i) { $0.muted.toggle() } }
     // INPUT ENABLE (the strip header): DISABLE stops the door listening (dark meter, latch sealed) — an armed
