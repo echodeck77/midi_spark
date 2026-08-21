@@ -145,8 +145,8 @@ extension DiagView {
         }
     }
     // THE OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21) — the twin of MIDI INPUTS. A SETUPS radio (RACK 1–4 =
-    // the 4 membership configs) over a per-emitter MEMBERSHIP toggle (on the board / bypassed = raw wire) + a read-only
-    // TREATMENT summary. Deep per-treatment editing still lives in the full EMITTERS tab (reached via EDIT TREATMENTS →).
+    // the 4 membership configs) · a compact per-emitter MEMBERSHIP row (on the board / bypassed = raw wire) · the deep
+    // TREATMENT stack inline (the RackMatrix editor, embedded). One self-contained surface — no jump to another page.
     @ViewBuilder private func buildRackConfigSheet(size: CGSize) -> some View {
         let active = au?.uiRackConfig() ?? 0
         let mask = au?.uiRackMask() ?? 0b1111
@@ -164,12 +164,11 @@ extension DiagView {
                     }
                 }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        buildRackSetupsRadio(active)                // RACK 1 · 2 · 3 · 4
-                        ForEach(0..<4, id: \.self) { b in buildEmitterConfigSection(b, mask: mask, chans: chans) }
-                        Text("EDIT TREATMENTS →").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                            .frame(maxWidth: .infinity).frame(height: 40).background(RoundedRectangle(cornerRadius: 9).fill(buildCyan))
-                            .contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false; buildRackMatrixOpen = true }
+                    VStack(alignment: .leading, spacing: 18) {
+                        buildRackSetupsRadio(active)                // RACK 1 · 2 · 3 · 4 (which config is live)
+                        buildRackMembershipRow(mask: mask, chans: chans)   // ON BOARD: A B C D (each emitter's board in/out of path)
+                        Text("TREATMENTS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                        rackMatrixView                              // the deep per-emitter treatment editor, inline (embedded mode)
                     }.padding(.horizontal, 26).padding(.bottom, 30)
                 }
             }
@@ -195,53 +194,28 @@ extension DiagView {
             }
         }
     }
-    // One emitter row on the OUTPUT CHAIN sheet: the letter + stamp channel, the board-membership toggle, the treatments.
-    @ViewBuilder private func buildEmitterConfigSection(_ b: Int, mask: UInt8, chans: [Int]) -> some View {
-        let hue = buildCyan
-        let onBoard = (mask & (UInt8(1) << UInt8(b))) != 0
-        let ch = b < chans.count ? chans[b] : b + 1
-        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
-        let treatments = buildEmitterTreatments(b)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Text("EMITTER \(["A", "B", "C", "D"][b])").font(.system(size: 15, weight: .black, design: .monospaced)).foregroundColor(hue)
-                Text("CH \(ch)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
-                Spacer()
-            }
-            // MEMBERSHIP — on the board (its treatments are in the path) vs bypassed (a raw wire).
-            HStack(spacing: 8) {
-                buildRackMemberButton("ON THE BOARD", active: onBoard) { if !onBoard { au?.setRack(b, true); refresh() } }
-                buildRackMemberButton("BYPASSED", active: !onBoard) { if onBoard { au?.setRack(b, false); refresh() } }
-            }
-            Text(treatments.isEmpty ? "No treatments armed" : treatments.joined(separator: " · "))
-                .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundColor(onBoard && !treatments.isEmpty ? buildCyan : buildDim)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(hue.opacity(0.3), lineWidth: 1))
-    }
-    @ViewBuilder private func buildRackMemberButton(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
+    // MEMBERSHIP — a compact row: ON BOARD? A · B · C · D. A lit (green) chip = the emitter's board is in the path (its
+    // armed treatments apply); a dim chip = BYPASSED (raw wire, RAW in the matrix below). Tap toggles the LIVE config.
+    @ViewBuilder private func buildRackMembershipRow(mask: UInt8, chans: [Int]) -> some View {
         let green = Color(red: 0.36, green: 0.92, blue: 0.52)
-        Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(active ? .black : green)
-            .frame(maxWidth: .infinity).frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 7).fill(active ? green : green.opacity(0.14)))
-            .contentShape(Rectangle()).onTapGesture(perform: tap)
-    }
-    // The armed treatments for emitter b (read-only summary; deep editing = the EMITTERS tab). Reads the polled masks.
-    private func buildEmitterTreatments(_ b: Int) -> [String] {
-        func on(_ m: UInt8) -> Bool { (m & (UInt8(1) << UInt8(b))) != 0 }
-        var out: [String] = []
-        if on(claimMask)   { out.append("OWNS") }
-        if on(flattenMask) { out.append("KEY") }
-        if on(altMask)     { out.append("TURNS") }
-        if on(monoMask)    { out.append("MONO") }
-        if on(fenceMask)   { out.append("FENCE") }
-        if on(curveMask)   { out.append("CURVE") }
-        if on(pocketMask)  { out.append("POCKET") }
-        if convLead == b   { out.append("LEADS") }
-        return out
+        let refresh = { self.receivers = self.au?.uiReceivers() ?? self.receivers; self.refreshFromDocument() }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ON BOARD").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+            HStack(spacing: 8) {
+                ForEach(0..<4, id: \.self) { b in
+                    let onBoard = (mask & (UInt8(1) << UInt8(b))) != 0
+                    let ch = b < chans.count ? chans[b] : b + 1
+                    VStack(spacing: 1) {
+                        Text(["A", "B", "C", "D"][b]).font(.system(size: 14, weight: .black, design: .monospaced))
+                        Text(onBoard ? "ch\(ch)" : "RAW").font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    }
+                    .foregroundColor(onBoard ? .black : green)
+                    .frame(maxWidth: .infinity).frame(height: 40)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(onBoard ? green : green.opacity(0.14)))
+                    .contentShape(Rectangle()).onTapGesture { au?.setRack(b, !onBoard); refresh() }
+                }
+            }
+        }
     }
     @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
         let hue = i < receiverHues.count ? receiverHues[i] : buildCyan

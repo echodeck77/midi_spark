@@ -55,6 +55,7 @@ struct RackMatrix: View {
     let onConvLead: (Int) -> Void
     let onConvStance: (Int) -> Void
     let onClose: () -> Void
+    var embedded: Bool = false   // EMBEDDED (config-sheets): drop the header + own scroll + panel chrome so it slots into the OUTPUT CHAIN sheet
 
     private let ink = Color.white
     private let cyan = UI.cyan
@@ -69,45 +70,55 @@ struct RackMatrix: View {
     @State private var dragBase: Int = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            headerBar
-            columnHeaders
-            readout
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 6) {
-                    familyLabel("THIS VOICE")
-                    cycleRow(key: "MONO", title: "One note at a time", hue: cyan, options: ["LAST", "LOW", "HIGH"],
-                             isOn: { bit(monoMask, $0) }, index: { at(monoPriority, $0, 0) },
-                             onToggle: onToggleMono, onCycle: onCycleMono)
-                    fenceRow
-                    if fenceMask != 0 { fenceDetail }   // the LO/HI window sits RIGHT UNDER FENCE (user 2026-08-05: it belongs next to its control, not the bottom strip)
-                    liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
-                            isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
-                            unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
-                    liveRow(key: "POCKET", title: "Timing feel (push / lay-back)", hue: cyan,
-                            isOn: { bit(pocketMask, $0) }, value: { at(pocketMs, $0, 0) },
-                            unit: "ms", maxV: 50, minV: -50, onToggle: onTogglePocket, onSet: onPocketMs)
-                    familyLabel("OVER OTHERS")
-                    liveRow(key: "OWNS", title: "Claims this note from others", hue: amber,
-                            isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
-                            unit: "%", maxV: 100, onToggle: onClaim, onSet: onClaimLeak)
-                    liveRow(key: "KEY", title: "Ducks others' velocity", hue: amber,
-                            isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
-                            unit: "%", maxV: 100, onToggle: onToggleDuck, onSet: onDuckAmount)
-                    familyLabel("TOGETHER")
-                    liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
-                            isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
-                            unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
-                    conversationRow
-                    dimRow("ECHO"); dimRow("CHOKE"); dimRow("GOVERNOR")
-                    detailStrip
-                }.padding(.bottom, 12)
+        if embedded {
+            VStack(alignment: .leading, spacing: 6) {   // no header, no own scroll, no panel — the OUTPUT CHAIN sheet frames + scrolls it
+                columnHeaders
+                readout
+                matrixContent
             }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                headerBar
+                columnHeaders
+                readout
+                ScrollView(.vertical, showsIndicators: false) { matrixContent }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ink.opacity(0.08)))
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.09, green: 0.10, blue: 0.12)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(ink.opacity(0.08)))
+    }
+    // The treatment matrix itself (the three families + detail strip) — shared by the full page + the embedded sheet.
+    private var matrixContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            familyLabel("THIS VOICE")
+            cycleRow(key: "MONO", title: "One note at a time", hue: cyan, options: ["LAST", "LOW", "HIGH"],
+                     isOn: { bit(monoMask, $0) }, index: { at(monoPriority, $0, 0) },
+                     onToggle: onToggleMono, onCycle: onCycleMono)
+            fenceRow
+            if fenceMask != 0 { fenceDetail }   // the LO/HI window sits RIGHT UNDER FENCE (user 2026-08-05: it belongs next to its control, not the bottom strip)
+            liveRow(key: "CURVE", title: "Re-maps velocity (soft↔hard)", hue: cyan,
+                    isOn: { bit(curveMask, $0) }, value: { at(curveAmount, $0, 0) },
+                    unit: "", maxV: 100, minV: -100, onToggle: onToggleCurve, onSet: onCurveAmount)
+            liveRow(key: "POCKET", title: "Timing feel (push / lay-back)", hue: cyan,
+                    isOn: { bit(pocketMask, $0) }, value: { at(pocketMs, $0, 0) },
+                    unit: "ms", maxV: 50, minV: -50, onToggle: onTogglePocket, onSet: onPocketMs)
+            familyLabel("OVER OTHERS")
+            liveRow(key: "OWNS", title: "Claims this note from others", hue: amber,
+                    isOn: { bit(claimMask, $0) }, value: { at(claimLeak, $0, 0) },
+                    unit: "%", maxV: 100, onToggle: onClaim, onSet: onClaimLeak)
+            liveRow(key: "KEY", title: "Ducks others' velocity", hue: amber,
+                    isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
+                    unit: "%", maxV: 100, onToggle: onToggleDuck, onSet: onDuckAmount)
+            familyLabel("TOGETHER")
+            liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
+                    isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
+                    unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
+            conversationRow
+            dimRow("ECHO"); dimRow("CHOKE"); dimRow("GOVERNOR")
+            detailStrip
+        }.padding(.bottom, 12)
     }
 
     // MARK: header — title + DONE

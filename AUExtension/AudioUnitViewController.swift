@@ -138,7 +138,6 @@ struct DiagView: View {
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildRackConfigOpen: Bool = false   // BUILD [RACK CONFIG] → the OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21)
-    @State var buildRackMatrixOpen: Bool = false   // BUILD → the deep RackMatrix (was the MIDI OUT tab; now an overlay reached from RACK CONFIG's EDIT TREATMENTS)
     @State var buildFileImportDoor: Int? = nil     // FILE import: which door is picking a .mid (nil = closed)
     @State var buildRangeKbdDoor: Int? = nil       // RANGE picker: which door's keyboard is open (nil = closed)
     @State var buildRangeSetHi: Bool = false       // RANGE picker: setting the MAX bound (else MIN)
@@ -657,12 +656,6 @@ struct DiagView: View {
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
                 }
-                if buildRackMatrixOpen {                           // BUILD: the deep RackMatrix (OUTPUT CHAIN → EDIT TREATMENTS), as a full overlay
-                    ZStack {
-                        Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
-                        rackMatrixView.padding(.horizontal, 12).padding(.vertical, 12)
-                    }
-                }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
                             outAt: emitPeakAt, aboutLine: aboutLine,
@@ -991,7 +984,7 @@ struct DiagView: View {
                    onToggleMono: toggleMono, onCycleMono: cycleMono,
                    onTogglePocket: togglePocket, onPocketMs: setPocketMsAmt,
                    onConvLead: setConvLeadSel, onConvStance: cycleConvStanceSel,
-                   onClose: { buildRackMatrixOpen = false })   // DONE dismisses the overlay → back to BUILD
+                   onClose: { buildRackConfigOpen = false }, embedded: true)   // embedded in the OUTPUT CHAIN sheet (no own header/scroll)
     }
 
 
