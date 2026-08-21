@@ -14,7 +14,6 @@ struct CogPage: View {
     let outAt: [Date]                 // last output activity per emitter (for the OUT dot fade)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
-    @Binding var showTabBar: Bool     // DISPLAY: the six-tab bar at the top of the page (shown by default)
     let onSetEmitterChannel: (Int, Int) -> Void
     let onChanged: () -> Void         // refresh the VC's receivers/busChannels after a live edit
     let onClose: () -> Void
@@ -42,12 +41,6 @@ struct CogPage: View {
                             Text("show the arrangement's 16-scene row").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
                             Spacer()
                             onOffToggle(on: showScenes) { showScenes = $0 }
-                        }
-                        HStack(spacing: 8) {
-                            Text("TAB BAR").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
-                            Text("show the tabs at the top of the page").font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.4))
-                            Spacer()
-                            onOffToggle(on: showTabBar) { showTabBar = $0 }
                         }
                         divider
                         section("HEALTH")

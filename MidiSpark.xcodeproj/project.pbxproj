@@ -44,7 +44,6 @@
 		6F2E027AB498AA1556A6A690 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE84D11C4695B381242AD6D /* DesignKit.swift */; };
 		700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8624A489A951D42AFB805E16 /* RackMatrix.swift */; };
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
-		7AD33AA1CDEEF7C6738C5EF3 /* ReceiverConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB91B3A150364793E11406C1 /* ReceiverConfigView.swift */; };
 		7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */; };
 		7D4F68EA5FCFB518C422FDAA /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
 		7EA1C8DA4E957BD8D6316445 /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BA15AAFC801CACFECA4085 /* MigrationTests.swift */; };
@@ -63,7 +62,6 @@
 		C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
 		C7B440024C4057F64322CC29 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */; };
 		C7DAE48CC80FCFF8549C1483 /* AcceptanceWeaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 507877300E0BD9FC880E2177 /* AcceptanceWeaveTests.swift */; };
-		C95B6625D3731B37A7544BE9 /* MacroPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E45476DD423F0A8E3C364 /* MacroPanel.swift */; };
 		D28F0D80044A84BED3CAE585 /* TestSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14036510EE49EB0BD7CE1E /* TestSessions.swift */; };
 		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
@@ -155,7 +153,6 @@
 		98149EBE4B9E76352A457113 /* DerivationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DerivationsTests.swift; sourceTree = "<group>"; };
 		99B22785F1E8193ABD24B932 /* BuildSceneLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSceneLogicTests.swift; sourceTree = "<group>"; };
 		99D181AD808BD18E8D2F085F /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
-		A24E45476DD423F0A8E3C364 /* MacroPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroPanel.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTestMetaTests.swift; sourceTree = "<group>"; };
 		AF2C4528E7A184FABB7EF270 /* EditPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPage.swift; sourceTree = "<group>"; };
@@ -163,7 +160,6 @@
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
-		BB91B3A150364793E11406C1 /* ReceiverConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverConfigView.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -284,7 +280,6 @@
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */,
 				E6C5D0AE6038961A9DC8537B /* MacroAuthoringView.swift */,
-				A24E45476DD423F0A8E3C364 /* MacroPanel.swift */,
 				FB579E7A98D1755158B6B0DE /* ManualView.swift */,
 				9093C469F102E1F2CCC6DF7D /* MidiFile.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
@@ -292,7 +287,6 @@
 				1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */,
 				6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */,
 				8624A489A951D42AFB805E16 /* RackMatrix.swift */,
-				BB91B3A150364793E11406C1 /* ReceiverConfigView.swift */,
 				80701821EB9AD6D1683D1DDD /* Router.swift */,
 				7D364D224C3D245B4D5AE548 /* SceneFactory.swift */,
 				0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */,
@@ -464,7 +458,6 @@
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
 				EA12B8EA582FDBCD044746B9 /* MacroAuthoring.swift in Sources */,
 				4269BB4C2A37F0896A7E4AF9 /* MacroAuthoringView.swift in Sources */,
-				C95B6625D3731B37A7544BE9 /* MacroPanel.swift in Sources */,
 				14001737F3526E61A6910D74 /* ManualView.swift in Sources */,
 				368706B54B23A18EAE705127 /* MidiFile.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,
@@ -472,7 +465,6 @@
 				C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */,
 				1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */,
 				700A51B9760B43637DB3B85E /* RackMatrix.swift in Sources */,
-				7AD33AA1CDEEF7C6738C5EF3 /* ReceiverConfigView.swift in Sources */,
 				515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */,
 				EE31C6028B5FF7F317CCF8EE /* SceneFactory.swift in Sources */,
 				A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */,

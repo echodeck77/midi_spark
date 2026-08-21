@@ -66,11 +66,10 @@ enum EditPageMode { case addEdit, move, mute, clear }
 /// LAYOUT v2 (2026-08-05): the permanent surface addresses — a tab per surface, replacing the PERFORM/EDIT toggle
 /// and the in-grid overlays. GRID = the perform desk · PROCESSORS = the cell edit page · RECEIVERS = per-door config
 /// (from the cog) · EMITTERS = the RACK matrix · MACROS/AUTOMATION = dimmed 'coming' seats (phase 2+).
+// Only BUILD remains — the GRID/MIDI IN/MIDI OUT/MACROS/AUTOMATION tabs were retired 2026-08-21 (BUILD is the sole
+// surface). `activeTab` is kept as a constant so the BUILD-only poll/render gates read cleanly.
 enum AppTab: String, CaseIterable {
-    case build = "BUILD"          // THE BUILD PAGE (design: two-grid-flow, user 2026-08-11) — the primary workshop; SUPERSEDED + removed the DRAG&DROP + PROCESSORS pages (user 2026-08-13)
-    case grid = "GRID", receivers = "MIDI IN", emitters = "MIDI OUT"
-    case macros = "MACROS", automation = "AUTOMATION"
-    var live: Bool { self != .macros && self != .automation }
+    case build = "BUILD"          // THE BUILD PAGE — the primary (and now only) workshop
 }
 
 /// One scrolling mark in the MIDI CONFIG REPLAY input roll: a note that ONSET at `born`, drifting right→left. (Paul 2026-08-20)
@@ -182,7 +181,6 @@ struct DiagView: View {
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
     static let manualBlocks = ManualDoc.parse(ManualDoc.load())   // the parsed manual (once ever)
     @AppStorage("midispark.showScenes") var showScenes = false   // the scene row is HIDDEN by default; toggled on the cog page
-    @AppStorage("midispark.showTabBar") var showTabBar = true     // the six-tab bar SHOWS by default; toggled on the cog page
     @State var showPresets = false             // §3 PRESETS: the browser sheet
     @State var presetList: [String] = []       // §3 the user preset names (refreshed on open)
     @State var currentPreset = ""              // §3 the loaded preset's name
@@ -463,13 +461,6 @@ struct DiagView: View {
         if r.solo != soloEmitterMask { soloEmitterMask = r.solo;  au?.setSoloEmitterMask(r.solo) }
     }
 
-    // SINGLE (true) = LADDER's exclusive-columns engine on; MULTI (false) = normal layering. The SINGLE|MULTI
-    // toggle itself now lives in the title bar (ArrangementBar); this is the shared setter it drives.
-    private func setSingle(_ on: Bool) {
-        guard ladderMode != on else { return }
-        ladderMode = on; au?.setLadderMode(on)
-        if on { heldVerb = nil; syncSingleModeActivation() }   // entering SINGLE mid-edit: apply activation to the current selection
-    }
     let sceneAmberHue = UI.amber   // HOLD's latch hue
     let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
     func onVerbEngaged(_ v: Verb) {
@@ -617,7 +608,6 @@ struct DiagView: View {
     // auto-detect (user ruling 2026-07-25) — no control.
     func toggleReceiverMute(_ i: Int) { au?.toggleReceiverMute(i); receivers = au?.uiReceivers() ?? receivers }
     func toggleReceiverEnabled(_ i: Int) { au?.toggleReceiverEnabled(i); receivers = au?.uiReceivers() ?? receivers }
-    func setReceiverLatchKeys(_ i: Int, _ keys: Bool) { au?.setReceiverLatchAdd(i, keys); receivers = au?.uiReceivers() ?? receivers }   // KEYS|CHORD on the strip
     func toggleReceiverBypass(_ i: Int) { au?.toggleReceiverBypass(i); receivers = au?.uiReceivers() ?? receivers }   // BYPASS toggle on the strip
     func setThru(_ i: Int) { au?.setThruReceiver(i); thruReceiver = au?.uiThruReceiver() ?? thruReceiver }
     // receiver strip: additive SOLO (toggle a receiver in/out of the set). Ephemeral weather — the engine
@@ -634,11 +624,6 @@ struct DiagView: View {
         au?.setInputOctave(i, receiverOctave[i])
     }
     // receiver strip: ±semitone NOTE nudge (±1 per tap, clamp ±12). Ephemeral; composes with the octave nudge.
-    func nudgeReceiverNote(_ i: Int, _ delta: Int) {
-        guard (0..<4).contains(i) else { return }
-        receiverNote[i] = max(-12, min(12, receiverNote[i] + delta))
-        au?.setInputSemitone(i, receiverNote[i])
-    }
     // receiver strip: the slider's momentary input-velocity override (touch = absolute, release = nil → spring).
     func setReceiverVel(_ i: Int, _ value: Int?) { au?.setInputVelOverride(i, value) }
     // receiver strip: per-receiver chord LATCH (additive toggle). Arm = detect-and-hold; a new chord replaces;
@@ -807,7 +792,7 @@ struct DiagView: View {
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
                             outAt: emitPeakAt, aboutLine: aboutLine,
-                            showScenes: $showScenes, showTabBar: $showTabBar,
+                            showScenes: $showScenes,
                             onSetEmitterChannel: setEmitterChannel,
                             onChanged: { busChannels = au?.uiBusChannels() ?? busChannels },
                             onClose: { showSettings = false })
@@ -838,18 +823,6 @@ struct DiagView: View {
             }
         }
         .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
-        .onChange(of: activeTab) { tab in
-            // BUILD reuses the per-cell flow-diagram machinery via `editArmed` (drives the begin/apply session below).
-            // Any tab switch clears transient GRID gestures (a held verb, MUTE arm) so state can't leak across tabs.
-            editArmed = (tab == .build)
-            if tab != .grid { heldVerb = nil }
-            if tab != .build && ddSolo { ddSolo = false; au?.clearColourSolo() }   // audition (PLAY THIS MACHINE) — only clear it when leaving BUILD
-            if tab == .build {
-                if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u); buildCastSeeded = true }   // a saved half-built piece → restore it before seeding defaults
-                buildSeedCastIfNeeded(); buildEnsureCastSelection()   // open BUILD with the part's cast selection (§2)
-            }
-            if tab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // BUILD lands on PLAY THIS MACHINE → SOLO the machine (never the whole grid)
-        }
         .onChange(of: editArmed) { on in
             // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
             // commits whatever was staged (live-previewed edits persist as one undo step) + clears transient state.
@@ -1193,15 +1166,11 @@ struct DiagView: View {
                        canUndo: sel.canUndo || (au?.uiCanUndo ?? false),   // incl. SELECTION undo
                        canRedo: sel.canRedo || (au?.uiCanRedo ?? false),
                        onUndo: undo, onRedo: redo,
-                       activeTab: activeTab,                                    // LAYOUT v2: the six-tab bar drives every surface
-                       onSetTab: { tab in activeTab = tab },                     // the .onChange(of: activeTab) bridge handles editArmed + resets
                        showScenes: showScenes,                                  // scene row visibility (cog toggle)
-                       showTabBar: showTabBar,                                  // tab bar visibility (cog toggle)
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                       onSwing: { au?.setSwing($0); refreshTiming() },
-                       ladderMode: ladderMode, onSetSingle: setSingle)             // GRID mode SINGLE|MULTI in the title bar (user 2026-08-05)
+                       onSwing: { au?.setSwing($0); refreshTiming() })
     }
     // §3 PRESETS wiring
     func openPresets() {

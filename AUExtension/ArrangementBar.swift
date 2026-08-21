@@ -28,17 +28,12 @@ struct ArrangementBar: View {
     var canRedo: Bool = false
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
-    var activeTab: AppTab = .grid           // LAYOUT v2: which surface is showing — the six-tab bar drives everything
-    var onSetTab: (AppTab) -> Void = { _ in }
     var showScenes: Bool = true             // the 16-scene row is HIDDEN by default; toggled on the cog page (user 2026-08-03)
-    var showTabBar: Bool = true             // the six-tab bar SHOWS by default; toggled on the cog page (Paul 2026-08-17)
     var onOpenManual: () -> Void = {}        // the "?" → the in-app manual, scrolled to the last-touched control
     var stepIndex: Int = 4                  // LAYOUT v2: the clock (STEP rate + SWING) moved into the header from ControlsView
     var swing: Int = 50
     var onStep: (Int) -> Void = { _ in }     // AUParameter 0 (step rate index)
     var onSwing: (Int) -> Void = { _ in }    // AUParameter 1 (swing %)
-    var ladderMode: Bool = false             // GRID mode: SINGLE (ladder) | MULTI — moved to the title bar (user 2026-08-05)
-    var onSetSingle: (Bool) -> Void = { _ in }
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -89,35 +84,6 @@ struct ArrangementBar: View {
         }
     }
 
-    // THE TAB BAR — the six permanent addresses on their own full-width row. The four LIVE tabs (GRID · PROCESSORS ·
-    // RECEIVERS · EMITTERS) select on tap; MACROS/AUTOMATION render dimmed + inert (a later phase builds them).
-    // Replaces the PERFORM/EDIT toggle, the verbs-box EDIT button, and the edit page's DONE close button.
-    private var tabBar: some View {
-        HStack(spacing: 4) {
-            ForEach(AppTab.allCases, id: \.self) { tab in tabChip(tab) }
-        }
-    }
-    private func tabChip(_ tab: AppTab) -> some View {
-        let active = tab == activeTab
-        let live = tab.live
-        let hue = tabHue(tab)
-        return Text(tab.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
-            .foregroundColor(active ? .black : .white.opacity(live ? 0.62 : 0.24))
-            .lineLimit(1).minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity).frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 6).fill(active ? hue : Color.white.opacity(live ? 0.06 : 0.02)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(active ? 0 : 0.08), lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture { if live { onSetTab(tab) } }
-    }
-    // GRID keeps the perform cyan; PROCESSORS the orchid (matches the old EDIT segment); the rest wear scene amber.
-    private func tabHue(_ tab: AppTab) -> Color {
-        switch tab {
-        case .build:      return editHue          // the primary workshop wears the orchid (mockup's pink-active BUILD tab)
-        case .grid:       return barCyan
-        default:          return sceneAmber
-        }
-    }
 
     // THE CLOCK — a compact header chip reading the STEP rate (+ SWING when swung); tap opens a popover with the
     // full STEP grid + SWING slider. Moved out of the grid's CONTROLS panel so the timing lives with the transport.
@@ -162,24 +128,6 @@ struct ArrangementBar: View {
         }
     }
 
-    // GRID mode SINGLE|MULTI — the two-segment toggle, in the title bar (user 2026-08-05). SINGLE = the ladder
-    // (exclusive columns), tinted green; MULTI = normal layering, tinted scene-amber (the radio-button yellow).
-    private var singleMultiSeg: some View {
-        HStack(spacing: 0) {
-            modeSeg("SINGLE", active: ladderMode, hue: ladderGreen) { onSetSingle(true) }
-            modeSeg("MULTI", active: !ladderMode, hue: sceneAmber) { onSetSingle(false) }
-        }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
-    }
-    private func modeSeg(_ label: String, active: Bool, hue: Color, _ tap: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
-            .foregroundColor(active ? .black : .white.opacity(0.5))
-            .padding(.horizontal, 8).frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 4).fill(active ? hue : Color.clear))
-            .contentShape(Rectangle()).onTapGesture { tap() }
-    }
     // §3 the preset selector: a folder + the loaded preset's name (or "PRESETS"); tap → the browser sheet.
     // /btw ②: ENLARGED — bigger type + hit target (it's a headline control, not a footnote).
     private var presetButton: some View {
