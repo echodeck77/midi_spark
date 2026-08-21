@@ -279,6 +279,29 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(b.receiverFile[1].loopBeats, 0, "door 1 is REPLAY, not FILE → no clip packed")
         XCTAssertEqual(b.receiverFile[2].loopBeats, 0, "a plain door has no clip")
     }
+    // STORAGE RECONCILE (config-sheets FILE, 2026-08-21): an imported .mid clip lives on the Receiver, so it must
+    // survive a full-document save/load (fullState) AND rebuild into the box — else the loop is lost on reload.
+    func testFileClipSurvivesDocumentRoundTripAndRebuilds() throws {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        let clip = [MidiFile.NoteEvent(beat: 0, note: 60, vel: 100, on: true),
+                    MidiFile.NoteEvent(beat: 0.5, note: 64, vel: 90, on: true),
+                    MidiFile.NoteEvent(beat: 1, note: 60, vel: 0, on: false),
+                    MidiFile.NoteEvent(beat: 1, note: 64, vel: 0, on: false)]
+        st.receivers = [{ var r = Receiver(name: "1"); r.doorMode = .file; r.fileClip = clip; r.fileLoopBeats = 2; r.fileName = "loop.mid"; return r }(),
+                        Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        // save → load the WHOLE document (the fullState path)
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
+        let r0 = back.receiversResolved[0]
+        XCTAssertEqual(r0.doorMode, .file, "FILE mode persists")
+        XCTAssertEqual(r0.fileClip, clip, "the decoded notes are byte-identical")
+        XCTAssertEqual(r0.fileLoopBeats, 2)
+        XCTAssertEqual(r0.fileName, "loop.mid", "the display name persists")
+        // and the RESTORED document still packs the clip into the box (so the Kernel reloads the DoorRing on load)
+        let b = SnapshotBuilder.build(from: back)
+        XCTAssertEqual(b.receiverFile[0].loopBeats, 2)
+        XCTAssertEqual(b.receiverFile[0].notes, [60, 64, 60, 64])
+        XCTAssertEqual(b.receiverFile[0].beats, [0, 0.5, 1, 1])
+    }
     func testReplayPassesClampToTheAllowedSet() {
         var r = Receiver(name: "x"); r.replayPasses = 7
         XCTAssertEqual(r.replayPassesResolved, 1, "an out-of-set value clamps to 1")
