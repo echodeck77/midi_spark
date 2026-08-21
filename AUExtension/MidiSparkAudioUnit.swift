@@ -929,21 +929,21 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     }
 
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
+    // COALESCED (Paul 2026-08-21, anti-crackle): a burst of edits (a drag, or several AU setters in one gesture) now
+    // triggers ONE SnapshotBuilder.build per runloop instead of N synchronous builds — the heavy build is the biggest
+    // main-thread spike, and repeated spikes can momentarily starve the audio thread on a loaded device. The snapshot
+    // updates one runloop tick later (≈ a few audio blocks — imperceptible; only the render thread reads it). Was:
+    // a synchronous build on every main-thread edit.
     private func scheduleRebuild() {
-        if suppressRebuild { return }
-        if Thread.isMainThread {
-            snapshotGeneration &+= 1
-            let doc = renderDoc()
-            store.publish(SnapshotBuilder.build(from: doc, generation: snapshotGeneration, hues: snapHues(doc)))
-        } else if !rebuildPending {
-            rebuildPending = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.rebuildPending = false
-                self.snapshotGeneration &+= 1
-                let doc = self.renderDoc()
-                self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc)))
-            }
+        if suppressRebuild || rebuildPending { return }
+        rebuildPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.rebuildPending = false
+            if self.suppressRebuild { return }
+            self.snapshotGeneration &+= 1
+            let doc = self.renderDoc()
+            self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc)))
         }
     }
     // The display hue (packed RGB) per colourID — so the render can tag emitted notes with their cell's colour (the
