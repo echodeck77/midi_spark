@@ -145,11 +145,13 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   transform the loop — a legal moving frame for RIFF FOLLOWING). THE PROGRESSION REEL: record the whole song's harmony
   once, scenes address SECTIONS of it. LINEAGE: this is the PURE-SOURCE recorder birthstone; the shipped ReelDeck is its
   output-side twin — rhyme the machinery (ring/bars/freeze). Paul will walk the implementation directly.
-- **BURST · PATTERN + CARRY** (`Docs/AcceptanceCriteria/AcceptanceCriteria-burst-pattern-carry.md`, captured-not-ratified).
-  BURST gains the family MODE radio ONCE|COIN|PATTERN; PATTERN = the 8-slice pick-then-paint row with a new **CARRY**
-  state (the roll STRETCHES across the burst step + its contiguous carries — span-stretch of strikes+curve, not a
-  gate-ring). SPAN CELL|ROW reuses the shipped EUCLID precedent (NB: BURST's SPAN field already landed in the SPAN
-  rollout — this adds the PATTERN mode + CARRY on top). Follows LENGTH's trailing-note laws.
+- **BURST · PATTERN + CARRY DONE** (2026-08-21, `44ed611`; `AcceptanceCriteria-burst-pattern-carry.md`). BURST gained
+  the MODE radio ONCE|COIN|PATTERN (byte-identical default ONCE): COIN = seeded chance-of-burst per step
+  (`burstCoinFires`); PATTERN = the 8-slice pick-then-paint B/C/R row, CARRY = span-stretch (the roll's strikes+curve
+  redistribute across the burst slice + its contiguous CARRY run, `burstCarryRun`; CELL = S/8 slices in the column, ROW
+  = the 8 columns; ROTATE). Shared `layBurst` (no render-path alloc); fuzz randomises mode/slices/rotate (no stuck
+  notes); +3 tests; oracle confirms ONCE byte-identical. **RATE axis deferred** (the fixed 8-slice = SPAN geometry
+  covers v1 — `burstRate`/`burstRateBeats` fields exist, unused). **DEVICE ear owed** on the carry feel.
 
 ## ★★ PER-PART CLOCK — Stages A/B/C/D LANDED (2026-08-19; commits in CLAUDE.md status). OPEN follow-ups:
 - ~~**Stage D — length < 8 UI.**~~ DONE — the corner control now carries a LOOP LENGTH section (1…8) editing the part's
