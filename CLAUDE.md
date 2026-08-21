@@ -159,6 +159,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ OUTPUT CHAIN sheet — the RACK CONFIG sheet, twin of MIDI INPUTS (2026-08-21, on `main`; `33965c6`; iOS builds,
+  macOS suite unaffected; DEVICE eye owed). The `[RACK CONFIG]` bottom-left button stopped jumping to the emitters tab —
+  it now opens `buildRackConfigSheet` (`@State buildRackConfigOpen`), same spacious top-aligned style as the MIDI INPUTS
+  sheet. **SETUPS radio** = RACK 1·2·3·4 (`au.setRackConfig` — the 4 membership configs `rackConfigs`/`rackActiveConfig`;
+  this is the FIRST UI anywhere to select a config). Per emitter A–D: letter + stamp channel, an **ON THE BOARD |
+  BYPASSED** membership toggle (`au.setRack` writes the LIVE config), and a **read-only TREATMENT summary** (OWNS/KEY/
+  TURNS/MONO/FENCE/CURVE/POCKET/LEADS from the polled masks). **EDIT TREATMENTS →** opens the full EMITTERS tab
+  (RackMatrix) for deep per-treatment editing — the deep stack inline in the sheet is the NEXT increment. UI-only.**
 - **▶ MULTI-CHANNEL INPUT — a door hears an arbitrary channel SUBSET + the door-sheet redesign (2026-08-21, on `main`;
   ENGINE `fae473a`, DOOR-SHEET UI `f497bea`; macOS 814 green byte-identical, iOS builds; DEVICE eye owed).
   Paul: "can midi input come from multiple sources?" — yes. **ENGINE (byte-identical):** a 16-bit channel mask replaces

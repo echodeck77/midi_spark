@@ -87,9 +87,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   (sheet "MIDI INPUTS"; per-row badge "INPUT: A"; radio "INPUT MODE"); "rack" → **OUTPUT CHAIN** (sheet header; button
   "OUT CHAIN · 2"; strip button "CHAIN"; the 4 configs → **SETUP 1–4**). So `DoorMode`/`rackConfigs`/`setDoorMode` etc.
   stay as-is in code; only the LABELS change when the sheets are built.
-  STILL OPEN: STAGE 5 the UI — the MIDI CONFIG + RACK CONFIG sheets (spacious/teaching), the two bottom buttons, the
-  per-row INPUT badges, console mode badges; FILE's import (Files picker) + document storage + Kernel wiring; the
-  RECORD button move to the top-right banner (Paul's separate ask). Do the sheets with the user (big UI reframe).
+  STAGE 5 the UI: MIDI CONFIG sheet **DONE** (2026-08-20/21 — spacious MIDI INPUTS sheet: 16-ch multi-select, range
+  keyboard, mode radio, LIVE INPUT|[MODE] test-in-place; `f497bea`/`e87c55c`). RACK CONFIG sheet **v1 DONE** (2026-08-21,
+  `33965c6` — OUTPUT CHAIN sheet: SETUPS radio RACK 1–4 = the 4 configs · per-emitter ON THE BOARD|BYPASSED membership ·
+  read-only treatment summary · EDIT TREATMENTS → jumps to the emitters tab). STILL OPEN: the DEEP treatment stack
+  inline in the RACK sheet (OWNS/KEY/TURNS/MONO/FENCE/CURVE/POCKET editing — currently only in the EMITTERS tab); the
+  per-row INPUT badges + console mode badges; FILE's import is built (Files picker + decode + DoorRing) — reconcile
+  storage; the RECORD button move to the top-right banner (Paul's separate ask); §9 user-facing LABEL rename ("door"→
+  "MIDI INPUT" etc. — code identifiers NEVER rename). Do the deep-treatment sheet with the user (device eye first).
 - **MOD · SPAN + INTERNAL TARGETS** (`Docs/AcceptanceCriteria/AcceptanceCriteria-mod-span-target.md`, 2026-08-20 — MOD
   grows two axes, NOT a new processor): §1 STEPS gains **SPAN: PERIOD|ROW|ROW×2|ROW×4** (the drawn steps lock to the
   row's columns / 16 / 32 breakpoints across passes, `stepIndex = floor(beat×rate)%N` — the polymeter law, replay-safe).
