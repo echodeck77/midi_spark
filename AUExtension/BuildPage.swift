@@ -79,10 +79,6 @@ extension DiagView {
         if size.width.isFinite, size.height.isFinite, size.width > 80, size.height > 80 {
             ZStack {
                 if size.width > size.height { AnyView(buildLandscape(size)) } else { AnyView(buildPortrait(size)) }
-                VStack(spacing: 0) {                                                                     // THE RECORD button — top-right banner (Paul 2026-08-21); declared before the sheets so they cover it
-                    HStack(spacing: 0) { Spacer(minLength: 0); buildReelButton() }
-                    Spacer(minLength: 0)
-                }.padding(.top, 4).padding(.trailing, 10)
                 if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
                 if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
@@ -589,14 +585,16 @@ extension DiagView {
             buildOctBtn("+") { nudgeReceiverOctave(i, +1) }.frame(width: 40)
         }.fixedSize()
     }
-    // THE BOTTOM CLUSTER (Paul 2026-08-20/21): RATE (per-part, centred) · the two CONFIG buttons — MIDI CONFIG (the
-    // doors) + RACK CONFIG (the OUTPUT CHAIN setups). The RECORD button moved to the top-right banner (Paul 2026-08-21);
-    // the reel's share-sheet anchor rides with it there.
+    // THE BOTTOM-LEFT CLUSTER (Paul 2026-08-20): RECORD (reel) · RATE (per-part) · the two CONFIG buttons — MIDI CONFIG
+    // (the doors) + OUT CHAIN (the rack/output-chain setups, §9 name). The record button stays leftmost; the rate sits
+    // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
+    // an interim until the SPACIOUS SHEETS (config-sheets §5–§7) are built.
     @ViewBuilder private func buildBottomBar() -> some View {
-        // The invisible box: RATE centred · CONFIG buttons right-aligned. The ZStack lets the rate sit at the TRUE
-        // centre regardless of the side widths. No padding on the box. (Paul 2026-08-20)
+        // The invisible box: RECORDER left-aligned · RATE centred · CONFIG buttons right-aligned. The ZStack lets the
+        // rate sit at the TRUE centre regardless of the side widths. No padding on the box. (Paul 2026-08-20)
         ZStack(alignment: .top) {                               // TOP-aligned so nothing sits low + the box is only as tall as its content
             HStack(alignment: .top, spacing: 0) {
+                buildReelButton()                               // LEFT — the recorder (keeps its share anchor + pass-browser hide)
                 Spacer(minLength: 0)
                 if !reelShowPopup {
                     VStack(alignment: .trailing, spacing: 5) {  // RIGHT — the two config buttons
@@ -892,7 +890,7 @@ extension DiagView {
             // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
             .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
-            AnyView(buildBottomBar()).padding(.top, 8)          // THE INVISIBLE BOX: RATE · MIDI CONFIG · RACK CONFIG — directly below the machine box (RECORD moved to the top-right banner, Paul 2026-08-21)
+            AnyView(buildBottomBar()).padding(.top, 8)          // THE INVISIBLE BOX: RECORD · RATE · MIDI CONFIG · OUT CHAIN — directly below the machine box (Paul 2026-08-20)
             Spacer(minLength: 0)                                 // any remaining column space sits BELOW the box (keeps it up, never clipped)
         }
         .frame(maxWidth: .infinity, alignment: .center)
