@@ -1640,6 +1640,52 @@ final class Router {
 
     // MARK: - the render-side pass
 
+    // COLUMN TRANSITION (§7) — extracted so the uniform fast-path AND the per-row multi-clock path share it VERBATIM
+    // (Paul 2026-08-21 housekeeping; byte-identical to the two inline blocks it replaced). `onlyRow` nil = the whole
+    // grid on the global clock (uniform); r = just that row on its own clock (multi). `prevEdge` is the caller's edge
+    // tracker (`prevEffColumn` / `prevEffColumnRow[r]`); the NEW edge is returned. On a transition: truncate the row's
+    // voices at the boundary (legato drones survive), reset its tick state, then emit the new column's HELD + ECHO
+    // content once. `forceColumnHold` re-runs the holds every window (SUSTAIN); a single-column lap with an empty pool
+    // reconciles orphaned drones. The edge trackers are read ONLY here, so assigning `prevEdge` after the emits (vs the
+    // old before) is behaviour-identical.
+    @inline(__always)
+    private func emitColumnTransition(box: SnapshotBox, effCol: Int, prevEdge: Int, onlyRow: Int?,
+                                      S: Double, a: Double, mNow: Double, pass: Int, tempo: Double,
+                                      beatPos: Double, beatsPerSample: Double, windowStart: Int64, windowEnd: Int64,
+                                      heldActive: Bool, pool: NotePool, out: MIDIEmitter?, diag: inout KernelDiag) -> Int {
+        let savedPass = diag.pass
+        diag.pass = pass
+        defer { diag.pass = savedPass }
+        if effCol != prevEdge {
+            if (onlyRow == nil ? anyVoiceActive() : anyVoiceActiveInRow(onlyRow!)) {
+                let boundaryMusical = columnStart(mNow, S)                  // start of effCol
+                let realB = realOf(boundaryMusical, stepBeats: S, a: a)
+                let off = max(0, (realB - beatPos) / beatsPerSample)
+                closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out, onlyRow: onlyRow)
+            }
+            if let rr = onlyRow { lastTick[rr] = -1; strumProgress[rr] = 0; lastGenStep[rr] = Int64.min }
+            else { for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min } }
+            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
+            emitEchoColumn(box: box, column: effCol, pool: pool, pass: pass,   // ECHO: strike the dry + register the tail
+                           S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                           windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
+            return effCol
+        } else if forceColumnHold {
+            // PLAY: THIS CELL — the column is FROZEN, so re-run the holds every window to SUSTAIN them (adopt, don't re-strike).
+            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, onlyRow: onlyRow, diag: &diag)
+        } else if heldActive && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
+            // AUDIT B2: a single-column lap pins the column so no edge fires — reconcile now to close orphaned drones.
+            emitColumnHolds(box: box, column: effCol, pool: pool, pass: pass,
+                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                            windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: onlyRow, diag: &diag)
+        }
+        return prevEdge
+    }
+
     func process(box: SnapshotBox,
                  pool: NotePool,
                  playing: Bool,
@@ -1890,42 +1936,13 @@ final class Router {
         //      (truncate-at-boundary tails), then emit the new column's HELD content once. A
         //      relocation/loop is the same edge, no special case. ----
         if uniformFast {
-        if effColumn != prevEffColumn {
-            if anyVoiceActive() {
-                let boundaryMusical = columnStart(mNow, S)     // start of effColumn
-                let realB = realOf(boundaryMusical, stepBeats: S, a: a)
-                let off = max(0, (realB - beatPos) / beatsPerSample)
-                // §2 CONTINUITY: keep the legato drones alive across the boundary — emitColumnHolds reconciles
-                // them (adopt the re-held, close the dropped). Everything else truncates here as before.
-                closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out)
-            }
-            prevEffColumn = effColumn
-            for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
-            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-            emitEchoColumn(box: box, column: effColumn, pool: pool, pass: diag.pass,   // ECHO: strike the dry + register the tail
-                           S: S, a: a, tempo: tempo, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                           windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-        } else if forceColumnHold {
-            // PLAY: THIS CELL — the column is FROZEN, so the transition reconcile above fires only once (on engage).
-            // Re-run the holds every window to SUSTAIN them: immortal identity/chance holds are adopted (not re-struck),
-            // dropped notes close, and live/latch pool changes track. Without this a hold cell gates off after one
-            // column and never re-strikes — silent, while the palette still shows its colour in the active column.
-            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, diag: &diag)
-        } else if heldColumns != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
-            // AUDIT B2: a SINGLE-COLUMN lap pins effColumn, so the column-change reconcile above never fires — a
-            // source release then strands the legato drone (immortal) until the ~1s Kernel self-heal (+ a spurious
-            // panic count). Run the reconcile now: with an empty pool it re-holds nothing and closes every orphaned
-            // drone at the boundary. Scoped to an active lap (heldColumns != 0) so normal playback is untouched.
-            emitColumnHolds(box: box, column: effColumn, pool: pool, pass: diag.pass,
-                            S: S, a: a, mNow: mNow, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                            windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
-        }
+            prevEffColumn = emitColumnTransition(box: box, effCol: effColumn, prevEdge: prevEffColumn, onlyRow: nil,
+                                                 S: S, a: a, mNow: mNow, pass: diag.pass, tempo: tempo,
+                                                 beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                                 windowStart: windowStart, windowEnd: windowEnd,
+                                                 heldActive: heldColumns != 0, pool: pool, out: out, diag: &diag)
         } else {
-            // ===== MULTI-CLOCK PATH — each row on its own step rate =====
+            // ===== MULTI-CLOCK PATH — each row on its own step rate; each transition on that row's OWN clock =====
             let globalPass = diag.pass
             if prevEffColumn == -1 { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge reset the whole grid this window
             for r in 0..<Snap.rows {
@@ -1940,33 +1957,11 @@ final class Router {
                 if forceColumnHold { effColR = forceColumn }
                 let passR = Int((mNr / cycR).rounded(.down))
                 rowSBuf[r] = Sr; rowCycBuf[r] = cycR; rowMNowBuf[r] = mNr; rowEffColBuf[r] = effColR; rowPassBuf[r] = passR
-                if effColR != prevEffColumnRow[r] {
-                    if anyVoiceActiveInRow(r) {
-                        let bMus = columnStart(mNr, Sr)
-                        let realB = realOf(bMus, stepBeats: Sr, a: a)
-                        let off = max(0, (realB - beatPos) / beatsPerSample)
-                        closeExceptLegatoHolds(atSample: windowStart + Int64(off), out: out, onlyRow: r)
-                    }
-                    prevEffColumnRow[r] = effColR
-                    lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min
-                    diag.pass = passR
-                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
-                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                    windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
-                    emitEchoColumn(box: box, column: effColR, pool: pool, pass: passR,   // ECHO dry on THIS row's clock (per-part)
-                                   S: Sr, a: a, tempo: tempo, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                   windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
-                } else if forceColumnHold {
-                    diag.pass = passR
-                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
-                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                    windowStart: windowStart, windowEnd: windowEnd, out: out, reconcileOnly: true, onlyRow: r, diag: &diag)
-                } else if rowHeld[r] != 0 && pool.count == 0 && latchMask == 0 && anyLegatoHold() {
-                    diag.pass = passR
-                    emitColumnHolds(box: box, column: effColR, pool: pool, pass: passR,
-                                    S: Sr, a: a, mNow: mNr, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                    windowStart: windowStart, windowEnd: windowEnd, out: out, onlyRow: r, diag: &diag)
-                }
+                prevEffColumnRow[r] = emitColumnTransition(box: box, effCol: effColR, prevEdge: prevEffColumnRow[r], onlyRow: r,
+                                                           S: Sr, a: a, mNow: mNr, pass: passR, tempo: tempo,
+                                                           beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                                           windowStart: windowStart, windowEnd: windowEnd,
+                                                           heldActive: rowHeld[r] != 0, pool: pool, out: out, diag: &diag)
             }
             diag.pass = globalPass
             prevEffColumn = effColumn   // keep the GLOBAL edge current (echo dry now fires per-row above, on each row's own clock)
