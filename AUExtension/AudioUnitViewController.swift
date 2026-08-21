@@ -43,20 +43,6 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 /// §11/11b THE ROUND HELD VERBS — the rebuilt authoring surface. Hold a verb → the grid invites → taps do the
 /// verb → release = done (no armed state). Long-press a verb = LATCH (tap again releases). No verb held → taps
 /// are TRIGGERS. HOLD (the 6th button) is the §5c gesture-latch, not a grid verb.
-enum Verb: String, CaseIterable {
-    // /btw ①: COPY · PASTE replace MOVE · COPY. COPY captures a cell into a session clipboard that PERSISTS
-    // after release; PASTE stamps it (enabled once the clipboard is non-empty). Relocation = COPY→PASTE→DELETE.
-    case place = "PLACE", delete = "DELETE", copy = "COPY", paste = "PASTE"   // SELECT retired 2026-08-05 (layout-v2)
-    var label: String { self == .place ? "PLACE CELL(S)" : rawValue }
-    var hue: Color {
-        switch self {
-        case .place:  return Color(red: 0.35, green: 0.92, blue: 0.50)   // green — additive
-        case .delete: return UI.red   // red — destructive
-        case .copy:   return Color(red: 0.70, green: 0.55, blue: 0.98)   // violet — capture
-        case .paste:  return UI.amber   // amber — stamp
-        }
-    }
-}
 
 /// The EDIT page's tap modes. ADD/EDIT builds a live-edited selection set (the ONLY mode with APPLY/CANCEL
 /// staging); MOVE drags cells to new positions; MUTE toggles per-cell mute; CLEAR removes a cell (re-tap the
@@ -191,38 +177,17 @@ struct DiagView: View {
     @State var buildLibraryPreviewed = false                       // a preview temporarily overwrote the colour's chain (not yet committed)
     @State var cellLibraryList: [LibEntry] = []
     // MACRO AUTHORING FLOW (canonical, spec macro-authoring): the per-group MAIN/ALT authoring page.
-    @State var macroAuthorOpen = false
-    @State var macroAuthorSlot = 0
-    @State var macroAuthorAnchor: (col: Int, row: Int) = (0, 0)
-    @State var macroAuthorGroup: MacroControlGroup? = nil
-    @State var macroAuthorBase: [String: Double] = [:]                        // the slot's current values (the offset base)
-    @State var macroAuthorMacrosBaseline: [Macro] = []                        // every macro on open — CANCEL restores this
-    @State var macroAuthorExisting: [MacroSlotBinding] = []                   // macros already bound to this slot — the dropdown/reflect
     // FLOW-DIAGRAM processor pop-up (user 2026-08-07): tap a populated processor box → edit its full controls; tap an
     // empty box → the type picker. APPLY keeps · CANCEL restores the document snapshot taken on open.
-    @State var procEditOpen = false
-    @State var procEditSlot = 0
-    @State var procEditDocBaseline: PluginState? = nil
-    @State var procTypePickerOpen = false
-    @State var procMacroEngaged = false                                      // pop-up: the embedded macro section is open + auditioning
-    @State var splitEditorOpen = false                                       // FLOW-DIAGRAM: tap the emitters' SPLIT → the output-split editor (user 2026-08-09)
     @State var scene = SceneState.empty()
     @State var brush = "gold"        // the paint Colour (view-local; never in the document)
     // §11b the held quasimode (SPRING-ONLY, user 2026-07-27): a verb is active ONLY while its button is pressed
     // (release = done). No latch/toggle. Nil = taps are triggers.
-    @State var heldVerb: Verb? = nil          // the currently-pressed verb
     // /btw ①: the SESSION CLIPBOARD — COPY captures a cell here; it PERSISTS after the hold releases; PASTE
     // stamps it (PASTE is disabled while this is nil). Replaces the old per-hold moveSource/copySource.
     @State var clipboard: Cell? = nil
     // PLACE toggle-with-restore (user 2026-07-28): re-tapping a cell placed this hold undoes it — placed-on-empty
     // → removed; placed-over-a-cell → the ORIGINAL restored (all its properties). Memory resets each PLACE hold.
-    @State var placeFresh: Set<GridView.GridPos> = []   // placed onto an empty cell (re-tap removes)
-    @State var placeUndo: [GridView.GridPos: Cell] = [:]   // the original cell a place REPLACED (re-tap restores)
-    @State var gridSnapshot: [[Cell?]]? = nil          // the grid before this PLACE/DELETE hold — CANCEL reverts to it
-    @State var strokeKey: String? = nil               // STROKES: the per-drag undo coalesce key (nil between strokes)
-    @State var strokeSeq = 0                           // STROKES: monotonic — makes each stroke's key unique
-    var activeVerb: Verb? { heldVerb }
-    var placedThisHold: Set<GridView.GridPos> { placeFresh.union(placeUndo.keys) }   // wear a white border
     @State var selCol = -1
     @State var selRow = -1
     // Cell Edit station (AcceptanceCriteria-cell-edit): EDIT is a 6th control, a TOGGLE (not a spring verb),
@@ -230,8 +195,6 @@ struct DiagView: View {
     // `activeVerb` stays "a spring verb is held", so banners/routing-viz/candidate glow stay off for EDIT.
     @State var editArmed = false
     @State var playCellOnly = false                                          // EDIT: "play this cell only" vs "play from grid" (user 2026-08-08)
-    @State var tapCoalesceKey: String? = nil                                 // ROW SELECTOR: coalesce a whole-row tap into ONE undo (user 2026-08-09)
-    @State var tapSeq = 0
     // MODE ROW: the EDIT page's tap modes. ADD/EDIT builds a selection set + edits it live under APPLY/CANCEL
     // staging (the ONLY mode that stages). MOVE drags cells; MUTE toggles mute; CLEAR removes — all IMMEDIATE + undo/redo.
     @State var editMode: EditPageMode = .addEdit
@@ -242,10 +205,8 @@ struct DiagView: View {
     // history. See `EditSelection` (EditPage.swift). The document effects stay in the view; this owns the state.
     @State var sel = EditSelection()
     // MODE ROW — a long-press fires its mode action ONCE per press (the underlying gesture repeats while held).
-    @State var longPressFired = false
     // MODE ROW — CLEAR mode's undo stash: cells removed this CLEAR session, keyed by position. Re-tapping the now-empty
     // slot reinstates the cell. Dropped when we leave CLEAR mode (thereafter, undo/redo covers the removal).
-    @State var clearedStash: [GridView.GridPos: Cell] = [:]
     // MODE ROW — the edit-page column loop drives the SAME `laneMask` as PERFORM (one engine field, one UI mirror);
     // BUG FIX 2026-08-05: no separate `editLoopMask`, so the loop survives the EDIT↔GRID page switch.
     var editingCell: Cell? { editArmed ? scene.cellAt(selCol, selRow) : nil }   // bounds-safe: a stale anchor never traps
@@ -432,27 +393,6 @@ struct DiagView: View {
         return s
     }
 
-    // §10/11c ROUTE FOCUS (multi-cell, AcceptanceCriteria 2026-07-29). PLACE: the most-recently-placed cell.
-    // SELECT: EVERY column that holds EXACTLY ONE selected cell is a focus (a column with 2+ selected cells is
-    // ambiguous → no routing there). Each focus lights ALL cells above it (SRC) and ALL cells below it (DEST) in
-    // its own column. Release applies; CANCEL reverts.
-    var routeFoci: [Int: Int] {                  // col → focus row (≤ one per column) — PLACE: cells placed
-        let cells: [GridView.GridPos]                    // this hold (incl. a whole row); SELECT: the selection.
-        if heldVerb == .place { cells = Array(placedThisHold) }
-        else { return [:] }
-        let occupied = cells.filter { $0.col < scene.cells.count && $0.row < scene.cells[$0.col].count && scene.cells[$0.col][$0.row] != nil }
-        return routeFociByColumn(occupied.map { (col: $0.col, row: $0.row) })
-    }
-    var routeFocusCells: Set<GridView.GridPos> {
-        Set(routeFoci.map { GridView.GridPos(col: $0.key, row: $0.value) })
-    }
-
-    // §11 dispatch a grid tap to the active verb.
-
-    // PLACE toggle-with-memory for ONE cell (used by a cell tap AND, looped, by a row chevron). Call inside
-    // `au.editScene { placeToggle(&$0, …) }`. Re-tapping a placed empty REMOVES it; re-tapping a replaced cell
-    // RESTORES the original (wiring preserved); a fresh tap PLACES (empty, downhill-nudge) or REPLACES (populated).
-
     func refreshTapMasks() {
         let r = tapOverlayMasks(tapActions, now: d.beat, footSolo: emitterFootSolo)   // pure: expire + build masks
         if r.surviving.count != tapActions.count { tapActions = r.surviving }          // only mutate @State on real expiry
@@ -462,47 +402,6 @@ struct DiagView: View {
     }
 
     let sceneAmberHue = UI.amber   // HOLD's latch hue
-    let ladderHue = Color(red: 0.25, green: 0.82, blue: 0.55)       // LADDER's teal-green (distinct from HOLD/MUTE)
-    func onVerbEngaged(_ v: Verb) {
-        editArmed = false                                   // §cell-edit A3: engaging any spring verb disarms EDIT (one editing intent)
-        switch v {                                          // snapshot the state CANCEL reverts to, per verb (clipboard PERSISTS)
-        case .place:  placeFresh = []; placeUndo = [:]; gridSnapshot = scene.cells
-        case .delete: gridSnapshot = scene.cells
-        default: break
-        }
-    }
-    // §11 CANCEL (user 2026-07-28): revert the in-progress changes to the state when the verb was engaged AND
-    // END the held status (release the button). PLACE/DELETE revert the grid; SELECT reverts the built selection.
-    var verbHasBanner: Bool { activeVerb == .place || activeVerb == .delete }
-    func cancelVerb() {
-        switch heldVerb {
-        case .place, .delete:
-            if let au, let snap = gridSnapshot { au.editScene { $0.cells = snap }; refreshFromDocument() }
-            placeFresh = []; placeUndo = [:]
-        default: break
-        }
-        heldVerb = nil                                      // end the held status
-    }
-    // The verb session banner — a top overlay while PLACE/DELETE/SELECT is held; CANCEL (free hand) reverts + ends.
-    func verbBanner(_ v: Verb) -> some View {
-        let text: String
-        switch v {
-        case .place:  text = "Place cell(s) — tap the grid or a row · Choose one route in and multiple out"
-        case .delete: text = "Delete cell(s) — tap the grid or a row · links cut"
-        default:      text = ""
-        }
-        return HStack(spacing: 12) {
-            Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .lineLimit(1).minimumScaleFactor(0.6)
-            Spacer(minLength: 8)
-            Text("CANCEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.black)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.22)))
-                .contentShape(Rectangle()).onTapGesture { cancelVerb() }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(v.hue)
-    }
     // delta §5c: HOLD LATCH — while ON, releases latch instead of springing; HOLD-off is the synchronous
     // "drop" (every captured gesture releases at once). PERFORM-only; cleared on transport stop / EDIT.
     // v1 captures: §6a velocity overrides (in OutputsView) + audition (below). Lap + ON-HOLD deferred.
@@ -516,28 +415,12 @@ struct DiagView: View {
                                                  // back via OutputsView's onChange(holdLatch))
         }
     }
-    func toggleHold() { setHold(!holdLatch) }
 
     // delta §5 / a6: undo/redo restore the WHOLE document, so refresh every document-derived @State.
     // SELECTION undo takes precedence while it has history (the recent select/deselect actions); once exhausted,
     // undo falls through to the transactional document undo.
-    func undo() {
-        if sel.canUndo { undoSelection() } else if au?.uiUndo() == true { refreshFromDocument() }
-    }
-    func redo() {
-        if sel.canRedo { redoSelection() } else if au?.uiRedo() == true { refreshFromDocument() }
-    }
-    /// Snapshot the CURRENT (selection, document) before a select/deselect changes them (the undo point).
-    func recordSelectionUndo() { if let d = au?.uiDocument() { sel.recordUndo(d) } }
-    func undoSelection() {
-        guard let d = au?.uiDocument(), let restored = sel.undo(currentDoc: d) else { return }
-        au?.restoreDocument(restored); syncAnchor(); refreshFromDocument()
-    }
-    func redoSelection() {
-        guard let d = au?.uiDocument(), let restored = sel.redo(currentDoc: d) else { return }
-        au?.restoreDocument(restored); syncAnchor(); refreshFromDocument()
-    }
-    func clearSelectionUndo() { sel.clearHistory() }
+    func undo() { if au?.uiUndo() == true { refreshFromDocument() } }   // sel-level undo retired with the EDIT grid; the AU document undo remains
+    func redo() { if au?.uiRedo() == true { refreshFromDocument() } }
     func refreshFromDocument() {
         guard let au else { return }
         scene = au.uiScene()
@@ -780,15 +663,6 @@ struct DiagView: View {
                         rackMatrixView.padding(.horizontal, 12).padding(.vertical, 12)
                     }
                 }
-                if procTypePickerOpen { procTypePickerPopup() }   // FLOW-DIAGRAM: empty box → the welcoming type picker
-                if procEditOpen { procEditPopup() }               // FLOW-DIAGRAM: populated box → the full processor controls
-                if splitEditorOpen, let cell = editingCell { splitEditorPopup(cell) }   // FLOW-DIAGRAM: emitters SPLIT → the output-split editor
-                if macroAuthorOpen, let g = macroAuthorGroup {   // MACRO AUTHORING (canonical) — the select-params → bind-to-macros pop-up (opens ON TOP of the proc pop-up)
-                    MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting, accent: mainDestHue,
-                                       base: macroAuthorBase,
-                                       onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,
-                                       onSetMacro: macroAuthorSetMacro, onClose: closeMacroAuthoring)
-                }
                 if showSettings {                       // §5 the cog page (overlay on the running instrument)
                     CogPage(au: au, busChannels: busChannels, d: d,
                             outAt: emitPeakAt, aboutLine: aboutLine,
@@ -802,20 +676,17 @@ struct DiagView: View {
                                   onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                                   onDelete: deletePreset, onClose: { showPresets = false })
                 }
-                if showCellLibrary {                    // CELL MACHINE stage-4: the cell library browser (BUILD-context routes to the selected colour's chain)
+                if showCellLibrary {                    // the cell library browser — BUILD-only now (routes to the selected colour's chain)
                     CellBrowser(cells: cellLibraryList, factory: au?.factoryLibrarySummaries() ?? [],
-                                canSave: cellLibraryFromBuild ? (buildSelID != nil) : (editingCell != nil),
-                                onSave: { name in if cellLibraryFromBuild { buildSaveColourToLibrary(name) } else { saveCellNamed(name) } },
-                                onStamp: { name in if cellLibraryFromBuild { buildStampLibrary(au?.loadLibraryCell(name: name)) } else { stampFromLibrary(name) } },
-                                onStampFactory: { name in if cellLibraryFromBuild { buildStampLibrary(au?.factoryLibraryCell(name: name)) } else { stampFromFactory(name) } },
-                                onPreview: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.loadLibraryCell(name: name)) } },
-                                onPreviewFactory: { name in if cellLibraryFromBuild { buildPreviewLibrary(au?.factoryLibraryCell(name: name)) } },
+                                canSave: buildSelID != nil,
+                                onSave: { name in buildSaveColourToLibrary(name) },
+                                onStamp: { name in buildStampLibrary(au?.loadLibraryCell(name: name)) },
+                                onStampFactory: { name in buildStampLibrary(au?.factoryLibraryCell(name: name)) },
+                                onPreview: { name in buildPreviewLibrary(au?.loadLibraryCell(name: name)) },
+                                onPreviewFactory: { name in buildPreviewLibrary(au?.factoryLibraryCell(name: name)) },
                                 onSetStars: { name, stars in au?.setLibraryStars(name, stars); cellLibraryList = au?.libraryCellSummaries() ?? [] },
                                 onDelete: deleteLibraryCellNamed,
-                                onClose: { if cellLibraryFromBuild { buildCloseLibrary() } else { showCellLibrary = false } })
-                }
-                if verbHasBanner, let v = activeVerb {   // §11 verb session banner (PLACE/DELETE/SELECT; CANCEL reverts; the
-                    VStack(spacing: 0) { verbBanner(v); Spacer() }   // strips carry the ROUTE IN/OUT targets in-place now)
+                                onClose: { buildCloseLibrary() })
                 }
                 #if DEBUG
                 if showDevLoader { devLoaderOverlay }   // hidden T-session loader (long-press the logotype)
@@ -823,20 +694,6 @@ struct DiagView: View {
             }
         }
         .environmentObject(helpTracker)         // the in-app manual: controls report their anchor via `.helpAnchor`
-        .onChange(of: editArmed) { on in
-            // MODE ROW: ADD/EDIT owns a transactional session (its baseline). Entering opens it; leaving via DONE
-            // commits whatever was staged (live-previewed edits persist as one undo step) + clears transient state.
-            if on {
-                editMode = .addEdit
-                au?.beginEditSession()
-            } else {
-                au?.applyEditSession()
-                editMode = .addEdit; sel.reset(); clearedStash = [:]; syncAnchor()
-                playCellOnly = false; au?.clearEditSolo()         // leaving EDIT → back to normal grid playback
-                // BUG FIX 2026-08-05: leaving EDIT must NOT clear the column loop — it's one page-independent engine
-                // state (`laneMask`). The old `setEditLoop(0)` here killed a loop armed on the EDIT page.
-            }
-        }
         .onChange(of: sel.cells) { _ in                       // SINGLE-mode editing: the selection drives the ladder's
             syncSingleModeActivation()                        // ACTIVE rung (ferry 2026-08-06); no-op in MULTI or outside ADD/EDIT
             if playCellOnly { au?.setEditSolo(editSelTargets) }   // "play this cell only" follows the selection
@@ -1143,11 +1000,6 @@ struct DiagView: View {
     // its own COPY (+ PASTE when the clipboard holds a processor).
     // §6d: the two PROCESSOR panels (A/B). PORTRAIT stacks them VERTICALLY (A above B, shorter) so each gets
     // full width (2026-07-27 layout); LANDSCAPE keeps them side by side (the width exists).
-    // MIXED-SET law: a SELECT set spanning >1 distinct Colour has no honest Colour-level edit, so the
-    // PROCESSOR panels dim to "MIXED" (cell-level edits still apply). Single-Colour (or empty→brush) = normal.
-    var selectionMixed: Bool {
-        false   // SELECT retired (user 2026-08-09): the old perform-select set is gone; EDIT uses `sel`
-    }
 
     // (processorPanels — the retired shared-Colour A/B desk — removed with the morph layer; all processor
     //  editing is the per-cell CHAIN editor in EDIT now. ProcessorBox survives, used only in `slotMode`.)

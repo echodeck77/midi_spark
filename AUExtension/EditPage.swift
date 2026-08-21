@@ -102,105 +102,6 @@ extension DiagView {
     }
     /// Remove a cell from the group and REVERT it to its original state: a cell created this session is deleted;
     /// a populated cell adopted into the group is restored from its pre-adopt stash.
-    func deselect(_ pos: GridView.GridPos) {
-        recordSelectionUndo()                        // snapshot (selection, doc) before this deselect
-        if sel.wasBorn(pos) {                         // created this session → delete it
-            au?.editScene { $0.deleteCellSever(col: pos.col, row: pos.row) }; refreshFromDocument()
-        } else if let orig = sel.stashed(pos) {       // adopted → restore its original
-            au?.editScene { $0.setCell(pos.col, pos.row, orig) }; refreshFromDocument()
-        }
-        sel.remove(pos)                               // drops it from cells + born + stash
-        syncAnchor()
-    }
-    /// A newborn cell (empty-tap in EDIT): born AUDIBLE — R1 → Emitter A, an EMPTY chain (passthrough). It defaults
-    /// to a NEW colour (the first palette hue not already on the grid) so it reads as a fresh, independent cell.
-    func newbornColour() -> String {
-        let used = Set(scene.cells.flatMap { $0 }.compactMap { $0?.colourID })
-        return colourIDs.first { !used.contains($0) } ?? colourIDs.first ?? brush
-    }
-    func newbornCell() -> Cell {
-        var c = Cell(colourID: newbornColour())
-        c.inputReceiver = 0            // R1
-        c.buses = [.a]                 // Emitter A
-        c.processors = []              // explicit EMPTY chain = passthrough
-        return c
-    }
-    /// Grid long-press. ADD/EDIT: only the ANCHOR responds — it drops from the set (a newborn anchor is deleted).
-    /// MUTE/CLEAR: a long-press does the SAME as a short press (fired once per press — the gesture repeats while held).
-    func editGridLongPress(_ col: Int, _ row: Int) {
-        guard editArmed, !longPressFired else { return }
-        longPressFired = true
-        let pos = GridView.GridPos(col: col, row: row)
-        switch editMode {
-        case .addEdit:
-            guard sel.anchor == pos else { return }   // only the anchor responds to a long-press (drops + reverts)
-            deselect(pos)
-        case .mute, .clear:
-            editModeTap(col, row)
-        case .move:
-            break
-        }
-    }
-    func editGridLongEnd() { longPressFired = false }
-    /// MUTE / CLEAR mode taps (occupied cells only). MUTE toggles the cell's mute IMMEDIATELY (its own undo step —
-    /// the session is closed in MUTE mode). CLEAR toggles a transactional removal MARK (committed by APPLY).
-    func editModeTap(_ col: Int, _ row: Int) {
-        let pos = GridView.GridPos(col: col, row: row)
-        switch editMode {
-        case .mute:
-            guard scene.cells[col][row] != nil else { return }
-            au?.editScene { $0.cells[col][row]?.muted.toggle() }   // IMMEDIATE + undoable: MUTE is chrome (post-derivation suppression)
-            refreshFromDocument()
-        case .clear:
-            if let removed = scene.cells[col][row] {              // occupied → remove NOW (stash it for re-tap reinstate)
-                clearedStash[pos] = removed
-                au?.editScene { $0.deleteCellSever(col: col, row: row) }; refreshFromDocument()
-            } else if let stashed = clearedStash[pos] {           // empty slot we just cleared → reinstate it
-                au?.editScene { $0.cells[col][row] = stashed }; clearedStash[pos] = nil; refreshFromDocument()
-            }
-        case .addEdit, .move:
-            break                                                 // MOVE uses drag, not tap
-        }
-    }
-
-    func transactChip(_ label: String, enabled: Bool, fill: Bool) -> some View {
-        let hue: Color = label == "CANCEL" ? Verb.delete.hue : Self.editHue
-        return Text(label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-            .foregroundColor(!enabled ? .white.opacity(0.22) : (fill ? .black : hue))
-            .frame(minWidth: 62, minHeight: 38)
-            .background(RoundedRectangle(cornerRadius: 7)
-                .fill(fill && enabled ? hue : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(enabled ? hue.opacity(0.6) : Color.white.opacity(0.12), lineWidth: 1)))
-    }
-
-    /// Switch tap mode. Leaving ADD/EDIT commits any staged work (live-previewed edits persist); entering it opens a
-    /// fresh baseline. MOVE/MUTE/CLEAR run with the session CLOSED (their edits are immediate + undo/redo). Leaving
-    /// CLEAR drops its re-tap stash (undo/redo covers removals thereafter).
-    func setEditMode(_ m: EditPageMode) {
-        guard m != editMode else { return }
-        if editMode == .addEdit { au?.applyEditSession() }
-        sel.reset(); clearedStash = [:]; syncAnchor()
-        editMode = m
-        if m == .addEdit { au?.beginEditSession() }
-        refreshFromDocument()
-    }
-    /// APPLY — commit the staged ADD/EDIT session as one undo step, then re-open a fresh baseline so editing continues.
-    func commitSession() {
-        au?.applyEditSession(); sel.reset(); syncAnchor()
-        au?.beginEditSession(); refreshFromDocument()
-    }
-    /// CANCEL — revert everything staged since the session opened, then re-open a fresh baseline.
-    func revertSession() {
-        au?.cancelEditSession(); sel.reset(); syncAnchor()
-        au?.beginEditSession(); refreshFromDocument()
-    }
-
-    /// SINGLE-mode editing (design ferry 2026-08-06): while in SINGLE (ladder) + ADD/EDIT, the SELECTION drives each
-    /// column's ACTIVE rung — for every column that holds a selected cell, the TOPMOST (upper = smallest row index)
-    /// selected cell becomes active (it plays) and the rest of that column mutes. Lower selected cells stay in the
-    /// set (they keep the animated selection border) but read as muted (dormant, via the ladder). The activation
-    /// writes `activeRow`, which rides the STANDING TRANSACTION — APPLY persists it, CANCEL reverts it with
-    /// everything else (cancelEditSession restores the whole document). MULTI editing is untouched.
     func syncSingleModeActivation() {
         // NOT on the DRAG&DROP page: there the selection is the WHOLE colour, so deriving the active rung from it would
         // activate every column the colour occupies (user 2026-08-09 bug). The DD grid sets the rung via armLadderRung.
@@ -248,147 +149,6 @@ extension DiagView {
     // Every chain edit is based on the DISPLAYED chain (cellChain(editingCell)) and written whole — so a colour-scoped
     // edit can't operate on a stale representative cell (which reverted the arp / emptied the chain to a passgate on
     // delete — user 2026-08-09/10). `applyChain` writes it colour-wide (DRAG&DROP) or per-cell (PROCESSORS).
-    private func applyChain(_ chain: [ProcessorSlot]) {
-        if editColourScoped, let cid = editScopeColourID { au?.setColourChain(cid, chain) } else { au?.setCellsChain(editSelTargets, chain) }
-        refreshFromDocument()
-    }
-    private var displayedChain: [ProcessorSlot]? { editingCell.map { cellChain($0) } }
-    func chainAddSlot(type: ProcessorType) {
-        guard var c = displayedChain else { return }; if c.count < 8 { c.append(ProcessorSlot(type: type)) }; applyChain(c)
-    }
-    func chainSetType(slot i: Int, _ type: ProcessorType) {
-        guard var c = displayedChain, i < c.count else { return }; c[i].type = type; applyChain(c)
-    }
-    func chainToggleBypass(slot i: Int) {
-        guard var c = displayedChain, i < c.count else { return }; c[i].bypassed.toggle(); applyChain(c)
-    }
-    func chainRemoveSlot(slot i: Int) {
-        guard var c = displayedChain, i < c.count else { return }; c.remove(at: i); applyChain(c)
-    }
-    func chainEditSlot(slot i: Int, _ mutate: @escaping (inout ProcessorSlot) -> Void) {
-        guard var c = displayedChain, i < c.count else { return }; mutate(&c[i]); applyChain(c)
-    }
-    func chainReplace(_ chain: [ProcessorSlot]) { applyChain(chain) }
-
-    @ViewBuilder func slotBox(_ i: Int, _ slot: ProcessorSlot, cell: Cell,
-                              plainTitle: Bool = false, showMacro: Bool = true, onEdited: (() -> Void)? = nil,
-                              onRemoved: (() -> Void)? = nil) -> some View {
-        let sc: Colour = { var c = Colour(colourID: cell.colourID, type: slot.type); c.paramsA = slot.params; return c }()
-        let cid = cell.colourID
-        ProcessorBox(
-            colour: sc, colourIndex: -1, face: .a,
-            onEdit: { mutate in
-                chainEditSlot(slot: i) { s in
-                    var tmp = Colour(colourID: cid, type: s.type); tmp.paramsA = s.params
-                    mutate(&tmp); s.params = tmp.paramsA                    // slotMode edits only paramsA
-                }
-                onEdited?()                                                // pop-up: re-snapshot the macro BASE from the edited params
-            },
-            onTranspose: { _ in }, onMorph: { _ in },
-            onSetTypeA: { t in chainSetType(slot: i, t) },
-            height: 260, slotMode: true, slotBypassed: slot.bypassed,
-            accentOverride: mainDestHue,               // same blue as the emitters
-            passHead: d.playing ? (d.pass & 3) : -1,   // MODE ROW: the passgate playhead follows the live pass
-            onBypass: { chainToggleBypass(slot: i) },
-            // user 2026-08-09: EVERY slot is deletable, incl. the head — deleting the last one leaves an empty passthrough.
-            onRemove: { chainRemoveSlot(slot: i); onRemoved?() },
-            onMacro: showMacro ? { openMacroAuthoring(slot: i, slotData: slot) } : nil, plainTitle: plainTitle)
-    }
-
-    // MARK: - MACRO AUTHORING (canonical pop-up) — open/callbacks for a processor slot. The BASE = the slot's current
-    // values (untouched by authoring — the offset model: a binding stores delta = target − base). Bindings commit
-    // LIVE so the in-pop-up macro panel is interactive; the pop-up's CANCEL restores the whole macros vector +
-    // the base params (nothing escapes CANCEL). The audition sounds the slot live (hold keys) at the test values.
-    // Wire the macro authoring data for a slot (group · base · macro baseline · existing bindings). Shared by the
-    // standalone pop-up (chain stack) and the EMBEDDED section in the flow-diagram processor pop-up.
-    func setupMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
-        guard let a = sel.anchor else { return }
-        macroAuthorAnchor = (a.col, a.row); macroAuthorSlot = i
-        macroAuthorGroup = macroGroupForProcessor(col: a.col, row: a.row, slot: i, type: slot.type)
-        macroAuthorBase = processorValues(slot)                       // the processor's CURRENT values (the offset base)
-        macroAuthorMacrosBaseline = au?.uiMacros() ?? []              // snapshot every macro — CANCEL restores this
-        macroAuthorExisting = macroSlotBindings(macroAuthorMacrosBaseline, col: a.col, row: a.row, slot: i)   // the dropdown + reflect
-    }
-    func openMacroAuthoring(slot i: Int, slotData slot: ProcessorSlot) {
-        guard let a = sel.anchor else { return }
-        setupMacroAuthoring(slot: i, slotData: slot)
-        au?.setAudition(col: a.col, row: a.row)
-        macroAuthorOpen = true
-    }
-    /// TEST audition — set the slot's live params to the per-param morphed test values (selected params morphed
-    /// base→target by their test slider; the rest at base). The base is never rewritten; this is transient audio.
-    func macroAuthorPreview(_ values: [String: Double]) {
-        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(values, to: $0) }
-    }
-    /// BIND the selected params' deltas (target − base) to a macro — committed LIVE (the panel is interactive).
-    /// Continuous (foldable) keys bind through addMacroTargets today; discrete keys are the future button path.
-    func macroAuthorBind(_ macroIndex: Int, _ deltas: [String: Double]) {
-        au?.removeMacroTargets(macroIndex, col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot)   // idempotent: replace this slot's binding
-        let foldable = Set(MacroParam.allCases.map(\.rawValue))   // the continuous params that fold through the engine (single source: MacroParam)
-        let targets: [MacroTarget] = deltas.compactMap { k, d in
-            (foldable.contains(k) && d != 0) ? MacroTarget(col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot, param: k, delta: d) : nil
-        }
-        // A freshly-bound macro stays at its current VALUE (0 by default) — the offset is authored but SILENT until
-        // it's driven from the grid slider (user ruling 2026-08-09: don't jump the sound on bind).
-        if !targets.isEmpty { au?.addMacroTargets(macroIndex, targets); au?.setMacroFixed(macroIndex, macroIndex >= 8) }
-        refreshFromDocument()
-    }
-    /// UNBIND — "Remove from M{n}": drop THIS slot's targets on this macro (reflected live in the MIDI out).
-    func macroAuthorUnbind(_ macroIndex: Int) {
-        au?.removeMacroTargets(macroIndex, col: macroAuthorAnchor.col, row: macroAuthorAnchor.row, slot: macroAuthorSlot)
-        refreshFromDocument()
-    }
-    /// Live macro drag inside the pop-up (moves the bound params through the offset).
-    func macroAuthorSetMacro(_ index: Int, _ value: Double) { au?.setMacroValue(index, value) }
-    func closeMacroAuthoring(apply: Bool) {
-        if !apply { au?.setMacrosDocument(macroAuthorMacrosBaseline.isEmpty ? nil : macroAuthorMacrosBaseline) }   // revert every macro change
-        au?.editSlotCells(editSelTargets, slot: macroAuthorSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) }   // restore the base (audition → off)
-        au?.clearAudition()
-        macroAuthorOpen = false; macroAuthorGroup = nil; macroAuthorMacrosBaseline = []
-        refreshFromDocument()
-    }
-
-    func sectionHeader(_ label: String) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)   // device round 2: bigger, legible
-            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-        }.padding(.top, 4)
-    }
-    // A MIDI IN/OUT section header — the DIN plug mark (outline variant) beside the label (design ferry SPEC-din-icon).
-    func midiSectionHeader(_ label: String) -> some View {
-        HStack(spacing: 8) {
-            dinMark(outline: true, ink: Self.editHue, size: 20)
-            Text(label).font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-        }.padding(.top, 4)
-    }
-    // The CHAIN section header carries the LIBRARY button at its top-right (moved off the page header).
-    @ViewBuilder func chainSectionHeader() -> some View {
-        HStack(spacing: 8) {
-            Text("CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-            Rectangle().fill(Self.editHue.opacity(0.25)).frame(height: 1)
-            // ([AB] popup retired 2026-08-06 — superseded by the MACRO button on each processor slot, which opens
-            //  the canonical MAIN/ALT authoring flow. The LIBRARY button stays.)
-            Button { openCellLibrary() } label: {
-                Text("LIBRARY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Self.editHue)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.editHue.opacity(0.14)))
-            }.buttonStyle(.plain)
-        }.padding(.top, 4)
-    }
-    // MARK: - THE FLOW DIAGRAM (cell-edit redesign; design ferry GUIDANCE-signal-flow-tidy §8 THE SNAKE, 2026-08-07).
-    // §8 SUPERSEDES the spine: ONE continuous DOTTED line, a boustrophedon S-path the eye follows; boxes are stations
-    // on it. ROW 1 L→R: [ID cell] → [RECEIVERS box, channels prominent] → [+ IN FILTER ghost]; the line drops + runs
-    // LEFT to the chain's left. ROW 2 L→R: ALL EIGHT slots (solid=set · dashed "+"=empty — supersedes the one-ghost
-    // rule for this diagram), the line threading through. Drops from slot 8's right into ROW 3 R→L: [+ OUT FILTER] →
-    // [EMITTERS box]. THE LINE LAW: one dotted thread, no branches. §4 R/OUT chips toggle in place. Filters are inert
-    // ghosts (no engine). Dims fitted to the page column — the full §6/§7 (96×56 slots, 976 usable) needs the page-
-    // wide relayout, owed.
-    // Layout (user 2026-08-07 revisions): NO title. The SELECTED-CELL indicator (ID cell) is LEFT-aligned, bigger,
-    // and RECTANGULAR (grid-cell proportions); the signal flow is CENTRED. RECEIVERS centred at top → the INPUT FILTER
-    // box immediately BELOW them (dotted connector) → the 8 PROCESSOR boxes (the dotted line enters their LEFT, exits
-    // their RIGHT) → the OUTPUT FILTER (centred, above emitters) → the EMITTERS box (centred). One dotted thread; every
-    // box is OPAQUE so the line is hidden wherever it passes behind one. Receiver/emitter/processor boxes ~doubled.
     @ViewBuilder func flowDiagram(_ cell: Cell, width: CGFloat) -> some View {
         let chain = cellChain(cell)
         let bg = Color(red: 0.066, green: 0.075, blue: 0.094)   // the page background — opaque box fills occlude the line
@@ -434,135 +194,19 @@ extension DiagView {
         .frame(width: flowW, height: 268)
     }
     // A set slot (tap → edit pop-up) or an empty dashed "+" ghost (tap → type picker) — user 2026-08-07.
+    // DISPLAY-ONLY now (BUILD renders flowDiagram with allowsHitTesting(false); the interactive proc-editor was retired
+    // with the PROCESSORS tab — BUILD edits via its own buildProcessorEditor).
     @ViewBuilder private func slotOrGhost(_ i: Int, _ chain: [ProcessorSlot], bg: Color, hue: Color) -> some View {
-        // BUTTONS, not onTapGesture (user 2026-08-10): a bare tap-gesture on these positioned boxes competed with the
-        // DRAG&DROP page's ambient drag → taps missed / fired late ("pops open unexpectedly"). A Button's tap recogniser
-        // wins cleanly.
         if i < chain.count {
-            Button { openProcEdit(slot: i) } label: { flowSlot(chain[i], bg: bg, hue: hue).contentShape(Rectangle()) }.buttonStyle(.plain)
+            flowSlot(chain[i], bg: bg, hue: hue)
         } else {
-            Button { procTypePickerOpen = true } label: { flowGhost("+", bg: bg, plus: false, hue: hue).contentShape(Rectangle()) }.buttonStyle(.plain)
+            flowGhost("+", bg: bg, plus: false, hue: hue)
         }
     }
     // FLOW-DIAGRAM processor pop-up — tap a populated box to edit its FULL controls (same ProcessorBox as the chain
     // editor: big, legible, per-type). Title + BYPASS in the box's title row; the MACRO section (add/dropdown +
     // authoring) at the FOOT of the form; APPLY/CANCEL below it. ONE transaction: CANCEL reverts the whole document
     // snapshot (processor edits AND macro edits together, per the user's ruling 2026-08-08).
-    func openProcEdit(slot i: Int) {
-        procEditSlot = i
-        procEditDocBaseline = au?.uiDocument()          // CANCEL restores this exactly (params + macros)
-        procMacroEngaged = false
-        if let cell = editingCell, i < cellChain(cell).count { setupMacroAuthoring(slot: i, slotData: cellChain(cell)[i]) }
-        procEditOpen = true
-    }
-    // The macro morph auditions the cell live — started only when the macro section is opened, cleared on close.
-    func procMacroEngage() {
-        guard let a = sel.anchor else { return }
-        au?.setAudition(col: a.col, row: a.row)
-        procMacroEngaged = true
-    }
-    func closeProcEdit(apply: Bool) {
-        if procMacroEngaged {
-            au?.clearAudition()
-            // slot → BASE: clears any unbound morph residue. macroAuthorBase tracks ProcessorBox param edits (onEdited),
-            // so this KEEPS the edits while the macro holds its delta as an offset. (Editing params AFTER binding a
-            // macro in the same session is not fully reconciled — author macros as the last step. Flagged.)
-            if apply { chainEditSlot(slot: procEditSlot) { $0 = applyProcessorValues(macroAuthorBase, to: $0) } }
-        }
-        if !apply, let b = procEditDocBaseline { au?.restoreDocument(b) }   // revert every edit since it opened
-        procEditOpen = false; procEditDocBaseline = nil; procMacroEngaged = false; macroAuthorGroup = nil
-        refreshFromDocument()
-    }
-    @ViewBuilder func procEditPopup() -> some View {
-        let chain = editingCell.map { cellChain($0) } ?? []
-        if let cell = editingCell, procEditSlot < chain.count {
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { closeProcEdit(apply: true) }   // scrim = keep
-                VStack(spacing: 0) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 16) {
-                            slotBox(procEditSlot, chain[procEditSlot], cell: cell,
-                                    plainTitle: true, showMacro: false,
-                                    onEdited: { if let c = editingCell, procEditSlot < cellChain(c).count { macroAuthorBase = processorValues(cellChain(c)[procEditSlot]) } },
-                                    onRemoved: { closeProcEdit(apply: true) })   // deleting the shown slot closes the pop-up
-                            if let g = macroAuthorGroup {                 // the MACROS section — folded in at the FOOT (user 2026-08-08)
-                                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-                                MacroAuthoringView(group: g, macros: au?.uiMacros() ?? [], existing: macroAuthorExisting,
-                                                   accent: mainDestHue, base: macroAuthorBase,
-                                                   onPreview: macroAuthorPreview, onBind: macroAuthorBind, onUnbind: macroAuthorUnbind,
-                                                   onSetMacro: macroAuthorSetMacro, onClose: { _ in },
-                                                   embedded: true, onEngage: procMacroEngage)
-                            }
-                        }.padding(14)
-                    }
-                    HStack(spacing: 10) {
-                        Spacer()
-                        Button { closeProcEdit(apply: false) } label: { transactChip("CANCEL", enabled: true, fill: false) }.buttonStyle(.plain)
-                        Button { closeProcEdit(apply: true) } label: { transactChip("APPLY", enabled: true, fill: true) }.buttonStyle(.plain)
-                    }.padding(14)
-                }
-                .frame(maxWidth: 560, maxHeight: 760)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
-                .padding(20)
-            }
-        }
-    }
-    // The welcoming TYPE PICKER for an empty box — the same big emblem buttons as the current cell edit page's
-    // "add processor" invitation. Picking a type appends the slot; the picker closes.
-    @ViewBuilder func procTypePickerPopup() -> some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { procTypePickerOpen = false }
-            VStack(alignment: .leading, spacing: 14) {
-                Text("ADD A PROCESSOR").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
-                Text("Pick a processor to shape the signal.").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], spacing: 8) {   // NAMES only (no icons, user 2026-08-10)
-                    ForEach(ProcessorType.allCases, id: \.self) { t in
-                        Button {
-                            let newIdx = editingCell.map { cellChain($0).count } ?? 0   // the slot the append will create
-                            chainAddSlot(type: t)
-                            procTypePickerOpen = false
-                            openProcEdit(slot: newIdx)                                   // straight into the edit form (user 2026-08-08)
-                        } label: {
-                            Text(t.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6)
-                                .foregroundColor(mainDestHue).frame(maxWidth: .infinity).frame(height: 40)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(mainDestHue.opacity(0.10))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(mainDestHue.opacity(0.5), lineWidth: 1.5)))
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(18).frame(maxWidth: 620)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
-            .padding(20)
-        }
-    }
-    // The OUTPUT SPLIT editor (user 2026-08-09) — the MAIN destination · the 8×3 CHOP grid · the ALT destination,
-    // lifted off the cell-edit page into an add-processor-style pop-up so the under-flow-diagram sections can retire.
-    // Reached by tapping the emitters' SPLIT affordance in the flow diagram. Edits are LIVE (the same setters as the
-    // old inline block); DONE / scrim-tap closes.
-    @ViewBuilder func splitEditorPopup(_ cell: Cell) -> some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { splitEditorOpen = false }
-            VStack(alignment: .leading, spacing: 14) {
-                Text("OUTPUT SPLIT").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(mainDestHue)
-                Text("Redirect each of the 8 slices to the MAIN emitters, MUTE, or the ALT destination.")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                    .fixedSize(horizontal: false, vertical: true)
-                outputSection(cell, emitterWidth: 480)
-                HStack {
-                    Spacer()
-                    Button { splitEditorOpen = false } label: { transactChip("DONE", enabled: true, fill: true) }.buttonStyle(.plain)
-                }
-            }
-            .padding(18).frame(maxWidth: 560)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.10, green: 0.11, blue: 0.13)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(mainDestHue.opacity(0.4), lineWidth: 1))
-            .padding(20)
-        }
-    }
-    // Styled EXACTLY like the emitter box (user 2026-08-09): opaque dark fill + a selected-colour frame, cornerRadius 10.
     private func flowSlot(_ slot: ProcessorSlot, bg: Color, hue: Color) -> some View {
         VStack(spacing: 1) {
             Text(slot.type.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)   // emblem icon removed (user 2026-08-09)
@@ -615,16 +259,14 @@ extension DiagView {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.7), lineWidth: 1.5))
     }
     // The SPLIT affordance on the emitters box — opens the OUTPUT SPLIT pop-up (extracted so emitterBox type-checks).
-    private func splitAffordance() -> some View {
+    private func splitAffordance() -> some View {   // display-only now (the SPLIT pop-up was retired with the PROCESSORS tab)
         let dashed = RoundedRectangle(cornerRadius: 6).strokeBorder(mainDestHue.opacity(0.5), style: StrokeStyle(lineWidth: 1.2, dash: [3, 2]))
-        return Button { splitEditorOpen = true } label: {
-            VStack(spacing: 2) {
-                Image(systemName: "arrow.triangle.branch").font(.system(size: 15, weight: .heavy))
-                Text("SPLIT").font(.system(size: 8, weight: .heavy, design: .monospaced))
-            }
-            .foregroundColor(mainDestHue).frame(width: 48).frame(maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6).fill(mainDestHue.opacity(0.14)).overlay(dashed))
-        }.buttonStyle(.plain)
+        return VStack(spacing: 2) {
+            Image(systemName: "arrow.triangle.branch").font(.system(size: 15, weight: .heavy))
+            Text("SPLIT").font(.system(size: 8, weight: .heavy, design: .monospaced))
+        }
+        .foregroundColor(mainDestHue).frame(width: 48).frame(maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(mainDestHue.opacity(0.14)).overlay(dashed))
     }
     // The UNIFIED GHOST — a dashed, OPAQUE box that fills its frame. Dashed = the stage doesn't exist yet. `plus` adds
     // a trailing plus icon after the label (the Output Filter reads "Output Filter +"); pass a "+" label with plus:false
@@ -650,75 +292,9 @@ extension DiagView {
     /// The OUTPUT block — MAIN dest · the 8×3 CHOP grid · ALT dest — CENTRED at the emitter section's width so it
     /// lines up over the MIDI OUTPUT strips below (user 2026-07-31). Each slice column: TOP → the cell's own (MAIN)
     /// emitters · MIDDLE → MUTE · BOTTOM → the ALT DESTINATION set (chosen below). The routing runs in the engine.
-    @ViewBuilder func outputSection(_ cell: Cell, emitterWidth: CGFloat) -> some View {
-        let chop = cell.chopResolved
-        VStack(alignment: .leading, spacing: 8) {            // §6 left-aligned with the page grammar (was centred)
-            Text("MAIN DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: 6) { ForEach(Array(Bus.allCases.enumerated()), id: \.offset) { i, b in   // §2 A–D toggles + channel tags
-                VStack(spacing: 3) {
-                    busToggle(b.rawValue, on: cell.buses.contains(b), hue: mainDestHue) { toggleMainBus(b) }
-                    Text("ch\(i < busChannels.count ? busChannels[i] : i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                }.frame(maxWidth: .infinity)
-            } }
-            VStack(spacing: 3) {                             // the 8×3 CHOP grid — one column per slice; rows are INDEPENDENT
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .main, chop) } }   // TOP = MAIN dest
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .mute, chop) } }   // MIDDLE = MUTE
-                HStack(spacing: 3) { ForEach(0..<8, id: \.self) { chopCell($0, .alt,  chop) } }   // BOTTOM = ALT dest
-            }
-            Text("ALT DESTINATION").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            HStack(spacing: 6) { ForEach(Bus.allCases, id: \.self) { b in busToggle(b.rawValue, on: chop.altDest.contains(b), hue: Self.editHue) { editChop { if $0.altDest.contains(b) { $0.altDest.remove(b) } else { $0.altDest.insert(b) } } } } }
-        }
-        .frame(maxWidth: emitterWidth, alignment: .leading)
-    }
-    func busToggle(_ label: String, on: Bool, hue: Color, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white.opacity(0.6))
-            .frame(maxWidth: .infinity).frame(height: 42)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? hue : Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-    @ViewBuilder func chopCell(_ i: Int, _ row: ChopRow, _ chop: Chop) -> some View {
-        let bit = UInt8(1) << UInt8(i)
-        let on: Bool = row == .main ? (chop.mainMask & bit != 0) : row == .alt ? (chop.altMask & bit != 0) : (chop.muteMask & bit != 0)
-        let hue: Color = row == .main ? mainDestHue : row == .alt ? Self.editHue : Verb.delete.hue
-        ZStack {
-            RoundedRectangle(cornerRadius: 4).fill(on ? hue.opacity(0.85) : Color.white.opacity(0.08))
-            if row == .mute {   // the MUTE row shows a speaker: unmuted when off, muted (slash) when on
-                Image(systemName: on ? "speaker.slash.fill" : "speaker.fill").font(.system(size: 11, weight: .heavy))
-                    .foregroundColor(on ? .black : .white.opacity(0.55))
-            }
-        }
-        .frame(maxWidth: .infinity).frame(height: 24)
-        .contentShape(Rectangle()).onTapGesture { tapChop(i, row) }
-    }
-    func tapChop(_ i: Int, _ row: ChopRow) {   // each row is an INDEPENDENT per-slice toggle
-        let bit = UInt8(1) << UInt8(i)
-        editChop { c in
-            switch row {
-            case .main: c.mainMask ^= bit
-            case .alt:  c.altMask ^= bit
-            case .mute: c.muteMask ^= bit
-            }
-        }
-    }
     func toggleMainBus(_ b: Bus) {
         editPointedCell { if $0.buses.contains(b) { $0.buses.remove(b) } else { $0.buses.insert(b) } }
     }
-    func editChop(_ mutate: @escaping (inout Chop) -> Void) {
-        editPointedCell { var ch = $0.chopResolved; mutate(&ch); $0.chop = (ch == Chop() ? nil : ch) }
-    }
-    /// A small labelled facet row (fixed-width label + a control) — used by `inputShiftRow`. (Was shared with the
-    /// TRIGGERS accordion editors, now retired — the ON model stays on `Colour`, its inline UI returns with TOUCH.)
-    @ViewBuilder func facetRow<V: View>(_ label: String, @ViewBuilder _ control: () -> V) -> some View {
-        HStack(spacing: 6) {
-            Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4)).frame(width: 44, alignment: .leading)
-            control(); Spacer(minLength: 0)
-        }
-    }
-
-    // MARK: - §cell-edit D — INPUT (Phase 3a: the SOURCE picker — cell-level, reuses the routing fields)
-
-    /// MODE ROW — edit the whole SELECTION SET in one undoable step (input/output/chop/colour route through here).
-    /// The edit applies to every selected cell; with a single cell selected it's just that cell.
     func editPointedCell(_ mutate: @escaping (inout Cell) -> Void) {
         guard let au else { return }
         // On the DRAG&DROP page a colour IS a machine — the per-cell ROUTING edit (receiver / emitters / chop) pushes
@@ -733,46 +309,7 @@ extension DiagView {
         guard !sel.isEmpty else { return }
         au.editCells(editSelTargets, mutate); refreshFromDocument()
     }
-    /// SHIFT (D "octave + transpose · existing steppers, unchanged") — reuses the per-Colour transpose
-    /// (−24…+24 st, already applied engine-wide via `setBrushTranspose`). OCTAVE = a ±12 convenience, SEMITONE =
-    /// ±1; both mutate the one `Colour.transpose`. Colour-side like the triggers, so same-colour cells follow.
-    @ViewBuilder var inputShiftRow: some View {
-        let t = brushColour?.transpose ?? 0
-        facetRow("SHIFT") {
-            HStack(spacing: 5) {
-                stepPad("−12") { setBrushTranspose(max(-24, t - 12)) }
-                stepPad("−")   { setBrushTranspose(max(-24, t - 1)) }
-                Text(t == 0 ? "0 st" : "\(t > 0 ? "+" : "")\(t) st")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(t == 0 ? .white.opacity(0.5) : Self.editHue)
-                    .frame(minWidth: 42)
-                stepPad("+")   { setBrushTranspose(min(24, t + 1)) }
-                stepPad("+12") { setBrushTranspose(min(24, t + 12)) }
-            }
-        }
-    }
-    func stepPad(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
-            .frame(minWidth: 22, minHeight: 20).padding(.horizontal, 3)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
-            .contentShape(Rectangle()).onTapGesture(perform: action)
-    }
-
-    // CELL MACHINE stage-4 — the CELL LIBRARY: save the selected cell, browse, stamp saved cells.
-    func openCellLibrary() { cellLibraryList = au?.libraryCellSummaries() ?? []; showCellLibrary = true }
-    func saveCellNamed(_ name: String) {
-        au?.saveCellToLibrary(col: selCol, row: selRow, name: name)
-        cellLibraryList = au?.libraryCellSummaries() ?? []
-    }
-    func deleteLibraryCellNamed(_ name: String) {
+    func deleteLibraryCellNamed(_ name: String) {   // CellBrowser onDelete (live)
         au?.deleteLibraryCell(name: name); cellLibraryList = au?.libraryCellSummaries() ?? []
     }
-    // LIBRARY · APPLY — replace the CHAIN of the cells currently being edited with the library cell's chain.
-    func applyLibraryChain(_ cell: Cell?) {
-        guard let cell, !sel.isEmpty else { return }
-        let chain = cell.processors ?? []          // the saved cell's materialised chain (empty = passthrough)
-        chainReplace(chain)
-        showCellLibrary = false
-    }
-    func stampFromLibrary(_ name: String) { applyLibraryChain(au?.loadLibraryCell(name: name)) }
-    func stampFromFactory(_ name: String) { applyLibraryChain(au?.factoryLibraryCell(name: name)) }
 }

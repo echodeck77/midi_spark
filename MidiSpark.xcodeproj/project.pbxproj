@@ -29,7 +29,6 @@
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
-		4269BB4C2A37F0896A7E4AF9 /* MacroAuthoringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C5D0AE6038961A9DC8537B /* MacroAuthoringView.swift */; };
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		53D084C62DDD96D955907DE6 /* GridMacroBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0454D7DDFADB5127B44E2634 /* GridMacroBand.swift */; };
@@ -169,7 +168,6 @@
 		DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTest.swift; sourceTree = "<group>"; };
-		E6C5D0AE6038961A9DC8537B /* MacroAuthoringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoringView.swift; sourceTree = "<group>"; };
 		EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
 		EE6F3510434D1DCF651853AB /* MacroAuthoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoringTests.swift; sourceTree = "<group>"; };
 		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
@@ -279,7 +277,6 @@
 				F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */,
 				0DFF24D7CF876BB9752F7ABB /* Kernel.swift */,
 				31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */,
-				E6C5D0AE6038961A9DC8537B /* MacroAuthoringView.swift */,
 				FB579E7A98D1755158B6B0DE /* ManualView.swift */,
 				9093C469F102E1F2CCC6DF7D /* MidiFile.swift */,
 				3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */,
@@ -457,7 +454,6 @@
 				D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */,
 				375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */,
 				EA12B8EA582FDBCD044746B9 /* MacroAuthoring.swift in Sources */,
-				4269BB4C2A37F0896A7E4AF9 /* MacroAuthoringView.swift in Sources */,
 				14001737F3526E61A6910D74 /* ManualView.swift in Sources */,
 				368706B54B23A18EAE705127 /* MidiFile.swift in Sources */,
 				1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */,

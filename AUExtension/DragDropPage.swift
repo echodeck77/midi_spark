@@ -39,10 +39,6 @@ extension DiagView {
         ddColourSel = i
         ddScopeToColour(colourIDs[i], anchor: nil)
     }
-    func ddRepresentativeCell(_ id: String) -> Cell? {   // internal: shared with the BUILD page
-        for c in 0..<8 { for r in 0..<8 { if let cell = scene.cellAt(c, r), cell.colourID == id { return cell } } }
-        return nil
-    }
     private func ddColourCells(_ id: String) -> [GridView.GridPos] {
         var out: [GridView.GridPos] = []
         for c in 0..<8 { for r in 0..<8 where scene.cellAt(c, r)?.colourID == id { out.append(GridView.GridPos(col: c, row: r)) } }
@@ -86,19 +82,5 @@ extension DiagView {
         mutate(&c)
         ddStickyReceiver = c.inputReceiver ?? 0
         ddStickyBuses = c.buses
-    }
-    /// Select a palette colour → scope the machinery to the whole colour (anchored on its first placed cell). No
-    /// placed cell → nothing to edit yet (place it via a row selector or a drag).
-    func ddSelectColour(_ i: Int) {
-        guard i >= 0 && i < colourIDs.count else { return }
-        ddColourSel = i
-        buildSelID = colourIDs[i]   // keep BUILD's ID selection in sync when a document colour is picked
-        ddScopeToColour(colourIDs[i], anchor: nil)
-    }
-    /// Open the DRAG&DROP page with a colour selected: keep a valid current selection, else fall back to GOLD (the
-    /// default colour that's always present). Re-scopes so the selection picks up any newly-placed cells. (user 2026-08-09)
-    func ddEnsureSelection() {
-        let valid = ddColourSel >= 0 && ddColourSel < colourIDs.count && ddColourShown(ddColourSel)
-        ddSelectColour(valid ? ddColourSel : (colourIDs.firstIndex(of: "gold") ?? 0))
     }
 }
