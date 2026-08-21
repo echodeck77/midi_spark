@@ -166,6 +166,17 @@ final class DiceTests: XCTestCase {
         }
     }
 
+    // DENSITY BUDGET BANDS (Paul 2026-08-21): each archetype rolls INTO an events/beat band → a sparse-biased pyramid
+    // by construction. The FLOOR (pad, row 0) must stay sparse; the dense row (texture, row 5) must out-densify it.
+    func testEnsembleDensityBandsFormASparsePyramid() {
+        for seed: UInt64 in [1, 7, 42, 99, 2024] {
+            var rng = DiceRNG(seed: seed)
+            let rows = Dice.rollEnsemble(using: &rng)   // Archetype.allCases order: pad(0) … texture(5) …
+            let pad = Dice.densityPerBeat(rows[0].chain), texture = Dice.densityPerBeat(rows[5].chain)
+            XCTAssertLessThanOrEqual(pad, Dice.archetypeBand(.pad).hi, "the FLOOR (pad) stays within its sparse band ceiling (seed \(seed))")
+            XCTAssertLessThanOrEqual(pad, texture, "the FLOOR is no denser than the dense row (texture) (seed \(seed))")
+        }
+    }
     // The CAP is judged at a 6-note chord: a whole-chord striker's peak scales with chord size (an arp's does not).
     func testPeakAtSixExceedsPeakAtThreeForAWholeChordStriker() {
         var euclid = ProcessorSlot(type: .euclid)

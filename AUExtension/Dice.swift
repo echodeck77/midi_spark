@@ -312,6 +312,27 @@ enum Dice {
     static let cap6Chord: [UInt8] = [48, 52, 55, 60, 64, 67]
     static func peakAt6(_ chain: [ProcessorSlot]) -> Int { runRecorder(chain, chord: cap6Chord).peakConcurrency }
 
+    /// A chain's DENSITY = note-ONS per beat, judged at the 3-note probe (CHARACTER at 3, per the design). The measure
+    /// the density BUDGET BANDS constrain — so "sparse→dense" is real, not a guess.
+    static func densityPerBeat(_ chain: [ProcessorSlot]) -> Double {
+        Double(runRecorder(chain).events.filter { $0.on }.count) / 3.0   // onsets over the 3-beat probe
+    }
+    /// The events/beat BAND per archetype — a SPARSE-BIASED PYRAMID assigned BEFORE rolling so simple→complex is true
+    /// BY CONSTRUCTION: the FLOOR (pad) genuinely sparse (a two-note pulse must be possible), ONE dense row (texture),
+    /// the rest graded between. Default banding (Paul 2026-08-21) — tune by ear.
+    static func archetypeBand(_ a: Archetype) -> (lo: Double, hi: Double) {
+        switch a {
+        case .pad:     return (0.0, 2.5)    // the FLOOR — a held pad / two-note pulse (a chord drone measures ~1–2)
+        case .bass:    return (0.5, 3.5)
+        case .stab:    return (0.5, 4.0)
+        case .sparkle: return (1.0, 5.5)    // high + thinned by chance
+        case .groove:  return (1.5, 6.5)
+        case .arp:     return (2.0, 8.0)
+        case .texture: return (3.5, 14.0)   // the ONE dense row
+        case .wild:    return (0.3, 10.0)   // surprise — a wide band
+        }
+    }
+
     static func rollEnsemble(using rng: inout some RandomNumberGenerator) -> [EnsembleRow] {
         Archetype.allCases.map { rollArchetype($0, using: &rng) }
     }
@@ -349,9 +370,17 @@ enum Dice {
                 return rollSimple(using: &rng)
             }
         }
+        // Keep a candidate that is AUDIBLE, under the flood cap, AND inside this archetype's DENSITY BUDGET BAND — so
+        // the pyramid is true by construction (Paul 2026-08-21). Best-effort: if none fits the band in `tries`, keep the
+        // last audible non-flooding one (the band biases, it isn't a hard gate); a silent/flooding result → the fallback.
+        let band = archetypeBand(a)
+        func fits(_ c: [ProcessorSlot]) -> Bool {
+            let d = densityPerBeat(c)
+            return d > 0 && d >= band.lo && d <= band.hi && peakAt6(c) <= maxConcurrency
+        }
         var chain = attempt(); var tries = 6
-        while (signature(chain).isEmpty || peakAt6(chain) > maxConcurrency) && tries > 0 { tries -= 1; chain = attempt() }
-        if signature(chain).isEmpty {                                     // guaranteed-audible fallback — never a silent row
+        while !fits(chain) && tries > 0 { tries -= 1; chain = attempt() }
+        if densityPerBeat(chain) == 0 || peakAt6(chain) > maxConcurrency {   // guaranteed-audible, non-flooding fallback
             var s = randomSlot(using: &rng); s.type = .arp; s.params.octaves = 1; s.params.rate = .r1_8; chain = [s]
         }
         return EnsembleRow(chain: chain, transpose: transposeFor(a, using: &rng))
