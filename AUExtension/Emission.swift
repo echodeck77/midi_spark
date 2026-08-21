@@ -178,10 +178,22 @@ final class DoorRing {
     private func ordered(_ i: Int) -> Ev { buf[(head - count + i + DoorRing.cap * 2) % DoorRing.cap] }   // i: 0…count-1, oldest→newest
 
     /// Capture the events in the last `lengthBeats` (ending at `endBeat`) as the playback loop, re-based to [0, len).
+    /// A note the hands were ALREADY HOLDING when the window opens has its note-on BEFORE `start` (outside the window),
+    /// so it would be lost — the "REPLAY sometimes silent" bug. Fix (Paul 2026-08-21): seed beat-0 note-ons for every
+    /// note SOUNDING at `start`, so a sustained chord loops from the top instead of vanishing.
     func capture(endBeat: Double, lengthBeats: Double) {
         loopN = 0; loopLen = max(0, lengthBeats)
         guard lengthBeats > 0 else { return }
         let start = endBeat - lengthBeats
+        // 1) notes held across the window start → inject as beat-0 ons (their last on/off before `start` is an ON)
+        var heldVel = [Int16](repeating: -1, count: 128)
+        for i in 0..<count {
+            let e = ordered(i)
+            if e.beat >= start { break }
+            if e.note < 128 { heldVel[Int(e.note)] = (e.on && e.vel > 0) ? Int16(e.vel) : -1 }
+        }
+        for n in 0..<128 where heldVel[n] >= 0 && loopN < DoorRing.cap { loop[loopN] = Ev(beat: 0, note: UInt8(n), vel: UInt8(heldVel[n]), on: true); loopN += 1 }
+        // 2) the events inside the window, re-based to [0, len) — time-ordered (the ring records in arrival order)
         for i in 0..<count where loopN < DoorRing.cap {
             let e = ordered(i)
             if e.beat >= start && e.beat < endBeat { loop[loopN] = Ev(beat: e.beat - start, note: e.note, vel: e.vel, on: e.on); loopN += 1 }

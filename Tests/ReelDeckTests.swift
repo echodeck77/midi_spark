@@ -139,12 +139,27 @@ final class ReelDeckTests: XCTestCase {
     }
     func testDoorRingRetroCaptureRebasesTheWindow() {
         let ring = DoorRing()
-        ring.record(beat: 4.0, note: 48, vel: 80, on: true)      // OLD — before the captured window
+        ring.record(beat: 3.0, note: 40, vel: 70, on: true)      // an OLD note, RELEASED before the window → dropped
+        ring.record(beat: 3.5, note: 40, vel: 0, on: false)
+        ring.record(beat: 4.0, note: 48, vel: 80, on: true)      // HELD across the window start (never released)
         ring.record(beat: 5.5, note: 72, vel: 110, on: true)     // inside the last 1 beat
-        ring.capture(endBeat: 6.0, lengthBeats: 1.0)             // window [5,6) → 72 only, re-based to beat 0.5
+        ring.capture(endBeat: 6.0, lengthBeats: 1.0)             // window [5,6)
         var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
-        XCTAssertEqual(ring.notesSoundingAt(0.4, outNote: &n, outVel: &v), 0, "before the rebased onset → silence")
-        let c = ring.notesSoundingAt(0.6, outNote: &n, outVel: &v)
-        XCTAssertEqual(c, 1); XCTAssertEqual(n[0], 72); XCTAssertEqual(v[0], 110, "the recent note, rebased + velocity kept")
+        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v); return Set((0..<c).map { n[$0] }) }
+        XCTAssertEqual(sounding(0.4), [48], "a note HELD across the window start loops from beat 0; the released old note is gone")
+        XCTAssertEqual(sounding(0.6), [48, 72], "plus the recent note, rebased to 0.5")
+    }
+    // REPLAY intermittency fix (Paul 2026-08-21): a chord the hands were already SUSTAINING when the catch window opens
+    // must loop from the top — its note-ons are before the window, so `capture` seeds them at beat 0 (else = silence).
+    func testDoorRingCaptureSeedsNotesHeldAtWindowStart() {
+        let ring = DoorRing()
+        ring.record(beat: 0.0, note: 60, vel: 100, on: true)     // a chord pressed BEFORE the window, still held
+        ring.record(beat: 0.0, note: 64, vel: 90, on: true)
+        ring.record(beat: 3.0, note: 67, vel: 80, on: true)      // a later note added inside the window
+        ring.capture(endBeat: 4.0, lengthBeats: 2.0)             // window [2,4): 60+64 held → beat 0; 67 at 3 → 1.0
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
+        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v); return Set((0..<c).map { n[$0] }) }
+        XCTAssertEqual(sounding(0.5), [60, 64], "the sustained chord loops from the top (was dropped → silence)")
+        XCTAssertEqual(sounding(1.5), [60, 64, 67], "the in-window note joins")
     }
 }
