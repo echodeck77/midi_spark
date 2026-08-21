@@ -179,6 +179,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   so they can't be wholesale-deleted without their own mapping; `RackMatrix`, `colourColor`, `routingEdges`/`RouteEdge`/
   `RouteCell` (pure + tested). A few emitter/receiver mark @State (`emitMarks`/`emitHeld`/…) are now write-only (harmless).
   DEVICE eye owed (nav to RackMatrix via EDIT TREATMENTS, DONE returns to BUILD).**
+- **▶ EDIT/verb/proc-editor CLUSTER deleted — the dead-code untangle (2026-08-21, on `main`; `7b01ade`; iOS builds, macOS
+  green; ~980 lines). Follows the tab retirement: with BUILD sole, `editArmed` is permanently false + `heldVerb`
+  permanently nil, so the grid-EDIT / verb / flow-diagram-proc-editor machinery was all dead — kept alive only by
+  `flowDiagram`'s own interactive buttons, which BUILD renders DISPLAY-ONLY (`allowsHitTesting(false)`) + edits via its
+  own `buildProcessorEditor`. Mapped the transitive closure (Explore agent), deleted compiler-verified: EditPage's chain-
+  edit/macro-authoring/proc+split pop-ups/output-split/transpose+headers/selection machinery; the VC's verb cluster +
+  selection-undo (undo/redo now hit the AU document directly) + dead onChange(editArmed) + 22 dead @State + `Verb` enum +
+  `ladderHue`; dd* residue; and the whole `MacroAuthoringView.swift`. Neutered `slotOrGhost`/`splitAffordance` to display-
+  only. KEPT (BUILD-reached): `flowDiagram` + its display subtree, `cellChain`, `editPointedCell`, the dd* colour cluster
+  + `EditSelection`/`sel` (BUILD scopes via `ddScopeToColour`), `syncSingleModeActivation`, `refreshTapMasks`, `setHold`.
+  Whole tab-retirement + untangle sweep ≈ 3.4k lines removed. `Docs/pending-tasks.md` has the full delete/keep record.**
 - **▶ OUTPUT CHAIN sheet — the RACK CONFIG sheet, twin of MIDI INPUTS (2026-08-21, on `main`; `33965c6`; iOS builds,
   macOS suite unaffected; DEVICE eye owed). The `[RACK CONFIG]` bottom-left button stopped jumping to the emitters tab —
   it now opens `buildRackConfigSheet` (`@State buildRackConfigOpen`), same spacious top-aligned style as the MIDI INPUTS

@@ -35,14 +35,20 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   block ~duplicated~~ DONE (2026-08-21, `c338eda` — `emitColumnTransition(effCol:prevEdge:onlyRow:…)`; onlyRow nil =
   global clock, r = per-row; byte-identical, proven by the acceptance oracle + fuzz determinism). The TICK loops
   (`emitTickRow`) were already shared; only the trivial MOD/GLIDE per-row loop stays inline. Closes codebase-review §12.
-- **TAB SECTION RETIRED (2026-08-21, `96a484d`→`b177f3a`) — BUILD is the sole surface; GRID/MIDI IN/MIDI OUT-tab/
-  MACROS/AUTOMATION + the tab bar deleted (~2.4k lines); MIDI OUT `RackMatrix` kept as a BUILD overlay.** REMAINING dead
-  cluster (a SEPARATE, bigger sweep — needs its own mapping): **`EditPage` (the PROCESSORS surface) + `DragDropPage`** are
-  now unreachable (their tab cases were removed earlier) but NOT deleted — BUILD still pulls `ProcessorBox`, `flowDiagram`,
-  `procEditPopup`/`macroAuthor`, `GridView`(+`GridPos`), and the `sel`/verb/`deselect`/`syncAnchor`/`armLadderRung`
-  selection machinery from them, so they can't be wholesale-deleted. Also now write-only: the emitter/receiver mark @State
-  (`emitMarks`/`recvMarks`/`emitHeld`/`emitRelease`/`recvRelease`/`recvLiveHeld`) + their poll writes. Untangle BUILD's real
-  deps from EditPage first, then delete the rest.
+- **TAB SECTION RETIRED (2026-08-21, `96a484d`→`7b01ade`) — BUILD is the sole surface; GRID/MIDI IN/MIDI OUT-tab/
+  MACROS/AUTOMATION + the tab bar deleted (~2.4k lines); MIDI OUT `RackMatrix` kept as a BUILD overlay.** **EDIT/verb/
+  proc-editor CLUSTER also deleted (2026-08-21, `7b01ade`, ~980 lines):** with BUILD sole, `editArmed` is permanently
+  false + `heldVerb` permanently nil, so the whole grid-EDIT / verb / flow-diagram-proc-editor machinery was dead (kept
+  alive only by flowDiagram's interactive buttons, which BUILD renders display-only + edits via its own
+  `buildProcessorEditor`). Removed the chain-edit/macro-authoring/pop-up/output-split/selection machinery from EditPage,
+  the verb + selection-undo cluster + 22 dead @State + Verb enum from the VC, dd* residue, and the whole
+  `MacroAuthoringView.swift`. KEPT (BUILD-reached): `flowDiagram` + its display subtree, `cellChain`, `editPointedCell`,
+  the dd* colour cluster + `EditSelection`/`sel` (BUILD scopes via `ddScopeToColour`), `syncSingleModeActivation`,
+  `refreshTapMasks`, `setHold`. STILL LEFT (low-value, not chased): a few write-only mark @State (`emitMarks`/`recvMarks`/
+  `emitHeld`/`emitRelease`/`recvRelease`/`recvLiveHeld`) + their poll writes; `GridView` + its renderers + `GridMacroSlider/
+  Button` (BUILD uses `GridView.GridPos` + shares the components — the grid component itself is still referenced). Total
+  tab-retirement sweep: ~3.4k lines. DEVICE eye owed on the whole BUILD surface (esp. the flow diagram still renders, and
+  RackMatrix via EDIT TREATMENTS).
 - **UI dead-code (grep-clean, FLAGGED not removed — the EDIT/verb surface may be intentional WIP like BuildPage):**
   `AudioUnitViewController` `toggleHold`/`onVerbEngaged`/`clearSelectionUndo`/`selectionMixed`/`sceneName`; `EditPage`
   `setEditMode`/`commitSession`/`revertSession`/`editGridLongPress`/`editGridLongEnd`/`midiSectionHeader`/
