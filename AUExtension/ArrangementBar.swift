@@ -66,7 +66,6 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
-                if activeTab != .build { singleMultiSeg }                          // GRID mode SINGLE|MULTI — hidden on BUILD (focus-model §4: no jurisdiction there; staging is always SINGLE-natured, bands own their own behaviour)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
@@ -79,7 +78,6 @@ struct ArrangementBar: View {
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
             }
-            if showTabBar { tabBar.helpAnchor("#tab-bar") }                         // LAYOUT v2: the six-tab bar — toggleable on the cog page
             if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }
         .offset(x: sceneShakeX)                              // shake when the active scene refuses the trash

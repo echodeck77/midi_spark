@@ -169,7 +169,7 @@ extension DiagView {
                         ForEach(0..<4, id: \.self) { b in buildEmitterConfigSection(b, mask: mask, chans: chans) }
                         Text("EDIT TREATMENTS →").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                             .frame(maxWidth: .infinity).frame(height: 40).background(RoundedRectangle(cornerRadius: 9).fill(buildCyan))
-                            .contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false; activeTab = .emitters }
+                            .contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false; buildRackMatrixOpen = true }
                     }.padding(.horizontal, 26).padding(.bottom, 30)
                 }
             }

@@ -153,6 +153,7 @@ struct DiagView: View {
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildRackConfigOpen: Bool = false   // BUILD [RACK CONFIG] → the OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21)
+    @State var buildRackMatrixOpen: Bool = false   // BUILD → the deep RackMatrix (was the MIDI OUT tab; now an overlay reached from RACK CONFIG's EDIT TREATMENTS)
     @State var buildFileImportDoor: Int? = nil     // FILE import: which door is picking a .mid (nil = closed)
     @State var buildRangeKbdDoor: Int? = nil       // RANGE picker: which door's keyboard is open (nil = closed)
     @State var buildRangeSetHi: Bool = false       // RANGE picker: setting the MAX bound (else MIN)
@@ -956,6 +957,12 @@ struct DiagView: View {
                     ManualView(blocks: Self.manualBlocks, initialAnchor: helpTracker.lastAnchor,
                                onClose: { showManual = false })
                 }
+                if buildRackMatrixOpen {                           // BUILD: the deep RackMatrix (OUTPUT CHAIN → EDIT TREATMENTS), as a full overlay
+                    ZStack {
+                        Color(red: 0.066, green: 0.075, blue: 0.094).ignoresSafeArea()
+                        rackMatrixView.padding(.horizontal, 12).padding(.vertical, 12)
+                    }
+                }
                 if procTypePickerOpen { procTypePickerPopup() }   // FLOW-DIAGRAM: empty box → the welcoming type picker
                 if procEditOpen { procEditPopup() }               // FLOW-DIAGRAM: populated box → the full processor controls
                 if splitEditorOpen, let cell = editingCell { splitEditorPopup(cell) }   // FLOW-DIAGRAM: emitters SPLIT → the output-split editor
@@ -1290,43 +1297,13 @@ struct DiagView: View {
         }
     }
 
+    // BUILD is the sole surface (the GRID/MIDI IN/MIDI OUT/MACROS/AUTOMATION tabs were retired 2026-08-21). Size the
+    // page to the space it ACTUALLY gets (below the header), not the full viewport — otherwise the column is always
+    // taller than the viewport by the header's height → the whole UI scrolls, and the scroll view steals taps from
+    // small controls (the piano/MIDI toggle + keys). The GeometryReader fills exactly the remaining height → no
+    // overflow → no scroll → touches land. (user 2026-08-12) The deep RackMatrix lives in a BUILD overlay now.
     @ViewBuilder func tabBody(_ geo: GeometryProxy) -> some View {
-        switch activeTab {
-        case .build:
-            // Size the page to the space it ACTUALLY gets (below the header), not the full viewport — otherwise the
-            // column is always taller than the viewport by the header's height → the whole UI scrolls, and the scroll
-            // view steals taps from small controls (the piano/MIDI toggle + keys). The GeometryReader fills exactly the
-            // remaining height → no overflow → no scroll → touches land. (user 2026-08-12)
-            GeometryReader { g in buildPage(g.size) }
-        case .grid:
-            signalColumn(geo.size.width, isPortrait: geo.size.height > geo.size.width)
-        case .emitters:
-            rackMatrixView                    // the treatment matrix, now a full page
-        case .receivers:
-            ReceiverConfigView(au: au, receivers: receivers,
-                               soloMask: soloReceiverMask, latchMask: latchMask, octave: receiverOctave, note: receiverNote,
-                               onToggleEnable: toggleReceiverEnabled, onToggleMute: toggleReceiverMute,
-                               onToggleSolo: toggleReceiverSolo, onToggleLatch: toggleReceiverLatch,
-                               onSetLatchKeys: setReceiverLatchKeys, onToggleBypass: toggleReceiverBypass,
-                               onOct: nudgeReceiverOctave, onNote: nudgeReceiverNote,
-                               onChanged: { receivers = au?.uiReceivers() ?? receivers })
-        case .macros:
-            MacroPanel(macros: au?.uiMacros() ?? [],
-                       onSetValue: { i, v in au?.setMacroValue(i, v) },
-                       onSetFixed: { i, f in au?.setMacroFixed(i, f); refreshFromDocument() },
-                       onSetName: { i, n in au?.setMacroName(i, n); refreshFromDocument() })
-        case .automation:
-            comingSoonPage(activeTab)
-        }
-    }
-
-    @ViewBuilder func comingSoonPage(_ tab: AppTab) -> some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Text(tab.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text("coming").font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(.white.opacity(0.3)).tracking(2)
-            Spacer()
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { g in buildPage(g.size) }
     }
 
     func signalColumn(_ appWidth: CGFloat, isPortrait: Bool) -> some View {
@@ -1570,7 +1547,7 @@ struct DiagView: View {
                    onToggleMono: toggleMono, onCycleMono: cycleMono,
                    onTogglePocket: togglePocket, onPocketMs: setPocketMsAmt,
                    onConvLead: setConvLeadSel, onConvStance: cycleConvStanceSel,
-                   onClose: { activeTab = .grid })          // DONE returns to the GRID tab
+                   onClose: { buildRackMatrixOpen = false })   // DONE dismisses the overlay → back to BUILD
     }
 
     var emittersBox: some View {
