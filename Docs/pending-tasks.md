@@ -138,13 +138,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   SOLI mode (dynamic block harmony from a door's pool) · PEDAL (hold the bar/cell's first note; FOLD-to-home register) ·
   a shortlist (gap-intelligence, contour extraction, canon rail, self-accumulation). Interface rule: receiver door chips
   (THIS·R1–R4) live IN the processor panel. Held UNRATIFIED at Paul's word.
-- **THE DOOR LOOP family** (`Docs/design-door-loop-2026-08-19.md`, ratified-for-the-channel). A latch that remembers
-  RHYTHM: record a door's RAW INPUT for N bars, cycle it back as the living input (determinism free — looped input
-  events ARE input events). Riders: RETRO-CAPTURE by default (the CATCH ring, double-tap keeps the last N bars);
-  OVERDUB = the latch's ADD/CHORD modes extended in time; PLAYBACK IS RE-ASKING (RATE/TRANSPOSE/QUANTIZE-on-playback
-  transform the loop — a legal moving frame for RIFF FOLLOWING). THE PROGRESSION REEL: record the whole song's harmony
-  once, scenes address SECTIONS of it. LINEAGE: this is the PURE-SOURCE recorder birthstone; the shipped ReelDeck is its
-  output-side twin — rhyme the machinery (ring/bars/freeze). Paul will walk the implementation directly.
+- **THE DOOR LOOP family** (`Docs/design-door-loop-2026-08-19.md`, ratified-for-the-channel). **CORE SHIPPED** = the
+  REPLAY door mode + `DoorRing` (config-sheets stage 3, `6ad8e34`): record a door's raw input, cycle it back as living
+  input; RETRO-CAPTURE (the CATCH ring / LAST N; 1·2·4·8 bars); per-door independence — device-ear owed. **RIDERS
+  DEFERRED TO A FUTURE VERSION (Paul, 2026-08-21):** (1) OVERDUB = ADD accumulates across passes vs CHORD replace
+  (DoorRing accumulate mode); (2) PLAYBACK IS RE-ASKING = RATE (half/double-time) · TRANSPOSE · QUANTIZE-on-playback
+  transforms inside `notesSoundingAt(phase)` + per-door controls; (3) THE PROGRESSION REEL = one long harmony take,
+  scenes address SECTIONS (scene→beat-window model + longer ring — the big architectural one). Paul walks each directly
+  (device steps outrank the doc); interlocks with the UNRATIFIED melody suite (RIFF FOLLOWING) but neither blocks.
 - **BURST · PATTERN + CARRY DONE** (2026-08-21, `44ed611`; `AcceptanceCriteria-burst-pattern-carry.md`). BURST gained
   the MODE radio ONCE|COIN|PATTERN (byte-identical default ONCE): COIN = seeded chance-of-burst per step
   (`burstCoinFires`); PATTERN = the 8-slice pick-then-paint B/C/R row, CARRY = span-stretch (the roll's strikes+curve
