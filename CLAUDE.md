@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DEAD-CODE SWEEP — surface-tied orphans + write-only mark @State (2026-08-21, on `main`; `486c535`+`f284e5b`;
+  iOS builds, macOS 825 green). Follows the tab/EDIT retirement. **`486c535`** deleted grep-verified zero-ref AU
+  surface-tied dead code (MidiSparkAudioUnit.swift): the always-nil `previewOverlay` cluster (+ its setters →
+  `documentToSave`/`fullState` encode collapse to `document`), `setCellChain`, the `CellLibraryStore` list/factory
+  duplicate wrappers (`listLibraryCells`/`factoryLibraryCells` — CellBrowser uses the `*Summaries` variants),
+  `loadFactoryScene`, `uiEffColumn`, and `sceneName` (AudioUnitViewController). **`f284e5b`** deleted the six
+  write-only mark `@State` the tab sweep left (`emitMarks`/`recvMarks`/`recvRelease`/`recvLiveHeld`/`emitHeld`/
+  `emitRelease` — nothing renders them since the emitter/receiver strips went) + their ~55 lines of drain/diff work
+  in the 4Hz poll (dead main-thread cost every tick, crackle-relevant). KEPT `recvHeld` (LIVE — the MIDI-IN length
+  bar reads it, BuildPage 3265/3293) + the REPLAY roll block. **KEPT, flagged reserved** (zero-ref but not "dead
+  code"): the macro-AUTHORING AU API (the macros-forward rebuild surface); and the mark FEED slice below the poll
+  (`pollEmitter/Receiver/WithheldMarks`/`pollEmitterSounding`/`pollReceiverLiveHeld` + Kernel drains + Router
+  accumulation) — it's UI-orphaned but includes `router.drainEmitterSounding`, which RouterTests exercises directly
+  and whose flat arrays are the 2026-08-10 crash-fix, so removing it is a byte-identical-sensitive ENGINE cut, not a
+  tidy — left for its own verified pass.**
 - **▶ TAB SECTION RETIRED — BUILD is the SOLE surface (2026-08-21, on `main`; `96a484d`→`b177f3a`, 4 commits; iOS
   builds, macOS suite green; ~2.4k lines deleted). Paul: sweep the dead tab-page code — everything on the tab section
   except the page in development (BUILD). Mapped first with 3 parallel Explore agents (exclusive-vs-shared inventory).
