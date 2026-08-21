@@ -159,6 +159,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TAB SECTION RETIRED — BUILD is the SOLE surface (2026-08-21, on `main`; `96a484d`→`b177f3a`, 4 commits; iOS
+  builds, macOS suite green; ~2.4k lines deleted). Paul: sweep the dead tab-page code — everything on the tab section
+  except the page in development (BUILD). Mapped first with 3 parallel Explore agents (exclusive-vs-shared inventory).
+  **(1/4 `96a484d`)** behavioural collapse: the tab bar no longer renders (`ArrangementBar` drops `tabBar` + the
+  BUILD-hidden SINGLE|MULTI seg); `tabBody` → just `buildPage`; the MIDI OUT / `RackMatrix` view is KEPT but re-homed
+  as a BUILD overlay (`@State buildRackMatrixOpen`) reached from the RACK CONFIG sheet's EDIT TREATMENTS → and dismissed
+  by its own DONE. Behaviourally identical to a normal launch that never leaves BUILD (cold launch seeds via
+  onAppear/poll, ships `editArmed=false`). **(2/4 `c7b180e`)** deleted the GRID surface (~1.7k lines): `signalColumn` +
+  its whole band/panel/box/rail/tap/route/viz/audition subtree, and structs `FlowView` (whole file), `MasterView`,
+  `OutputsView`, `ReceiversView`, `RoutingVizOverlay`, `RouteFramesKey`, `velMarkLayer`, `velocityGlow`. **(3+4/4
+  `b177f3a`)** deleted `ReceiverConfigView.swift` + `MacroPanel.swift` (MIDI IN / MACROS; xcodegen regen) + the orphaned
+  callbacks, then the tab-bar chrome (ArrangementBar `tabBar`/`tabChip`/`tabHue`/`singleMultiSeg` + the activeTab/
+  onSetTab/showTabBar/ladderMode/onSetSingle params, CogPage TAB BAR toggle, `@AppStorage showTabBar`, the dead
+  `onChange(of: activeTab)`, `setSingle`) and reduced `AppTab` to just `.build`. **KEPT** (BUILD-reached or shared):
+  `GridView` + its renderers + `GridMacroSlider/Button` + the whole EDIT/select/verb machinery (`sel`/`deselect`/
+  `syncAnchor`/`armLadderRung`/…) + `EditPage`/`DragDropPage` — these are the SEPARATE unreachable cluster BUILD still
+  pulls pieces from (`ProcessorBox`, `flowDiagram`, `procEditPopup`, `macroAuthor`, `GridView.GridPos`, the `sel` model),
+  so they can't be wholesale-deleted without their own mapping; `RackMatrix`, `colourColor`, `routingEdges`/`RouteEdge`/
+  `RouteCell` (pure + tested). A few emitter/receiver mark @State (`emitMarks`/`emitHeld`/…) are now write-only (harmless).
+  DEVICE eye owed (nav to RackMatrix via EDIT TREATMENTS, DONE returns to BUILD).**
 - **▶ OUTPUT CHAIN sheet — the RACK CONFIG sheet, twin of MIDI INPUTS (2026-08-21, on `main`; `33965c6`; iOS builds,
   macOS suite unaffected; DEVICE eye owed). The `[RACK CONFIG]` bottom-left button stopped jumping to the emitters tab —
   it now opens `buildRackConfigSheet` (`@State buildRackConfigOpen`), same spacious top-aligned style as the MIDI INPUTS
