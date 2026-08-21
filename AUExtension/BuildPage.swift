@@ -1442,17 +1442,6 @@ extension DiagView {
     private func buildRowReceiverResolved(_ r: Int) -> Int {
         ((r >= 0 && r < buildRowReceiver.count) ? buildRowReceiver[r] : nil) ?? buildSelReceiver
     }
-    // The one-letter MODE glyph for a door (INPUT) — L/H/K/R/F — for the per-row INPUT·MODE badge on the row rail.
-    private func buildDoorModeLetter(_ door: Int) -> String {
-        let mode = (door >= 0 && door < receivers.count) ? receivers[door].doorModeResolved : .latch
-        switch mode {
-        case .latch:  return "L"
-        case .hold:   return "H"
-        case .keys:   return "K"
-        case .replay: return "R"
-        case .file:   return "F"
-        }
-    }
     private func buildRowEmittersResolved(_ r: Int) -> Set<Bus> {
         let own = (r >= 0 && r < buildRowEmitters.count) ? buildRowEmitters[r] : nil
         if let own, !own.isEmpty { return own }
@@ -2696,20 +2685,11 @@ extension DiagView {
                             let gridRow = base + r
                             let rowCid = buildRowColour(gridRow)
                             let isSel = rowCid != nil && rowCid == ddSelectedColourID   // this row holds the SELECTED colour
-                            let door = buildRowReceiverResolved(gridRow)                  // which INPUT (door A–D) this row hears
-                            let doorHue = door < receiverHues.count ? receiverHues[door] : buildCyan
                             RoundedRectangle(cornerRadius: 7).fill(buildRowButtonFill)   // muted rail; inverts to light when a DARK colour's icon needs contrast
                                 .frame(width: cell, height: cell)
                                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(isSel ? (rowCid.flatMap { colourColor($0) } ?? buildEdge) : buildEdge, lineWidth: isSel ? 2 : 1))
-                                .overlay(alignment: .leading) {                          // §5 per-row door-tint EDGE — a thin stripe in the INPUT's hue (visibility only)
-                                    Capsule().fill(doorHue).frame(width: 3, height: cell * 0.42).padding(.leading, 2)
-                                }
                                 .overlay(Text("\(gridRow + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced))
                                     .foregroundColor(isSel ? (rowCid.flatMap { colourColor($0) } ?? .white) : .white.opacity(0.7)))   // ROW NUMBER 1–8 — SHOWS THE SELECTED COLOUR when this row holds it (replaces the per-cell target)
-                                .overlay(alignment: .bottom) {                           // per-row INPUT · MODE badge — which door + its mode (L/H/K/R/F)
-                                    Text("\(["A", "B", "C", "D"][door])·\(buildDoorModeLetter(door))")
-                                        .font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(doorHue).padding(.bottom, 1)
-                                }
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRow?(gridRow) }  // press → run the current row mode on that grid row
                         }
