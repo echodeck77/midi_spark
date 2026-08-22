@@ -1192,7 +1192,7 @@ extension DiagView {
         let bw = w * 0.8, bh = h * 0.8                             // the button is 80% of the 2×2-cell footprint …
         Group {
             if populated {
-                Text(chain[i].type.rawValue)
+                Text(buildProcLabel(chain[i]))
                     .font(.system(size: 11, weight: .heavy, design: .monospaced))
                     .foregroundColor(.black)
                     .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
@@ -3017,7 +3017,7 @@ extension DiagView {
             Text("┈┈▶").foregroundColor(buildDim).font(.system(size: 10, design: .monospaced))
             ForEach(0..<8, id: \.self) { i in                     // UP TO 8 processor slots (the chain's capacity)
                 if i < chain.count && !buildIsEmptySlot(chain[i]) {
-                    buildSlot(chain[i].type.rawValue, colour: buildSelHue, bypassed: chain[i].bypassed)   // a real processor — the selected colour
+                    buildSlot(buildProcLabel(chain[i]), colour: buildSelHue, bypassed: chain[i].bypassed)   // a real processor — the selected colour + its mode
                         .onTapGesture { buildEditSlot = i }       // touch → open the processor pop-up editor
                 } else {
                     buildSlot("+", dashed: true)                  // EVERY empty box is a "+" — tap to add a processor AT THIS position
@@ -3585,7 +3585,7 @@ extension DiagView {
             HStack(spacing: 10) {                               // HEADER: colour + name · BYPASS · CANCEL · DELETE
                 RoundedRectangle(cornerRadius: 8).fill(hue).frame(width: 34, height: 34)
                 Image(systemName: emblemSymbol(proc.type)).font(.system(size: 20, weight: .black)).foregroundColor(.white)
-                Text(proc.type.rawValue).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                Text(buildProcLabel(proc)).font(.system(size: 22, weight: .heavy, design: .monospaced)).foregroundColor(.white)   // type + its fixed mode (the radio moved to the card)
                 Spacer()
                 Button { buildChainToggleBypass(slot) } label: {
                     Text(proc.bypassed ? "BYPASSED" : "BYPASS").font(.system(size: 12, weight: .heavy, design: .monospaced))
@@ -3679,18 +3679,21 @@ extension DiagView {
     // carries a plain one-liner (the selector teaches). Codable type IDs never rename — a split card is (type + a
     // params preset); `apply` sets the mode field on a fresh slot. Names/blurbs are DISPLAY-ONLY.
     struct BuildCard {
-        let name: String            // storefront name
+        let name: String            // storefront name (e.g. "RATCHET COIN", "LFO")
         let blurb: String           // catalog one-liner
         let type: ProcessorType     // the frozen engine ID this card opens
+        let apply: (inout ColourParams) -> Void   // pre-set the mode ({ } for a single-mode card)
     }
     struct BuildCardGroup { let title: String; let note: String?; let cards: [BuildCard] }
 
-    // ONE CARD PER PROCESSOR (Paul 2026-08-22 — SIMPLIFIED from the design-side per-mode split): the different MODES
-    // are NOT presented as separate cards. A card opens the base processor; its mode (RATCHET ALL|COIN|PATTERN,
-    // WEAVE LADDER|…, MOD SHAPE|FOLLOW|…, etc.) is chosen INSIDE the processor's own editor (its MODE/SOURCE radio).
-    // The catalog stays grouped-by-intent with a plain one-liner (the selector still teaches).
+    // THE STOREFRONT SPLIT (Paul 2026-08-22): multi-mode stages appear as SEPARATE cards, each pre-setting its mode;
+    // the mode is then FIXED (no in-editor radio — GridUI dropped it) and WRITTEN on the chain box (`buildProcLabel`).
+    // To change mode you pick a different card. Grouped by musical intent; each card carries a plain one-liner.
+    // Codable type IDs never rename — a split card is (type + a params mode-preset).
     private var buildCatalog: [BuildCardGroup] {
-        func C(_ n: String, _ b: String, _ t: ProcessorType) -> BuildCard { BuildCard(name: n, blurb: b, type: t) }
+        func C(_ n: String, _ b: String, _ t: ProcessorType, _ a: @escaping (inout ColourParams) -> Void = { _ in }) -> BuildCard {
+            BuildCard(name: n, blurb: b, type: t, apply: a)
+        }
         return [
             BuildCardGroup(title: "MELODY", note: nil, cards: [
                 C("ARP", "Walks the held chord one note at a time.", .arp),
@@ -3700,15 +3703,23 @@ extension DiagView {
             ]),
             BuildCardGroup(title: "HARMONY", note: nil, cards: [
                 C("HARMONIZE", "Adds up to three tuned voices to every note.", .harmonize),
-                C("TUTTI", "Per step: the whole chord, or just one note.", .tutti),
+                C("TUTTI COIN", "Flips a coin each step: the whole chord, or one note.", .tutti) { $0.tuttiMode = .coin },
+                C("TUTTI PATTERN", "Paints the chord's shape per step — full, top two, one note, rest.", .tutti) { $0.tuttiMode = .pattern },
                 C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
-                C("RATCHET", "Re-strikes the whole chord in fast rolls.", .ratchet),
-                C("BURST", "One accelerating (or slowing) roll per step.", .burst),
+                C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },
+                C("RATCHET COIN", "Rolls by chance: some steps burst, some hit plain.", .ratchet) { $0.rtcMode = .coin },
+                C("RATCHET PATTERN", "Paint which steps roll, and how many hits each.", .ratchet) { $0.rtcMode = .pattern },
+                C("BURST", "One accelerating (or slowing) roll per step.", .burst) { $0.burstMode = .once },
+                C("BURST COIN", "A roll by chance: some steps fire, some rest.", .burst) { $0.burstMode = .coin },
+                C("BURST PATTERN", "Paint where rolls start and how far they stretch.", .burst) { $0.burstMode = .pattern },
                 C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid),
-                C("WEAVE", "Every note pulses on its own clock — an interlocking polyrhythm.", .weave),
+                C("WEAVE LADDER", "Every note pulses at its own speed: bass slow, top fast.", .weave) { $0.weaveMode = .ladder },
+                C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
+                C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },
+                C("WEAVE EUCLID", "Each note gets its own euclidean rhythm, denser on top.", .weave) { $0.weaveMode = .euclid },
                 C("PASSES", "Plays only on the laps you choose (1–4).", .passgate),
                 C("CHANCE", "Lets notes through by dice roll — the same roll every loop.", .chance),
             ]),
@@ -3716,7 +3727,11 @@ extension DiagView {
                 C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
             ]),
             BuildCardGroup(title: "CONTROL", note: "Moves synth controls — makes no notes of its own.", cards: [
-                C("MOD", "Shapes a synth control — a wave, your playing, a step pattern, or incoming CC.", .mod),
+                C("LFO", "A wave moving a synth knob: sweeps and wobbles.", .mod) { $0.modSource = .shape },
+                C("FOLLOWER", "Your playing becomes the control: busier = higher.", .mod) { $0.modSource = .follow },
+                C("STEP MOD", "Draw an 8-step pattern that moves a knob.", .mod) { $0.modSource = .steps },
+                C("ENVELOPE", "A rise-and-fall sweep each time the cell starts.", .mod) { $0.modSource = .strike },
+                C("CC IN", "Reads an incoming knob and re-ranges it onward.", .mod) { $0.modSource = .extern },
             ]),
             BuildCardGroup(title: "TIME", note: nil, cards: [
                 C("ECHO", "Repeats each note, fading away like a delay.", .echo),
@@ -3726,11 +3741,29 @@ extension DiagView {
         ]
     }
 
-    // ADD a catalog CARD at box `i`: populate the box with the card's type (default mode), open its editor.
+    // A chain-box / editor label: the type name + its fixed mode written in (e.g. "WEAVE HARM", "MOD LFO"), so the
+    // mode is legible without an in-editor radio (Paul 2026-08-22). Single-mode processors show just the type.
+    private func buildProcLabel(_ s: ProcessorSlot) -> String {
+        let base = s.type == .passgate ? "PASSES" : s.type.rawValue
+        let m: String
+        switch s.type {
+        case .ratchet: switch s.params.rtcMode ?? .all { case .all: m = "ALL"; case .coin: m = "COIN"; case .pattern: m = "PAT" }
+        case .burst:   switch s.params.burstMode ?? .once { case .once: m = "ONCE"; case .coin: m = "COIN"; case .pattern: m = "PAT" }
+        case .tutti:   switch s.params.tuttiMode ?? .coin { case .coin: m = "COIN"; case .pattern: m = "PAT" }
+        case .weave:   switch s.params.weaveMode ?? .ladder { case .ladder: m = "LAD"; case .harmonic: m = "HARM"; case .drawn: m = "DRAWN"; case .euclid: m = "EUC" }
+        case .mod:     switch s.params.modSource ?? .shape { case .shape: m = "LFO"; case .follow: m = "FOLLOW"; case .steps: m = "STEP"; case .strike: m = "ENV"; case .extern: m = "CC IN" }
+        default:       m = ""
+        }
+        return m.isEmpty ? base : "\(base) \(m)"
+    }
+
+    // ADD a catalog CARD at box `i`: populate the box with the card's type, pre-set its mode, open its editor.
     private func buildChainAddCard(_ i: Int, _ card: BuildCard) {
         var c = selectedColourChain()
         while c.count <= i { c.append(buildPassthroughSlot()) }
-        c[i] = ProcessorSlot(type: card.type)
+        var slot = ProcessorSlot(type: card.type)
+        card.apply(&slot.params)
+        c[i] = slot
         buildApplyChain(c)
         buildAddSlot = nil; buildEditSlot = i
     }

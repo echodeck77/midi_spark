@@ -916,9 +916,7 @@ struct ProcessorBox: View {
             }
             field("FIT 1 BEAT") { seg(["OFF", "ON"], sel: (p.arpFit ?? false) ? "ON" : "OFF") { i in setParam { $0.arpFit = (i == 1) } } }
         case .ratchet:
-            let rmode = p.rtcMode ?? .all
-            field("MODE") { seg(RatchetMode.allCases.map(\.rawValue), sel: rmode.rawValue) { i in
-                setParam { $0.rtcMode = RatchetMode.allCases[i] } } }
+            let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if rmode == .all {
                 field("REPEATS") { seg(["2","3","4","6","8"], sel: "\(p.count ?? 3)") { i in
                     setParam { $0.count = [2,3,4,6,8][i] } } }
@@ -1026,8 +1024,7 @@ struct ProcessorBox: View {
             let span = p.euclidSpan ?? .cell
             field("SPAN") { seg(["CELL", "ROW"], sel: span == .row ? "ROW" : "CELL") { i in setParam { $0.euclidSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column · ROW = N steps span the bar (Paul 2026-08-18)
         case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
-            let bmode = p.burstMode ?? .once
-            field("MODE") { seg(BurstMode.allCases.map(\.rawValue), sel: bmode.rawValue) { i in setParam { $0.burstMode = BurstMode.allCases[i] } } }
+            let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             field("HITS  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }
             let cv = p.curve ?? 0
             field("SHAPE  \(cv > 0 ? "ACCEL" : (cv < 0 ? "DECEL" : "EVEN"))  \(Int(cv * 100))%") {
@@ -1078,8 +1075,7 @@ struct ProcessorBox: View {
             field("FEEL  \(Int((p.spread ?? 0.5) * 100))%") {
                 Slider(value: bind(p.spread ?? 0.5) { v in setParam { $0.spread = v } }, in: 0...1).tint(accent) }
         case .mod:      // CC GENERATOR / CC-stage §1 — a SOURCE spine (row 2 reshapes) + a universal TARGET/RANGE (row 3)
-            let src = p.modSource ?? .shape
-            field("SOURCE") { seg(ModSource.allCases.map(\.rawValue), sel: src.rawValue) { i in setParam { $0.modSource = ModSource.allCases[i] } } }
+            let src = p.modSource ?? .shape    // source set by the storefront card — no in-editor radio (Paul 2026-08-22)
             switch src {
             case .shape:
                 field("WAVE") { seg(ModShape.allCases.map(\.rawValue), sel: (p.modShape ?? .sine).rawValue) { i in setParam { $0.modShape = ModShape.allCases[i] } } }
@@ -1143,8 +1139,7 @@ struct ProcessorBox: View {
             field("FOLLOW") { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
             field("TOO FAR") { seg(["RE-ANCHOR", "CLAMP"], sel: (p.glideReanchor ?? true) ? "RE-ANCHOR" : "CLAMP") { i in setParam { $0.glideReanchor = (i == 0) } } }
         case .tutti:    // SET-level chance — one MODE radio; COIN now, PATTERN in phase 2
-            field("MODE") { seg(TuttiMode.allCases.map(\.rawValue), sel: (p.tuttiMode ?? .coin).rawValue) { i in
-                setParam { $0.tuttiMode = TuttiMode.allCases[i] } } }
+            // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if (p.tuttiMode ?? .coin) == .coin {
                 field("BALANCE   SOLO  ◂  \(Int((p.tuttiBalance ?? 0.5) * 100))%  ▸  TUTTI") {   // the slider IS the idea
                     Slider(value: bind(p.tuttiBalance ?? 0.5) { v in setParam { $0.tuttiBalance = v } }, in: 0...1).tint(accent) }
@@ -1217,9 +1212,7 @@ struct ProcessorBox: View {
             let lspan = p.lenSpan ?? .cell
             field("SPAN") { seg(["CELL", "ROW"], sel: lspan == .row ? "ROW" : "CELL") { i in setParam { $0.lenSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column gate · ROW = the 8 slices span the bar (Paul 2026-08-19)
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
-            let wmode = p.weaveMode ?? .ladder
-            field("MODE") { seg(WeaveMode.allCases.map(\.rawValue), sel: wmode.rawValue) { i in
-                setParam { $0.weaveMode = WeaveMode.allCases[i] } } }
+            let wmode = p.weaveMode ?? .ladder   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             Text(weaveModeBlurb(wmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
                 .frame(maxWidth: .infinity, alignment: .leading)
             if wmode == .ladder || wmode == .harmonic {

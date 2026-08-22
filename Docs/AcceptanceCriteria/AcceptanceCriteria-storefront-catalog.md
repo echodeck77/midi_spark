@@ -58,14 +58,15 @@ should anyone else.
 
 ---
 
-> **⚠ PAUL AMENDED 2026-08-22 (supersedes the per-mode split below for the PICKER):** the
-> catalog shows **ONE card per processor** (19 cards), NOT the per-mode split. The different
-> modes (RATCHET ALL/COIN/PATTERN · BURST ONCE/COIN/PATTERN · TUTTI COIN/PATTERN · WEAVE
-> LADDER/HARMONIC/DRAWN/EUCLID · MOD SHAPE/FOLLOW/STEPS/STRIKE/EXTERN) are chosen INSIDE each
-> processor's own editor (the existing MODE/SOURCE radio), not as separate cards. The 6-group
-> layout + one-liners below STAND; the per-mode card names/blurbs below are retained as the
-> in-editor mode reference + the friendly-label source, not as picker entries. RIFF + VELOCITY
-> unchanged (future). Built: `BuildPage.buildCatalog` (19 cards).
+> **✅ PAUL'S FINAL SHAPE 2026-08-22 (settles the same-day back-and-forth — this is what's built):**
+> the picker shows the PER-MODE SPLIT cards below (RATCHET/BURST/TUTTI/WEAVE/MOD split; the modes
+> are VISIBLE at selection). Each card FIXES its mode on the new slot. The in-editor MODE/SOURCE
+> radio is REMOVED — the card decides the mode; to change it you pick a different card. The chosen
+> mode is WRITTEN onto the chain box AND the editor title, abbreviated (e.g. "WEAVE HARM", "MOD
+> LFO", "RATCHET COIN", "TUTTI PAT", "BURST ONCE"). This realises the design's original storefront
+> intent ("each storefront IS its mode; the radio hides") plus Paul's box-label ask. Built:
+> `BuildPage.buildCatalog` (31 cards) + `buildProcLabel`; the 5 GridUI mode radios dropped. RIFF +
+> VELOCITY stay future/unbuilt. (The card names + blurbs below are the built set.)
 
 # THE RATIFIED CARD SET (design-side, 2026-08-22 — ✅ RATIFIED BY PAUL 2026-08-22; PICKER SIMPLIFIED to one-per-processor, see banner)
 
