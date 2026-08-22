@@ -159,21 +159,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ THE STOREFRONT CATALOG — increment 1: the 31-card grouped ADD-PROCESSOR picker (2026-08-22, on `main`; iOS
-  builds; UI-only, DEVICE eye owed). Design ferried the "one engine, many doors" ruling + returned the complete
-  31-card set; Paul RATIFIED it (2026-08-22). Spec: `Docs/AcceptanceCriteria/AcceptanceCriteria-storefront-catalog.md`
-  (+ `-velocity-processor.md`, captured/unbuilt). The BUILD `buildProcessorPicker` went from a flat 19-type
-  `LazyVGrid` to the CATALOG: a `BuildCard`/`BuildCardGroup` model + a `buildCatalog` of 6 groups
-  (MELODY·HARMONY·RHYTHM·DYNAMICS·CONTROL·TIME), 31 cards, each name + one-liner (CONTROL has the shared "makes no
-  notes of its own" sub-header). MULTI-MODE STAGES SPLIT into per-mode cards — RATCHET/BURST ×3, TUTTI ×2, WEAVE ×4,
-  MOD ×5 (LFO/FOLLOWER/STEP MOD/ENVELOPE/CC IN) — each card PRE-SETS its mode on the fresh slot via `BuildCard.apply`
-  (a `(inout ColourParams) -> Void` setting rtcMode/burstMode/tuttiMode/weaveMode/modSource), so the editor opens on
-  that mode's face. ENGINE UNTOUCHED (Codable type IDs frozen; a split card = type + a params mode-preset). Removed
-  the orphaned `buildChainAddAt`. DEFERRED to increment 2: demote the in-panel MODE radio to a chip; the per-panel
-  one-line sub-header (teach-in-place); routing the in-editor type-swap (`onSetTypeA`) through the catalog. RIFF (D1)
-  + VELOCITY stay future/unbuilt. Also this session: RACK-everywhere rename (sheet header OUTPUT CHAIN→THE RACK,
-  `commit` prior) + the wire-identity INCIDENT resolved (MONO is per-wire; TURNS is the by-design cross-wire dealer —
-  no bug; Paul had expected TURNS to SILENCE one emitter at a time, flagged to design as a candidate new treatment).**
+- **▶ THE STOREFRONT CATALOG — the grouped ADD-PROCESSOR picker, ONE CARD PER PROCESSOR (2026-08-22, on `main`; iOS
+  builds; UI-only, DEVICE eye owed). Design ferried the "one engine, many doors" ruling + returned a 31-card per-mode
+  split set; Paul RATIFIED the set then AMENDED it — the picker shows **one card per processor (19)**, NOT the split;
+  the different modes are chosen in each processor's OWN editor (the existing MODE/SOURCE radio), not as cards
+  ("author's glass outranks roster economy", their ruling, applied to the picker). Spec:
+  `Docs/AcceptanceCriteria/AcceptanceCriteria-storefront-catalog.md` (+ `-velocity-processor.md`, captured/unbuilt).
+  The BUILD `buildProcessorPicker` went from a flat 19-type `LazyVGrid` to the CATALOG: a `BuildCard`/`BuildCardGroup`
+  model + a `buildCatalog` of 6 groups (MELODY·HARMONY·RHYTHM·DYNAMICS·CONTROL·TIME), 19 cards, each name + one-liner
+  (CONTROL has the shared "makes no notes of its own" sub-header; PASSGATE shows as PASSES). A card just adds its base
+  `ProcessorType` (`buildChainAddCard`); modes stay in the editor. ENGINE UNTOUCHED (Codable IDs frozen). Removed the
+  orphaned `buildChainAddAt` + the short-lived per-mode `BuildCard.apply`/split cards. DEFERRED to increment 2: the
+  per-panel one-line sub-header (teach-in-place); optional demote of the in-panel MODE radio to a chip; routing the
+  in-editor type-swap (`onSetTypeA`) through the catalog. RIFF (D1) + VELOCITY stay future/unbuilt. Also this session:
+  RACK-everywhere rename (sheet header OUTPUT CHAIN→THE RACK) + the wire-identity INCIDENT resolved (MONO is per-wire;
+  TURNS is the by-design cross-wire dealer — no bug; Paul had expected TURNS to SILENCE one emitter at a time, flagged
+  to design as a candidate new treatment).**
 - **▶ DEAD-CODE SWEEP — surface-tied orphans + write-only mark @State (2026-08-21, on `main`; `486c535`+`f284e5b`;
   iOS builds, macOS 825 green). Follows the tab/EDIT retirement. **`486c535`** deleted grep-verified zero-ref AU
   surface-tied dead code (MidiSparkAudioUnit.swift): the always-nil `previewOverlay` cluster (+ its setters →

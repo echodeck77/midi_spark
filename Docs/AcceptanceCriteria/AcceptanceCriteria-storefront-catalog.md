@@ -58,7 +58,16 @@ should anyone else.
 
 ---
 
-# THE RATIFIED CARD SET (design-side, 2026-08-22 — ✅ RATIFIED BY PAUL 2026-08-22)
+> **⚠ PAUL AMENDED 2026-08-22 (supersedes the per-mode split below for the PICKER):** the
+> catalog shows **ONE card per processor** (19 cards), NOT the per-mode split. The different
+> modes (RATCHET ALL/COIN/PATTERN · BURST ONCE/COIN/PATTERN · TUTTI COIN/PATTERN · WEAVE
+> LADDER/HARMONIC/DRAWN/EUCLID · MOD SHAPE/FOLLOW/STEPS/STRIKE/EXTERN) are chosen INSIDE each
+> processor's own editor (the existing MODE/SOURCE radio), not as separate cards. The 6-group
+> layout + one-liners below STAND; the per-mode card names/blurbs below are retained as the
+> in-editor mode reference + the friendly-label source, not as picker entries. RIFF + VELOCITY
+> unchanged (future). Built: `BuildPage.buildCatalog` (19 cards).
+
+# THE RATIFIED CARD SET (design-side, 2026-08-22 — ✅ RATIFIED BY PAUL 2026-08-22; PICKER SIMPLIFIED to one-per-processor, see banner)
 
 **31 cards · 6 groups. Names/one-liners are DISPLAY-LAYER only (Codable IDs frozen).
 ✅ RATIFIED BY PAUL 2026-08-22 — these names + groups + one-liners are the build target.
