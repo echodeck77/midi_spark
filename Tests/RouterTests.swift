@@ -4667,6 +4667,35 @@ final class RouterTests: XCTestCase {
     }
     /// ECHO downstream of an ARP (user 2026-08-08): each arp TICK spawns echo repeats, so [ARP→ECHO] emits strictly
     /// more note-ons than a bare arp — and MUTE (thru off) drops the dry ticks but keeps the echoes. No stuck notes.
+    /// [ARP→ECHO→LENGTH] with ROUTE=CHAIN (ratified 2026-08-22, §7②): each echo repeat is re-folded through the
+    /// post-ECHO LENGTH gate at ITS OWN beat, so repeats landing in MUTE slices are dropped. DIRECT (v1) echoes the
+    /// final set position-blind. Proven two ways: CHAIN with all-PASS length == DIRECT (nothing dropped, DIRECT
+    /// untouched); CHAIN with half-MUTE length emits STRICTLY FEWER notes than DIRECT (the muted-slice repeats vanish).
+    func testEchoChainRouteFoldsRepeatsThroughDownstreamLength() {
+        func mk(_ route: EchoRoute, mute: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var e = ProcessorSlot(type: .echo)
+                e.params.echoSync = true; e.params.echoDelayDiv = 1; e.params.echoRepeats = 8   // 1/16 spacing → repeats span all 8 slices
+                e.params.echoFeedDelay = 1.0; e.params.echoDecay = 1.0; e.params.echoThru = true; e.params.echoRoute = route
+                var len = ProcessorSlot(type: .length)
+                len.params.lenSlices = mute ? [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute]
+                                             : [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
+                c.processors = [arp, e, len]
+                $0.cells[0][0] = c
+            }
+        }
+        let dPass = RecordingEmitter(); run(mk(.direct, mute: false), chord([60, 64, 67]), beats: 6, into: dPass)
+        let cPass = RecordingEmitter(); run(mk(.chain,  mute: false), chord([60, 64, 67]), beats: 6, into: cPass)
+        XCTAssertEqual(cPass.ons.filter { $0.cable == 1 }.count, dPass.ons.filter { $0.cable == 1 }.count,
+                       "CHAIN with an all-PASS length gate keeps every repeat → identical to DIRECT (DIRECT is untouched)")
+        let dMute = RecordingEmitter(); run(mk(.direct, mute: true), chord([60, 64, 67]), beats: 6, into: dMute)
+        let cMute = RecordingEmitter(); run(mk(.chain,  mute: true), chord([60, 64, 67]), beats: 6, into: cMute)
+        XCTAssertLessThan(cMute.ons.filter { $0.cable == 1 }.count, dMute.ons.filter { $0.cable == 1 }.count,
+                          "[ARP→ECHO→LENGTH] CHAIN drops the repeats that land in MUTE slices; DIRECT rings them all")
+        assertNothingLeftSounding(cMute); assertNothingLeftSounding(dMute); assertNothingLeftSounding(cPass)
+    }
     func testArpThenEchoSpawnsEchoesPerTick() {
         func chainBox(echo: Bool, thru: Bool = true) -> SnapshotBox {
             box(colours: arpColours()) {

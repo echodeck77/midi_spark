@@ -1012,6 +1012,10 @@ struct ProcessorBox: View {
             // TAIL SPILL (design 2026-08-07): RING lets echoes spill past the bar; CUT keeps them inside it (the note
             // already sounding always finishes). HAND is a birthstone (deferred) — not offered yet.
             field("SPILL") { seg(["RING", "CUT"], sel: spill == .cut ? "CUT" : "RING") { i in setParam { $0.echoSpill = (i == 0 ? .ring : .cut) } } }
+            // ROUTE (§7②, ratified 2026-08-22): DIRECT echoes the cell's final set (v1). CHAIN runs each repeat back
+            // through the stages AFTER this ECHO slot — [ECHO→LENGTH] chokes/ties repeats, [ECHO→SPLIT] thins the trail.
+            let route = p.echoRoute ?? .direct
+            field("ROUTE") { seg(["DIRECT", "CHAIN"], sel: route == .chain ? "CHAIN" : "DIRECT") { i in setParam { $0.echoRoute = (i == 0 ? .direct : .chain) } } }
         case .euclid:   // GENERATOR — K-of-N euclidean rhythm (user 2026-08-08); PULSES FIXED | POOL (2026-08-09)
             let steps = p.euclidSteps ?? 8
             let fromPool = p.euclidPulsesFromPool ?? false

@@ -97,6 +97,7 @@ struct SnapParams {
     var echoPitch: Int = 0           // semitones per echo
     var echoThru: Bool = true        // THRU vs MUTE
     var echoSpill: EchoSpill = .ring // RING past the bar · CUT inside it · HAND (deferred)
+    var echoRoute: EchoRoute = .direct // DIRECT = echo the final set (v1) · CHAIN = repeats re-fold through post-ECHO stages (§7②)
     // EUCLID generator (user 2026-08-08); BURST reuses count+curve, CASCADE reuses rateIndex+strumDir.
     var euclidPulses: Int = 5
     var euclidSteps: Int = 8

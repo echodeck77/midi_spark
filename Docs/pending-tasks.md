@@ -476,9 +476,16 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     suppresses the driver note (keyed by `currentCellIndex`); a post-tick `emitGlideDriven` pass drains the targets into
     the shared `glideVoices` (flushGlide/phrase-end/no-stuck-notes cover it). Generic across ALL drivers, not just
     ARP/CASCADE. +2 RouterTests. Multi-emitter fan-out stays a SEPARATE deferred v2 item.
-  - [ ] **② ECHO MID-CHAIN** (`processor-pairings.md` §7 ②). Render the currently-unrendered ROUTE CHAIN|DIRECT
-    chip so echo repeats flow THROUGH downstream stages: `[ECHO→LENGTH]` = choked repeats · `[ECHO→SPLIT]` = trails
-    thinned to a register. Retires D7's position-blindness (echo-always-the-tail is v1, not law).
+  - [x] **② ECHO MID-CHAIN** (`processor-pairings.md` §7 ②) — **DRIVER-PATH LANDED 2026-08-22, macOS green, iOS
+    builds; DEVICE ear owed.** The ferry's "existing birthstone stands ready" was WRONG — no ROUTE chip existed; built
+    from scratch. NEW `EchoRoute { direct, chain }` (append-only, `.direct` default = byte-identical). CHAIN: each echo
+    repeat is re-folded through the stages AFTER the ECHO slot at ITS OWN beat (`refoldEchoRepeat` in `drainEchoTails`,
+    which now takes `box`; the `EchoTail` carries `route`/`cellIdx`/`echoSlot`). `emitDriverNote` registers CHAIN tails
+    from the pre-post-echo set. `[ARP→ECHO→LENGTH]` = repeats choked/tied by the slice they land in · `[ECHO→SPLIT]` =
+    thinned by register/velocity · `[ECHO→HARMONIZE]` dressed per repeat. +1 RouterTest. ROUTE chip in the echo box.
+    **REMAINING (follow-up):** the NON-DRIVER HOLD topology — `[ECHO→LENGTH]` with no driver — still routes through
+    `composeChainSet`/`emitLengthComposedRow`, which swallows ECHO (no tails). CHAIN there needs its own registration
+    path. Flagged; the driver path is the canonical/ratified core.
   - [ ] **③ PASSES v2 — the per-lap switchboard** — STILL CAPTURED, NOT ratified. Do not build until Paul's word.
 
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)

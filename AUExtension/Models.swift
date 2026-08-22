@@ -150,6 +150,7 @@ struct ColourParams: Codable, Equatable {
     var echoPitch: Int? = 0             // semitones transposed per successive echo (climbing / descending)
     var echoThru: Bool? = true          // THRU = pass the dry note · MUTE = echoes only
     var echoSpill: EchoSpill? = .ring   // TAIL SPILL (design 2026-08-07): RING past the bar · CUT inside it · HAND (birthstone, deferred)
+    var echoRoute: EchoRoute? = .direct // ROUTE (§7②, ratified 2026-08-22): DIRECT = echo the final set (v1) · CHAIN = each repeat flows THROUGH the stages after ECHO ([ECHO→LENGTH] chokes repeats, [ECHO→SPLIT] thins to a register)
     // EUCLID generator (user 2026-08-08). BURST reuses count+curve; CASCADE reuses rate+strumDir — no new fields.
     var euclidPulses: Int? = 5          // K — hits per cycle (1…16) when PULSES = FIXED
     var euclidSteps: Int? = 8           // N — steps in the cycle (2…16); K hits spread evenly across N
@@ -231,6 +232,10 @@ struct ColourParams: Codable, Equatable {
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its
 /// gate); HAND is the deferred BIRTHSTONE (handed repeats fire into the pool below). Enum three-valued from day one.
 enum EchoSpill: String, Codable, CaseIterable { case ring = "RING", cut = "CUT", hand = "HAND" }
+// ECHO ROUTE (§7②, ratified 2026-08-22): where the repeats flow. DIRECT = the tail is the cell's final emitted set
+// (position-blind, v1). CHAIN = each repeat is re-folded through the chain stages AFTER the ECHO slot at the repeat's
+// own beat — so [ECHO→LENGTH] chokes/ties repeats by the slice they land in, [ECHO→SPLIT] thins trails to a register.
+enum EchoRoute: String, Codable, CaseIterable { case direct = "DIRECT", chain = "CHAIN" }
 
 struct Colour: Codable, Equatable {
     var colourID: String

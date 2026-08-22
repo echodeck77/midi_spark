@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO MID-CHAIN — ROUTE=CHAIN, the driver path LANDED (2026-08-22, on `main`; macOS green incl. fuzz, iOS builds;
+  DEVICE ear owed). Second of Paul's two 2026-08-22 ratifications (`Docs/processor-pairings.md` §7 ②). ⚠ The ferry's
+  premise ("the existing ROUTE CHAIN|DIRECT birthstone stands ready, unrendered") was WRONG — an exhaustive search
+  found NO such field/enum/UI/state anywhere; it was built from scratch, and `drainEchoTails` fires each repeat FLAT +
+  time-delayed with an `EchoTail` carrying only scalars, so re-folding delayed repeats was a real architecture change.
+  MODEL: `EchoRoute { direct, chain }` (Models + SnapParams + builder; append-only Optional, `.direct` default ⇒
+  byte-identical). ENGINE: `EchoTail` gains `route`/`cellIdx`/`echoSlot`; `drainEchoTails` now takes `box` and, for a
+  CHAIN tail, calls `refoldEchoRepeat` — which looks up the LIVE cell and re-runs the stages AFTER the ECHO slot at the
+  repeat's OWN beat (LENGTH gates/ties by the slice at `tau`, SPLIT thins by register/velocity, HARMONIZE/CHANCE/TUTTI
+  re-shape via `applyStage`; MOD/GLIDE/nested-echo skipped; falls back to a flat strike if the live chain changed).
+  `emitDriverNote` registers CHAIN tails from the note reaching ECHO's INPUT (pre-post-echo set) and skips the DIRECT
+  registration; the dry (k=0) still folds + length-gates as before. Reuses the free `chainA/chainB` scratch (drain runs
+  before the tick loop). UI: a `ROUTE DIRECT|CHAIN` chip on the echo box. +1 RouterTest (all-PASS length ⇒ CHAIN==DIRECT
+  count; half-MUTE ⇒ CHAIN drops the muted-slice repeats). DIRECT byte-identical (existing echo tests + fuzz green).
+  v1 SCOPE: the DRIVER path ([driver→ECHO→X]) only — the NON-DRIVER HOLD topology ([ECHO→LENGTH] with no driver, where
+  `composeChainSet`/`emitLengthComposedRow` currently swallow ECHO) is a flagged follow-up needing its own registration
+  path. Single-emitter chop as today. Docs: `processor-pairings.md` §0/§6/§7② + `pending-tasks.md` + glide/echo ACs.**
 - **▶ [driver→GLIDE] v2 — GLIDE AFTER A MONO DRIVER LANDED (2026-08-22, on `main`; macOS 827 green incl. fuzz, iOS
   builds; DEVICE ear owed). First of Paul's two 2026-08-22 ratifications (`Docs/processor-pairings.md` §7 ①, ratified
   this session). Retires the "GLIDE is a single-slot soloist" v1 law: a chain DRIVER now feeds GLIDE's mono voice —

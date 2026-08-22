@@ -18,8 +18,10 @@ word.**
    durations** (the one downstream rhythm-toucher).
 2. **Set-shapers sit between the driver and the tail**: SPLIT · HARMONIZE · TUTTI (both) · CHANCE
    — they change WHAT plays, not when. Their order among themselves matters and is the fun.
-3. **ECHO is the tail** (it echoes the final set — v1 ignores what's upstream of it positionally).
-   **The MOD five are note-transparent**: anywhere, by convention last.
+3. **ECHO is the tail** by default (ROUTE=DIRECT echoes the final set, position-blind). Since
+   2026-08-22 (§7②) ROUTE=CHAIN makes each repeat flow THROUGH the stages AFTER it (a driver chain):
+   [ECHO→LENGTH] chokes repeats, [ECHO→SPLIT] thins the trail. **The MOD five are note-transparent**:
+   anywhere, by convention last.
 4. **GLIDE is a mono voice sink** — one emitter (v1). Since 2026-08-22 (§7①) any DRIVER may sit
    BEFORE it ([ARP→GLIDE] = the 303 line): the driver picks notes, GLIDE slides between them. Nothing
    sits AFTER (it emits bends, not notes). **PASSES gates the whole lap** — position barely matters.
@@ -102,9 +104,11 @@ re-ranging a hardware knob onto anything. Internal-target mode (THIS CHAIN) pair
 chain by definition: LFO on ARP's LENGTH = breathing gates.
 
 ## §6 · TIME
-**ECHO** — AFTER everything (the tail law). Best sources: sparse drivers (EUCLID low-K, BURST ONCE,
-single TUTTI-COIN solos); dense sources need low REPEATS/steep FADE (the governor is watching).
-BEFORE: nothing benefits (v1 echoes the final set).
+**ECHO** — AFTER everything (the tail law, ROUTE=DIRECT). Best sources: sparse drivers (EUCLID low-K,
+BURST ONCE, single TUTTI-COIN solos); dense sources need low REPEATS/steep FADE (the governor is
+watching). BEFORE (ROUTE=CHAIN, since 2026-08-22): LENGTH (choke/tie the repeats), SPLIT (thin the trail
+to a register/velocity), HARMONIZE (dress each repeat) — a driver chain re-folds every repeat through the
+post-ECHO stages.
 **LENGTH** — the great AFTER: reshapes any driver's durations downstream (the only stage that
 may). BEFORE a driver = it re-articulates its own slices instead (standalone music). Star:
 [ARP→LENGTH] · [RATCHET→LENGTH] (choked rolls) · [WEAVE→LENGTH].
@@ -121,10 +125,13 @@ consumes: a mono stream. [ARP→GLIDE] = the 303 line — steps bend over glideT
 TOO FAR, rests end the phrase. Built generically across ALL drivers (the driver's notes feed GLIDE's
 mono voice via emitGlideDriven; §1 GLIDE gains its first real entries below). v1: single emitter —
 multi-emitter fan-out stays a separate v2 item. macOS 827 green; device ear owed.
-② **RATIFIED — ECHO MID-CHAIN — the existing birthstone stands ready.** The ROUTE CHAIN|DIRECT chip
-(unrendered, by design) is this exact future: echoes flowing THROUGH downstream stages = sculpted
-trails ([ECHO→LENGTH]: choked repeats · [ECHO→SPLIT]: trails thinned to a register). D7's
-position-blindness is v1, not law.
+② **DRIVER-PATH LANDED 2026-08-22 — ECHO MID-CHAIN.** (NB: the "existing birthstone stands ready"
+premise was WRONG — no ROUTE CHAIN|DIRECT chip existed in any form; built from scratch.) NEW `EchoRoute
+{ DIRECT, CHAIN }` on the echo box (DIRECT = the v1 final-set echo, byte-identical). CHAIN re-folds each
+repeat through the stages AFTER the ECHO slot at its own beat: [ARP→ECHO→LENGTH] = repeats choked/tied by
+their slice · [ECHO→SPLIT] = thinned to a register/velocity · [ECHO→HARMONIZE] = dressed per repeat.
+Built for the DRIVER path ([driver→ECHO→X]); the non-driver hold topology ([ECHO→LENGTH] with no driver)
+is a flagged follow-up. macOS green; device ear owed.
 ③ **PASSES v2 — THE PER-LAP SWITCHBOARD** (the relic reborn; per Paul: "different routing on
 different passes"). Per pass (1–4), a state: **PASS** (downstream receives) · **MUTE** (the lap
 rests) · **BYPASS** (skip the remaining chain this lap — the chain shortens on alternate laps:

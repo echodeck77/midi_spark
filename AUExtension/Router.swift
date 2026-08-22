@@ -523,6 +523,11 @@ final class Router {
         var pitch: Int = 0           // semitones per successive echo
         var gateBeats: Double = 0.25
         var spill: EchoSpill = .ring // RING = tail spills past the column · CUT = pending repeats die at column exit
+        // §7② ROUTE = CHAIN: re-fold each repeat through the chain stages AFTER the ECHO slot, at the repeat's own beat.
+        // cellIdx/echoSlot look up the LIVE cell in drainEchoTails; route == .direct → the flat path (v1, byte-identical).
+        var route: EchoRoute = .direct
+        var cellIdx: Int = -1        // the emitting cell's grid index (for the CHAIN re-fold's live-chain lookup)
+        var echoSlot: Int = -1       // the ECHO slot's position; the re-fold runs slots echoSlot+1 … tail
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -541,7 +546,7 @@ final class Router {
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, timeBeats: Double, repeats: Int,
                               feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double,
-                              spill: EchoSpill = .ring) {
+                              spill: EchoSpill = .ring, route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -552,7 +557,8 @@ final class Router {
         }
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
-                                   decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill)
+                                   decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill,
+                                   route: route, cellIdx: cellIdx, echoSlot: echoSlot)
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -1578,7 +1584,7 @@ final class Router {
     /// opens a voice with a scheduled off (drainDue guarantees the off → no stuck note). Decay-floor + all-past retire
     /// the entry. A beat DISCONTINUITY (seek/loop/tempo jump) clears the ring — v1 drops tails on the jump (look-back
     /// preservation is v2). Runs BEFORE the empty-pool guard so a released chord's tail still sounds.
-    private func drainEchoTails(mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
+    private func drainEchoTails(box: SnapshotBox, mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
                                windowStart: Int64, windowEnd: Int64, S: Double, a: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
         if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S { clearEchoTails() }   // seek/loop/tempo jump → drop tails
@@ -1601,9 +1607,69 @@ final class Router {
                                    windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
-                emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT,
-                          windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
+                // §7② ROUTE = CHAIN: re-fold THIS repeat through the post-ECHO stages at beat tau (LENGTH gates/ties it,
+                // SPLIT thins by register/velocity, HARMONIZE dresses it, …). DIRECT → the flat v1 strike (byte-identical).
+                if e.route == .chain && e.cellIdx >= 0 {
+                    refoldEchoRepeat(e, n: n, v: min(127, v), tau: tau, S: S, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                     windowStart: windowStart, windowEnd: windowEnd, a: a, box: box, out: out, diag: &diag)
+                } else {
+                    emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT,
+                              windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
+                }
             }
+        }
+    }
+    /// §7② Emit ONE echo repeat (note `n`, vel `v`, beat `tau`) through the chain stages AFTER the ECHO slot, looked up
+    /// on the LIVE cell — LENGTH gates/ties it by the slice it lands in, SPLIT/CHANCE/HARMONIZE re-shape it, etc. Falls
+    /// back to a flat strike if the live chain changed (the ECHO slot is gone / no longer ECHO) or has no downstream
+    /// stages. Uses the chainA/chainB scratch (free here — drainEchoTails runs before the tick loop that also uses them).
+    private func refoldEchoRepeat(_ e: EchoTail, n: Int, v: Int, tau: Double, S: Double, beatPos: Double,
+                                  beatsPerSample: Double, windowStart: Int64, windowEnd: Int64, a: Double,
+                                  box: SnapshotBox, out: MIDIEmitter?, diag: inout KernelDiag) {
+        let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        func flat() {
+            let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            emitArtic(note: UInt8(n), busMask: e.busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: UInt8(min(127, max(1, v))), out: out, diag: &diag)
+        }
+        guard e.cellIdx >= 0 && e.cellIdx < box.cells.count else { flat(); return }
+        let cell = box.cells[e.cellIdx]
+        guard e.echoSlot >= 0 && e.echoSlot < cell.procs.count, cell.procs[e.echoSlot].type == .echo else { flat(); return }
+        let cycleBeats = Double(Snap.cols) * S
+        let pass = cycleBeats > 0 ? Int((tau / cycleBeats).rounded(.down)) : 0   // the lap the repeat lands in (for passgate-after-echo, chance seeds)
+        var cur = chainA, nxt = chainB
+        cur.reset(); cur.noteOn(UInt8(min(127, max(0, n))), velocity: UInt8(min(127, max(1, v))), channel: 0); cur.rebuildSorted()
+        var lenP: SnapParams? = nil
+        var j = e.echoSlot + 1
+        while j < cell.procs.count {
+            if !cell.slotBypass[j] {
+                let t = cell.procs[j].type
+                if t == .echo || t == .mod || t == .glide {         // no nested echo (v1); MOD/GLIDE are note-transparent
+                } else if t == .length {
+                    lenP = cell.procs[j]                            // gate override applied to the emit below (last-writer)
+                } else {
+                    let mode = cellMode(type: t, bypassed: false, passMask: cell.procs[j].passMask, pass: pass)
+                    nxt.reset()
+                    applyStage(cell.procs[j], mode: mode, src: cur, into: nxt, cell: cell, m: tau, S: S, cycleBeats: cycleBeats)
+                    swap(&cur, &nxt)
+                }
+            }
+            j += 1
+        }
+        var offBeat = tau + e.gateBeats
+        if let lp = lenP {                                          // LENGTH downstream: gate THIS repeat by the slice at tau
+            let sIdx = ((chopSlice(tau, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
+            let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
+            switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
+            case .drop:                return                       // MUTE slice → this repeat is silent
+            case .keep:                break
+            case .overrideOff(let ob): offBeat = ob
+            }
+        }
+        let offT = sampleOf(musical: offBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+        for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+            let nn = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
+            emitArtic(note: nn, busMask: e.busMask, onSample: onT, offSample: offT, windowEnd: windowEnd,
+                      velocity: max(1, cur.velocity(nn)), out: out, diag: &diag)
         }
     }
 
@@ -1980,7 +2046,7 @@ final class Router {
         }
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
-        drainEchoTails(mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
+        drainEchoTails(box: box, mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
 
@@ -2973,7 +3039,15 @@ final class Router {
         while j < cell.procs.count {
             if !cell.slotBypass[j] {   // true-bypass passes untouched
                 if cell.procs[j].type == .echo {
-                    echoP = cell.procs[j]   // hold the params; the tails register once the fold completes (below)
+                    echoP = cell.procs[j]   // hold the params; DIRECT registers over the final folded set (below)
+                    if cell.procs[j].echoRoute == .chain {   // §7② CHAIN: seed from the set reaching ECHO's INPUT (cur so far); drainEchoTails re-folds each repeat through slots j+1…tail
+                        let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                        for kk in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+                            let sn = cur.srcAscending(kk, filter: 0, cableMask: 0b1111)
+                            pushEchoForNote(Int(sn), vel: max(1, cur.velocity(sn)), bm: echoBM, p: cell.procs[j], onset: m, S: S,
+                                            route: .chain, cellIdx: currentCellIndex, echoSlot: j)
+                        }
+                    }
                 } else if cell.procs[j].type == .mod || cell.procs[j].type == .glide {
                     // MOD/GLIDE are note-transparent in the fold — their output is emitted separately (v1: [driver→GLIDE] plays the driver).
                 } else if cell.procs[j].type == .length {
@@ -3003,15 +3077,17 @@ final class Router {
             case .overrideOff(let ob): offOut = onSample + Int64((max(0, ob - m) / beatsPerSample).rounded())
             }
         }
-        if let ep = echoP {   // echo the fully-processed set (all downstream stages applied)
-            // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
-            // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
-            let echoBM = chopMask(cell, m: m, S: S, base: bm)
-            for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
-                let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
-                pushEchoForNote(Int(n), vel: max(1, cur.velocity(n)), bm: echoBM, p: ep, onset: m, S: S)   // each echo inherits its note's velocity
-            }
-            if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry)
+        if let ep = echoP {
+            if ep.echoRoute != .chain {   // DIRECT (v1): echo the fully-processed final set (all downstream stages applied)
+                // §cell-edit F CHOP: the tail routes through the per-slice split too — it inherits the source note's
+                // slice destination, so echoes follow the note (a muted slice → mask 0 → no tail). (user 2026-08-09.)
+                let echoBM = chopMask(cell, m: m, S: S, base: bm)
+                for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
+                    let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
+                    pushEchoForNote(Int(n), vel: max(1, cur.velocity(n)), bm: echoBM, p: ep, onset: m, S: S)   // each echo inherits its note's velocity
+                }
+            }   // CHAIN tails were already registered at the ECHO slot (from its INPUT set); drainEchoTails re-folds them.
+            if !ep.echoThru { cur.reset(); cur.rebuildSorted() }   // MUTE → echoes only (no dry) — both routes
         }
         for k in 0..<cur.srcCount(filter: 0, cableMask: 0b1111) {
             let n = cur.srcAscending(k, filter: 0, cableMask: 0b1111)
@@ -3022,12 +3098,14 @@ final class Router {
     }
     /// Register an echo tail for ONE tick note ([ARP→ECHO]) at beat `onset`. v1 tick-echo is SYNCED-delay only (the
     /// tick emitters don't thread tempo, so free-ms tick echo is deferred); the single/hold-tail path supports both.
-    private func pushEchoForNote(_ note: Int, vel: UInt8, bm: UInt8, p: SnapParams, onset: Double, S: Double) {
+    private func pushEchoForNote(_ note: Int, vel: UInt8, bm: UInt8, p: SnapParams, onset: Double, S: Double,
+                                 route: EchoRoute = .direct, cellIdx: Int = -1, echoSlot: Int = -1) {
         guard note >= 0 && note <= 127, p.echoSync else { return }
         let timeBeats = Double(p.echoDelayDiv) / 4.0
         pushEchoTail(onset: onset, note: UInt8(note), vel: vel, busMask: bm, timeBeats: timeBeats,
                      repeats: max(1, min(16, p.echoRepeats)), feedDelay: p.echoFeedDelay, decay: p.echoDecay,
-                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9), spill: p.echoSpill)
+                     offset: p.echoOffset, pitch: p.echoPitch, gateBeats: min(timeBeats * 0.9, S * 0.9), spill: p.echoSpill,
+                     route: route, cellIdx: cellIdx, echoSlot: echoSlot)
     }
     /// The emit bus-mask for a cell at musical beat `m` after its per-slice CHOP routing (independent main/alt/mute).
     private func chopMask(_ cell: SnapCell, m: Double, S: Double, base: UInt8) -> UInt8 {
