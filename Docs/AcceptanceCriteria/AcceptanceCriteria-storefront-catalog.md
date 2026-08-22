@@ -58,12 +58,13 @@ should anyone else.
 
 ---
 
-# THE RATIFIED CARD SET (design-side, 2026-08-22 — AWAITING PAUL)
+# THE RATIFIED CARD SET (design-side, 2026-08-22 — ✅ RATIFIED BY PAUL 2026-08-22)
 
 **31 cards · 6 groups. Names/one-liners are DISPLAY-LAYER only (Codable IDs frozen).
-All names await Paul's ratification. Format: CARD NAME — catalog one-liner (also the
-panel sub-header unless noted).** Reconciled against the Code-side engine-truth inventory
-(the drift flags D1–D8 were absorbed — see notes inline).
+✅ RATIFIED BY PAUL 2026-08-22 — these names + groups + one-liners are the build target.
+Format: CARD NAME — catalog one-liner (also the panel sub-header unless noted).** Reconciled
+against the Code-side engine-truth inventory (the drift flags D1–D8 were absorbed — see notes
+inline).
 
 **MELODY**
 - **ARP** — Walks the held chord one note at a time.
@@ -121,6 +122,8 @@ the two exceptions. D8 VELOCITY macro-default = DEFERRED (macros stay opt-in; th
 fader" is a suggested manual binding, not a mechanism). SPLIT/ECHO/EUCLID/LENGTH = one card each
 (agreed). SHIFT+LENGTH homed in TIME.
 
-**Open for Paul:** the CONTROL card names (LFO/FOLLOWER/STEP MOD/ENVELOPE/CC IN) + the whole set
-are un-ratified; the picker rework (grouping + descriptions + the 31-card split) is the net-new
-UI, gated on ratification.
+**Ratified 2026-08-22 (Paul):** the whole set — names, groups, one-liners, the CONTROL names
+(LFO/FOLLOWER/STEP MOD/ENVELOPE/CC IN) — is approved and is the build target. The picker rework
+(grouping + descriptions + the 31-card split, each split card pre-setting its mode) is the
+net-new UI, now greenlit. Engine untouched (the split only sets a default mode on add; Codable
+IDs frozen). RIFF + VELOCITY remain the two future/unbuilt entries.

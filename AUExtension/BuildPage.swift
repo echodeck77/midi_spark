@@ -3673,18 +3673,84 @@ extension DiagView {
     private func buildChainRemoveSlot(_ i: Int) {                  // DELETE → leave an empty (passthrough) box, keep positions
         var c = selectedColourChain(); guard i < c.count else { return }; c[i] = buildPassthroughSlot(); buildApplyChain(c)
     }
-    // ADD a processor at box `i` — pad any empty boxes to its LEFT with passthroughs so its POSITION is remembered,
-    // then open that processor's editor pop-up. (user 2026-08-12)
-    private func buildChainAddAt(_ i: Int, type: ProcessorType) {
+    // ── THE STOREFRONT CATALOG ───────────────────────────────────────────────────────────────────────────────────
+    // ONE ENGINE, MANY DOORS (design ratified by Paul 2026-08-22, AcceptanceCriteria-storefront-catalog.md):
+    // multi-mode stages split into MULTIPLE CARDS, each pre-setting its mode; grouped by musical intent; each card
+    // carries a plain one-liner (the selector teaches). Codable type IDs never rename — a split card is (type + a
+    // params preset); `apply` sets the mode field on a fresh slot. Names/blurbs are DISPLAY-ONLY.
+    struct BuildCard {
+        let name: String            // storefront name (e.g. "RATCHET COIN", "LFO")
+        let blurb: String           // catalog one-liner
+        let type: ProcessorType     // the frozen engine ID this card opens
+        let apply: (inout ColourParams) -> Void   // pre-set the mode ({ } for a single-mode card)
+    }
+    struct BuildCardGroup { let title: String; let note: String?; let cards: [BuildCard] }
+
+    private var buildCatalog: [BuildCardGroup] {
+        func C(_ n: String, _ b: String, _ t: ProcessorType, _ a: @escaping (inout ColourParams) -> Void = { _ in }) -> BuildCard {
+            BuildCard(name: n, blurb: b, type: t, apply: a)
+        }
+        return [
+            BuildCardGroup(title: "MELODY", note: nil, cards: [
+                C("ARP", "Walks the held chord one note at a time.", .arp),
+                C("CASCADE", "Builds the chord up one note at a time, holding each.", .cascade),
+                C("STRUM", "Rolls the chord in like a guitar rake.", .strum),
+                C("GLIDE", "One sliding voice: small steps bend, big leaps jump.", .glide),
+            ]),
+            BuildCardGroup(title: "HARMONY", note: nil, cards: [
+                C("HARMONIZE", "Adds up to three tuned voices to every note.", .harmonize),
+                C("TUTTI COIN", "Flips a coin each step: the whole chord, or one note.", .tutti) { $0.tuttiMode = .coin },
+                C("TUTTI PATTERN", "Paints the chord's shape per step — full, top two, one note, rest.", .tutti) { $0.tuttiMode = .pattern },
+                C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
+                C("DRONE", "Holds the chord as a sustained pad.", .drone),
+            ]),
+            BuildCardGroup(title: "RHYTHM", note: nil, cards: [
+                C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },
+                C("RATCHET COIN", "Rolls by chance: some steps burst, some hit plain.", .ratchet) { $0.rtcMode = .coin },
+                C("RATCHET PATTERN", "Paint which steps roll, and how many hits each.", .ratchet) { $0.rtcMode = .pattern },
+                C("BURST", "One accelerating (or slowing) roll per step.", .burst) { $0.burstMode = .once },
+                C("BURST COIN", "A roll by chance: some steps fire, some rest.", .burst) { $0.burstMode = .coin },
+                C("BURST PATTERN", "Paint where rolls start and how far they stretch.", .burst) { $0.burstMode = .pattern },
+                C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid),
+                C("WEAVE LADDER", "Every note pulses at its own speed: bass slow, top fast.", .weave) { $0.weaveMode = .ladder },
+                C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
+                C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },
+                C("WEAVE EUCLID", "Each note gets its own euclidean rhythm, denser on top.", .weave) { $0.weaveMode = .euclid },
+                C("PASSES", "Plays only on the laps you choose (1–4).", .passgate),
+                C("CHANCE", "Lets notes through by dice roll — the same roll every loop.", .chance),
+            ]),
+            BuildCardGroup(title: "DYNAMICS", note: nil, cards: [
+                C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
+            ]),
+            BuildCardGroup(title: "CONTROL", note: "Moves synth controls — makes no notes of its own.", cards: [
+                C("LFO", "A wave moving a synth knob: sweeps and wobbles.", .mod) { $0.modSource = .shape },
+                C("FOLLOWER", "Your playing becomes the control: busier = higher.", .mod) { $0.modSource = .follow },
+                C("STEP MOD", "Draw an 8-step pattern that moves a knob.", .mod) { $0.modSource = .steps },
+                C("ENVELOPE", "A rise-and-fall sweep each time the cell starts.", .mod) { $0.modSource = .strike },
+                C("CC IN", "Reads an incoming knob and re-ranges it onward.", .mod) { $0.modSource = .extern },
+            ]),
+            BuildCardGroup(title: "TIME", note: nil, cards: [
+                C("ECHO", "Repeats each note, fading away like a delay.", .echo),
+                C("SHIFT", "Drags the whole chord behind the beat: laid-back.", .shift),
+                C("LENGTH", "Shapes how long each step rings: staccato to ties.", .length),
+            ]),
+        ]
+    }
+
+    // ADD a catalog CARD at box `i`: populate the box with the card's type, pre-set its mode, open its editor.
+    private func buildChainAddCard(_ i: Int, _ card: BuildCard) {
         var c = selectedColourChain()
         while c.count <= i { c.append(buildPassthroughSlot()) }
-        c[i] = ProcessorSlot(type: type)
+        var slot = ProcessorSlot(type: card.type)
+        card.apply(&slot.params)
+        c[i] = slot
         buildApplyChain(c)
         buildAddSlot = nil; buildEditSlot = i
     }
 
-    // ── ADD-PROCESSOR PICKER ─────────────────────────────────────────────────────────────────────────────────────
-    // A big, clear pop-up listing every available processor. Selecting one populates box `slot` and opens its editor.
+    // ── ADD-PROCESSOR PICKER (THE CATALOG) ───────────────────────────────────────────────────────────────────────
+    // The storefront: 31 cards grouped by musical intent, each with a plain one-liner. Selecting one populates box
+    // `slot` (pre-set to the card's mode) and opens its editor.
     @ViewBuilder private func buildProcessorPicker(slot: Int, size: CGSize) -> some View {
         let hue = buildSelHue
         ZStack {
@@ -3692,18 +3758,29 @@ extension DiagView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("ADD PROCESSOR").font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(.white).tracking(1)
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                        ForEach(ProcessorType.allCases, id: \.self) { t in
-                            Button { buildChainAddAt(slot, type: t) } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: emblemSymbol(t)).font(.system(size: 20, weight: .black)).foregroundColor(hue).frame(width: 26)
-                                    Text(t.rawValue).font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white)
-                                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(buildCatalog, id: \.title) { group in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(group.title).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(hue)
+                                if let n = group.note {
+                                    Text(n).font(.system(size: 11, weight: .regular, design: .monospaced)).foregroundColor(.white.opacity(0.5))
                                 }
-                                .padding(.horizontal, 12).frame(height: 52).frame(maxWidth: .infinity)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.5), lineWidth: 1))
-                            }.buttonStyle(.plain)
+                                ForEach(group.cards, id: \.name) { card in
+                                    Button { buildChainAddCard(slot, card) } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: emblemSymbol(card.type)).font(.system(size: 18, weight: .black)).foregroundColor(hue).frame(width: 26)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(card.name).font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(.white)
+                                                Text(card.blurb).font(.system(size: 11, weight: .regular, design: .monospaced)).foregroundColor(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            Spacer(minLength: 0)
+                                        }
+                                        .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(hue.opacity(0.5), lineWidth: 1))
+                                    }.buttonStyle(.plain)
+                                }
+                            }
                         }
                     }
                 }
