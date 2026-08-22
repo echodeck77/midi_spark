@@ -24,6 +24,8 @@ enum ProcessorType: String, Codable, CaseIterable {
     case split = "SPLIT"       // set-membership filter: keep a subset of the chord (TOP/BOTTOM n · RANGE · vel window). Re-pools before a driver, punches holes after one
     case octave = "OCTAVE"     // UTILITY (Paul 2026-08-22): shift the chain ±3 octaves — pitch-class preserved (the pool thesis untouched)
     case transpose = "TRANSPOSE" // UTILITY: shift the chain ±24 semitones (moves notes OFF the held chord — the chromatic crowd's tool)
+    case channel = "CHANNEL"   // UTILITY: this chain exits on a chosen MIDI channel (WIRE default | 1–16) — multitimbral from one output
+    case nudge = "NUDGE"       // UTILITY: a pure time offset (± sixteenths) on the stream — slides what's already there (does NOT drive)
     // §12: type IDs are append-only. Never reorder, never reuse.
 }
 
@@ -232,6 +234,8 @@ struct ColourParams: Codable, Equatable {
     // UTILITY SET (Paul 2026-08-22) — simple per-chain transforms. Append-only Optionals.
     var utilOctave: Int? = 0                    // OCTAVE: shift ±3 octaves (×12 semitones), pitch-class preserved
     var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones
+    var utilChannel: Int? = 0                   // CHANNEL: output channel — 0 = WIRE (the bus stamp) · 1–16 = override
+    var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
 }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its

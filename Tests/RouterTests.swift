@@ -568,6 +568,35 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Set(pre.ons.filter { $0.cable == 1 }.map { Int($0.note) }), lifted, "[OCTAVE→ARP] arps the octave-lifted pool")
         assertNothingLeftSounding(post); assertNothingLeftSounding(pre)
     }
+    // UTILITY — CHANNEL (Paul 2026-08-22): the cell exits on a chosen MIDI channel; WIRE keeps the bus stamp.
+    func testChannelOverridesTheOutputChannel() {
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func mk(_ ch: Int) -> SnapshotBox {
+            var cs = arpColours(); cs[gi].type = .channel; cs[gi].paramsA.utilChannel = ch
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let wire = RecordingEmitter(); run(mk(0), chord([60, 64]), beats: 2, into: wire)   // WIRE = bus A's stamp (channel 1 → wire 0)
+        XCTAssertFalse(wire.ons.filter { $0.cable == 1 }.isEmpty, "the cell sounds")
+        XCTAssertTrue(wire.ons.filter { $0.cable == 1 }.allSatisfy { $0.chan == 0 }, "WIRE uses the bus stamp channel (1 → wire 0)")
+        let c3 = RecordingEmitter(); run(mk(3), chord([60, 64]), beats: 2, into: c3)
+        XCTAssertTrue(c3.ons.filter { $0.cable == 1 }.allSatisfy { $0.chan == 2 } && !c3.ons.isEmpty, "CHANNEL 3 stamps wire channel 2 (0-based)")
+        assertNothingLeftSounding(wire); assertNothingLeftSounding(c3)
+    }
+    // UTILITY — NUDGE: a pure time offset (sixteenths) slides the stream later/earlier; no stuck notes (clamped like POCKET).
+    func testNudgeShiftsTheOnsetInTime() {
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func mk(_ n: Int) -> SnapshotBox {
+            var cs = arpColours(); cs[gi].type = .nudge; cs[gi].paramsA.utilNudge = n
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let straight = RecordingEmitter(); run(mk(0), chord([60]), beats: 2, into: straight)
+        let late = RecordingEmitter(); run(mk(4), chord([60]), beats: 2, into: late)        // +4 sixteenths = +0.25 beat later
+        let s0 = straight.ons.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.min()
+        let s1 = late.ons.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.min()
+        XCTAssertNotNil(s0); XCTAssertNotNil(s1)
+        XCTAssertGreaterThan(s1!, s0!, "+4 sixteenths pushes the note-on later in time")
+        assertNothingLeftSounding(straight); assertNothingLeftSounding(late)
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE UTILITY SET — OCTAVE · TRANSPOSE · CHANNEL · NUDGE (2026-08-22, on `main`; macOS green incl. fuzz, iOS
+  builds; DEVICE eye/ear owed). Ratified this session (`AcceptanceCriteria-utility-set.md`, ferry) — four simple
+  per-chain transforms + a new UTILITY storefront group. Built unattended, each with tests, in two commits.
+  **OCTAVE (±3) / TRANSPOSE (±24 st)** (`abd9eef`): pitch-shift SET transforms — an `applyStage` case (folds through
+  composeChainSet upstream + emitDriverNote downstream) + a `holdShift` folded into `emitColumnHolds`' transpose for
+  the single-slot / hold-tail path (added to the hold guard + `isHoldTailChain`); out-of-range notes drop. **CHANNEL
+  (WIRE|1–16) / NUDGE (±8 sixteenths)** (next commit): EMISSION MODIFIERS — note-transparent (`cellMode → .identity`),
+  applied per-cell at `emitOneBus` via `chanOverride`/`nudgeSamples` instance vars (set where `currentCellIndex` is set;
+  reset before `drainEchoTails` so echo tails use wire defaults, v1). CHANNEL overrides the channel stamp; NUDGE folds
+  into the RACK POCKET shift (on/off equal, clamped to the window → no stuck notes). BYTE-IDENTICAL when unset. Full
+  surface each: ProcessorType (append-only) + ColourParams/SnapParams/builder + cellMode/emblemSymbol/typeDescription/
+  typeParams/macroParams + buildCatalog UTILITY group + fuzz roster & randomizer. +5 RouterTests. v1: echo tails don't
+  inherit channel/nudge (wire defaults). Specs captured: `-utility-set.md`; also captured (ratified/UI, device-owed):
+  `-grid-selector.md`, `-in-out-truth-strips.md`; `-tap-processor.md` (NOT ratified — do not build).**
 - **▶ DOOR REPLAY channel-preservation FIX + diagnostic (2026-08-22, on `main`; macOS green, iOS builds; device
   re-verify owed). Device report (Paul): a REPLAY door ("Last N") filtered to MIDI channel 3 captured the loop (it
   ANIMATED) but played back SILENT — the sound dying the instant "Last N" engaged. First shipped a HEALTH-panel
@@ -172,7 +186,12 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   the live latch's `captureFiltered` channel-preserving behaviour). FILE mode keeps the door stamp (a `.mid` has no
   input channel). +1 DoorRingTest (replay preserves the recorded channel); reel/file test callers updated for the new
   `outChan` buffer. The diagnostic is KEPT (harmless, engaged-only; useful for the next round). ⚠ RPOOL still reads 3
-  after the fix (count unchanged — only the channel changed); the tell is now AUDIBLE.**
+  after the fix (count unchanged — only the channel changed); the tell is now AUDIBLE. **FOLLOW-UP — BLOCK-LATENCY FIX
+  (`7e84ac0`): with the channel fixed, the replayed loop lagged live input by a CONSTANT amount (Paul: default grid/rate,
+  fixed not drift). Root cause: the frozen loop pool was sampled at the BLOCK-START phase (`renderBeatPos`), but live
+  input is added mid-block by handleIncoming and is present for its whole arrival block — so a loop onset appeared one
+  render block LATE. Fix: sample the loop at the BLOCK-END phase (a one-block look-ahead, `renderWindowBeats`). Kernel-
+  only; iOS builds. Cancels a one-buffer lag; a larger residual would point elsewhere (device re-verify owed).**
 - **▶ ECHO MID-CHAIN — ROUTE=CHAIN, the driver path LANDED (2026-08-22, on `main`; macOS green incl. fuzz, iOS builds;
   DEVICE ear owed). Second of Paul's two 2026-08-22 ratifications (`Docs/processor-pairings.md` §7 ②). ⚠ The ferry's
   premise ("the existing ROUTE CHAIN|DIRECT birthstone stands ready, unrendered") was WRONG — an exhaustive search

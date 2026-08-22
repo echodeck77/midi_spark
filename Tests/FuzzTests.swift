@@ -60,7 +60,8 @@ final class FuzzTests: XCTestCase {
                                       .length,  // per-slice GATE override — its re-articulator + downstream override hammered for no-stuck-notes
                                       .weave,   // rank-clocked polyrhythm DRIVER — per-rank clocks hammered for no-stuck-notes across every edge
                                       .split,   // set-membership filter — re-pool / punch-holes / hold, hammered across placements
-                                      .octave, .transpose]   // UTILITY pitch shifts — hammered for no-stuck-notes as head / upstream / downstream / hold-tail
+                                      .octave, .transpose,   // UTILITY pitch shifts — hammered for no-stuck-notes as head / upstream / downstream / hold-tail
+                                      .channel, .nudge]      // UTILITY emit overrides — CHANNEL re-stamps, NUDGE shifts timing (clamped); hammered for no-stuck-notes
         // 40 colours (was 6) so cells reach indices ≥16 AND ≥33 — the unlimited-ephemeral-colours space, and the
         // exact range that overflowed the render override table (the 2026-08-15 SIGTRAP). The old 6-colour cap left
         // that whole corner permanently un-fuzzed — the same class that once made this suite vacuous. (Paul 2026-08-16)
@@ -73,7 +74,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
             if c.type == .ratchet && r.chance(0.5) { applyRandomRtc(&c.paramsA, &r) }
             if c.type == .burst && r.chance(0.5) { applyRandomBurst(&c.paramsA, &r) }
-            if c.type == .octave || c.type == .transpose { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
+            if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
         }
@@ -93,7 +94,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
                     if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
                     if s.type == .burst && r.chance(0.5) { applyRandomBurst(&s.params, &r) }
-                    if s.type == .octave || s.type == .transpose { applyRandomUtil(&s.params, type: s.type, &r) }
+                    if s.type == .octave || s.type == .transpose || s.type == .channel || s.type == .nudge { applyRandomUtil(&s.params, type: s.type, &r) }
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
                 }
@@ -153,6 +154,8 @@ final class FuzzTests: XCTestCase {
     private func applyRandomUtil(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)
         if type == .octave { p.utilOctave = r.int(7) - 3 }             // −3…+3 (extremes drop notes off the top/bottom)
         else if type == .transpose { p.utilTranspose = r.int(49) - 24 } // −24…+24
+        else if type == .channel { p.utilChannel = r.int(17) }          // 0 (WIRE) … 16
+        else if type == .nudge { p.utilNudge = r.int(17) - 8 }          // −8…+8 sixteenths (clamped at the window)
     }
     // SPAN CELL|ROW (Paul 2026-08-19): ~half the time flip a span-capable processor to ROW, so the fuzz hammers the
     // whole-bar-timeline paths for the no-stuck-notes / quiescence invariants across every transport + snapshot edge.

@@ -890,6 +890,8 @@ struct ProcessorBox: View {
         case .split:     return "keep only part of the chord (top / bottom / range / velocity)"
         case .octave:    return "shift this chain up or down by whole octaves"
         case .transpose: return "shift this chain by semitones (moves notes off the held chord)"
+        case .channel:   return "send this chain out on a chosen MIDI channel"
+        case .nudge:     return "slide this chain earlier or later in time"
         }
     }
 
@@ -1269,6 +1271,12 @@ struct ProcessorBox: View {
         case .transpose:   // UTILITY — shift ±24 semitones
             let st = p.utilTranspose ?? 0
             field("SEMITONES  \(st > 0 ? "+" : "")\(st)") { stepper(st, -24, 24) { v in setParam { $0.utilTranspose = v } } }
+        case .channel:   // UTILITY — output channel override (WIRE = the bus stamp)
+            let ch = p.utilChannel ?? 0
+            field("CHANNEL  \(ch == 0 ? "WIRE" : "\(ch)")") { seg(["WIRE"] + (1...16).map { "\($0)" }, sel: ch == 0 ? "WIRE" : "\(ch)") { i in setParam { $0.utilChannel = i } } }
+        case .nudge:   // UTILITY — time offset in sixteenths
+            let nu = p.utilNudge ?? 0
+            field("NUDGE  \(nu > 0 ? "+" : "")\(nu)/16 beat") { stepper(nu, -8, 8) { v in setParam { $0.utilNudge = v } } }
         }
     }
 

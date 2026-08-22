@@ -217,6 +217,10 @@ final class Router {
     private var cellNoteHead  = [Int](repeating: 0, count: 64)     // ring write cursor per cell
     private var cellNoteNew   = [UInt8](repeating: 0, count: 64)   // note-ons written since the last drain (return capped at 6)
     private var currentCellIndex: Int = -1
+    // UTILITY (Paul 2026-08-22) — per-cell EMIT overrides, set right where currentCellIndex is set and read in emitOneBus.
+    // Both are byte-identical when unset (−1 / 0). Reset before drainEchoTails so echo tails use the wire defaults (v1).
+    private var chanOverride: Int16 = -1   // CHANNEL: output channel (−1 = the bus stamp · 0–15 = override)
+    private var nudgeSamples: Int64 = 0    // NUDGE: timing offset in samples (0 = none)
     // THE SEAL COMET (note-on/off gate): a bitmask of the 64 cells CURRENTLY SOUNDING (≥1 active non-silent
     // voice). Snapshotted on the render thread each window (a live set, like snapshotEmitterSounding); the UI
     // polls it so the spark travels for exactly as long as the note is held, and stops on release.
@@ -1172,13 +1176,14 @@ final class Router {
             markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = currentColourIndex
             markCount[bus] += 1
         }
-        let ch = (busChannels[bus] &- 1) & 15             // 1–16 stored → 0–15 wire
-        // THE RACK POCKET: shift this note's on/off by the emitter's timing offset (samples). Both shift equally so
-        // the duration is preserved; the on is clamped into [renderStart, windowEnd] (can't play in the past or
-        // beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
+        let ch = chanOverride >= 0 ? UInt8(chanOverride) : (busChannels[bus] &- 1) & 15   // UTILITY CHANNEL override, else the bus stamp (1–16 → 0–15 wire)
+        // THE RACK POCKET (per-emitter) + UTILITY NUDGE (per-cell): shift this note's on/off by the timing offset
+        // (samples). Both shift equally so the duration is preserved; the on is clamped into [renderStart, windowEnd]
+        // (can't play in the past or beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
         var onS = onSample, offS = offSample
-        if bit(pocketMask, bus) && !previewMode && pocketSamples[bus] != 0 {
-            let target = onSample + pocketSamples[bus]
+        let shift = ((bit(pocketMask, bus) && !previewMode) ? pocketSamples[bus] : 0) + (previewMode ? 0 : nudgeSamples)
+        if shift != 0 {
+            let target = onSample + shift
             onS = max(renderStart, min(windowEnd, target))
             if offSample != .max { offS = max(onS + 1, offSample + (onS - onSample)) }
         }
@@ -1246,6 +1251,7 @@ final class Router {
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
+            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
@@ -1406,6 +1412,7 @@ final class Router {
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
+            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -2047,6 +2054,7 @@ final class Router {
         }
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
+        chanOverride = -1; nudgeSamples = 0   // UTILITY: the holds above set these per-cell; echo tails use the wire defaults (v1)
         drainEchoTails(box: box, mStart: mNow, mEnd: musicalOf(beatPos + Double(frameCount) * beatsPerSample, stepBeats: S, a: a),
                        beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd,
                        S: S, a: a, out: out, diag: &diag)
@@ -2735,6 +2743,24 @@ final class Router {
         case .transpose: return Int(p.utilTranspose)
         default:         return 0
         }
+    }
+    /// UTILITY CHANNEL (Paul 2026-08-22): the per-cell output-channel override — the LAST non-bypassed CHANNEL stage's
+    /// channel (0-based), or −1 for WIRE (the bus stamp). Whole-cell + position-independent (the chain exits on one channel).
+    private func cellChanOverride(_ cell: SnapCell) -> Int16 {
+        var out: Int16 = -1
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .channel {
+            let c = cell.procs[j].utilChannel; if c >= 1 && c <= 16 { out = Int16(c - 1) }   // 0 = WIRE (no override)
+        }
+        return out
+    }
+    /// UTILITY NUDGE: the per-cell timing offset in SAMPLES — the sum of non-bypassed NUDGE stages (sixteenths of a
+    /// beat), at the live block's beatsPerSample. Applied like the RACK POCKET (shift on/off equally, clamped — no stuck notes).
+    private func cellNudgeSamples(_ cell: SnapCell, beatsPerSample: Double) -> Int64 {
+        guard beatsPerSample > 0 else { return 0 }
+        var ticks = 0
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .nudge { ticks += cell.procs[j].utilNudge }
+        guard ticks != 0 else { return 0 }
+        return Int64(((Double(ticks) / 16.0) / beatsPerSample).rounded())
     }
     private func isHoldTailChain(_ cell: SnapCell) -> Bool {
         guard cell.procs.count >= 2, let last = cell.procs.last else { return false }

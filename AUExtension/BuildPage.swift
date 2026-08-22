@@ -3741,6 +3741,8 @@ extension DiagView {
             BuildCardGroup(title: "UTILITY", note: "Plain per-chain overrides — move one chain without touching the door.", cards: [
                 C("OCTAVE", "Plays this chain a few octaves up or down.", .octave),
                 C("TRANSPOSE", "Shifts this chain by semitones (off the held chord).", .transpose),
+                C("CHANNEL", "Sends this chain out on its own MIDI channel.", .channel),
+                C("NUDGE", "Slides this chain a little earlier or later in time.", .nudge),
             ]),
         ]
     }

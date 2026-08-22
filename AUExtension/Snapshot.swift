@@ -169,6 +169,8 @@ struct SnapParams {
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
     var utilOctave: Int = 0                           // OCTAVE: ±3 octave shift (UTILITY, Paul 2026-08-22)
     var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
+    var utilChannel: Int = 0                          // CHANNEL: 0 = WIRE (bus stamp) · 1–16 = output-channel override
+    var utilNudge: Int = 0                            // NUDGE: time offset in sixteenths (−8…+8)
 }
 
 struct SnapColour {

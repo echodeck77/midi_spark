@@ -324,6 +324,8 @@ enum SnapshotBuilder {
         if var v = p.splitVel { v.floor = clamp(v.floor, 1, 127); v.ceil = clamp(v.ceil, v.floor, 127); out.splitVel = v }
         if let v = p.utilOctave { out.utilOctave = clamp(v, -3, 3) }         // UTILITY (Paul 2026-08-22)
         if let v = p.utilTranspose { out.utilTranspose = clamp(v, -24, 24) }
+        if let v = p.utilChannel { out.utilChannel = clamp(v, 0, 16) }       // 0 = WIRE · 1–16 override
+        if let v = p.utilNudge { out.utilNudge = clamp(v, -8, 8) }           // ± sixteenths
         if let v = p.rtcMode { out.rtcMode = v }
         if let v = p.rtcChance { out.rtcChance = clamp(v, 0, 1) }
         if let v = p.rtcCountLo { out.rtcCountLo = clamp(v, 1, 8) }

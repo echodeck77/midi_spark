@@ -1,3 +1,8 @@
+# ✅ LANDED 2026-08-22 (all four): OCTAVE·TRANSPOSE (`abd9eef`) + CHANNEL·NUDGE — the new UTILITY catalog group.
+# OCTAVE/TRANSPOSE = pitch-shift SET transforms (applyStage + emitColumnHolds); CHANNEL/NUDGE = note-transparent EMIT
+# overrides (per-cell chanOverride/nudgeSamples at emitOneBus, byte-identical when unset). +5 RouterTests; macOS green
+# incl. fuzz; iOS builds. v1: echo tails don't inherit channel/nudge. DEVICE eye/ear owed.
+#
 # SPEC → Code — THE UTILITY SET (Paul, 2026-08-22: "simpler
 # processors" — captured; OCTAVE is his direct ask, the rest are
 # the audited siblings. A seventh catalog group: UTILITY.)

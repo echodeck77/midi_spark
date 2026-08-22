@@ -491,6 +491,22 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     path. Flagged; the driver path is the canonical/ratified core.
   - [ ] **③ PASSES v2 — the per-lap switchboard** — STILL CAPTURED, NOT ratified. Do not build until Paul's word.
 
+- [x] **THE UTILITY SET — OCTAVE·TRANSPOSE·CHANNEL·NUDGE — LANDED 2026-08-22** (`AcceptanceCriteria-utility-set.md`;
+  ferry-ratified). New UTILITY catalog group; 4 simple per-chain transforms. OCTAVE/TRANSPOSE = pitch-shift set
+  transforms; CHANNEL/NUDGE = note-transparent emit overrides (byte-identical when unset). +5 RouterTests; macOS green
+  incl. fuzz; iOS builds. v1: echo tails don't inherit channel/nudge (wire defaults). DEVICE eye/ear owed.
+- [ ] **RATIFIED 2026-08-22, UI-HEAVY — captured, DEVICE-owed (built off-device is not meaningful; need Paul's eyes):**
+  - [ ] **THE GRID SELECTOR** (`AcceptanceCriteria-grid-selector.md`) — a full-page 8×8 where each cell = one complete
+    MIDI chain, mutually exclusive; audition = real derivation vs current input; COMMIT/CANCEL; banks (FACTORY / MY
+    LIBRARY / DEALT — Paul scopes v1); mosaic faces; the reel rolls through it. §2 two toggles (QUANTIZE, EXCLUSIVE) =
+    captured, awaiting Paul's word. Big UI + audition/commit engine; a FACTORY curation deliverable. Not started.
+  - [ ] **THE IN/OUT TRUTH STRIPS + THE STAGE EYE** (`AcceptanceCriteria-in-out-truth-strips.md`) — every stage panel
+    gains an IN held-note strip (empty state teaches: "nothing held — LATCH at INPUT A") + an OUT mini-roll; tap = the
+    STAGE EYE (INPUT roll · live MECHANISM widget · OUTPUT roll on one time axis). Plus the audition fallback (empty
+    pool → reference chord with a tell) — the one testable/logic piece. UI-heavy; not started.
+- [ ] **TAP processor** (`AcceptanceCriteria-tap-processor.md`) — mid-chain layered emission (`[ARP→TAP→HARM]` = straight
+  + harmonized). **NOT RATIFIED** ("captured for discussion") — do not build until Paul's word.
+
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)
 - [ ] FEEDBACK EDGES (unit-delay) · THE PIN · MASTER+TEXTURE multi-playhead · **THE CC RAIL** · **THE TWO-LANE INSTRUMENT** (+ cross-lane valves) · MORPH desk (16 faders) · EXTERNAL processor type + standalone-app milestone.
 - [ ] **MULTI-INPUT / fan-in — THE G1 RULING** (design-Claude, 2026-07-30; captured here because the ferry note is
