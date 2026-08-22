@@ -112,7 +112,7 @@ struct RackMatrix: View {
                     isOn: { bit(flattenMask, $0) }, value: { at(flattenAmount, $0, 0) },
                     unit: "%", maxV: 100, onToggle: onToggleDuck, onSet: onDuckAmount)
             familyLabel("TOGETHER")
-            liveRow(key: "TURNS", title: "Takes turns with others", hue: amber,
+            liveRow(key: "TURNS", title: "Deals each hit to the next emitter in the group", hue: amber,   // names the ADDRESS-MOVING mechanism (design ruling 2026-08-22: TURNS is the first announced routing-class module)
                     isOn: { bit(altMask, $0) }, value: { max(1, at(altCount, $0, 1)) },
                     unit: "×", maxV: 8, minV: 1, onToggle: onToggleAlt, onSet: onAltCount)
             conversationRow

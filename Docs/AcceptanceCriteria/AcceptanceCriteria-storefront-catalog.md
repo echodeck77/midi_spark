@@ -58,7 +58,7 @@ should anyone else.
 
 ---
 
-> **✅ PAUL'S FINAL SHAPE 2026-08-22 (settles the same-day back-and-forth — this is what's built):**
+> **✅ RATIFIED BY PAUL 2026-08-22 — PAUL'S FINAL SHAPE (settles the same-day back-and-forth; this is what's built + approved):**
 > the picker shows the PER-MODE SPLIT cards below (RATCHET/BURST/TUTTI/WEAVE/MOD split; the modes
 > are VISIBLE at selection). Each card FIXES its mode on the new slot. The in-editor MODE/SOURCE
 > radio is REMOVED — the card decides the mode; to change it you pick a different card. The chosen

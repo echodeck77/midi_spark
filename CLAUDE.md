@@ -160,8 +160,9 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
 - **▶ THE STOREFRONT CATALOG — the grouped ADD-PROCESSOR picker, PER-MODE SPLIT + mode-on-box (2026-08-22, on `main`;
-  iOS builds; UI-only, DEVICE eye owed). Design ferried the "one engine, many doors" ruling + returned a 31-card
-  per-mode split set; Paul ratified, then over a same-day back-and-forth SETTLED the final shape (below). Spec:
+  iOS builds; UI-only, ✅ RATIFIED by Paul 2026-08-22, DEVICE eye still owed). Design ferried the "one engine, many
+  doors" ruling + returned a 31-card per-mode split set; Paul ratified, then over a same-day back-and-forth SETTLED +
+  RATIFIED the final shape (below). Spec:
   `Docs/AcceptanceCriteria/AcceptanceCriteria-storefront-catalog.md` (+ `-velocity-processor.md`, captured/unbuilt).
   The BUILD `buildProcessorPicker` went from a flat 19-type `LazyVGrid` to the CATALOG: a `BuildCard`/`BuildCardGroup`
   model + a `buildCatalog` of 6 groups (MELODY·HARMONY·RHYTHM·DYNAMICS·CONTROL·TIME), **31 SPLIT cards** — RATCHET/
@@ -173,9 +174,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   COIN", "TUTTI PAT", "BURST ONCE"). ENGINE UNTOUCHED (Codable IDs frozen; split card = type + a params mode-preset).
   Removed the orphaned `buildChainAddAt`. DEFERRED to increment 2: the per-panel one-line sub-header (teach-in-place);
   routing the in-editor type-swap (`onSetTypeA`) through the catalog. RIFF (D1) + VELOCITY stay future/unbuilt. Also
-  this session: RACK-everywhere rename (sheet header OUTPUT CHAIN→THE RACK) + the wire-identity INCIDENT resolved (MONO
-  is per-wire; TURNS is the by-design cross-wire dealer — no bug; Paul had expected TURNS to SILENCE one emitter at a
-  time, flagged to design as a candidate new treatment).**
+  this session: RACK-everywhere rename (sheet header OUTPUT CHAIN→THE RACK) + the wire-identity INCIDENT CLOSED (MONO
+  is per-wire; TURNS is the by-design cross-wire dealer — no bug; Paul confirmed he'd armed TURNS expecting it to
+  SILENCE one emitter, a discoverability gap). Design RULING: TURNS is grandfathered as the FIRST routing-class module
+  (the wire-identity law reserves cross-wire movement for that class; future REDIRECT kin join by announcement). Applied
+  the one copy change — RackMatrix TURNS row title "Takes turns with others"→"Deals each hit to the next emitter in the
+  group" (`RackMatrix.swift:115`). The pairing catalog (all 31 cards' before/after + 4 chain laws + §7 three future-
+  feature captures: GLIDE-after-mono-driver, ECHO-mid-chain, PASSES-v2-per-lap-switchboard) absorbed to
+  `Docs/processor-pairings.md` (manual/reference; §7 unratified; per-card "pairs well" picker spice = Paul's call).**
 - **▶ DEAD-CODE SWEEP — surface-tied orphans + write-only mark @State (2026-08-21, on `main`; `486c535`+`f284e5b`;
   iOS builds, macOS 825 green). Follows the tab/EDIT retirement. **`486c535`** deleted grep-verified zero-ref AU
   surface-tied dead code (MidiSparkAudioUnit.swift): the always-nil `previewOverlay` cluster (+ its setters →
