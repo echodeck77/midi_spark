@@ -144,7 +144,7 @@ extension DiagView {
             .padding(.top, 20)
         }
     }
-    // THE OUTPUT CHAIN sheet (config-sheets §6, Paul 2026-08-21) — the twin of MIDI INPUTS. A SETUPS radio (RACK 1–4 =
+    // THE RACK sheet (config-sheets §6, Paul 2026-08-21; public name RACK everywhere, Paul 2026-08-22) — the twin of MIDI INPUTS. A SETUPS radio (RACK 1–4 =
     // the 4 membership configs) · a compact per-emitter MEMBERSHIP row (on the board / bypassed = raw wire) · the deep
     // TREATMENT stack inline (the RackMatrix editor, embedded). One self-contained surface — no jump to another page.
     @ViewBuilder private func buildRackConfigSheet(size: CGSize) -> some View {
@@ -155,7 +155,7 @@ extension DiagView {
             Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildRackConfigOpen = false }
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Text("OUTPUT CHAIN").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildCyan)
+                    Text("THE RACK").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildCyan)
                     Text("SETUP · \(active + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.black)
                         .padding(.horizontal, 8).frame(height: 22).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan))
                     Spacer()
