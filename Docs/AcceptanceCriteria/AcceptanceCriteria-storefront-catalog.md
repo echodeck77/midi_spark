@@ -55,3 +55,72 @@ sub-header (the §7 teach-in-place law extended from the sheets to
 the stages). The author should never need the manual; neither
 should anyone else.
 — design-side Claude
+
+---
+
+# THE RATIFIED CARD SET (design-side, 2026-08-22 — AWAITING PAUL)
+
+**31 cards · 6 groups. Names/one-liners are DISPLAY-LAYER only (Codable IDs frozen).
+All names await Paul's ratification. Format: CARD NAME — catalog one-liner (also the
+panel sub-header unless noted).** Reconciled against the Code-side engine-truth inventory
+(the drift flags D1–D8 were absorbed — see notes inline).
+
+**MELODY**
+- **ARP** — Walks the held chord one note at a time.
+- **CASCADE** — Builds the chord up one note at a time, holding each.
+- **STRUM** — Rolls the chord in like a guitar rake.
+- **GLIDE** — One sliding voice: small steps bend, big leaps jump. (panel adds: "One slot,
+  one output — match BEND RANGE to your synth." — the D6 truth)
+
+**HARMONY**
+- **HARMONIZE** — Adds up to three tuned voices to every note.
+- **TUTTI COIN** — Flips a coin each step: the whole chord, or one note.
+- **TUTTI PATTERN** — Paints the chord's shape per step — full, top two, one note, rest.
+  (TUTTI siblings homed together in HARMONY, overriding the RHYTHM lean.)
+- **SPLIT** — Keeps only part of the chord: top, bottom, or a range.
+- **DRONE** — Holds the chord as a sustained pad. (panel adds the D5 dual truth: "Alone: one
+  continuous hold across columns. In a chain: re-strikes each column.")
+
+**RHYTHM**
+- **RATCHET** — Re-strikes the whole chord in fast rolls, every step.
+- **RATCHET COIN** — Rolls by chance: some steps burst, some hit plain.
+- **RATCHET PATTERN** — Paint which steps roll, and how many hits each.
+- **BURST** — One accelerating (or slowing) roll per step.
+- **BURST COIN** — A roll by chance: some steps fire, some rest.
+- **BURST PATTERN** — Paint where rolls start and how far they stretch. (D2: split NOW ✓)
+- **EUCLID** — Spreads K hits evenly around the cycle.
+- **WEAVE LADDER** — Every note pulses at its own speed: bass slow, top fast.
+- **WEAVE HARMONIC** — Note speeds follow the harmonic series: 1×, 2×, 3×…
+- **WEAVE DRAWN** — You set each note's pulse speed by hand.
+- **WEAVE EUCLID** — Each note gets its own euclidean rhythm, denser on top.
+- **PASSES** — Plays only on the laps you choose (1–4). (PASSGATE display remap ✓ kept)
+- **CHANCE** — Lets notes through by dice roll — the same roll every loop.
+
+**DYNAMICS**
+- **HUMANIZE** — Loosens the timing and softens the hits: a human touch. (D3-honest: late +
+  duck only)
+- *(future)* **VELOCITY SCALE** — Squeezes or expands how hard notes hit.
+- *(future)* **VELOCITY PATTERN** — Paints accents and ghost notes across the bar.
+
+**CONTROL** (shared sub-header on all five: "Moves synth controls — makes no notes of its own.")
+- **LFO** (MOD/SHAPE) — A wave moving a synth knob: sweeps and wobbles.
+- **FOLLOWER** (MOD/FOLLOW) — Your playing becomes the control: busier = higher.
+- **STEP MOD** (MOD/STEPS) — Draw an 8-step pattern that moves a knob.
+- **ENVELOPE** (MOD/STRIKE) — A rise-and-fall sweep each time the cell starts. (D4: per-cell-
+  entry, so no "per-hit" claim; the "HIT ENVELOPE" lean was withdrawn.)
+- **CC IN** (MOD/EXTERN) — Reads an incoming knob and re-ranges it onward.
+
+**TIME**
+- **ECHO** — Repeats each note, fading away like a delay.
+- **SHIFT** — Drags the whole chord behind the beat: laid-back. (D3 ✓ late-only)
+- **LENGTH** — Shapes how long each step rings: staccato to ties.
+
+**Drift dispositions:** D1 RIFF = unbuilt, NOT a card (unratified shelf). D2 BURST = split now.
+D3/D4/D5/D6 = copy made honest per flags. D7 = catalog silent on chain-position; the manual owns
+the two exceptions. D8 VELOCITY macro-default = DEFERRED (macros stay opt-in; the "DYNAMICS
+fader" is a suggested manual binding, not a mechanism). SPLIT/ECHO/EUCLID/LENGTH = one card each
+(agreed). SHIFT+LENGTH homed in TIME.
+
+**Open for Paul:** the CONTROL card names (LFO/FOLLOWER/STEP MOD/ENVELOPE/CC IN) + the whole set
+are un-ratified; the picker rework (grouping + descriptions + the 31-card split) is the net-new
+UI, gated on ratification.
