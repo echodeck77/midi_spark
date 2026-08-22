@@ -165,6 +165,7 @@ final class Kernel {
     func toggleReplayCatch(_ i: Int) { if i >= 0 && i < 4 { replayCatchToggle |= UInt8(1 << i) } }
     func replayEngaged() -> UInt8 { replayEngagedMask }
     private var renderBeatPos = 0.0                 // this render's beat — read by updateLatchedPools for the REPLAY phase
+    private var renderWindowBeats = 0.0             // this render block's beat span — the REPLAY look-ahead (block-latency compensation)
     private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
     private var recordPlaying = false
     // Buffers for the REPLAY pool fill (fixed, no render-path alloc).
@@ -240,7 +241,11 @@ final class Kernel {
                 guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
                 let isFile = fileMask & bit != 0
                 let anchor = isFile ? 0.0 : replayAnchor[i]
-                var phase = (renderBeatPos - anchor).truncatingRemainder(dividingBy: ring.loopLen)
+                // BLOCK-LATENCY COMPENSATION (Paul 2026-08-22): sample the loop at this block's END, not its start —
+                // live input notes are added mid-block (handleIncoming) and so are present for their whole arrival
+                // block; a block-start phase makes a loop onset appear one block LATE (the "constant amount out of
+                // time"). The look-ahead of one block span aligns replay onset-granularity to live input.
+                var phase = (renderBeatPos + renderWindowBeats - anchor).truncatingRemainder(dividingBy: ring.loopLen)
                 if phase < 0 { phase += ring.loopLen }
                 let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf, outChan: &replayChanBuf)
                 // CHANNEL-PRESERVING REPLAY (Paul 2026-08-22): re-emit each note on its ORIGINAL incoming channel — so a
@@ -626,6 +631,7 @@ final class Kernel {
         recordBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
         recordWinStart = Int64(timestamp.pointee.mSampleTime)
         recordPlaying = playing
+        renderWindowBeats = Double(frameCount) * recordBps   // REPLAY look-ahead: sample the loop at the block END so a loop onset lands in the SAME block it would as live input (else it's one block late — the "constant lag")
 
         // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
         // the processor alone (§6.4). Not auditioning / a cell that can't sound → notes still pass for
