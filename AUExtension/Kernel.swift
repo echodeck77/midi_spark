@@ -678,6 +678,13 @@ final class Kernel {
         // receiver strip LATCH: refresh the frozen chords from the (now up-to-date) live pool before render.
         updateLatchedPools()
         updateReceiverSounding()        // duration feed: snapshot the currently-held input notes per receiver
+        // DOOR REPLAY diagnostic (2026-08-22): engaged mask + the engaged door's captured-loop + frozen-pool sizes —
+        // so "loop animates but silent" localizes at a glance (see Diag.swift). loopN=0 ⇒ nothing captured; loopN>0 &
+        // poolN=0 ⇒ the loop→pool fill isn't landing; poolN>0 & still silent ⇒ no grid cell reads that door.
+        diag.replayEngaged = replayEngagedMask; diag.replayLoopN = 0; diag.replayPoolN = 0
+        for i in 0..<4 where (replayEngagedMask & (1 << UInt8(i))) != 0 {
+            diag.replayLoopN += doorRings[i].loopN; diag.replayPoolN += latchedPools[i].count
+        }
         // ---- THE REEL-TO-REEL: record/replay the emitter output (Paul 2026-08-18) ----
         let reelCycleBeats = Double(Snap.cols) * box.stepBeats
         let reelBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0

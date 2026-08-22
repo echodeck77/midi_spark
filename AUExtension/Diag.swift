@@ -42,4 +42,10 @@ struct KernelDiag {
     var passthroughHeld = 0
     var silenceViolated = false
     var panics: UInt64 = 0
+    // DOOR REPLAY diagnostic (2026-08-22): localize "loop animates but silent" — engaged mask → captured loop size →
+    // frozen-pool size. engaged=0 ⇒ never engaged · loopN=0 ⇒ recording/capture empty · loopN>0 & poolN=0 ⇒ the
+    // notesSoundingAt/fill isn't reaching the pool · poolN>0 & still silent ⇒ no grid cell reads the door (or emit gate).
+    var replayEngaged: UInt8 = 0       // which REPLAY doors are looping (bit i)
+    var replayLoopN = 0                // events in the ENGAGED door's captured loop (0 = nothing captured)
+    var replayPoolN = 0                // notes the engaged door's loop currently feeds into the frozen pool
 }

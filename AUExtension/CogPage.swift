@@ -45,6 +45,7 @@ struct CogPage: View {
                         divider
                         section("HEALTH")
                         healthRow
+                        replayRow
                         Text(aboutLine).font(.system(size: 9, design: .monospaced)).foregroundColor(ink.opacity(0.3))
                             .padding(.top, 4)
                     }
@@ -95,6 +96,19 @@ struct CogPage: View {
             healthStat("PANICS", Int(d.panics), alert: d.panics > 0)
             healthStat("DROPPED", d.floodDropped, alert: d.floodDropped > 0)   // FLOOD GOVERNOR tell (incident 2026-08-08)
             Spacer()
+        }
+    }
+    // DOOR REPLAY diagnostic (2026-08-22): shown only while a REPLAY door is engaged. Reads the chain left→right —
+    // ENG (which doors loop) · LOOP (events captured) · RPOOL (notes the loop feeds the grid). LOOP 0 = capture empty;
+    // LOOP>0 & RPOOL 0 = the loop→pool fill is broken; RPOOL>0 yet no sound = no grid cell reads that door.
+    @ViewBuilder private var replayRow: some View {
+        if d.replayEngaged != 0 {
+            HStack(spacing: 14) {
+                healthStat("RPLY ENG", Int(d.replayEngaged))
+                healthStat("LOOP", d.replayLoopN, alert: d.replayLoopN == 0)
+                healthStat("RPOOL", d.replayPoolN, alert: d.replayPoolN == 0)
+                Spacer()
+            }
         }
     }
     private func healthStat(_ label: String, _ v: Int, alert: Bool = false) -> some View {
