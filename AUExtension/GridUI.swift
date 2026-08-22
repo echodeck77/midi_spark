@@ -888,6 +888,8 @@ struct ProcessorBox: View {
         case .length:    return "shape how long each note sounds, per slice"
         case .weave:     return "each held note pulses on its own clock — a polyrhythm"
         case .split:     return "keep only part of the chord (top / bottom / range / velocity)"
+        case .octave:    return "shift this chain up or down by whole octaves"
+        case .transpose: return "shift this chain by semitones (moves notes off the held chord)"
         }
     }
 
@@ -1261,6 +1263,12 @@ struct ProcessorBox: View {
                 Slider(value: bind(Double(p.splitVel?.floor ?? 1)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.floor = min(Int(v.rounded()), w.ceil); $0.splitVel = w } }, in: 1...127).tint(accent) }
             field("VEL MAX  \(p.splitVel?.ceil ?? 127)") {
                 Slider(value: bind(Double(p.splitVel?.ceil ?? 127)) { v in setParam { var w = $0.splitVel ?? VelWindow(); w.ceil = max(Int(v.rounded()), w.floor); $0.splitVel = w } }, in: 1...127).tint(accent) }
+        case .octave:   // UTILITY — shift ±3 octaves (pitch-class preserved)
+            let oct = p.utilOctave ?? 0
+            field("OCTAVE  \(oct > 0 ? "+" : "")\(oct)") { stepper(oct, -3, 3) { v in setParam { $0.utilOctave = v } } }
+        case .transpose:   // UTILITY — shift ±24 semitones
+            let st = p.utilTranspose ?? 0
+            field("SEMITONES  \(st > 0 ? "+" : "")\(st)") { stepper(st, -24, 24) { v in setParam { $0.utilTranspose = v } } }
         }
     }
 

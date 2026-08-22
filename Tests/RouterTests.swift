@@ -525,6 +525,49 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
+    // UTILITY — OCTAVE (Paul 2026-08-22): a single-slot OCTAVE holds the chord shifted by ±12·n (pitch-class preserved).
+    func testOctaveShiftsTheHeldChordByOctaves() {
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func mk(_ n: Int) -> SnapshotBox {
+            var cs = arpColours(); cs[gi].type = .octave; cs[gi].paramsA.utilOctave = n
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let up = RecordingEmitter(); run(mk(1), chord([60, 64, 67]), beats: 2, into: up)
+        XCTAssertEqual(Set(up.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [72, 76, 79], "+1 octave lifts each held note")
+        let dn = RecordingEmitter(); run(mk(-2), chord([60, 64, 67]), beats: 2, into: dn)
+        XCTAssertEqual(Set(dn.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [36, 40, 43], "−2 octaves lowers each note")
+        assertNothingLeftSounding(up); assertNothingLeftSounding(dn)
+    }
+    // UTILITY — TRANSPOSE: shifts the held chord by semitones; notes shifted out of the MIDI range simply drop.
+    func testTransposeShiftsBySemitonesAndDropsOutOfRange() {
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func mk(_ st: Int) -> SnapshotBox {
+            var cs = arpColours(); cs[gi].type = .transpose; cs[gi].paramsA.utilTranspose = st
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let e = RecordingEmitter(); run(mk(7), chord([60, 64]), beats: 2, into: e)
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [67, 71], "up a fifth (+7 st)")
+        let hi = RecordingEmitter(); run(mk(24), chord([100, 120]), beats: 2, into: hi)   // 120+24=144 > 127 → dropped
+        XCTAssertEqual(Set(hi.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [124], "100→124 sounds; 120→144 is out of range, dropped")
+        assertNothingLeftSounding(e); assertNothingLeftSounding(hi)
+    }
+    // UTILITY — the shift folds through the chain from EITHER side: [ARP→OCTAVE] lifts each arp note; [OCTAVE→ARP] lifts
+    // the pool then arps it. Both raise a bare arp's note SET by an octave (S-independent — the set shifts, not the rhythm).
+    func testOctaveFoldsThroughAChainEitherSide() {
+        func mk(_ procs: [ProcessorSlot]) -> SnapshotBox {
+            box(colours: arpColours()) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = procs; return c }() }
+        }
+        var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8; arp.params.pattern = .up; arp.params.octaves = 1
+        var oct = ProcessorSlot(type: .octave); oct.params.utilOctave = 1
+        let bare = RecordingEmitter(); run(mk([arp]),      chord([48, 52, 55]), beats: 4, into: bare)
+        let post = RecordingEmitter(); run(mk([arp, oct]), chord([48, 52, 55]), beats: 4, into: post)
+        let pre  = RecordingEmitter(); run(mk([oct, arp]), chord([48, 52, 55]), beats: 4, into: pre)
+        let lifted = Set(bare.ons.filter { $0.cable == 1 }.map { Int($0.note) + 12 })
+        XCTAssertFalse(lifted.isEmpty, "the bare arp sounds")
+        XCTAssertEqual(Set(post.ons.filter { $0.cable == 1 }.map { Int($0.note) }), lifted, "[ARP→OCTAVE] lifts every arp note an octave")
+        XCTAssertEqual(Set(pre.ons.filter { $0.cable == 1 }.map { Int($0.note) }), lifted, "[OCTAVE→ARP] arps the octave-lifted pool")
+        assertNothingLeftSounding(post); assertNothingLeftSounding(pre)
+    }
     func testEuclidPulsesFromPoolTracksHeldCount() {
         // PULSES = POOL (user 2026-08-09): K follows the held-note count — 3 held → E(3,8), 4 held → E(4,8).
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

@@ -1352,8 +1352,8 @@ final class Router {
                              pool: pool, effColumn: effColumn, beatPos: beatPos, windowBeats: windowBeats,
                              windowStart: windowStart, windowEnd: windowEnd, beatsPerSample: beatsPerSample,
                              S: S, a: a, out: out, diag: &diag)
-            case .echo, .identity, .chance, .harmonize, .split:
-                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (incl. SPLIT filter) emit at the transition
+            case .echo, .identity, .chance, .harmonize, .split, .octave, .transpose:
+                break   // echo's dry fired at the transition (repeats drain per-window); the hold types (SPLIT filter · OCTAVE/TRANSPOSE shift) emit at the transition
             case .tutti:
                 if treat.a.tuttiMode == .pattern {   // PATTERN re-articulates per slice here; COIN is a hold (emitColumnHolds)
                     emitTuttiPatternRow(cell: cell, row: r, colour: treat, transpose: transpose, emits: emits,
@@ -1423,10 +1423,11 @@ final class Router {
             let mode = cellMode(type: effectiveType(treat),
                                 bypassed: holdChain ? cell.slotBypass[tailIdx] : cell.bypassed,
                                 passMask: effectivePassMask(treat), pass: pass)
-            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT = SET filters
+            guard mode == .identity || mode == .chance || mode == .harmonize || mode == .drone || mode == .tutti || mode == .split || mode == .octave || mode == .transpose else { continue }   // DRONE = a legato chord-hold (user 2026-08-10); TUTTI/SPLIT = SET filters; OCTAVE/TRANSPOSE = pitch SHIFTS (Paul 2026-08-22)
             if mode == .tutti && !holdChain && treat.a.tuttiMode == .pattern { continue }   // PATTERN standalone re-articulates per slice in the tick loop, not here
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
+                          + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
             let prob = (mode == .chance) ? effectiveProbability(treat) : 1
             let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
@@ -2726,12 +2727,22 @@ final class Router {
     /// A multi-slot chain whose TAIL holds at column boundaries via `emitColumnHolds` (holding the tail's
     /// transform of the composed upstream set): a bypassed tail (passthrough of the upstream set), or a
     /// gate/chance/harmonize tail. A non-bypassed STRUM tail is NOT covered yet → falls back to head-only.
+    /// UTILITY (Paul 2026-08-22): the pitch shift a held OCTAVE/TRANSPOSE stage adds to the composed set — folded into
+    /// the hold's `transpose`. Other modes = 0 (a no-op for every existing hold type).
+    private func holdShift(_ p: SnapParams, mode: CellMode) -> Int {
+        switch mode {
+        case .octave:    return 12 * Int(p.utilOctave)
+        case .transpose: return Int(p.utilTranspose)
+        default:         return 0
+        }
+    }
     private func isHoldTailChain(_ cell: SnapCell) -> Bool {
         guard cell.procs.count >= 2, let last = cell.procs.last else { return false }
         if cell.slotBypass.last ?? false { return true }                 // bypassed tail = held passthrough
         switch last.type {
         case .passgate, .chance, .harmonize: return true
         case .split: return true                                         // SPLIT tail = a set-membership FILTER over the composed hold ([HARMONIZE → SPLIT] keeps a subset)
+        case .octave, .transpose: return true                            // UTILITY pitch-shift tail = a per-note SHIFT of the composed hold ([HARMONIZE → OCTAVE])
         case .tutti: return last.tuttiMode == .coin                      // TUTTI COIN tail = a per-step SET roll over the composed hold; PATTERN re-articulates (tick loop)
         default: return false
         }
@@ -2967,6 +2978,13 @@ final class Router {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
                 let v = Int(src.velocity(n))
                 if v >= vf && v <= vc { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
+            }
+        case .octave, .transpose:                              // UTILITY — pitch shift (pitch-class preserved for OCTAVE); out-of-range notes drop
+            let sh = (mode == .octave) ? 12 * Int(p.utilOctave) : Int(p.utilTranspose)
+            for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) {
+                let sn = src.srcAscending(k, filter: 0, cableMask: 0b1111)
+                let n = Int(sn) + sh
+                if n >= 0 && n <= 127 { dst.noteOn(UInt8(n), velocity: max(1, src.velocity(sn)), channel: 0) }
             }
         default:                                               // identity / open passgate / ratchet / strum → pass through
             for k in 0..<src.srcCount(filter: 0, cableMask: 0b1111) { let n = src.srcAscending(k, filter: 0, cableMask: 0b1111); dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }

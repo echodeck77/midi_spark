@@ -3738,6 +3738,10 @@ extension DiagView {
                 C("SHIFT", "Drags the whole chord behind the beat: laid-back.", .shift),
                 C("LENGTH", "Shapes how long each step rings: staccato to ties.", .length),
             ]),
+            BuildCardGroup(title: "UTILITY", note: "Plain per-chain overrides — move one chain without touching the door.", cards: [
+                C("OCTAVE", "Plays this chain a few octaves up or down.", .octave),
+                C("TRANSPOSE", "Shifts this chain by semitones (off the held chord).", .transpose),
+            ]),
         ]
     }
 

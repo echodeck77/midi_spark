@@ -167,6 +167,8 @@ struct SnapParams {
     var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
     var rtcRotate: Int = 0
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
+    var utilOctave: Int = 0                           // OCTAVE: ±3 octave shift (UTILITY, Paul 2026-08-22)
+    var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
 }
 
 struct SnapColour {

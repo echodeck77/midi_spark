@@ -905,7 +905,7 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, fo
 /// What a cell does THIS render. Centralises processor dispatch: bypass and not-yet-built types
 /// fall back to identity; an implemented processor gets its own mode; a closed PASSGATE is silent.
 /// Adding a processor = one case here + its branch in the loop.
-enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, identity, silent }
+enum CellMode: Equatable { case arp, ratchet, strum, chance, harmonize, echo, euclid, burst, cascade, drone, shift, humanize, tutti, length, weave, split, octave, transpose, identity, silent }
 
 // (morph removed: the A/B blend `MorphTier`/`morphTier` are gone — a cell renders its chain head directly.)
 
@@ -1126,6 +1126,8 @@ func cellMode(type: ProcessorType, bypassed: Bool, passMask: UInt8, pass: Int) -
     case .length:    return .length                           // per-slice GATE override — re-articulates a hold; overrides a driver's gates downstream
     case .weave:     return .weave                            // DRIVER — each held note ticks on its own rank-derived clock (polyrhythm)
     case .split:     return .split                            // set-membership filter — keep a subset of the chord (a HOLD transform / set filter)
+    case .octave:    return .octave                          // UTILITY — shift ±3 octaves (pitch transform)
+    case .transpose: return .transpose                       // UTILITY — shift ±24 semitones
     case .passgate:                                        // §3/§4: gated by pass (mod 4)
         let bit = ((pass % 4) + 4) % 4
         return (passMask & (UInt8(1) << bit)) != 0 ? .identity : .silent
@@ -1315,6 +1317,8 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .humanize:  return "hand.draw"                   // the human hand
     case .mod:       return "dial.medium"                 // the CC generator (a control dial)
     case .glide:     return "point.topleft.down.to.point.bottomright.curvepath"   // the slide
+    case .octave:    return "arrow.up.arrow.down"           // UTILITY — octave shift
+    case .transpose: return "arrow.up.and.down.text.horizontal"   // UTILITY — semitone shift
     }
 }
 
