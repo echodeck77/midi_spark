@@ -90,8 +90,8 @@ final class MidiFileTests: XCTestCase {
         guard let (notes, loopBeats) = MidiFile.decode(MidiFile.encode(events: ev, bpm: 120, ppq: 480, loopBeats: 4.0)) else { return XCTFail() }
         let ring = DoorRing()
         ring.loadLoop(notes.map { (beat: $0.beat, note: $0.note, vel: $0.vel, on: $0.on) }, lengthBeats: loopBeats)
-        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16)
-        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v); return Set((0..<c).map { n[$0] }) }
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16), ch = [UInt8](repeating: 0, count: 16)
+        func sounding(_ p: Double) -> Set<UInt8> { let c = ring.notesSoundingAt(p, outNote: &n, outVel: &v, outChan: &ch); return Set((0..<c).map { n[$0] }) }
         XCTAssertEqual(sounding(0.25), [60], "only C at 0.25")
         XCTAssertEqual(sounding(0.75), [60, 67], "C + G at 0.75")
         XCTAssertEqual(sounding(1.5), [67], "C released → only G at 1.5")

@@ -160,7 +160,7 @@ final class ReelTap: MIDIEmitter {
 // mode the last N passes are CAPTURED as a loop that cycles back as the door's living input: each render asks
 // `notesSoundingAt(phase)` for the pool. Foundation-only, unit-testable; pure query (no accumulation → replay-safe).
 final class DoorRing {
-    struct Ev: Equatable { var beat = 0.0; var note: UInt8 = 0; var vel: UInt8 = 0; var on = false }
+    struct Ev: Equatable { var beat = 0.0; var note: UInt8 = 0; var vel: UInt8 = 0; var on = false; var chan: UInt8 = 0 }
     static let cap = 4096
     private var buf = [Ev](repeating: Ev(), count: cap)   // circular record of recent input (ABSOLUTE beat)
     private var head = 0, count = 0
@@ -169,9 +169,11 @@ final class DoorRing {
     private(set) var loopLen = 0.0                        // the loop length in beats (0 ⇒ nothing captured)
     var hasLoop: Bool { loopLen > 0 }
 
-    /// Append a live note event at absolute `beat` (evict-oldest when full).
-    func record(beat: Double, note: UInt8, vel: UInt8, on: Bool) {
-        buf[head] = Ev(beat: beat, note: note, vel: vel, on: on)
+    /// Append a live note event at absolute `beat` (evict-oldest when full). CHANNEL-PRESERVING (Paul 2026-08-22): the
+    /// note's incoming channel is recorded so replay re-emits it on its ORIGINAL channel — matching the live latch
+    /// (captureFiltered) — so a channel-filtered cell admits the replayed loop just as it did the live input.
+    func record(beat: Double, note: UInt8, vel: UInt8, on: Bool, chan: UInt8 = 0) {
+        buf[head] = Ev(beat: beat, note: note, vel: vel, on: on, chan: chan)
         head = (head + 1) % DoorRing.cap
         count = min(count + 1, DoorRing.cap)
     }
@@ -187,16 +189,19 @@ final class DoorRing {
         let start = endBeat - lengthBeats
         // 1) notes held across the window start → inject as beat-0 ons (their last on/off before `start` is an ON)
         var heldVel = [Int16](repeating: -1, count: 128)
+        var heldChan = [UInt8](repeating: 0, count: 128)                  // preserve the held note's channel for its beat-0 seed
         for i in 0..<count {
             let e = ordered(i)
             if e.beat >= start { break }
-            if e.note < 128 { heldVel[Int(e.note)] = (e.on && e.vel > 0) ? Int16(e.vel) : -1 }
+            if e.note < 128 {
+                if e.on && e.vel > 0 { heldVel[Int(e.note)] = Int16(e.vel); heldChan[Int(e.note)] = e.chan } else { heldVel[Int(e.note)] = -1 }
+            }
         }
-        for n in 0..<128 where heldVel[n] >= 0 && loopN < DoorRing.cap { loop[loopN] = Ev(beat: 0, note: UInt8(n), vel: UInt8(heldVel[n]), on: true); loopN += 1 }
+        for n in 0..<128 where heldVel[n] >= 0 && loopN < DoorRing.cap { loop[loopN] = Ev(beat: 0, note: UInt8(n), vel: UInt8(heldVel[n]), on: true, chan: heldChan[n]); loopN += 1 }
         // 2) the events inside the window, re-based to [0, len) — time-ordered (the ring records in arrival order)
         for i in 0..<count where loopN < DoorRing.cap {
             let e = ordered(i)
-            if e.beat >= start && e.beat < endBeat { loop[loopN] = Ev(beat: e.beat - start, note: e.note, vel: e.vel, on: e.on); loopN += 1 }
+            if e.beat >= start && e.beat < endBeat { loop[loopN] = Ev(beat: e.beat - start, note: e.note, vel: e.vel, on: e.on, chan: e.chan); loopN += 1 }
         }
     }
     func clearLoop() { loopN = 0; loopLen = 0 }
@@ -218,16 +223,19 @@ final class DoorRing {
 
     /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
     /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
-    @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8]) -> Int {
+    @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8], outChan: inout [UInt8]) -> Int {
         var velByNote = [Int16](repeating: -1, count: 128)   // -1 = not sounding
+        var chanByNote = [UInt8](repeating: 0, count: 128)   // the sounding note's ORIGINAL channel (replay re-emits it)
         for i in 0..<loopN {
             let e = loop[i]
             if e.beat > phase { break }
-            if e.note < 128 { velByNote[Int(e.note)] = (e.on && e.vel > 0) ? Int16(e.vel) : -1 }
+            if e.note < 128 {
+                if e.on && e.vel > 0 { velByNote[Int(e.note)] = Int16(e.vel); chanByNote[Int(e.note)] = e.chan } else { velByNote[Int(e.note)] = -1 }
+            }
         }
         var k = 0
         for n in 0..<128 where velByNote[n] >= 0 && k < outNote.count {
-            outNote[k] = UInt8(n); outVel[k] = UInt8(velByNote[n]); k += 1
+            outNote[k] = UInt8(n); outVel[k] = UInt8(velByNote[n]); if k < outChan.count { outChan[k] = chanByNote[n] }; k += 1
         }
         return k
     }

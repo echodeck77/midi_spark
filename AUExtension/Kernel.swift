@@ -170,6 +170,7 @@ final class Kernel {
     // Buffers for the REPLAY pool fill (fixed, no render-path alloc).
     private var replayNoteBuf = [UInt8](repeating: 0, count: 128)
     private var replayVelBuf = [UInt8](repeating: 0, count: 128)
+    private var replayChanBuf = [UInt8](repeating: 0, count: 128)   // the loop's per-note ORIGINAL channel (channel-preserving replay)
     // REPLAY: record an incoming note into every REPLAY door that HEARS it (cable + channel + range), timestamped at the
     // event's beat. Only while PLAYING (the loop is beat-locked; a stopped instrument has no meaningful beat window).
     private func recordReplay(note: UInt8, vel: UInt8, on: Bool, sampleTime: AUEventSampleTime, channel: UInt8, cable: Int) {
@@ -179,7 +180,7 @@ final class Kernel {
                           && receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
                           && receiverHearsMask(receiverChanMask[i], channel: channel)
                           && (!on || (note >= receiverRangeLo[i] && note <= receiverRangeHi[i])) {   // range gates onsets; offs always record (pair cleanly)
-            doorRings[i].record(beat: beat, note: note, vel: vel, on: on)
+            doorRings[i].record(beat: beat, note: note, vel: vel, on: on, chan: channel)   // preserve the incoming channel → replay re-emits it (channel-filtered cells admit the loop)
         }
     }
     // REPLAY: at each N-pass boundary, capture the last N passes as the door's loop (retro — never armed). N·cycleBeats
@@ -237,13 +238,17 @@ final class Kernel {
                 // [0, loopLen). Refresh each render (pure f(beat) → replay-safe). STAMP the door's wire channel.
                 let ring = doorRings[i]
                 guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
-                let anchor = (fileMask & bit != 0) ? 0.0 : replayAnchor[i]
+                let isFile = fileMask & bit != 0
+                let anchor = isFile ? 0.0 : replayAnchor[i]
                 var phase = (renderBeatPos - anchor).truncatingRemainder(dividingBy: ring.loopLen)
                 if phase < 0 { phase += ring.loopLen }
-                let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf)
-                let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
+                let cnt = ring.notesSoundingAt(phase, outNote: &replayNoteBuf, outVel: &replayVelBuf, outChan: &replayChanBuf)
+                // CHANNEL-PRESERVING REPLAY (Paul 2026-08-22): re-emit each note on its ORIGINAL incoming channel — so a
+                // channel-filtered cell admits the loop exactly as it did the live input (the "channel 3 → silent" bug).
+                // FILE stamps the door's wire channel (a .mid clip carries no meaningful door channel).
+                let fileStamp: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
-                for k in 0..<cnt { latchedPools[i].noteOn(replayNoteBuf[k], velocity: replayVelBuf[k], channel: stampCh) }
+                for k in 0..<cnt { latchedPools[i].noteOn(replayNoteBuf[k], velocity: replayVelBuf[k], channel: isFile ? fileStamp : replayChanBuf[k]) }
                 latchedPools[i].rebuildSorted()
                 continue
             }
