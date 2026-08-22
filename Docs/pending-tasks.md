@@ -157,7 +157,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-1
   (THIS·R1–R4) live IN the processor panel. Held UNRATIFIED at Paul's word.
 - **THE DOOR LOOP family** (`Docs/design-door-loop-2026-08-19.md`, ratified-for-the-channel). **CORE SHIPPED** = the
   REPLAY door mode + `DoorRing` (config-sheets stage 3, `6ad8e34`): record a door's raw input, cycle it back as living
-  input; RETRO-CAPTURE (the CATCH ring / LAST N; 1·2·4·8 bars); per-door independence — device-ear owed. **RIDERS
+  input; RETRO-CAPTURE (the CATCH ring / LAST N; 1·2·4·8 bars); per-door independence. **CHANNEL-PRESERVATION FIX
+  (2026-08-22, `a3373ad`): a channel-filtered door replayed SILENT — `DoorRing` dropped the note channel and the Kernel
+  re-stamped OMNI→ch1, so channel-N cells rejected the loop; now records+replays the original channel (device
+  re-verify owed). A HEALTH-panel diagnostic (`RPLY ENG · LOOP · RPOOL`) was added to bisect it.** Device-ear owed. **RIDERS
   DEFERRED TO A FUTURE VERSION (Paul, 2026-08-21):** (1) OVERDUB = ADD accumulates across passes vs CHORD replace
   (DoorRing accumulate mode); (2) PLAYBACK IS RE-ASKING = RATE (half/double-time) · TRANSPOSE · QUANTIZE-on-playback
   transforms inside `notesSoundingAt(phase)` + per-door controls; (3) THE PROGRESSION REEL = one long harmony take,

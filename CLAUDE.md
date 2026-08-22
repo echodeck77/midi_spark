@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ DOOR REPLAY channel-preservation FIX + diagnostic (2026-08-22, on `main`; macOS green, iOS builds; device
+  re-verify owed). Device report (Paul): a REPLAY door ("Last N") filtered to MIDI channel 3 captured the loop (it
+  ANIMATED) but played back SILENT — the sound dying the instant "Last N" engaged. First shipped a HEALTH-panel
+  diagnostic (`c94abbe`: `KernelDiag.replayEngaged`/`replayLoopN`/`replayPoolN` → cog HEALTH `RPLY ENG · LOOP · RPOOL`,
+  shown only while a REPLAY door is engaged) to bisect record→capture→fill→emit. Paul's reading LOOP=27, RPOOL=3 (loop
+  captured + FED the frozen pool) yet silent → the notes were in the pool on the WRONG channel. ROOT CAUSE (`a3373ad`):
+  `DoorRing.Ev` recorded NO channel, so replay re-stamped each note with the door's `receiverChannels` value — which is
+  OMNI(0)→channel 1 when the door is filtered via the multi-channel MASK — so the channel-3 cells rejected the loop.
+  FIX: `DoorRing` is now CHANNEL-PRESERVING — `Ev`/`record`/`capture` (incl. the held-at-window-start seed)/
+  `notesSoundingAt` carry+propagate the note's channel; the Kernel replays each note on its ORIGINAL channel (matching
+  the live latch's `captureFiltered` channel-preserving behaviour). FILE mode keeps the door stamp (a `.mid` has no
+  input channel). +1 DoorRingTest (replay preserves the recorded channel); reel/file test callers updated for the new
+  `outChan` buffer. The diagnostic is KEPT (harmless, engaged-only; useful for the next round). ⚠ RPOOL still reads 3
+  after the fix (count unchanged — only the channel changed); the tell is now AUDIBLE.**
 - **▶ ECHO MID-CHAIN — ROUTE=CHAIN, the driver path LANDED (2026-08-22, on `main`; macOS green incl. fuzz, iOS builds;
   DEVICE ear owed). Second of Paul's two 2026-08-22 ratifications (`Docs/processor-pairings.md` §7 ②). ⚠ The ferry's
   premise ("the existing ROUTE CHAIN|DIRECT birthstone stands ready, unrendered") was WRONG — an exhaustive search
