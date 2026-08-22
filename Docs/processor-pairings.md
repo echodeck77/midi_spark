@@ -20,8 +20,9 @@ word.**
    — they change WHAT plays, not when. Their order among themselves matters and is the fun.
 3. **ECHO is the tail** (it echoes the final set — v1 ignores what's upstream of it positionally).
    **The MOD five are note-transparent**: anywhere, by convention last.
-4. **GLIDE is a soloist** — single-slot only, one emitter (v1). No pairings exist yet; its entry
-   says so honestly. **PASSES gates the whole lap** — position barely matters; put it anywhere.
+4. **GLIDE is a mono voice sink** — one emitter (v1). Since 2026-08-22 (§7①) any DRIVER may sit
+   BEFORE it ([ARP→GLIDE] = the 303 line): the driver picks notes, GLIDE slides between them. Nothing
+   sits AFTER (it emits bends, not notes). **PASSES gates the whole lap** — position barely matters.
 
 ## §1 · MELODY
 **ARP** — BEFORE: SPLIT (walk only the top/bottom — the re-pool), TUTTI COIN (the pool flickers
@@ -36,8 +37,12 @@ shapes). AFTER: HARMONIZE (each joining note blooms into voices — the swelling
 **STRUM** — BEFORE: SPLIT (rake a register), TUTTI COIN (rakes alternating with single plucks),
 HARMONIZE (thicker rakes). AFTER: LENGTH (mute-slice the rake's tail), ECHO (rakes that trail),
 CHANCE (broken rakes). Note: STRUM's stagger only imprints from the head (law 1).
-**GLIDE** — none (v1): single-slot, single-emitter. The entry teaches the constraint; pairings
-arrive with [ARP→GLIDE] v2.
+**GLIDE** — BEFORE (v2, LANDED 2026-08-22): any DRIVER — [ARP→GLIDE] (the 303 line: stepped acid
+slides), [CASCADE→GLIDE] (a rising contour dissolves into one gliding voice), [EUCLID/BURST/RATCHET/
+STRUM/WEAVE→GLIDE] (rhythmic material becomes a mono slide). The driver picks the notes; GLIDE slides
+between them — in-range steps bend over TIME, leaps past RANGE re-anchor (or clamp). AFTER: none —
+GLIDE is a mono voice sink (it emits bends, not a note set). v1: single emitter; GLIDE is mono, so a
+set-shaper between the driver and GLIDE is ignored (fold-through is a v2 item).
 
 ## §2 · HARMONY
 **HARMONIZE** — BEFORE: ARP/CASCADE/WEAVE (expand each emitted note), SPLIT (voice only the kept
@@ -109,12 +114,14 @@ may). BEFORE a driver = it re-articulates its own slices instead (standalone mus
 Each picker card could carry its top-two pairings as one small line ("pairs well: → LENGTH ·
 ← SPLIT") — the catalog teaching at the moment of choice. Paul's call; the data is now written.
 
-## §7 — THREE "LAWS" DEMOTED TO v1 CONSTRAINTS (Paul's challenge, 2026-08-22 — captured for Code; none ratified as build orders until Paul's word)
-① **GLIDE AFTER A MONO DRIVER — commission-grade v2.** ARP (and CASCADE) emit exactly what GLIDE
-consumes: a mono stream. [ARP→GLIDE] = the 303 line — steps bend over glideTime, leaps re-anchor
-per TOO FAR, rests end the phrase. The pairing catalog gains GLIDE's first real entries the day it
-lands. (Multi-emitter fan-out stays a separate v2 item.)
-② **ECHO MID-CHAIN — the existing birthstone stands ready.** The ROUTE CHAIN|DIRECT chip
+## §7 — THREE "LAWS" DEMOTED TO v1 CONSTRAINTS (Paul's challenge, 2026-08-22)
+## RATIFICATION (Paul, 2026-08-22): ① and ② are now BUILD ORDERS. ③ (PASSES v2) stays captured, unratified.
+① **LANDED 2026-08-22 — GLIDE AFTER A MONO DRIVER — v2.** ARP (and CASCADE) emit exactly what GLIDE
+consumes: a mono stream. [ARP→GLIDE] = the 303 line — steps bend over glideTime, leaps re-anchor per
+TOO FAR, rests end the phrase. Built generically across ALL drivers (the driver's notes feed GLIDE's
+mono voice via emitGlideDriven; §1 GLIDE gains its first real entries below). v1: single emitter —
+multi-emitter fan-out stays a separate v2 item. macOS 827 green; device ear owed.
+② **RATIFIED — ECHO MID-CHAIN — the existing birthstone stands ready.** The ROUTE CHAIN|DIRECT chip
 (unrendered, by design) is this exact future: echoes flowing THROUGH downstream stages = sculpted
 trails ([ECHO→LENGTH]: choked repeats · [ECHO→SPLIT]: trails thinned to a register). D7's
 position-blindness is v1, not law.

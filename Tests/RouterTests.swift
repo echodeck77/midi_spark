@@ -2196,6 +2196,47 @@ final class RouterTests: XCTestCase {
     }
     /// GLIDE: the first note ANCHORS (note-on); an in-range next note BENDS (no note-on); a leap RE-ANCHORS (note-on);
     /// stop leaves nothing sounding.
+    /// [ARP→GLIDE] v2 (ratified 2026-08-22, processor-pairings §7①): the arp DRIVES a mono gliding voice — its walk
+    /// becomes bends of ONE sustained note, not a note-on per step. The bare [ARP] fires a note-on every tick, so glide
+    /// emits STRICTLY FEWER note-ons AND pitch-bends (0xE0) the bare arp never sends. S-independent (relative counts).
+    func testArpThenGlideCollapsesTheWalkIntoOneBendingVoice() {
+        func mk(glide: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var g = ProcessorSlot(type: .glide); g.params.glideRange = 12; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0.05
+                c.processors = glide ? [arp, g] : [arp]
+                $0.cells[0][0] = c
+            }
+        }
+        let bare = RecordingEmitter(); run(mk(glide: false), chord([60, 62, 64]), beats: 4, into: bare)
+        let glided = RecordingEmitter(); run(mk(glide: true), chord([60, 62, 64]), beats: 4, into: glided)
+        let bareOns = bare.ons.filter { $0.cable == 1 }.count
+        let glidedOns = glided.ons.filter { $0.cable == 1 }.count
+        XCTAssertGreaterThan(bareOns, 0, "the bare arp fires a note-on per tick")
+        XCTAssertLessThan(glidedOns, bareOns, "[ARP→GLIDE] collapses the in-range walk into a sustained bending voice (far fewer note-ons)")
+        XCTAssertTrue(glided.events.contains { $0.status == 0xE0 && $0.vel != 64 }, "the arp's steps become pitch-bends of the mono voice")
+        XCTAssertFalse(bare.events.contains { $0.status == 0xE0 }, "the bare arp sends no pitch-bend")
+        assertNothingLeftSounding(glided)
+    }
+    /// [ARP→GLIDE] re-anchors when a step LEAPS beyond RANGE (the 303 accent): a tight range forces re-articulation on
+    /// every leap (more note-ons); a wide range keeps one gliding voice. RE-ANCHOR mode. No stuck notes either way.
+    func testArpThenGlideReanchorsOnLeapsBeyondRange() {
+        func mk(range: Int) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8
+                var g = ProcessorSlot(type: .glide); g.params.glideRange = range; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0.05
+                c.processors = [arp, g]
+                $0.cells[0][0] = c
+            }
+        }
+        let wide = RecordingEmitter(); run(mk(range: 24), chord([48, 60, 72]), beats: 4, into: wide)    // 12-st steps within 24 → one gliding voice
+        let tight = RecordingEmitter(); run(mk(range: 2), chord([48, 60, 72]), beats: 4, into: tight)   // 12-st leaps beyond 2 → re-anchor each step
+        XCTAssertGreaterThan(tight.ons.filter { $0.cable == 1 }.count, wide.ons.filter { $0.cable == 1 }.count,
+                             "a tight RANGE forces re-articulation on every leap; a wide RANGE keeps a single gliding voice")
+        assertNothingLeftSounding(tight); assertNothingLeftSounding(wide)
+    }
     func testGlideAnchorsBendsAndReAnchors() {
         let cs = arpColours()
         var g = ProcessorSlot(type: .glide); g.params.glideRange = 2; g.params.glidePriority = .last; g.params.glideReanchor = true; g.params.glideTime = 0

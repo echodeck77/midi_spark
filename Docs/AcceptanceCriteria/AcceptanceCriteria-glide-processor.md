@@ -30,7 +30,10 @@ built. Paul: "take the first note and bend to the next."_
 
 ## THE USES (why it earns the seat)
 - **[ARP → GLIDE]** — any synth becomes a sliding acid/theremin lead, no glide knob required; steps slide, octave
-  jumps re-strike.
+  jumps re-strike. **LANDED 2026-08-22 (ratified §7①): the driver's notes feed GLIDE's mono voice — in-range steps
+  bend over TIME, leaps beyond RANGE re-anchor (or clamp), column-exit/key-release ends the phrase. Generic across ALL
+  drivers ([CASCADE/EUCLID/BURST/WEAVE/RATCHET/STRUM→GLIDE] too), not just ARP. v1: single emitter (the cell's lowest
+  bus); GLIDE is mono, so a set-shaper between driver and GLIDE is skipped. Multi-emitter fan-out stays a v2 item.**
 - **[SHAPE-arp → GLIDE]** — drawn melodies as CONTINUOUS PITCH CONTOURS (the shape's LIFT wraps re-anchor
   naturally).
 - House chord + GLIDE = typed drone-slides. GROOVE-SLIDE stays for per-step authored slides; **GLIDE = everything

@@ -469,6 +469,18 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     DEFAULTS (a newborn stage seeds from its input) · PICKER PREVIEWS (choose a type by result) · DEGENERACY
     WARNINGS (flag near-silence/wrap before commit) · ADAPTIVE RANGES + derived slot summaries.
 
+- [ ] **RATIFIED 2026-08-22 (Paul's word) — `Docs/processor-pairings.md` §7 ① and ② are BUILD ORDERS (IN PROGRESS):**
+  - [x] **① GLIDE AFTER A MONO DRIVER — v2** (`processor-pairings.md` §7 ①) — **LANDED 2026-08-22, macOS 827 green,
+    iOS builds; DEVICE ear owed.** `[driver→GLIDE]` — the driver's notes feed GLIDE's mono voice (steps bend over
+    `glideTime`, leaps past RANGE re-anchor/clamp, column-exit/key-release ends the phrase). `emitDriverNote` records +
+    suppresses the driver note (keyed by `currentCellIndex`); a post-tick `emitGlideDriven` pass drains the targets into
+    the shared `glideVoices` (flushGlide/phrase-end/no-stuck-notes cover it). Generic across ALL drivers, not just
+    ARP/CASCADE. +2 RouterTests. Multi-emitter fan-out stays a SEPARATE deferred v2 item.
+  - [ ] **② ECHO MID-CHAIN** (`processor-pairings.md` §7 ②). Render the currently-unrendered ROUTE CHAIN|DIRECT
+    chip so echo repeats flow THROUGH downstream stages: `[ECHO→LENGTH]` = choked repeats · `[ECHO→SPLIT]` = trails
+    thinned to a register. Retires D7's position-blindness (echo-always-the-tail is v1, not law).
+  - [ ] **③ PASSES v2 — the per-lap switchboard** — STILL CAPTURED, NOT ratified. Do not build until Paul's word.
+
 ## D. Parked futures — log only, NO build (re-explain from `design-ferry-completions-phase-cc-2026-07-28.md`)
 - [ ] FEEDBACK EDGES (unit-delay) · THE PIN · MASTER+TEXTURE multi-playhead · **THE CC RAIL** · **THE TWO-LANE INSTRUMENT** (+ cross-lane valves) · MORPH desk (16 faders) · EXTERNAL processor type + standalone-app milestone.
 - [ ] **MULTI-INPUT / fan-in — THE G1 RULING** (design-Claude, 2026-07-30; captured here because the ferry note is

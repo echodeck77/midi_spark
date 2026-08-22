@@ -159,6 +159,26 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ [driver→GLIDE] v2 — GLIDE AFTER A MONO DRIVER LANDED (2026-08-22, on `main`; macOS 827 green incl. fuzz, iOS
+  builds; DEVICE ear owed). First of Paul's two 2026-08-22 ratifications (`Docs/processor-pairings.md` §7 ①, ratified
+  this session). Retires the "GLIDE is a single-slot soloist" v1 law: a chain DRIVER now feeds GLIDE's mono voice —
+  `[ARP→GLIDE]` = the 303 line (stepped acid slides), and GENERICALLY across every driver ([CASCADE/EUCLID/BURST/
+  RATCHET/STRUM/WEAVE→GLIDE]). ENGINE (Router.swift, all in the tick path): `emitDriverNote` now, when a downstream
+  non-bypassed GLIDE slot exists (`downstreamGlideIndex`), RECORDS the driver's note (beat/note/vel) into a per-window
+  TRANSIENT buffer keyed by `currentCellIndex` and SUPPRESSES the note-on — GLIDE owns the sounding voice; a post-tick
+  `emitGlideDriven` pass drains the targets into the SAME `glideVoices` (first target = sustained anchor note-on;
+  in-range next = bend over `glideTime`; leap past RANGE = re-anchor/clamp), emitting the bend on the existing 1/16
+  control grid. Phrase-end on column-exit (the existing `glideLastColumn` block closes driven voices for free) + on
+  rest/key-release (handled in `emitColumnGlide` before the pool guard). Respects the invariants: fixed buffers (no
+  render alloc); the buffer is regenerated each window (only the glide VOICE carries state, as single-slot glide
+  already does); voices use the refcounted open/close so `flushGlide`/no-stuck-notes cover it. Byte-identical for
+  non-glide chains (the hooks only fire when a downstream GLIDE slot is present). v1 LIMITS (flagged): single emitter
+  (the cell's lowest bus — multi-emitter fan-out is a separate v2 item); GLIDE is mono, so a set-shaper between the
+  driver and GLIDE is skipped (consumes the driver's note directly). +2 RouterTests (walk collapses to one bending
+  voice · tight RANGE re-articulates on leaps). Docs: `AcceptanceCriteria-glide-processor.md` + `processor-pairings.md`
+  §0/§1/§7① + `pending-tasks.md`. NEXT ratified item: ② ECHO MID-CHAIN — but the ferry's "existing birthstone stands
+  ready" was WRONG (no ROUTE CHAIN|DIRECT field exists in any form; `EchoTail` carries only scalars, so re-folding
+  delayed repeats through downstream stages is a real architecture change) — owes Paul a scope decision before build.**
 - **▶ THE STOREFRONT CATALOG — the grouped ADD-PROCESSOR picker, PER-MODE SPLIT + mode-on-box (2026-08-22, on `main`;
   iOS builds; UI-only, ✅ RATIFIED by Paul 2026-08-22, DEVICE eye still owed). Design ferried the "one engine, many
   doors" ruling + returned a 31-card per-mode split set; Paul ratified, then over a same-day back-and-forth SETTLED +
