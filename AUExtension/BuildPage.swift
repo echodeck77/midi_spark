@@ -3679,17 +3679,18 @@ extension DiagView {
     // carries a plain one-liner (the selector teaches). Codable type IDs never rename — a split card is (type + a
     // params preset); `apply` sets the mode field on a fresh slot. Names/blurbs are DISPLAY-ONLY.
     struct BuildCard {
-        let name: String            // storefront name (e.g. "RATCHET COIN", "LFO")
+        let name: String            // storefront name
         let blurb: String           // catalog one-liner
         let type: ProcessorType     // the frozen engine ID this card opens
-        let apply: (inout ColourParams) -> Void   // pre-set the mode ({ } for a single-mode card)
     }
     struct BuildCardGroup { let title: String; let note: String?; let cards: [BuildCard] }
 
+    // ONE CARD PER PROCESSOR (Paul 2026-08-22 — SIMPLIFIED from the design-side per-mode split): the different MODES
+    // are NOT presented as separate cards. A card opens the base processor; its mode (RATCHET ALL|COIN|PATTERN,
+    // WEAVE LADDER|…, MOD SHAPE|FOLLOW|…, etc.) is chosen INSIDE the processor's own editor (its MODE/SOURCE radio).
+    // The catalog stays grouped-by-intent with a plain one-liner (the selector still teaches).
     private var buildCatalog: [BuildCardGroup] {
-        func C(_ n: String, _ b: String, _ t: ProcessorType, _ a: @escaping (inout ColourParams) -> Void = { _ in }) -> BuildCard {
-            BuildCard(name: n, blurb: b, type: t, apply: a)
-        }
+        func C(_ n: String, _ b: String, _ t: ProcessorType) -> BuildCard { BuildCard(name: n, blurb: b, type: t) }
         return [
             BuildCardGroup(title: "MELODY", note: nil, cards: [
                 C("ARP", "Walks the held chord one note at a time.", .arp),
@@ -3699,23 +3700,15 @@ extension DiagView {
             ]),
             BuildCardGroup(title: "HARMONY", note: nil, cards: [
                 C("HARMONIZE", "Adds up to three tuned voices to every note.", .harmonize),
-                C("TUTTI COIN", "Flips a coin each step: the whole chord, or one note.", .tutti) { $0.tuttiMode = .coin },
-                C("TUTTI PATTERN", "Paints the chord's shape per step — full, top two, one note, rest.", .tutti) { $0.tuttiMode = .pattern },
+                C("TUTTI", "Per step: the whole chord, or just one note.", .tutti),
                 C("SPLIT", "Keeps only part of the chord: top, bottom, or a range.", .split),
                 C("DRONE", "Holds the chord as a sustained pad.", .drone),
             ]),
             BuildCardGroup(title: "RHYTHM", note: nil, cards: [
-                C("RATCHET", "Re-strikes the whole chord in fast rolls, every step.", .ratchet) { $0.rtcMode = .all },
-                C("RATCHET COIN", "Rolls by chance: some steps burst, some hit plain.", .ratchet) { $0.rtcMode = .coin },
-                C("RATCHET PATTERN", "Paint which steps roll, and how many hits each.", .ratchet) { $0.rtcMode = .pattern },
-                C("BURST", "One accelerating (or slowing) roll per step.", .burst) { $0.burstMode = .once },
-                C("BURST COIN", "A roll by chance: some steps fire, some rest.", .burst) { $0.burstMode = .coin },
-                C("BURST PATTERN", "Paint where rolls start and how far they stretch.", .burst) { $0.burstMode = .pattern },
+                C("RATCHET", "Re-strikes the whole chord in fast rolls.", .ratchet),
+                C("BURST", "One accelerating (or slowing) roll per step.", .burst),
                 C("EUCLID", "Spreads K hits evenly around the cycle.", .euclid),
-                C("WEAVE LADDER", "Every note pulses at its own speed: bass slow, top fast.", .weave) { $0.weaveMode = .ladder },
-                C("WEAVE HARMONIC", "Note speeds follow the harmonic series: 1×, 2×, 3×…", .weave) { $0.weaveMode = .harmonic },
-                C("WEAVE DRAWN", "You set each note's pulse speed by hand.", .weave) { $0.weaveMode = .drawn },
-                C("WEAVE EUCLID", "Each note gets its own euclidean rhythm, denser on top.", .weave) { $0.weaveMode = .euclid },
+                C("WEAVE", "Every note pulses on its own clock — an interlocking polyrhythm.", .weave),
                 C("PASSES", "Plays only on the laps you choose (1–4).", .passgate),
                 C("CHANCE", "Lets notes through by dice roll — the same roll every loop.", .chance),
             ]),
@@ -3723,11 +3716,7 @@ extension DiagView {
                 C("HUMANIZE", "Loosens the timing and softens the hits: a human touch.", .humanize),
             ]),
             BuildCardGroup(title: "CONTROL", note: "Moves synth controls — makes no notes of its own.", cards: [
-                C("LFO", "A wave moving a synth knob: sweeps and wobbles.", .mod) { $0.modSource = .shape },
-                C("FOLLOWER", "Your playing becomes the control: busier = higher.", .mod) { $0.modSource = .follow },
-                C("STEP MOD", "Draw an 8-step pattern that moves a knob.", .mod) { $0.modSource = .steps },
-                C("ENVELOPE", "A rise-and-fall sweep each time the cell starts.", .mod) { $0.modSource = .strike },
-                C("CC IN", "Reads an incoming knob and re-ranges it onward.", .mod) { $0.modSource = .extern },
+                C("MOD", "Shapes a synth control — a wave, your playing, a step pattern, or incoming CC.", .mod),
             ]),
             BuildCardGroup(title: "TIME", note: nil, cards: [
                 C("ECHO", "Repeats each note, fading away like a delay.", .echo),
@@ -3737,13 +3726,11 @@ extension DiagView {
         ]
     }
 
-    // ADD a catalog CARD at box `i`: populate the box with the card's type, pre-set its mode, open its editor.
+    // ADD a catalog CARD at box `i`: populate the box with the card's type (default mode), open its editor.
     private func buildChainAddCard(_ i: Int, _ card: BuildCard) {
         var c = selectedColourChain()
         while c.count <= i { c.append(buildPassthroughSlot()) }
-        var slot = ProcessorSlot(type: card.type)
-        card.apply(&slot.params)
-        c[i] = slot
+        c[i] = ProcessorSlot(type: card.type)
         buildApplyChain(c)
         buildAddSlot = nil; buildEditSlot = i
     }
