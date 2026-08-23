@@ -1,7 +1,9 @@
 # ✅ LANDED v1 — 2026-08-23 (iOS builds; UI-only, DEVICE eye/ear owed). A "GRID" button beside LIBRARY opens the full-
-# page 8×8: each cell = a complete MIDI chain drawn as its mosaic fingerprint; TAP auditions it live against the current
-# input via the existing chain-audition path (mutually-exclusive; QUANTIZE STEP|INSTANT chip; the deployed piece plays
-# on; the reel records it for free). RIGHT column = the selected chain read-only (larger mosaic + summary). COMMIT
+# page 8×8: each cell = a complete MIDI chain. TAP auditions it live against the current input via the existing chain-
+# audition path (mutually-exclusive; QUANTIZE INSTANT default | STEP; the deployed piece plays on; the reel records it
+# for free). The ACTIVE (auditioning) cell shows a PIANO-ROLL of its chain output (offline render, a sweeping playhead);
+# inactive cells are calm hue tiles (matches the main grid). RIGHT column = the selected chain's piano-roll + summary.
+# (Revised 2026-08-23: the mosaic faces were dropped in favour of the piano-roll, and QUANTIZE defaults to INSTANT.) COMMIT
 # overwrites the ARRIVAL row's chain (populated → one undo via the document colour; empty/fresh-part → mints onto the
 # first empty staging row + selects it); CANCEL restores the pre-open voice exactly (non-destructive by construction —
 # audition rides ONE transient ephemeral colour, the document is never touched until COMMIT). BANKS v1: DEALT (Dice.

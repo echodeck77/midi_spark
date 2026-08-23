@@ -364,9 +364,6 @@ struct GridView: View {
                 if usePianoRollFace {
                     // THE PIANO-ROLL FACE — note marks drift right→left as the cell sounds (identity = the hue).
                     pianoRollFace(col * 8 + row)
-                } else if useMosaicFace {
-                    // THE MOSAIC (candidate F) — the derived breathing-Mondrian face fills the whole cell (branch).
-                    mosaicFace(cell, col * 8 + row, hue: colour ?? cellBg)
                 } else {
                     // THE SEAL (which) — the derived glyph fills the WHOLE cell face now (user 2026-08-03: the bus dots
                     // are dropped). An engraved plate carries the seal; a COMET runs the wire while the cell fires MIDI (§5).
@@ -560,12 +557,6 @@ struct GridView: View {
     // sounding duration — then fades ~0.45s from release (`cellReleasedAt`). A very short note the 4Hz gate can miss
     // still completes a ~1.1s tail off its strike, so plucks aren't lost. Each strike re-glows the wire (~450ms).
     // Trail ∝ velocity. Frozen when hidden.
-    // THE MOSAIC (cell-face candidate F, spec AcceptanceCriteria-mosaic-face) — the derived rectangular face. The
-    // SAME behavioural hash as the seal → a 4–6 block Mondrian (twins share it). At rest the blocks are a faint
-    // engraved emboss on the cell's own colour (silent = still); a strike BREATHES them — the blocks flash toward
-    // white scaled by `vel × life` (the same strike-feed envelope the seal comet uses: hold while sounding, fade
-    // ~0.45s on release, ~0.5s pluck). Rank tints the peak so smaller blocks flash brighter (echoes "peaks light
-    // the small ones" at the cell level; the per-NOTE rank feed is Phase 2). Cheap: ≤6 alpha lerps per cell.
     // THE PIANO-ROLL FACE (Paul 2026-08-19) — over the cell's HUE, soft white note marks enter at the RIGHT AS the cell
     // sounds and drift left, fading; nothing at rest. Gentle + non-distracting. Cheap: ≤12 rounded bars, one Canvas,
     // paused when the cell has no live notes. (Pitch isn't fed per-cell yet — the lane is a stable per-note hash.)
@@ -589,38 +580,6 @@ struct GridView: View {
             }
         }
         .padding(4).frame(maxWidth: .infinity, maxHeight: .infinity).allowsHitTesting(false)
-    }
-
-    @ViewBuilder private func mosaicFace(_ cell: Cell, _ idx: Int, hue: Color) -> some View {
-        let mhash = UInt64(sealHash(cell, colours: colours))
-        let crest = mosaicCrest(hash: mhash)                    // §2 the crown shapes on the full-height square (twin-shared)
-        let crestTone = mosaicCrestTone(hue)                    // one of the cell's own two tones, opposite the block
-        let hitAt = (idx >= 0 && idx < cellHitAt.count) ? cellHitAt[idx] : Date.distantPast
-        let vel = (idx >= 0 && idx < cellHitVel.count) ? cellHitVel[idx] : 0
-        let sounding = (idx >= 0 && idx < cellSounding.count) ? cellSounding[idx] : false
-        let releasedAt = (idx >= 0 && idx < cellReleasedAt.count) ? cellReleasedAt[idx] : Date.distantPast
-        let seq = (idx >= 0 && idx < cellStrikeSeq.count) ? cellStrikeSeq[idx] : 0
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animPaused)) { tl in
-            Canvas { ctx, size in
-                // The brightness is ENVELOPE-driven, not velocity-driven (velocity is only a small delta) — so every
-                // strike visibly FLASHES regardless of how hard it hit. `pulse` = a bright per-strike bump (decays
-                // ~0.4s → the rhythm, incl. ratchet shimmer); `sustain` = a gentler held glow while the note sounds,
-                // fading ~0.45s on release. A pluck the 4Hz gate misses still flashes off its strike.
-                let strikeAge = tl.date.timeIntervalSince(hitAt)
-                let releaseAge = tl.date.timeIntervalSince(releasedAt)
-                let hasRelease = releasedAt > hitAt
-                let pulse = max(0.0, 1 - strikeAge / 0.4)
-                let sustain = sounding ? 0.5 : (hasRelease ? 0.5 * max(0.0, 1 - releaseAge / 0.45) : 0.0)
-                let breath = min(1.0, (0.75 + 0.25 * vel) * max(pulse, sustain))
-                // ONE rectangle per strike MOMENT: each moment (cellStrikeSeq) walks to the next block; a chord is one
-                // moment → one rectangle. The layout (incl. the full-height crest square) + which block lights are
-                // resolved inside drawMosaic (it knows the pixel aspect for the square). The crest is STATIC.
-                drawMosaic(hash: mhash, into: ctx, size: size, hue: hue, breath: breath, seq: seq,
-                           crest: crest, crestTone: crestTone)
-            }
-        }
-        .padding(3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder private func sealComet(_ geo: SealGeometry, _ idx: Int) -> some View {
@@ -1487,92 +1446,10 @@ struct ContentHeightKey: PreferenceKey {
 // option), the EMITTERS panel its OUTPUT buses. Ephemeral (a StampConfig), recalled across enter/exit.
 // The render-path live-preview drag-to-grid is DEFERRED to the design spec — this is the panel scaffold.
 
-// Cell-face candidate switch (branch feat/mosaic-cell-face): true = THE MOSAIC (candidate F), false = THE SEAL.
-// The seal renderer is kept intact for the A/B; a device-harness / Paul decides which face ships. Internal (not
-// private) so the edit-page IDENTITY plate (EditPage.swift) reads the same switch.
-let useMosaicFace = true
 // THE PIANO-ROLL FACE (Paul 2026-08-19): the perform-grid cells echo a piano roll — soft note marks enter at the right
-// and drift left AS THE CELL SOUNDS, then fade. Gentle + calm (identity stays the cell's HUE). Overrides the mosaic on
-// the grid only; drawMosaic/the seal stay for the edit-page identity plate. Set false to restore the mosaic face.
+// and drift left AS THE CELL SOUNDS, then fade. Gentle + calm (identity stays the cell's HUE). This is the shipped cell
+// face; set false to fall back to THE SEAL (kept intact). (The mosaic face was dropped 2026-08-23, Paul.)
 let usePianoRollFace = true
-
-/// Draw THE MOSAIC face into a Canvas. `hue` = the cell's own colour; the blocks ARE that colour, separated by a
-/// dark GROUT (thin lines — lighter than the old seal ink) and given depth by RANK (index 0 = biggest = darker;
-/// smaller blocks lighter), so the Mondrian reads clearly even at ~30px. `breath` (0…1) is the strike brightness
-/// (0 at rest): the blocks flash toward white, small blocks brightest, and the per-strike `primary` block pops a
-/// touch more (a bridge toward the phase-2 per-note lighting). Shared by the grid cells + the identity plate.
-/// A crest INK that always CONTRASTS the cell colour (user 2026-08-06): dark ink on a light hue, light on a dark
-/// one (the largest block is the hue slightly darkened). Both crest shapes share this one colour.
-/// The crest TONE (user 2026-08-06): one of the cell's OWN two tones (the hue lightened or darkened — same palette
-/// as the blocks), the OPPOSITE of the tone the crest block wears, so it always reads. The crest block (block 0) is
-/// the darkest, so this is usually the LIGHT tone; a very light hue flips it to the DARK tone.
-func mosaicCrestTone(_ hue: Color) -> Color {
-    let ui = UIColor(hue); var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-    ui.getRed(&r, green: &g, blue: &b, alpha: &a)
-    let blockLum = (0.299 * r + 0.587 * g + 0.114 * b) * 0.83                          // block 0 = hue darkened ~17%
-    // A MILD blend so the tone stays visibly the HUE (not white/black) — a lighter/darker SHADE of the cell colour,
-    // opposite the block it sits on.
-    if blockLum > 0.5 {                                                                // light block → a darker shade of the hue
-        return Color(red: Double(r) * 0.45, green: Double(g) * 0.45, blue: Double(b) * 0.45)
-    }                                                                                  // dark block → a lighter shade of the hue
-    return Color(red: Double(r) + (1 - Double(r)) * 0.4, green: Double(g) + (1 - Double(g)) * 0.4, blue: Double(b) + (1 - Double(b)) * 0.4)
-}
-
-func drawMosaic(hash: UInt64, into ctx: GraphicsContext, size: CGSize, hue: Color, breath: Double,
-                seq: Int = 0, crest: MosaicCrest? = nil, crestTone: Color = .white) {
-    let rects = mosaicLayout(hash: hash, aspect: Double(size.height / max(1, size.width)))   // block 0 = the full-height crest square
-    let n = max(1, rects.count)
-    let litIndex = ((seq % n) + n) % n
-    let hasCrest = (crest?.shapes.isEmpty == false)
-    let gap = max(1.0, min(size.width, size.height) * 0.045)
-    ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6), with: .color(.black.opacity(0.32)))   // the grout shows in the gaps
-    var crestRect: CGRect = .zero
-    for (i, r) in rects.enumerated() {
-        let rect = CGRect(x: r.x * size.width + gap, y: r.y * size.height + gap,
-                          width: max(1, r.w * size.width - 2 * gap), height: max(1, r.h * size.height - 2 * gap))
-        if i == 0 { crestRect = rect }                                                 // block 0 = the crest square (two-thirds height, corner-placed)
-        let path = Path(roundedRect: rect, cornerRadius: 2.5)
-        ctx.fill(path, with: .color(hue))                                              // the block = the cell colour
-        let t = Double(i) / Double(max(1, n - 1)) - 0.5                                // depth: block 0 darkest, strip blocks lighter
-        ctx.fill(path, with: .color(t < 0 ? Color.black.opacity(-t * 0.34) : Color.white.opacity(t * 0.26)))
-        if i == litIndex && breath > 0.01 && !(i == 0 && hasCrest) {                   // ONE rectangle per strike MOMENT (a chord = one)
-            let rankPeak = 0.62 + 0.38 * Double(i) / Double(max(1, n - 1))            // block 0's moment flashes the CROWN instead (below)
-            ctx.fill(path, with: .color(.white.opacity(min(0.96, breath * rankPeak))))
-        }
-    }
-    // THE CREST (§2): 1–2 hash-chosen shapes on the TWO-THIRDS-HEIGHT SQUARE (block 0, corner-placed), drawn as
-    // OUTLINES (user 2026-08-07: not filled) in the opposite cell TONE, HUGGING one hash-chosen edge (never centred).
-    // Block 0's own note-moment flashes the CROWN (not the whole square) so the shapes flash like the rectangles.
-    if let crest = crest, !crest.shapes.isEmpty, crestRect.width > 6, crestRect.height > 6 {
-        let crestBreath = litIndex == 0 ? breath : 0                                   // the crown flashes on its note
-        let margin = min(crestRect.width, crestRect.height) * 0.12
-        let s0 = min(crestRect.width, crestRect.height) * 0.62                         // prominent on the square
-        let lw = max(1.5, s0 * 0.11)                                                   // the outline weight
-        let anchor: CGPoint
-        switch crest.edge {
-        case .top:    anchor = CGPoint(x: crestRect.midX, y: crestRect.minY + margin + s0 / 2)
-        case .bottom: anchor = CGPoint(x: crestRect.midX, y: crestRect.maxY - margin - s0 / 2)
-        case .left:   anchor = CGPoint(x: crestRect.minX + margin + s0 / 2, y: crestRect.midY)
-        case .right:  anchor = CGPoint(x: crestRect.maxX - margin - s0 / 2, y: crestRect.midY)
-        }
-        for (k, shape) in crest.shapes.enumerated() {
-            let s = s0 * (1 - 0.34 * Double(k))                                        // outer shape, then a nested inner one (same colour)
-            let path = mosaicShapePath(shape, in: CGRect(x: anchor.x - s / 2, y: anchor.y - s / 2, width: s, height: s))
-            ctx.stroke(path, with: .color(crestTone), lineWidth: lw)                   // OUTLINE in the opposite cell tone — not filled
-            if crestBreath > 0.01 { ctx.stroke(path, with: .color(.white.opacity(min(0.92, crestBreath))), lineWidth: lw) }   // flashes with its note
-        }
-    }
-}
-
-/// The crown shape inscribed in `r` (mosaic §2). Pure geometry.
-func mosaicShapePath(_ s: MosaicShape, in r: CGRect) -> Path {
-    switch s {
-    case .triangle:    return Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.closeSubpath() }
-    case .invTriangle: return Path { p in p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)); p.closeSubpath() }
-    case .diamond:     return Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.midY)); p.closeSubpath() }
-    case .circle:      return Path(ellipseIn: r)
-    }
-}
 
 private let stagingCyan = UI.cyan
 

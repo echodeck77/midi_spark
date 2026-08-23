@@ -159,6 +159,22 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ MOSAIC DROPPED · GRID SELECTOR piano-roll + INSTANT · MAIN-PAGE TOP HEADER (2026-08-23, on `main`; iOS builds,
+  macOS 834 green; UI-only, DEVICE eye owed). Paul's four asks after the grid-selector v1. **(1) THE MOSAIC IS GONE:**
+  the whole mosaic cell-face code is DELETED — GridUI `mosaicFace`/`drawMosaic`/`mosaicCrestTone`/`mosaicShapePath`/
+  `useMosaicFace` + the dead `else if useMosaicFace` cellView branch; Derivations `mosaicLayout`/`mosaicCrest`/`MosaicRect`/
+  `MosaicShape`/`MosaicEdge`/`MosaicCrest`; BuildPage `BuildGridSelFace` + `buildGridSelKey`/`buildGridSelHash`; the 7
+  `DerivationsTests` mosaic tests; `AcceptanceCriteria-mosaic-face.md`. It was already DEAD on the main grid (`usePiano
+  RollFace = true` has won since 2026-08-19) — only the grid selector still drew it. The main grid keeps the piano-roll
+  face; the SEAL stays as the `usePianoRollFace=false` fallback. **(2) GRID SELECTOR = PIANO-ROLL FACES:** the active
+  (auditioning) cell now shows a PIANO-ROLL of its chain's output — an offline render (`gridSelRollBars` via `Dice.run
+  Recorder` vs a standard chord → normalized note bars) with a sweeping playhead; inactive cells are calm hue tiles
+  (matches the main grid's idle=hue, active=roll). The right column shows the selected chain's piano-roll. `gridSelRoll
+  Bars` is pure/Foundation so it runs off-thread. **(3) QUANTIZE default → INSTANT** (`buildGridSelQuantStep = false`):
+  tapping a cell switches instantly. **(4) MAIN-PAGE TOP HEADER:** `buildBottomBar` → `buildTopHeader`, moved from the
+  bottom of the left column to a page-spanning ROW above the three columns (landscape + portrait) — RECORD (reel) · RATE
+  · MIDI CONFIG · RACK CONFIG. v1 note (flagged): inactive grid-selector cells show only hue (no static fingerprint) —
+  static per-cell piano-rolls for all cells would need 64 offline renders per deal; the active-cell roll is the ask.**
 - **▶ THE GRID SELECTOR — the full-page 8×8 chain browser, v1 (2026-08-23, on `main`; iOS builds; UI-only, DEVICE
   eye/ear owed). `AcceptanceCriteria-grid-selector.md` (ratified). A "GRID" button beside LIBRARY opens an 8×8 where each
   cell = a COMPLETE MIDI chain drawn as its mosaic fingerprint; TAP auditions it live against the current input via the

@@ -586,29 +586,22 @@ extension DiagView {
             buildOctBtn("+") { nudgeReceiverOctave(i, +1) }.frame(width: 40)
         }.fixedSize()
     }
-    // THE BOTTOM-LEFT CLUSTER (Paul 2026-08-20): RECORD (reel) · RATE (per-part) · the two CONFIG buttons — MIDI CONFIG
-    // (the doors) + OUT CHAIN (the rack/output-chain setups, §9 name). The record button stays leftmost; the rate sits
-    // between it and the two config buttons. The config buttons currently jump to the existing MIDI-IN / rack surfaces —
-    // an interim until the SPACIOUS SHEETS (config-sheets §5–§7) are built.
-    @ViewBuilder private func buildBottomBar() -> some View {
-        // The invisible box: RECORDER left-aligned · RATE centred · CONFIG buttons right-aligned. The ZStack lets the
-        // rate sit at the TRUE centre regardless of the side widths. No padding on the box. (Paul 2026-08-20)
-        ZStack(alignment: .top) {                               // TOP-aligned so nothing sits low + the box is only as tall as its content
-            HStack(alignment: .top, spacing: 0) {
-                buildReelButton()                               // LEFT — the recorder (keeps its share anchor + pass-browser hide)
-                Spacer(minLength: 0)
-                if !reelShowPopup {
-                    VStack(alignment: .trailing, spacing: 5) {  // RIGHT — the two config buttons
-                        buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }
-                        buildConfigButton("RACK CONFIG") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
-                    }
-                    .offset(y: -8)                              // nudge the config buttons up a little (Paul 2026-08-20)
-                }
+    // THE TOP HEADER (Paul 2026-08-23): the page's top row — RECORD (reel) · RATE (per-part) · the two CONFIG buttons
+    // (MIDI CONFIG = the doors · RACK CONFIG = the rack/output-chain setups). Spans the page above the three columns
+    // (moved up from the bottom-left cluster). The config buttons jump to the existing MIDI-IN / rack surfaces.
+    @ViewBuilder private func buildTopHeader() -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            buildReelButton()                                   // LEFT — the recorder (keeps its share anchor + pass-browser hide)
+            if !reelShowPopup { buildRateControl() }             // the rate, beside the record button
+            Spacer(minLength: 0)
+            if !reelShowPopup {
+                buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // RIGHT — the two config buttons
+                buildConfigButton("RACK CONFIG") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
             }
-            if !reelShowPopup { buildRateControl() }             // CENTRE — the rate (ZStack top-centre)
         }
         .frame(maxWidth: .infinity)
-        .fixedSize(horizontal: false, vertical: true)           // the box hugs its content height (never clipped)
+        .frame(height: 44)
+        .padding(.horizontal, 4)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
@@ -840,6 +833,7 @@ extension DiagView {
         // the PERFORM grid is widest: LEFT multi-row valve + LEFT single-row valve + 8 grid cells + RIGHT chevrons = 11 cells (+ 10 gaps).
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 10) / 11))
         VStack(spacing: 10) {
+            AnyView(buildTopHeader())                             // THE TOP HEADER: RECORD · RATE · MIDI CONFIG · RACK CONFIG (Paul 2026-08-23)
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
                 // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
@@ -863,6 +857,7 @@ extension DiagView {
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 10 - 24) / 11))   // play grid = 2 valves + 8 + chevrons = 11 cells
         VStack(spacing: 12) {
+            AnyView(buildTopHeader())                                        // THE TOP HEADER: RECORD · RATE · MIDI CONFIG · RACK CONFIG (Paul 2026-08-23)
             AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
             AnyView(buildStagingColumn(cell: cell))
             AnyView(buildPlayColumn(cell: cell))
@@ -892,8 +887,7 @@ extension DiagView {
             // the slot tints, and a thin low-alpha SPINE on the left edge (the thread law's original form).
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(buildDisplayVoice == .chain ? buildSelHue : buildEdge, lineWidth: buildDisplayVoice == .chain ? 2 : 1))
             .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(buildSelHue.opacity(0.5)).frame(width: 2).padding(.vertical, 9).padding(.leading, 1) })
-            AnyView(buildBottomBar()).padding(.top, 8)          // THE INVISIBLE BOX: RECORD · RATE · MIDI CONFIG · OUT CHAIN — directly below the machine box (Paul 2026-08-20)
-            Spacer(minLength: 0)                                 // any remaining column space sits BELOW the box (keeps it up, never clipped)
+            Spacer(minLength: 0)                                 // any remaining column space sits below (RECORD/RATE/CONFIG moved to the top header, Paul 2026-08-23)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -3962,23 +3956,6 @@ extension DiagView {
     }
     private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelLib.count }
     private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16] }
-    // A cheap, deterministic fingerprint key (NOT sealHash — that JSON-encodes; this is a per-render FNV over the chain
-    // shape, stable across runs so the mosaic is a real fingerprint + replay-safe for a given deal seed).
-    private func buildGridSelKey(_ i: Int) -> String {
-        if buildGridSelTab == 0 {
-            guard i < buildGridSelDealt.count else { return "" }
-            let e = buildGridSelDealt[i]
-            return e.chain.map { $0.type.rawValue + ($0.bypassed ? "!" : "") }.joined(separator: ",") + "·t\(e.transpose)"
-        } else {
-            guard i < buildGridSelLib.count else { return "" }
-            let e = buildGridSelLib[i]; return e.name + ":" + e.types.map { $0.rawValue }.joined(separator: ",")
-        }
-    }
-    private func buildGridSelHash(_ key: String) -> UInt64 {
-        var h: UInt64 = 1469598103934665603
-        for b in key.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
-        return h
-    }
     private func buildGridSelSummary(_ i: Int) -> String {
         if buildGridSelTab == 0 {
             guard i < buildGridSelDealt.count else { return "—" }
@@ -3995,6 +3972,7 @@ extension DiagView {
     private func buildGridSelAudition(_ i: Int) {
         guard let hit = buildGridSelChainAt(i) else { return }
         buildGridSelSel = i
+        buildGridSelActiveRoll = gridSelRollBars(hit.chain)               // the piano-roll shown on this cell + the right column
         // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral colour's transpose:
         // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the colour's
         // transpose is re-resolved on every rebuild — so an ephemeral transpose would jump the still-sounding old chain a
@@ -4018,7 +3996,7 @@ extension DiagView {
     // transient, and re-select the pre-open colour so nothing is stranded. The deployed piece plays on.
     private func buildGridSelStopAudition() {
         guard buildGridSelSel != nil || ddSolo || buildPendingWorkshopVoice != nil || buildPendingReengage else { return }
-        buildGridSelSel = nil
+        buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
         if ddSolo { ddSolo = false }
@@ -4051,7 +4029,7 @@ extension DiagView {
     private func buildGridSelCancel() { buildGridSelTeardown(select: buildGridSelPriorSel, restoreSolo: true) }
     // Shared teardown: reap the transient, restore the selection + (on CANCEL) the pre-open voice + borrowed door, republish.
     private func buildGridSelTeardown(select: String?, restoreSolo: Bool) {
-        buildGridSelOpen = false; buildGridSelSel = nil
+        buildGridSelOpen = false; buildGridSelSel = nil; buildGridSelActiveRoll = []
         buildPendingWorkshopVoice = nil; buildPendingReengage = false
         buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
         buildSelID = select; ddColourSel = colourIDs.firstIndex(of: select ?? "") ?? -1
@@ -4131,16 +4109,12 @@ extension DiagView {
     }
     @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat) -> some View {
         let present = buildGridSelPresent(i)
+        let hue = Color(hex: buildGridSelCellHex(i))
         let sel = buildGridSelSel == i
         ZStack {
-            if present {
-                // The static face is an Equatable subview (hash/hue/side) so the 4–8 Hz poll invalidation of the parent
-                // body does NOT redraw the 63 non-selected mosaics — only a real hash/hue/size change repaints.
-                BuildGridSelFace(hash: buildGridSelHash(buildGridSelKey(i)), hue: Color(hex: buildGridSelCellHex(i)), side: w).equatable()
-            } else {
-                RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))
-            }
-            if sel {   // THE LIVE FRAME — the one auditioning cell (single TimelineView; the other 63 are static)
+            RoundedRectangle(cornerRadius: 6).fill(present ? hue.opacity(sel ? 0.85 : 0.42) : Color.white.opacity(0.03))
+            if sel {   // THE ACTIVE CELL — the auditioning chain's piano-roll (a sweeping playhead over its notes) + a live frame
+                buildGridSelRollFace(buildGridSelActiveRoll, animated: d.playing).padding(3)
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let f = stagingPulseFraction(tl.date, period: 0.9)
                     RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.45 + 0.5 * f), lineWidth: 3)
@@ -4151,17 +4125,34 @@ extension DiagView {
         .contentShape(Rectangle())
         .onTapGesture { if present { buildGridSelAudition(i) } }
     }
+    // The piano-roll face — normalized note bars over a sweeping playhead (looping; the active cell = animated, the right
+    // column = static). White bars, opacity by velocity. Matches the main grid's piano-roll aesthetic.
+    @ViewBuilder private func buildGridSelRollFace(_ bars: [GridSelBar], animated: Bool) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !animated || bars.isEmpty)) { tl in
+            Canvas { ctx, size in
+                let barH = max(1.5, size.height * 0.07)
+                for b in bars {
+                    let rect = CGRect(x: b.x0 * size.width, y: b.y * (size.height - barH) + barH / 2 - barH / 2,
+                                      width: max(1.5, (b.x1 - b.x0) * size.width), height: barH)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: barH / 2), with: .color(.white.opacity(0.3 + 0.55 * b.vel)))
+                }
+                if animated && !bars.isEmpty {                              // the looping playhead (a ~2s sweep — "piano roll" liveness)
+                    let ph = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.0) / 2.0
+                    ctx.fill(Path(CGRect(x: ph * size.width, y: 0, width: 1.2, height: size.height)), with: .color(.white.opacity(0.55)))
+                }
+            }
+        }
+    }
     @ViewBuilder private func buildGridSelRightColumn(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("THE CHAIN").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildDim)
             if let i = buildGridSelSel, buildGridSelPresent(i) {
                 let hue = Color(hex: buildGridSelCellHex(i))
-                let hash = buildGridSelHash(buildGridSelKey(i))
                 let face = min(width, 220)
-                Canvas { ctx, sz in
-                    drawMosaic(hash: hash, into: ctx, size: sz, hue: hue, breath: 0, seq: 0,
-                               crest: mosaicCrest(hash: hash), crestTone: mosaicCrestTone(hue))
-                }.frame(width: face, height: face)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(hue.opacity(0.32))
+                    buildGridSelRollFace(buildGridSelActiveRoll, animated: d.playing).padding(8)   // the selected chain's piano-roll, larger
+                }.frame(width: face, height: face * 0.62)
                 Text(buildGridSelSummary(i)).font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                 Text(d.playing ? "playing against your input — the piece plays on" : "press ▶ play to hear it sweep")
@@ -4175,16 +4166,26 @@ extension DiagView {
     }
 }
 
-// One GRID SELECTOR cell face — a static chain-fingerprint mosaic. Equatable so the poll-driven parent re-render skips
-// the 63 unchanged cells (only a hash/hue/size change repaints the Canvas). The live frame is drawn by the parent.
-struct BuildGridSelFace: View, Equatable {
-    let hash: UInt64; let hue: Color; let side: CGFloat
-    var body: some View {
-        Canvas { ctx, sz in
-            drawMosaic(hash: hash, into: ctx, size: sz, hue: hue, breath: 0, seq: 0,
-                       crest: mosaicCrest(hash: hash), crestTone: mosaicCrestTone(hue))
-        }.frame(width: side, height: side)
+// One note of a GRID SELECTOR chain's piano-roll fingerprint — normalized 0…1 (x = time, y = pitch, w = gate).
+struct GridSelBar: Equatable { let x0: Double; let x1: Double; let y: Double; let vel: Double }
+
+// The piano-roll fingerprint of a chain: an OFFLINE render (Dice.runRecorder vs a standard chord) → its emitter-A notes
+// as normalized bars. Pure + Foundation-only, so it runs off the main thread during a deal. Empty for a silent chain.
+func gridSelRollBars(_ chain: [ProcessorSlot]) -> [GridSelBar] {
+    let rec = Dice.runRecorder(chain)
+    let ons = rec.ons.filter { $0.cable == 1 }
+    guard !ons.isEmpty else { return [] }
+    let notes = ons.map { Int($0.note) }
+    let lo = notes.min()!, hi = notes.max()!, span = max(1, hi - lo)
+    let maxS = Double(max(Int64(1), max(ons.map { $0.sample }.max() ?? 1, rec.offs.map { $0.sample }.max() ?? 1)))
+    var bars: [GridSelBar] = []
+    for on in ons {
+        let off = rec.offs.filter { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }.map { $0.sample }.min()
+        let x0 = Double(on.sample) / maxS
+        let x1 = off.map { Double($0) / maxS } ?? min(1.0, x0 + 0.05)
+        bars.append(GridSelBar(x0: x0, x1: max(x0 + 0.02, min(1.0, x1)), y: 1.0 - Double(Int(on.note) - lo) / Double(span), vel: Double(on.vel) / 127.0))
     }
+    return bars
 }
 
 // A share sheet for the REEL-TO-REEL export (SMF files). (Paul 2026-08-18)

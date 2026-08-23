@@ -168,7 +168,8 @@ struct DiagView: View {
     @State var buildGridSelLib: [LibEntry] = []          // MY LIBRARY summaries (chains loaded lazily on tap)
     @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
     @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
-    @State var buildGridSelQuantStep = true              // §2 QUANTIZE: STEP (default, musical seams) | INSTANT
+    @State var buildGridSelQuantStep = false             // §2 QUANTIZE: INSTANT (default — snappy switching) | STEP
+    @State var buildGridSelActiveRoll: [GridSelBar] = []  // the auditioning chain's piano-roll (offline render, shown on the active cell + right column)
     @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
     @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
     @State var buildGridSelPriorStaging = false

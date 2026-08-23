@@ -351,12 +351,9 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 - [x] **Fresh-cell + naming + furniture (2026-07-30)** — fully-null new cells · full processor names · grid down-chevrons (watermark + column keys) · dual-side row rails · DELETE-sever→NULL.
 
 ## C. Buildable now (next increments)
-- [ ] **MOSAIC §2 — THE CREST** (design ferry 2026-08-06, spec `AcceptanceCriteria-mosaic-face.md` §2; mosaic
-  device-approved "looks amazing"). The largest rect gains 1–2 HASH-CHOSEN inscribed shapes (▲▽◆●, tone-on-tone,
-  twins share) that light on the FIRST INSTANCE of the HIGHEST note per COLUMN ENTRY (peak brightness + timed fade)
-  — two layers: rank breathes below, crown flashes above. Pure `mosaicCrest(hash:)` (testable) + a drawMosaic layer
-  + a per-cell PEAK-NOTE feed (small engine plumbing, like the mosaic phase-2 per-note feed; v1 approximation
-  available). PLAN drafted (see the spec §2 CODE NOTE + the chat).
+- [x] ~~**MOSAIC §2 — THE CREST**~~ — DROPPED 2026-08-23 (Paul): the whole MOSAIC cell face was removed (it was dead on
+  the main grid since the piano-roll face won 2026-08-19). The crest follow-up is moot; the piano-roll face is the cell
+  visualisation now. `AcceptanceCriteria-mosaic-face.md` deleted.
 - [ ] **THE WINDOW — the pre|post note graphic** (design ferry 2026-08-06, spec `AcceptanceCriteria-the-window-
   graphic.md`). ONE parameterized piano-roll component (NOW divider · held input bars left · derived-future rects
   scrolling in + firing at the line; brightness=velocity). LIVE (derive-ahead ~2 beats, pure) + CANNED modes; sizes
@@ -500,7 +497,8 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   sweep) — [CHANNEL→ECHO] echoes on the cell's channel; the earlier "wire defaults" v1 limit is resolved.**
 - [ ] **RATIFIED 2026-08-22, UI-HEAVY — captured, DEVICE-owed (built off-device is not meaningful; need Paul's eyes):**
   - [~] **THE GRID SELECTOR** (`AcceptanceCriteria-grid-selector.md`) — **v1 LANDED 2026-08-23** (iOS builds; UI-only,
-    device eye/ear owed). Full-page 8×8, each cell = a complete MIDI chain (mosaic fingerprint); tap = live audition vs
+    device eye/ear owed). Full-page 8×8, each cell = a complete MIDI chain; the active cell shows a piano-roll of its
+    output (hue tiles otherwise); QUANTIZE defaults to INSTANT; tap = live audition vs
     current input (mutually-exclusive, QUANTIZE STEP|INSTANT); COMMIT overwrites the arrival row's chain (one undo) /
     CANCEL restores the pre-open voice; RIGHT column = read-only chain; the reel records it. Banks v1: **DEALT** (64
     seeded, off-thread + RE-DEAL) + **MY LIBRARY** (saved+factory by section). Built understand→implement→review (a
