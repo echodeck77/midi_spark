@@ -205,6 +205,14 @@ final class DoorRing {
         }
     }
     func clearLoop() { loopN = 0; loopLen = 0 }
+    /// Drop the recorded HISTORY (not the captured loop). The ring records at ABSOLUTE host beats in arrival order, and
+    /// both `capture`/`notesSoundingAt` assume arrival order == ascending beat. A transport stop→start or a host loop/seek
+    /// makes new events record at beats that overlap/go backward vs the resident history → a garbled, mis-phased capture.
+    /// Clear the history on those beat discontinuities so recording restarts monotone. (Paul 2026-08-23)
+    func clearHistory() { head = 0; count = 0 }
+    /// The oldest recorded event's beat (+∞ if empty) — so a capture can CLAMP its length to the history actually
+    /// available and not prepend silent passes when < N passes have been played (Paul 2026-08-23).
+    var oldestBeat: Double { count > 0 ? ordered(0).beat : .infinity }
 
     /// Load an EXTERNAL loop (config-sheets FILE mode): a parsed .mid clip's note events drive the same playback path
     /// as a captured REPLAY loop, so a FILE door reuses `notesSoundingAt`. Events are (beat, note, vel, on), already in

@@ -439,14 +439,14 @@ extension DiagView {
         }
     }
     // The realtime INPUT ROLL — BEAT-driven (Paul 2026-08-23): notes onset at the RIGHT and drift LEFT by BEAT, not
-    // wall-clock, so it FREEZES when the transport stops and stays locked to the passes. The visible window = N+2 passes:
-    // one CONTEXT pass (left, just out of grab range) · the N GRABBED passes (highlighted — exactly what LAST-N captures)
-    // · the CURRENT pass being input now (right). So you can SEE what you're grabbing. Fed by recvInputRoll (beat-stamped).
+    // wall-clock, so it FREEZES when the transport stops and stays locked to the passes. The visible window = N+1 passes:
+    // the N GRABBED passes (highlighted — exactly what LAST-N captures) · plus ONE extra pass split across the CURRENT
+    // pass being input (right) and a sliver of context (left). So you can SEE what you're grabbing. Fed by recvInputRoll.
     @ViewBuilder private func buildReplayInputRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
         let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
         let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []                // CURRENTLY-held input — drawn LIVE at the right edge
         let passBeats = max(0.0625, Double(Snap.cols) * stepBeats)               // one pass in beats
-        let windowBeats = Double(passes + 2) * passBeats                         // N grabbed + 1 context (left) + 1 current (right)
+        let windowBeats = Double(passes + 1) * passBeats                         // N grabbed + 1 extra pass (Paul 2026-08-23: N+2 was too wide)
         let ns = marks.map { Int($0.note) } + held.map { Int($0) }
         let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)

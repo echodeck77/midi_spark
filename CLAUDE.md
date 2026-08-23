@@ -172,6 +172,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   stopped, one-clock). **(3) THE N+2 WINDOW (Paul's request):** the roll now shows N+2 passes — one CONTEXT pass (left,
   just out of range) · the N GRABBED passes (HIGHLIGHTED cyan — exactly what LAST-N takes) · the CURRENT pass being input
   (right) — so the user SEES what they're grabbing. UI-only for (2)/(3); (1) is Kernel (iOS-built, device ear owed).**
+- **▶ REPLAY SYNC #2 — the START/STOP root cause: DoorRing history cleared on transport discontinuity (2026-08-23, on
+  `main`; iOS builds, macOS green; DEVICE ear owed). Paul: sync STILL off around start/stop + normal play. A 4-lens
+  adversarial hunt (`replay-sync-hunt`) proved the boundary/anchor math + the block look-ahead CORRECT (do not touch),
+  and pinned the real bug: **the `DoorRing` records at ABSOLUTE host beats in ARRIVAL order, and `capture`/`notesSounding
+  At` assume arrival order == ASCENDING beat — but the ring is never cleared across a transport stop→start or a host
+  loop/seek.** So after a stop+reposition, new events record at beats that overlap/go BACKWARD vs the resident history →
+  a garbled, mis-phased capture (exactly the "around starting/stopping" symptom). FIX: `Kernel.render` now tracks
+  `prevRenderBeatPos`/`prevRenderPlaying` and, on a stop→start edge OR a beat discontinuity (backward, or a forward jump
+  ≫ one block), calls a new `DoorRing.clearHistory()` so recording restarts monotone (the captured LOOP is left alone —
+  it stays grid-aligned). Plus two cheap start-edge hardenings the hunt flagged: `processReplayCatch` CLAMPS the capture
+  length to the passes actually recorded (`M = min(N, wholePassesSince oldestBeat)` via new `DoorRing.oldestBeat`) so a
+  press with < N passes doesn't prepend silent passes (reads as an offset); and it only ENGAGES if the capture produced
+  notes (`loopN > 0`, guards an empty/invalid-beat window). +1 DoorRingTest. Also this pass: the input-roll window is
+  N+1 (was N+2 — Paul: too wide). FLAGGED (not fixed, needs a contract call): a REPLAY-fed row on a PER-PART rate ≠ the
+  scene clock would drift (loopLen is pinned to the scene clock) — device-verify with a non-default per-part rate.**
 - **▶ MOSAIC DROPPED · GRID SELECTOR piano-roll + INSTANT · MAIN-PAGE TOP HEADER (2026-08-23, on `main`; iOS builds,
   macOS 834 green; UI-only, DEVICE eye owed). Paul's four asks after the grid-selector v1. **(1) THE MOSAIC IS GONE:**
   the whole mosaic cell-face code is DELETED — GridUI `mosaicFace`/`drawMosaic`/`mosaicCrestTone`/`mosaicShapePath`/

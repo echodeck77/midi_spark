@@ -170,6 +170,8 @@ final class Kernel {
     func replayEngaged() -> UInt8 { replayEngagedMask }
     private var renderBeatPos = 0.0                 // this render's beat — read by updateLatchedPools for the REPLAY phase
     private var renderWindowBeats = 0.0             // this render block's beat span — the REPLAY look-ahead (block-latency compensation)
+    private var prevRenderBeatPos = 0.0             // last render's beat — to spot a transport stop→start / seek / loop discontinuity
+    private var prevRenderPlaying = false           // …so the DoorRing history can be cleared before it goes non-monotone
     private var recordBeatBase = 0.0, recordBps = 0.0, recordWinStart: Int64 = 0   // beat mapping for handleIncoming's ring recording
     private var recordPlaying = false
     // Buffers for the REPLAY pool fill (fixed, no render-path alloc).
@@ -201,12 +203,19 @@ final class Kernel {
                 doorRings[i].clearLoop(); replayEngagedMask &= ~bit
             } else if cycleBeats > 0 {                             // not engaged → capture the last N COMPLETED passes + engage
                 let n = Int(replayPasses[i] == 0 ? 1 : replayPasses[i])
-                // ALIGN to the last pass BOUNDARY, not the arbitrary press beat: capture [boundary − N·cyc, boundary]
+                // ALIGN to the last pass BOUNDARY, not the arbitrary press beat: capture [boundary − M·cyc, boundary]
                 // and anchor there, so the loop's pass boundaries land on the grid's — a mid-pass press no longer leaves
                 // the loop permanently phase-offset (the "looping not synced" bug, Paul 2026-08-23).
                 let boundary = (beatPos / cycleBeats).rounded(.down) * cycleBeats
-                doorRings[i].capture(endBeat: boundary, lengthBeats: Double(n) * cycleBeats)
-                replayAnchor[i] = boundary; replayEngagedMask |= bit
+                // CLAMP to the passes actually recorded so a press with < N passes of history doesn't prepend silent
+                // passes (which reads as an offset). M = min(N, whole passes since the oldest recorded event).
+                let oldest = doorRings[i].oldestBeat
+                let avail = oldest.isFinite ? max(1, Int(((boundary - oldest) / cycleBeats).rounded(.down))) : n
+                let m = max(1, min(n, avail))
+                doorRings[i].capture(endBeat: boundary, lengthBeats: Double(m) * cycleBeats)
+                if doorRings[i].loopN > 0 {                         // only engage if something was actually captured (guards an empty/invalid-beat window)
+                    replayAnchor[i] = boundary; replayEngagedMask |= bit
+                }
             }
         }
         replayCatchToggle = 0
@@ -640,6 +649,16 @@ final class Kernel {
         recordWinStart = Int64(timestamp.pointee.mSampleTime)
         recordPlaying = playing
         renderWindowBeats = Double(frameCount) * recordBps   // REPLAY look-ahead: sample the loop at the block END so a loop onset lands in the SAME block it would as live input (else it's one block late — the "constant lag")
+        // TRANSPORT DISCONTINUITY → clear the DoorRing HISTORY (Paul 2026-08-23): the ring records at ABSOLUTE host beats
+        // in arrival order, and capture()/notesSoundingAt() assume arrival order == ascending beat. A stop→start, a host
+        // loop-back, or a backward scrub makes new events record at beats that overlap/go backward vs the resident
+        // history → a garbled, mis-phased REPLAY capture ("out of sync around starting/stopping"). Reset recording to
+        // monotone on those edges. A normal block advances beatPos by ~renderWindowBeats, so any backward move or a
+        // forward jump ≫ one block is a discontinuity. The captured LOOP is left alone (it stays grid-aligned).
+        let startEdge = playing && !prevRenderPlaying
+        let jumped = playing && prevRenderPlaying && (beatPos < prevRenderBeatPos - 1e-6 || beatPos - prevRenderBeatPos > 1.0)
+        if startEdge || jumped { for r in 0..<4 { doorRings[r].clearHistory() } }
+        prevRenderBeatPos = beatPos; prevRenderPlaying = playing
 
         // Audition (stopped only) REPLACES raw note passthrough when the held cell will sound — you hear
         // the processor alone (§6.4). Not auditioning / a cell that can't sound → notes still pass for

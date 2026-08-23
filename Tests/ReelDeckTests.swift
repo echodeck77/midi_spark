@@ -162,6 +162,23 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(sounding(0.5), [60, 64], "the sustained chord loops from the top (was dropped → silence)")
         XCTAssertEqual(sounding(1.5), [60, 64, 67], "the in-window note joins")
     }
+    // TRANSPORT DISCONTINUITY (Paul 2026-08-23): the ring records at ABSOLUTE beats, and capture assumes ascending
+    // arrival order. clearHistory() drops the recorded events so post-stop/seek recording restarts MONOTONE — else the
+    // old + new passes superpose into a garbled, mis-phased loop. oldestBeat reports the available history (< N clamp).
+    func testDoorRingClearHistoryResetsRecordingAndOldestBeat() {
+        let ring = DoorRing()
+        ring.record(beat: 10.0, note: 60, vel: 100, on: true)    // a pre-stop pass at a high absolute beat
+        ring.record(beat: 11.0, note: 60, vel: 0, on: false)
+        XCTAssertEqual(ring.oldestBeat, 10.0, accuracy: 1e-9)
+        ring.clearHistory()                                       // transport stop→start / seek → drop the stale history
+        XCTAssertFalse(ring.oldestBeat.isFinite, "empty history → oldestBeat is +∞")
+        ring.record(beat: 0.0, note: 72, vel: 90, on: true)       // recording restarts at the new (lower) beat, MONOTONE
+        ring.record(beat: 1.0, note: 72, vel: 0, on: false)
+        ring.capture(endBeat: 2.0, lengthBeats: 2.0)
+        var n = [UInt8](repeating: 0, count: 16), v = [UInt8](repeating: 0, count: 16), ch = [UInt8](repeating: 0, count: 16)
+        let c = ring.notesSoundingAt(0.5, outNote: &n, outVel: &v, outChan: &ch)
+        XCTAssertEqual(Set((0..<c).map { n[$0] }), [72], "only the post-clear note loops — the stale beat-10 pass is gone")
+    }
     // CHANNEL-PRESERVING REPLAY (Paul 2026-08-22): the loop must re-emit each note on its ORIGINAL channel — else a
     // channel-filtered door replays on the wrong channel and its cells reject the loop (the "channel 3 → silent" bug).
     func testDoorRingReplayPreservesTheRecordedChannel() {
