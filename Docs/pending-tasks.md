@@ -3,7 +3,109 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-18._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-23._
+
+## ★ CODE-REVIEW FINDINGS 2026-08-23 (6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code). Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz. Do SOON.
+
+### Crashes & races (do FIRST)
+- **[1] Nested `[[UInt8]]` receiver-sounding feed = live render↔main race (the known SIGTRAP class).** `Kernel.swift:389,398,428`
+  (`recvHeldVel`/`recvHeldNote`, written per-element on render, polled every tick at `AudioUnitViewController.swift:784/789`
+  via `MidiSparkAudioUnit.swift:434`). The scalar-mask fix was applied to the DOT but NOT these — same pattern the
+  `soundVel`/`markVel`/`withheldVel` feeds were FLATTENED to avoid. TWO reviewers found it independently. FIX: flatten to
+  `4×W` value arrays (+`recvHeldCount`), like the emitter feeds.
+- **[2] `Int8(colourIndex)` traps at ≥128 colours.** `SnapshotBuilder.swift:54` — `colourIndex` is a document-order index but
+  `SnapCell.colourIndex` is `Int8`; with the 16-cap gone (unlimited ephemeral colours) a big BUILD session crosses 128 →
+  overflow trap on publish. FIX: widen `SnapCell.colourIndex` to `Int16`/`Int` (or clamp with a documented ceiling).
+- **[3] Colour param observer/provider/resync index `document.colours` unguarded < 16.** `MidiSparkAudioUnit.swift:1067,1083,1271`
+  — sibling setters bounds-check; these don't. Latent (builders make 16), but a decoded/hand-crafted <16-colour preset +
+  host automating `morph_15`/`transpose_15` traps. FIX: `< document.colours.count` guards.
+
+### Stuck notes
+- **[4] GLIDE bookkeeping not flushed on the emitter-disable + preview edges.** `Router.swift:1951` (bus disable via `closeBus`)
+  and `2022` (preview via `allNotesOff`) close the immortal glide anchor but omit the `flushGlide()` the transport/panic/
+  scene/latch edges pair with (warning at 2006). Kill a glide via the fader → stale `glideVoices.slot` → the reused slot
+  later emits a spurious note-off on an unrelated note + the glide goes silent. FIX: add `flushGlide()` at both edges.
+- **[5] ReelDeck `cap`(16384) vs `histCap`(8192) asymmetry drops note-offs on re-selection.** `Emission.swift:38,48,62,66,88` —
+  the auto-loop keeps 16384 but the archived ring slot keeps 8192, and `replay()` re-emits verbatim with no synthetic offs.
+  A dense pass replays fine immediately but, re-selected from the browser, is truncated → stuck notes (looks intermittent).
+  FIX: unify the caps, or have `replay()` close notes still open at loop end.
+- **[6] Uniform vs multi-clock paths keep separate column-edge trackers that desync on a live clock-mode switch.**
+  `Router.swift:2101–2136` — `prevEffColumnRow[]` only re-inits when `prevEffColumn == -1` (a flush); enabling a per-row rate
+  live is NOT a flush → a stale row tracker can skip a row's transition reconcile → phantom sustained drone. Low-probability.
+  FIX: reset `prevEffColumnRow[]`/`modLastColumn`/`glideLastColumn` on the uniform↔multi-clock transition.
+
+### Wrong audio / correctness
+- **[7] GLIDE emits note-ons via raw `openVoice`, bypassing the whole `emitOneBus` gate stack.** `Router.swift:2422+` — no
+  `busEnabledMask`/`soloEmitterMask`/CLAIM/FENCE/master-KEY/OCTAVE/flood reads in the glide path (MOD, its sibling, checks
+  them). A disabled/soloed-out emitter still plays its glide line; master transpose/fence never applies to glide. FIX: route
+  glide through the same gates (or replicate the enable/solo/key/fence checks).
+- **[8] BURST "HITS 12"/"HITS 16" both render as 8.** `SnapshotBuilder.swift:291` clamps shared `count` to `2…8`, but BURST
+  writes up to 16 and the engine expects it (`Router.swift:2700` `min(16,…)` is dead). FIX: `clamp(v, 2, 16)` (RATCHET
+  unaffected — `effectiveRepeats` re-snaps ≤8).
+- **[9] Master MUTE / master-kill doesn't silence BYPASS voices.** `Router.swift:461` `reconcileBypass` has no `masterMute`
+  guard while grid/MOD/GLIDE all do → a bypassed door plays new notes straight through master mute. FIX: gate on
+  `masterMute` (or confirm monitor-through-mute is intended).
+- **[10] Parameter tree never resynced on the REAL load paths.** `MidiSparkAudioUnit.swift:1168` (factory), `1187` (preset),
+  `1309` (fullState) skip the `syncParameterTreeToDocument()` that `loadTestSession` (1108) calls → after a restore the host
+  shows the previous doc's stepRate/transpose/morph/macro + the next knob nudge fights the new doc. FIX: call it (suppress-
+  rebuild wrapped) in all three.
+- **[11] MONO steal runs BEFORE the flood governor → silent emitter.** `Router.swift:1173–1195` — MONO closes the holder (1185)
+  then the governor can `return -1` (1193), dropping the note it stole for → the emitter goes silent for the rest of the beat.
+  FIX: move the governor check ahead of the MONO steal.
+- **[20] REPLAY discontinuity forward-jump threshold is a fixed `> 1.0` beat.** `Kernel.swift:662` — doesn't scale with
+  `renderWindowBeats` (the comment even says a normal block advances by ~that), so at high tempo × large buffer a normal
+  block trips `clearHistory()` every block → "LAST N" captures nothing. FIX: `> max(1.0, k * renderWindowBeats)`.
+
+### Persistence / data-loss
+- **[12] Non-Optional post-v2 fields break decode of old documents → whole session silently lost.** `Models.swift:726–729`
+  (`activeScene`, `morphMaster`, `busChannels` are non-Optional; Swift ignores their `=` default on decode). A pre-`busChannels`
+  (pre-v0.5) saved session throws `keyNotFound`, swallowed by `try?` → the doc silently reverts, and the `formatVersion < 3`
+  migration can never run. FIX: make them Optional + `*Resolved` (or `decodeIfPresent` for these keys).
+- **[13] `rackConfigsResolved` discards saved rack setups unless length == 4.** `Models.swift:833` — siblings PAD; this drops
+  a length-3/5 array to the legacy default → all four user rack configs lost. FIX: pad/truncate to 4.
+- **[14] `fullState.set` never resets `pendingBuildUnassigned`.** `MidiSparkAudioUnit.swift:1305/1311` — a host that saves right
+  after loading session B re-persists session A's BUILD part (or nil) over B's. FIX: set `pendingBuildUnassigned =
+  doc.buildUnassigned` in `fullState.set`.
+
+### UI / state
+- **[15] Processor-editor CANCEL reverts the WRONG colour after an in-editor colour switch.** `BuildPage.swift:3641/3648` —
+  snapshot captured once in `.onAppear`; the editor has no backdrop (left column stays tappable), so switching the selected
+  colour mid-edit leaves the snapshot on the original → CANCEL reverts X and strands Y's edits. FIX: re-snapshot on
+  `ddSelectedColourID` change (`.onChange`), or revert the current target.
+- **[16] A door's running REPLAY loop is stranded when its mode is switched** (in the just-shipped `buildReceiverLatchButton`).
+  `BuildPage.swift:3284` — `engaged` is mode-gated, so switching a looping REPLAY door to LATCH makes the button read
+  `latchMask` (unarmed) + tap toggles the chord latch instead of stopping the loop. FIX: compute `replayOn || latchOn`, stop
+  whichever is active on tap.
+- **[17] RANGE-picker keyboard hard-codes `width: 660`, overflowing narrow sheets.** `BuildPage.swift:375` — sheet is
+  `min(720, width-32)`; on a < ~712 pt AUM pane the top octaves render off-screen → high MIN/MAX bounds untappable. FIX:
+  derive the keyboard width from the available sheet width.
+
+### Perf / invariant-3
+- **[18] Per-event heap allocation on the render thread in `handleIncoming`.** `Kernel.swift:913` `var hearing =
+  [false,false,false,false]` per forwardable CC/PB/AT (same class as the fixed "M1" alloc). FIX: reused member scratch, or
+  fold the OR inline without the array.
+- **[19] The 4 Hz poll isn't gated on `uiAppeared`** (the 30 Hz `meterTimer` at `AudioUnitViewController.swift:717` is;
+  the poll at `723` isn't) → drains render→main feeds every 250 ms while the view is hidden (wasted work + widens finding-1's
+  race window). FIX: add the `uiAppeared` guard (keep `buildPersistTick` running if needed).
+
+### EXTRAS — lower value, fold into a cleanup pass
+- **Inverted per-cell velocity window mutes a cell** — no `floor ≤ ceil` guard (`SnapshotBuilder.swift:88`; SPLIT's `splitVel`
+  and the RACK FENCE both guard theirs). Reachable only via decoded/library cells (the per-cell UI was removed). FIX: order
+  the bounds in `resolve`.
+- **`rangeLo/HiResolved` has the same missing `lo ≤ hi`** (`Models.swift:536`) → an inverted decoded window silently kills the
+  door. FIX: `hi = max(lo, hi)` in the resolver.
+- **ARP ignores the cell's `chordSplit`** while HOLD/STRUM/RATCHET honor it (`Derivations.swift:942`). May be intended like the
+  vel-window omission — DECIDE, then either honor it or document the asymmetry.
+- **`bypassDestResolved` doc-comment says "ALL four" but the code intentionally defaults to emitter A** (`Models.swift:547-548`,
+  "user 2026-08-05"). Stale COMMENT — fix the comment (code is correct).
+- **`receiverNote` is dead write-only state + `nudgeReceiverNote` is missing** (`AudioUnitViewController.swift:260,526`; the AU
+  `setInputSemitone` has no live caller). Either wire the ±semitone nudge or delete the dead state.
+- **Reel-replay logs a spurious "playing silence leak" self-heal** from a stale `diag.activeVoiceCount` (`Kernel.swift:768/818` —
+  `router.process` is skipped during replay so the count never updates). Diagnostic noise only (bumps `diag.panics`). FIX:
+  zero `activeVoiceCount` on entering replay, or exempt the replay state from the silence-leak net.
+- **`buildDeployCurrentPart` lacks the `>= 0` guard its siblings have** (`BuildPage.swift:2028`) — latent `[-1]` crash,
+  currently unreachable. FIX: guard `buildCurrentPart >= 0` for symmetry.
+
 
 ## ★ FERRY 2026-08-20 — REDESIGN FIXES + reel fixes + banking (much LANDED unattended 2026-08-20)
 - **REDESIGN FIXES** (`Docs/AcceptanceCriteria/AcceptanceCriteria-redesign-fixes.md`): §3 QUIET LEFT BOX DONE (`871d94d`
