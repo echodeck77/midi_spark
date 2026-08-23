@@ -505,8 +505,11 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     captured, awaiting Paul's word. Big UI + audition/commit engine; a FACTORY curation deliverable. Not started.
   - [ ] **THE IN/OUT TRUTH STRIPS + THE STAGE EYE** (`AcceptanceCriteria-in-out-truth-strips.md`) — every stage panel
     gains an IN held-note strip (empty state teaches: "nothing held — LATCH at INPUT A") + an OUT mini-roll; tap = the
-    STAGE EYE (INPUT roll · live MECHANISM widget · OUTPUT roll on one time axis). Plus the audition fallback (empty
-    pool → reference chord with a tell) — the one testable/logic piece. UI-heavy; not started.
+    STAGE EYE (INPUT roll · live MECHANISM widget · OUTPUT roll on one time axis). UI-heavy; not started (device-owed).
+    - [x] **§2 AUDITION FALLBACK — LANDED 2026-08-23** (macOS green, iOS builds; device eye/ear owed). BUILD chain
+      audition feeds a fixed C-major reference chord to its door when nothing's held (Router-level, testable; thread-safe
+      scalar). "no input · reference chord" tell by the button. v1: per-DOOR scope (per-row is a follow-up); the strips +
+      stage eye remain.
 - [ ] **TAP processor** (`AcceptanceCriteria-tap-processor.md`) — mid-chain layered emission (`[ARP→TAP→HARM]` = straight
   + harmonized). **NOT RATIFIED** ("captured for discussion") — do not build until Paul's word.
 

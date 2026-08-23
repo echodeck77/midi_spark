@@ -45,6 +45,10 @@ final class Kernel {
     private var auditionTarget: Int32 = -1
     private var suppressAuditionNotes = false     // this render: audition replaces raw note passthrough
     func setAudition(_ target: Int) { auditionTarget = Int32(target) }
+    // AUDITION FALLBACK (§2 in-out-truth): the BUILD chain audition feeds a fixed reference chord to one door when
+    // nothing is held (thread-safe — a scalar door index; the reference pool is built once in the router).
+    func setChainReference(door: Int) { router.setChainReference(door: door) }
+    func clearChainReference() { router.clearChainReference() }
 
     // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell, set from the UI while PREVIEW is held.
     // Ephemeral, never persisted. colourIndex −1 = inactive. Row −1 = receiver input (its channel filter);

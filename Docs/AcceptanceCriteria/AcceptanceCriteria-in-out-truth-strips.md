@@ -1,3 +1,9 @@
+# ✅ §2 AUDITION FALLBACK — LANDED 2026-08-23 (macOS green, iOS builds; device eye/ear owed). BUILD "PLAY THIS MIDI
+# CHAIN" now feeds a fixed C-major reference chord to its door when nothing's held (Router `refPool`/`refChordDoor`,
+# thread-safe scalar; emit guards `|| referenceSet`); a "no input · reference chord" tell shows by the button. +1
+# RouterTest. v1: per-DOOR scope (a concurrent piece on the same door also hears it — per-row is a follow-up). The §1
+# IN/OUT truth strips + §4 STAGE EYE remain UI-device-owed.
+#
 # INSTRUCTIONS → Code — THE IN/OUT TRUTH STRIPS (Paul, 2026-08-22:
 # the TUTTI confusion, cured by visibility — ratified fix set)
 

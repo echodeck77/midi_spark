@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ AUDITION FALLBACK — the chain audition sounds a REFERENCE CHORD when nothing's held (2026-08-23, on `main`;
+  macOS green, iOS builds; DEVICE eye/ear owed for the tell + feel). §2 of `AcceptanceCriteria-in-out-truth-strips.md`
+  (ratified). BUILD's "PLAY THIS MIDI CHAIN" was SILENT with no input (the injected row reads an empty live pool → both
+  emit loops skip). FIX (Router-level, TESTABLE): a FIXED C-major reference chord fed to ONE door — `effectivePool`
+  returns `refPool` for `refChordDoor` when the live pool is empty (real input always wins); the hold/tick/echo emit
+  guards gain `|| referenceSet`. THREAD-SAFE by design: `refPool` is built ONCE (never mutated), the only main→render
+  state is the scalar `refChordDoor` (a torn Int read is benign) — deliberately NOT an array/NotePool (that class caused
+  the door-replay crash). AU `setChainReference(door:)`/`clearChainReference` → Kernel → Router; BuildPage arms it in
+  `buildPublishScene` while `ddSolo` (chain is the voice), clears otherwise; a "no input · reference chord" tell shows
+  by the button when the chain door has nothing held. +1 RouterTest (no-ref = silent · ref = the chain arps the triad ·
+  live input wins). v1 SCOPE (flagged for Paul): PER-DOOR — a concurrent piece on the same door also hears the reference
+  when nothing's held; per-ROW scope (a SnapCell marker) is a follow-up. The reference chord is a fixed C-E-G triad
+  (Paul can retune). The IN/OUT truth strips + STAGE EYE (the rest of §2/§4) stay UI-device-owed.**
 - **▶ SESSION-ENGINE REVIEW SWEEP — 4 review-caught bugs FIXED + echo CHANNEL/NUDGE inheritance (2026-08-23, on `main`;
   macOS green incl. fuzz, iOS builds; DEVICE ear owed). A second adversarial-review WORKFLOW over this session's
   un-reviewed engine (GLIDE-driven + UTILITY CHANNEL/NUDGE) found 4 real bugs the fuzz couldn't (none a fuzz-visible

@@ -878,6 +878,7 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
+            if let tell = buildReferenceTell { AnyView(Text(tell).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)) }   // §2 the empty-input TELL: the audition is on the reference chord
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the ROW SELECTOR tabs — above the outlined section
             AnyView(VStack(spacing: 8) {                          // THE OUTLINED MACHINE SECTION: receiver toggles · chain · buttons · emitter toggles (Paul 2026-08-18)
                 AnyView(buildMachineBlock(castW: castW, cell: cell))
@@ -1375,6 +1376,14 @@ extension DiagView {
         buildStagingPlaying = false
         buildPublishScene()
     }
+    // §2 in-out-truth: the "no input — reference chord" tell — shown while the chain audition is the voice AND nothing
+    // is held on its door (so the fallback reference chord is what's sounding). nil hides it.
+    private var buildReferenceTell: String? {
+        guard buildDisplayVoice == .chain else { return nil }
+        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
+        let held = (door >= 0 && door < recvHeld.count) && recvHeld[door].contains { $0 > 0 }
+        return held ? nil : "no input · reference chord"
+    }
     // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
     func buildCommitPendingVoice() {
         if let v = buildPendingWorkshopVoice {
@@ -1432,6 +1441,9 @@ extension DiagView {
         input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
         input.performLane = buildPerformLane
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
+        // AUDITION FALLBACK (§2 in-out-truth, Paul 2026-08-23): while the chain is the voice, feed a reference chord to
+        // its door so PLAY THIS MIDI CHAIN never sounds silent with nothing held (real input always wins). Cleared otherwise.
+        if ddSolo { au?.setChainReference(door: input.chainReceiver) } else { au?.clearChainReference() }
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {
