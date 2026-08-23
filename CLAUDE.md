@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ NO-MACHINE WIRE — PARITY across all 3 play paths + receiver-strip attack flash (2026-08-23, on `main`; iOS builds,
+  macOS 841 green incl. fuzz; DEVICE ear owed). Follows the wire (`9419b42`). Device: a no-machine cell was realtime ONLY
+  via PLAY THIS MIDI CHAIN; the PART grid + PLAY grid still played late. ROOT CAUSE (reader-agent traced): `composeScene`'s
+  three branches compose the cell differently — the CHAIN branch forces an EXPLICIT empty chain (`buildColourChain` → `[]`
+  → always passthrough), but STAGING/PERFORM passed only the per-row VARIATION (empty for a plain row) + set
+  `processors = nil`, delegating to the colour's `templateChain`; when that template reaches the builder as `[]`/nil it
+  collapses to nil and the cell falls to the colour's GRIDDED A-face (`SnapshotBuilder` line ~78) — the wire never engaged.
+  FIX: `buildPublishScene` RESOLVES the effective chain per staging row / perform cell (the variation if present, else the
+  colour's own machine via `buildColourChain` — `[]` for no-machine, the machine otherwise), and `composeScene` STAGING/
+  PERFORM now set `cell.processors = chain` EXPLICITLY (never nil-delegated). Byte-identical for machine colours
+  (`buildColourChain` == the resolved machine); +1 BuildSceneLogic test. ALSO (velocity-strip clue): `buildReceiverFader`
+  showed only the ~4 Hz HELD velocity, so a tap pressed+released between polls never registered — added the event-driven
+  decaying ATTACK FLASH (30 Hz peak feed, mirrors `buildReceiverMeter`) so quick taps light the bar. `2a68809`.**
 - **▶ NO-MACHINE CHAIN = A LIVE WIRE (realtime passthrough) (2026-08-23, on `main`; iOS builds, macOS 839 green incl.
   fuzz; DEVICE ear owed). Paul: an empty chain (no machine) re-struck at the next column instead of passing through in
   realtime — because the grid is a STEP SEQUENCER: every cell, incl. a passthrough, is a HOLD that only strikes at column
