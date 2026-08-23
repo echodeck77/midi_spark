@@ -532,6 +532,10 @@ final class Router {
         var route: EchoRoute = .direct
         var cellIdx: Int = -1        // the emitting cell's grid index (for the CHAIN re-fold's live-chain lookup)
         var echoSlot: Int = -1       // the ECHO slot's position; the re-fold runs slots echoSlot+1 … tail
+        // UTILITY (2026-08-23): the source cell's CHANNEL/NUDGE override, captured at registration, so the repeats sound
+        // on the same channel + timing as the dry (a [CHANNEL→ECHO] cell echoes on its own channel, not the wire).
+        var chan: Int8 = -1          // output channel override (−1 = the bus stamp)
+        var nudge: Int64 = 0         // timing offset in samples
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -562,7 +566,8 @@ final class Router {
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats, spill: spill,
-                                   route: route, cellIdx: cellIdx, echoSlot: echoSlot)
+                                   route: route, cellIdx: cellIdx, echoSlot: echoSlot,
+                                   chan: Int8(max(-1, min(15, Int(chanOverride)))), nudge: nudgeSamples)   // repeats inherit the registering cell's CHANNEL/NUDGE (set at every push site)
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -1176,7 +1181,7 @@ final class Router {
             markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = currentColourIndex
             markCount[bus] += 1
         }
-        let ch = chanOverride >= 0 ? UInt8(chanOverride) : (busChannels[bus] &- 1) & 15   // UTILITY CHANNEL override, else the bus stamp (1–16 → 0–15 wire)
+        let ch = (chanOverride >= 0 && !previewMode) ? UInt8(chanOverride) : (busChannels[bus] &- 1) & 15   // UTILITY CHANNEL override (previewMode bypasses, like NUDGE), else the bus stamp (1–16 → 0–15 wire)
         // THE RACK POCKET (per-emitter) + UTILITY NUDGE (per-cell): shift this note's on/off by the timing offset
         // (samples). Both shift equally so the duration is preserved; the on is clamped into [renderStart, windowEnd]
         // (can't play in the past or beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
@@ -1552,7 +1557,7 @@ final class Router {
                 // §7② [ECHO→…→LENGTH]: LENGTH re-articulates in the tick loop (emitLengthComposedRow), which SWALLOWS the
                 // echo (composeChainSet folds it as passthrough) — so this is the ONLY place its tails register. Column
                 // entry, once. DIRECT = echo the composed set flat; CHAIN = re-fold each repeat through LENGTH (choked/tied).
-                registerLengthChainEcho(cell: cell, echoIdx: ei, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo, colStart: colStart, S: S)
+                registerLengthChainEcho(cell: cell, echoIdx: ei, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo, beatsPerSample: beatsPerSample, colStart: colStart, S: S)
             }
         }
     }
@@ -1560,7 +1565,7 @@ final class Router {
     /// Once per column entry (from emitEchoColumn). NO dry strike — the length-gated dry is emitted by emitLengthComposedRow
     /// (which suppresses it when the echo is MUTE). CHAIN re-folds each repeat through LENGTH at drain; DIRECT echoes flat.
     private func registerLengthChainEcho(cell: SnapCell, echoIdx ei: Int, colour: SnapColour, ci: Int, column: Int, r: Int,
-                                         pool: NotePool, tempo: Double, colStart: Double, S: Double) {
+                                         pool: NotePool, tempo: Double, beatsPerSample: Double, colStart: Double, S: Double) {
         let ep = cell.procs[ei]
         var last = -1, i = cell.procs.count - 1
         while i >= 0 { if !cell.slotBypass[i] { last = i; break }; i -= 1 }
@@ -1575,6 +1580,7 @@ final class Router {
         let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
         currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex; currentCellIndex = column * Snap.rows + r
+        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // the tails inherit THIS cell's CHANNEL/NUDGE (captured by pushEchoTail)
         let cellPool = effectivePool(for: cell, live: pool)
         composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : last, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)   // CHAIN = ECHO's INPUT · DIRECT = the composed set (LENGTH is passthrough in composeChainSet)
         let chopped = chopMask(cell, m: colStart, S: S, base: bm)
@@ -1604,6 +1610,7 @@ final class Router {
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
         currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
         currentCellIndex = column * Snap.rows + r
+        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
         // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([PASSGATE→ECHO] the gated chord,
         // [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
         let cellPool = effectivePool(for: cell, live: pool)
@@ -1640,6 +1647,7 @@ final class Router {
         echoPrevMEnd = mEnd
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
+            chanOverride = Int16(e.chan); nudgeSamples = e.nudge   // repeats sound on the source cell's CHANNEL/NUDGE (captured at registration) — emitOneBus reads these
             // TAIL SPILL = CUT: once the playhead has crossed this tail's COLUMN boundary, stop scheduling repeats —
             // the last one already emitted keeps its scheduled off, so the sounding note finishes its gate (no lurch).
             if e.spill == .cut && mStart >= columnStart(e.onset, S) + S { echoTails[i].active = false; continue }
@@ -1667,6 +1675,7 @@ final class Router {
                 }
             }
         }
+        chanOverride = -1; nudgeSamples = 0   // clear the per-tail override so the MOD/GLIDE block + tick loop start clean
     }
     /// §7② Emit ONE echo repeat (note `n`, vel `v`, beat `tau`) through the chain stages AFTER the ECHO slot, looked up
     /// on the LIVE cell — LENGTH gates/ties it by the slice it lands in, SPLIT/CHANCE/HARMONIZE re-shape it, etc. Falls
@@ -1968,10 +1977,12 @@ final class Router {
             prevEffColumn = -1
             prevLatchMask = latchMask
             clearEchoTails()                             // ECHO: the pool swapped — drop tails from the old chord
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // parity with the other edges: allNotesOff closed the immortal GLIDE anchors — forget the stale voice bookkeeping (else silent glide + a freed slot reused then wrongly closed). (review 2026-08-23)
         }
 
         pool.rebuildSorted()
         diag.poolCount = pool.count
+        chanOverride = -1; nudgeSamples = 0   // UTILITY: clean slate each render — preview/audition/bypass + the echo dry must NOT inherit a stale per-cell override from the previous render/cell; the tick/hold loops set them per-cell (review 2026-08-23)
 
         // BYPASS (§1/§2): the live direct-injection monitor — runs BEFORE the stopped/playing split so a bypassed
         // door sounds whether or not the transport rolls. (allNotesOff above skips bypass voices, so the edges don't
@@ -2015,6 +2026,7 @@ final class Router {
             prevEffColumn = -1
             for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
             clearEchoTails()                             // ECHO: a pass restart drops the old pass's tails
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // parity: allNotesOff closed the immortal MOD/GLIDE voices — forget their stale bookkeeping (review 2026-08-23)
         }
         let beatPos = beatPos - passAnchor
 
@@ -2139,7 +2151,7 @@ final class Router {
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                             beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: effColumn, row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① [driver→GLIDE]: drain the driver's targets into the mono glide voice
-                                beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+                                beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a, out: out)
             }
         } else {
             let globalPass = diag.pass   // per-row ticks run on each row's OWN clock (buffers filled in the transition loop)
@@ -2149,7 +2161,7 @@ final class Router {
                             box: box, pool: pool, beatPos: beatPos, windowStart: windowStart, windowEnd: windowEnd,
                             beatsPerSample: beatsPerSample, a: a, heldCell: heldCell, out: out, diag: &diag)
                 emitGlideDriven(box: box, column: rowEffColBuf[r], row: r, beatPos: beatPos, windowBeats: windowBeats,   // §7① per-row clock
-                                beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+                                beatsPerSample: beatsPerSample, windowStart: windowStart, S: rowSBuf[r], a: a, out: out)
             }
             diag.pass = globalPass
         }
@@ -2423,7 +2435,7 @@ final class Router {
     /// the bend keeps ramping. Column-exit + rest phrase-ends are done in emitColumnGlide (before the pool guard); this
     /// only runs for the ACTIVE column's cell. Single-emitter (the cell's lowest bus) — fan-out stays a v2 item.
     private func emitGlideDriven(box: SnapshotBox, column: Int, row r: Int, beatPos: Double, windowBeats: Double,
-                                 beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+                                 beatsPerSample: Double, windowStart: Int64, S: Double, a: Double, out: MIDIEmitter?) {
         guard column >= 0 && column < Snap.cols else { return }
         if masterMute && !previewMode { return }
         let cellIdx = column * Snap.rows + r
@@ -2441,7 +2453,7 @@ final class Router {
             let inNote = Int(glideDrivenNote[cellIdx * Self.glideDrivenCap + i])
             let vel = glideDrivenVel[cellIdx * Self.glideDrivenCap + i]
             let tb = glideDrivenBeat[cellIdx * Self.glideDrivenCap + i]
-            let onS = windowStart + Int64(max(0, (tb - beatPos) / beatsPerSample).rounded())
+            let onS = sampleOf(musical: tb, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)   // swing-accurate (was a raw linear conversion that dropped the warp — review 2026-08-23)
             if gv.anchor < 0 {                                   // ANCHOR: first driver note = note-on + centred bend
                 let slot = openVoice(note: UInt8(inNote), chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus), onSample: onS, offSample: .max, velocity: vel, out: out)
                 gv = GlideVoice(); gv.anchor = Int16(inNote); gv.bus = Int8(bus); gv.slot = Int16(slot); gv.lastInput = Int16(inNote); gv.rampStart = tb

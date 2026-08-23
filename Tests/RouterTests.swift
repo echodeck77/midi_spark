@@ -569,6 +569,22 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(post); assertNothingLeftSounding(pre)
     }
     // UTILITY — CHANNEL (Paul 2026-08-22): the cell exits on a chosen MIDI channel; WIRE keeps the bus stamp.
+    // review 2026-08-23: [CHANNEL→ECHO] — the dry AND its repeats sound on the cell's OWN channel (not a stale
+    // neighbour's, not the wire). The dry uses cellChanOverride (registerEcho); the tails carry EchoTail.chan.
+    func testChannelEchoSoundsEntirelyOnTheCellsChannel() {
+        let b = box(colours: arpColours()) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var ch = ProcessorSlot(type: .channel); ch.params.utilChannel = 5   // channel 5 → wire 4
+            var e = ProcessorSlot(type: .echo); e.params.echoSync = true; e.params.echoDelayDiv = 2; e.params.echoRepeats = 3; e.params.echoThru = true
+            c.processors = [ch, e]
+            $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 3, into: e)
+        let cable1 = e.ons.filter { $0.cable == 1 }
+        XCTAssertGreaterThan(cable1.count, 1, "the [CHANNEL→ECHO] cell sounds a dry + repeats")
+        XCTAssertTrue(cable1.allSatisfy { $0.chan == 4 }, "every note-on (dry + echoes) is on channel 5 (wire 4), not the wire default 0")
+        assertNothingLeftSounding(e)
+    }
     func testChannelOverridesTheOutputChannel() {
         let gi = colourIDs.firstIndex(of: "gold")!
         func mk(_ ch: Int) -> SnapshotBox {

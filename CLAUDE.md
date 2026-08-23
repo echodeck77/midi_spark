@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ SESSION-ENGINE REVIEW SWEEP — 4 review-caught bugs FIXED + echo CHANNEL/NUDGE inheritance (2026-08-23, on `main`;
+  macOS green incl. fuzz, iOS builds; DEVICE ear owed). A second adversarial-review WORKFLOW over this session's
+  un-reviewed engine (GLIDE-driven + UTILITY CHANNEL/NUDGE) found 4 real bugs the fuzz couldn't (none a fuzz-visible
+  stuck note): **(A) STUCK-NOTE** — the receiver LATCH edge + sceneRestart called `allNotesOff` (killing the immortal
+  [driver→GLIDE] anchors) but NOT `flushGlide`/`flushMod` (unlike transport/panic/scene-flush) → stale `glideVoices`:
+  silent glide + a freed slot later wrongly closed = a spurious note-off on an unrelated note. Fixed (edge parity).
+  **(B) CORRECTNESS** — the ECHO DRY strike read a STALE `chanOverride`/`nudgeSamples` leaked from a neighbour hold
+  cell (the sole reset ran AFTER the column emitters) → dry on the wrong channel/timing. Fixed — `registerEcho`/
+  `registerLengthChainEcho` set the override from THEIR cell. **(C) SWING** — `emitGlideDriven` reconstructed the anchor
+  note-on sample with a raw linear conversion, dropping the swing warp the driver's own notes honor. Fixed — uses
+  `sampleOf`. **(D) PREVIEW/STALE** — stopped audition/preview paths emitted with stale `chanOverride`/`nudgeSamples`,
+  and `chanOverride` wasn't `previewMode`-gated (unlike NUDGE). Fixed — a clean-slate reset at the top of `process()` +
+  the previewMode gate. **PLUS completed the UTILITY v1 follow-up: echo tails now INHERIT the source cell's CHANNEL/
+  NUDGE** (`EchoTail.chan`/`nudge`, captured at every push site, applied per-tail in `drainEchoTails`) — so [CHANNEL→
+  ECHO] sounds ENTIRELY on the cell's channel (dry + repeats), was dry-only. +1 RouterTest. The two review workflows
+  this session caught 6 real bugs total that the fuzz missed (silence/regression/correctness/stuck-note) — the
+  confident-build pattern earning its keep.**
 - **▶ ECHO MID-CHAIN — the NON-DRIVER hold path, completing §7② (2026-08-23, on `main`; macOS green incl. fuzz + echo-
   CHAIN randomizer, iOS builds; DEVICE ear owed). Follows the driver-path ROUTE=CHAIN (`ded3579`). Two shapes: (a)
   hold-tail `[ECHO→HARMONIZE/SPLIT/…]` — the existing `chainEchoParams` block in `emitColumnHolds` (was DIRECT-only) is

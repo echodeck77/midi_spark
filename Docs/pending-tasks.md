@@ -495,8 +495,9 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 
 - [x] **THE UTILITY SET — OCTAVE·TRANSPOSE·CHANNEL·NUDGE — LANDED 2026-08-22** (`AcceptanceCriteria-utility-set.md`;
   ferry-ratified). New UTILITY catalog group; 4 simple per-chain transforms. OCTAVE/TRANSPOSE = pitch-shift set
-  transforms; CHANNEL/NUDGE = note-transparent emit overrides (byte-identical when unset). +5 RouterTests; macOS green
-  incl. fuzz; iOS builds. v1: echo tails don't inherit channel/nudge (wire defaults). DEVICE eye/ear owed.
+  transforms; CHANNEL/NUDGE = note-transparent emit overrides (byte-identical when unset). +6 RouterTests; macOS green
+  incl. fuzz; iOS builds. DEVICE eye/ear owed. **Echo tails now INHERIT the cell's channel/nudge (2026-08-23 review
+  sweep) — [CHANNEL→ECHO] echoes on the cell's channel; the earlier "wire defaults" v1 limit is resolved.**
 - [ ] **RATIFIED 2026-08-22, UI-HEAVY — captured, DEVICE-owed (built off-device is not meaningful; need Paul's eyes):**
   - [ ] **THE GRID SELECTOR** (`AcceptanceCriteria-grid-selector.md`) — a full-page 8×8 where each cell = one complete
     MIDI chain, mutually exclusive; audition = real derivation vs current input; COMMIT/CANCEL; banks (FACTORY / MY
