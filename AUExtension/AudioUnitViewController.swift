@@ -157,6 +157,23 @@ struct DiagView: View {
     @State var buildColourReg: [String: [ProcessorSlot]] = [:]   // BUILD: ephemeral colours' machines (id → chain), beyond the 16 document slots
     @State var buildColourTranspose: [String: Int] = [:]        // BUILD: ephemeral colours' REGISTER HOME (id → transpose), for the ensemble roll
     @State var buildIDCounter: Int = 0        // BUILD: monotonic source for ephemeral colour IDs ("b0", "b1", …)
+    // THE GRID SELECTOR (AcceptanceCriteria-grid-selector.md, 2026-08-23): the full-page 8×8 chain browser — each cell a
+    // complete MIDI chain, tap = audition it live (mutually-exclusive, quantized, piece plays on), COMMIT overwrites the
+    // arrival row's chain (one undo), CANCEL restores. Banks v1: DEALT (generated) + MY LIBRARY. All ephemeral/@State.
+    @State var buildGridSelOpen = false
+    @State var buildGridSelTab = 0                       // 0 = DEALT · 1 = MY LIBRARY
+    @State var buildGridSelArrivalRow: Int? = nil        // the row selected when the selector OPENED — frozen (never re-read live)
+    @State var buildGridSelDealSeed: UInt64 = 1          // RE-DEAL bumps this
+    @State var buildGridSelDealt: [Dice.EnsembleRow] = [] // the 64 generated chains (8 archetypes × 8 re-rolls)
+    @State var buildGridSelLib: [LibEntry] = []          // MY LIBRARY summaries (chains loaded lazily on tap)
+    @State var buildGridSelSel: Int? = nil               // the index of the auditioning cell (nil = none)
+    @State var buildGridSelGenerating = false            // DEALT is computing (disable the grid + show a spinner)
+    @State var buildGridSelQuantStep = true              // §2 QUANTIZE: STEP (default, musical seams) | INSTANT
+    @State var buildGridSelLibFactoryFrom = 0            // buildGridSelLib[i] with i >= this is a FACTORY cell (resolve by section, not name)
+    @State var buildGridSelPriorSolo = false             // pre-open workshop-voice snapshot — restored on CANCEL (never silence a voice we didn't own)
+    @State var buildGridSelPriorStaging = false
+    @State var buildGridSelPriorSel: String? = nil
+    @State var buildGridSelPriorReceiver = 0
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
     @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe

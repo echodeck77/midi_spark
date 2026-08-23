@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE GRID SELECTOR — the full-page 8×8 chain browser, v1 (2026-08-23, on `main`; iOS builds; UI-only, DEVICE
+  eye/ear owed). `AcceptanceCriteria-grid-selector.md` (ratified). A "GRID" button beside LIBRARY opens an 8×8 where each
+  cell = a COMPLETE MIDI chain drawn as its mosaic fingerprint; TAP auditions it live against the current input via the
+  EXISTING chain-audition path (rides ONE transient ephemeral colour "gsAud" — buildColourReg + buildSyncColours +
+  buildSelID + ddSolo — so the document is untouched until COMMIT, non-destructive BY CONSTRUCTION). Mutually-exclusive;
+  QUANTIZE STEP|INSTANT chip (reuses buildPendingWorkshopVoice/buildPendingReengage + the existing d.absoluteStep hook);
+  the deployed piece plays on; the reel records every audition for free. RIGHT column = the selected chain read-only
+  (larger mosaic + summary). COMMIT overwrites the ARRIVAL row's chain (populated → one undo via setColourChain; empty/
+  fresh-part → mints onto the first empty staging row + selects the rung); CANCEL restores the pre-open workshop voice +
+  borrowed door exactly. BANKS v1: **DEALT** (Dice.rollEnsemble ×8 = 64 seeded/replay-safe chains generated OFF the main
+  thread + RE-DEAL) + **MY LIBRARY** (saved + factory cells, resolved BY SECTION not name). The register home is baked
+  into the audition chain (a leading TRANSPOSE utility) so a quantized swap lands atomically (no early register jump).
+  Cell faces are an Equatable subview so the 4 Hz poll doesn't repaint the 63 static mosaics. Built understand→implement→
+  REVIEW: two workflows (a 5-reader reuse-map, then a 4-lens adversarial review that caught 7 real bugs — nil-arrival
+  COMMIT discard · tab/re-deal voice stranding · early register jump · CANCEL silencing a pre-open voice · wrong audition
+  door · library name-collision · 64-face poll re-render — ALL fixed). Lives in BuildPage.swift (same-file access to the
+  private audition/colour helpers; no widening/xcodegen). DEFERRED/flagged for Paul: FACTORY as its own curated 64-bank
+  (content work); §2 EXCLUSIVE-OFF layering (audition BANDS); a stopped-transport audition is silent (inherent to PLAY-
+  THIS-MIDI-CHAIN — a "press ▶ play" hint shows); the working name pending the no-metaphors pass.**
 - **▶ HARMONIZE self-collision LEAK FIXED + hung-note ROOT-CAUSE HUNT (2026-08-23, on `main`; macOS green incl. fuzz,
   Router-only so iOS unaffected; DEVICE ear owed for the audition). Chasing the long-open device-reported HARMONIZE
   hung-note (pending-tasks E), I ran an adversarial 4-LENS HUNT WORKFLOW over `emitHarmony`/`openVoice`/`closeVoice`/

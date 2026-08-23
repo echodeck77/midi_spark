@@ -86,6 +86,7 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
                 if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                     // THE MIDI INPUTS sheet (config-sheets stage 5)
                 if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                     // THE OUTPUT CHAIN sheet (config-sheets §6)
+                if buildGridSelOpen { AnyView(buildGridSelectorOverlay(size: size)) }                    // THE GRID SELECTOR — the 8×8 chain browser
             }
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
             .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
@@ -915,6 +916,7 @@ extension DiagView {
     @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs — grouped + centred (spread reverted, Paul 2026-08-18)
             buildChainBtn("LIBRARY")   { buildOpenLibrary() }
+            buildChainBtn("GRID")      { buildOpenGridSel() }       // THE GRID SELECTOR — browse chains by ear on an 8×8
             buildChainBtn("RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
             buildChainBtn("MUTATE")    { buildMutateChain() }       // nudge the chain
             buildChainBtn("CLEAR")     { buildClearChain() }        // empty the chain
@@ -3897,6 +3899,291 @@ extension DiagView {
             .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
             .contentShape(Rectangle()).onTapGesture { }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // THE GRID SELECTOR (AcceptanceCriteria-grid-selector.md, ratified 2026-08-22) — a full-page 8×8 where each cell is
+    // a COMPLETE MIDI chain. Tap = audition it live against the current input (mutually-exclusive, quantized next-step,
+    // the deployed piece plays on); the RIGHT column shows the selected chain read-only; COMMIT overwrites the ARRIVAL
+    // row's chain (one undo), CANCEL restores. It rides the EXISTING chain-audition path (ddSolo + buildPublishScene)
+    // on ONE reusable transient ephemeral colour, so the document is untouched until COMMIT (non-destructive by
+    // construction). Banks v1: DEALT (Dice.rollEnsemble ×8 = 64 seeded chains, RE-DEAL) + MY LIBRARY (saved + factory
+    // cells). FACTORY-as-a-curated-bank + EXCLUSIVE-OFF layering are deferred (flagged for Paul). The reel records every
+    // audition for free (real emission). §6 governor: ordinary derivation, standing caps apply.
+    private var buildGridSelAudID: String { "gsAud" }   // the ONE reusable transient colour that carries the browsed chain
+
+    func buildOpenGridSel() {
+        buildGridSelArrivalRow = buildSelectedRow                        // FREEZE the arrival row (buildSelectedRow resolves live)
+        buildGridSelPriorSolo = ddSolo                                   // snapshot the pre-open workshop voice so CANCEL restores it (never silence a voice we didn't own)
+        buildGridSelPriorStaging = buildStagingPlaying
+        buildGridSelPriorSel = buildSelID
+        buildGridSelPriorReceiver = buildSelReceiver
+        if let r = buildGridSelArrivalRow { buildSelReceiver = buildRowReceiverResolved(r) }   // audition through the ARRIVAL row's door (faithful preview)
+        let saved = au?.libraryCellSummaries() ?? []
+        buildGridSelLib = saved + (au?.factoryLibrarySummaries() ?? [])  // v1 folds factory in so first run isn't empty
+        buildGridSelLibFactoryFrom = saved.count                         // entries at/after this index are FACTORY (resolve by section, not by name)
+        buildGridSelSel = nil
+        if buildGridSelDealt.isEmpty { buildGridSelDeal() }              // deal once; RE-DEAL regenerates
+        buildGridSelOpen = true
+    }
+    // DEALT — 64 seeded, replay-safe chains (8 archetypes × 8 re-rolls). rollEnsemble runs the offline Router many times,
+    // so generate OFF the main thread with a spinner (64 = 8× the grid-RANDOMIZE cost, too much to block on).
+    private func buildGridSelDeal() {
+        guard !buildGridSelGenerating else { return }                    // re-entrancy: one deal at a time (racing deals could land out of seed order)
+        buildGridSelGenerating = true
+        let seed = buildGridSelDealSeed
+        DispatchQueue.global(qos: .userInitiated).async {
+            var rng = DiceRNG(seed: seed)
+            var out: [Dice.EnsembleRow] = []
+            for _ in 0..<8 { out.append(contentsOf: Dice.rollEnsemble(using: &rng)) }   // each call = 8 contrasting archetypes
+            DispatchQueue.main.async { self.buildGridSelDealt = out; self.buildGridSelGenerating = false }
+        }
+    }
+    private func buildGridSelReDeal() {
+        guard !buildGridSelGenerating else { return }
+        buildGridSelStopAudition()                                       // a live audition points at a chain about to vanish — stop it first
+        buildGridSelDealSeed &+= 1; buildGridSelDeal()
+    }
+
+    // Resolve a cell's chain + register + hue. DEALT reads memory; MY LIBRARY loads the cell from disk (TAP/COMMIT only,
+    // never per render — the cell FACE uses the cheap in-memory key hash instead).
+    private func buildGridSelChainAt(_ i: Int) -> (chain: [ProcessorSlot], transpose: Int, hex: UInt32)? {
+        if buildGridSelTab == 0 {
+            guard i >= 0 && i < buildGridSelDealt.count else { return nil }
+            let e = buildGridSelDealt[i]
+            return (e.chain, e.transpose, colourHexes[((i % 8) * 2) % 16])
+        } else {
+            guard i >= 0 && i < buildGridSelLib.count else { return nil }
+            let name = buildGridSelLib[i].name
+            // Resolve by SECTION, not by name — a saved cell may share a factory cell's name (saved rows are [0, factoryFrom)).
+            let cell = i >= buildGridSelLibFactoryFrom ? au?.factoryLibraryCell(name: name) : au?.loadLibraryCell(name: name)
+            return (cell?.processors ?? [], 0, colourHexes[i % 16])
+        }
+    }
+    private func buildGridSelPresent(_ i: Int) -> Bool { buildGridSelTab == 0 ? i < buildGridSelDealt.count : i < buildGridSelLib.count }
+    private func buildGridSelCellHex(_ i: Int) -> UInt32 { buildGridSelTab == 0 ? colourHexes[((i % 8) * 2) % 16] : colourHexes[i % 16] }
+    // A cheap, deterministic fingerprint key (NOT sealHash — that JSON-encodes; this is a per-render FNV over the chain
+    // shape, stable across runs so the mosaic is a real fingerprint + replay-safe for a given deal seed).
+    private func buildGridSelKey(_ i: Int) -> String {
+        if buildGridSelTab == 0 {
+            guard i < buildGridSelDealt.count else { return "" }
+            let e = buildGridSelDealt[i]
+            return e.chain.map { $0.type.rawValue + ($0.bypassed ? "!" : "") }.joined(separator: ",") + "·t\(e.transpose)"
+        } else {
+            guard i < buildGridSelLib.count else { return "" }
+            let e = buildGridSelLib[i]; return e.name + ":" + e.types.map { $0.rawValue }.joined(separator: ",")
+        }
+    }
+    private func buildGridSelHash(_ key: String) -> UInt64 {
+        var h: UInt64 = 1469598103934665603
+        for b in key.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
+        return h
+    }
+    private func buildGridSelSummary(_ i: Int) -> String {
+        if buildGridSelTab == 0 {
+            guard i < buildGridSelDealt.count else { return "—" }
+            let c = buildGridSelDealt[i].chain
+            return c.isEmpty ? "PASS" : c.map { $0.type.rawValue.uppercased() }.joined(separator: " → ")
+        } else {
+            guard i < buildGridSelLib.count else { return "—" }
+            return buildGridSelLib[i].chainSummary.uppercased()
+        }
+    }
+
+    // AUDITION — register the browsed chain on the ONE transient colour, select it, and drive the existing chain-voice
+    // path: turn the chain voice ON (quantized) if not already, else swap which chain (quantized). Piece plays on.
+    private func buildGridSelAudition(_ i: Int) {
+        guard let hit = buildGridSelChainAt(i) else { return }
+        buildGridSelSel = i
+        // BAKE the register home into the CHAIN (a leading TRANSPOSE utility) rather than the ephemeral colour's transpose:
+        // the chain is baked into the published scene + swapped atomically at the STEP boundary, whereas the colour's
+        // transpose is re-resolved on every rebuild — so an ephemeral transpose would jump the still-sounding old chain a
+        // step early on a quantized swap. This keeps the whole swap quantized. (transpose stays 0 on the transient colour.)
+        var chain = hit.chain
+        if hit.transpose != 0 { var t = ProcessorSlot(type: .transpose); t.params.utilTranspose = max(-24, min(24, hit.transpose)); chain.insert(t, at: 0) }
+        buildColourReg[buildGridSelAudID] = chain
+        colourHueOverride[buildGridSelAudID] = hit.hex
+        buildColourTranspose[buildGridSelAudID] = 0
+        buildSyncColours()
+        buildSelID = buildGridSelAudID; ddColourSel = -1                  // ddSelectedColourID now returns the transient
+        let instant = !buildGridSelQuantStep || !d.playing
+        if !ddSolo {                                                       // chain voice OFF → turn it on
+            if instant { buildPendingWorkshopVoice = nil; buildPendingReengage = false; buildSelectMachineVoice() }   // now (+ drop any stale arm)
+            else { buildPendingWorkshopVoice = .chain }                   // quantized: commit on the next d.absoluteStep boundary
+        } else {                                                          // already the voice → swap the chain
+            if instant { buildPendingReengage = false; buildPublishScene() } else { buildPendingReengage = true }
+        }
+    }
+    // Stop the transient audition but KEEP the browser open (tab-switch / RE-DEAL): silence the chain voice, reap the
+    // transient, and re-select the pre-open colour so nothing is stranded. The deployed piece plays on.
+    private func buildGridSelStopAudition() {
+        guard buildGridSelSel != nil || ddSolo || buildPendingWorkshopVoice != nil || buildPendingReengage else { return }
+        buildGridSelSel = nil
+        buildPendingWorkshopVoice = nil; buildPendingReengage = false
+        buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
+        if ddSolo { ddSolo = false }
+        buildSelID = buildGridSelPriorSel; ddColourSel = colourIDs.firstIndex(of: buildGridSelPriorSel ?? "") ?? -1
+        au?.clearColourSolo(); buildSyncColours(); buildPublishScene()
+    }
+    // COMMIT — overwrite the FROZEN arrival row's chain with the selected cell's chain (populated row → one undo via the
+    // document colour; empty row → mint a colour carrying the chain + its register home), then tear down.
+    private func buildGridSelCommit() {
+        // nil arrival (a fresh/empty part — buildSelID wasn't stamped on a staging row) → land on the first EMPTY staging row.
+        let r = buildGridSelArrivalRow ?? (0..<8).first { buildRowColour($0) == nil }
+        guard let row = r, let i = buildGridSelSel, let hit = buildGridSelChainAt(i) else { buildGridSelCancel(); return }   // no target/selection → restore, don't discard the selection
+        let targetID: String
+        if let tgt = buildRowColour(row) {                               // populated → overwrite its chain (keeps its hue/register; v1 doesn't move the register home onto an existing colour)
+            buildWriteColourMachine(tgt, hit.chain); targetID = tgt
+        } else {                                                          // empty → mint a colour carrying the chain + its register home, and SELECT the whole row (else it stays silent)
+            let y = buildNewTabColour(row, machine: hit.chain, transpose: hit.transpose)
+            buildPartCast.append(y)
+            if row < buildRowUnder.count { buildRowUnder[row] = buildRowColour(row) }
+            buildSetRow(row, to: y)
+            if row < buildRowReceiver.count { buildRowReceiver[row] = ddStickyReceiver; buildRowEmitters[row] = ddStickyBuses }
+            for c in 0..<8 { buildStagingSel[c] = row }                  // mirror buildStampRow — the row plays immediately
+            targetID = y
+        }
+        buildStagingSyncIfPlaying()
+        buildFlashPromote("ROW \(row + 1) ✓")
+        buildGridSelTeardown(select: targetID, restoreSolo: false)      // the chain is on a row now → stop the transient audition
+    }
+    // CANCEL — the arrival colour was never written (audition rode the transient); restore the PRE-OPEN workshop voice.
+    private func buildGridSelCancel() { buildGridSelTeardown(select: buildGridSelPriorSel, restoreSolo: true) }
+    // Shared teardown: reap the transient, restore the selection + (on CANCEL) the pre-open voice + borrowed door, republish.
+    private func buildGridSelTeardown(select: String?, restoreSolo: Bool) {
+        buildGridSelOpen = false; buildGridSelSel = nil
+        buildPendingWorkshopVoice = nil; buildPendingReengage = false
+        buildColourReg[buildGridSelAudID] = nil; colourHueOverride[buildGridSelAudID] = nil; buildColourTranspose[buildGridSelAudID] = nil
+        buildSelID = select; ddColourSel = colourIDs.firstIndex(of: select ?? "") ?? -1
+        ddSolo = restoreSolo ? buildGridSelPriorSolo : false             // CANCEL restores the pre-open audition; COMMIT stops it
+        buildStagingPlaying = buildGridSelPriorStaging
+        buildSelReceiver = buildGridSelPriorReceiver                      // give back the door we borrowed for the faithful preview
+        au?.clearColourSolo(); buildSyncColours()                        // push the transient removal BEFORE republishing (no dead-transient rebuild)
+        buildPublishScene()
+        buildGCColours()
+    }
+
+    private func buildGridSelectorOverlay(size: CGSize) -> some View {
+        let outerPad: CGFloat = 16, headerH: CGFloat = 46, gap: CGFloat = 3
+        let bodyH = max(80, size.height - 2 * outerPad - headerH - 14)
+        let rightW = min(300, size.width * 0.30)
+        let gridAvail = size.width - 2 * outerPad - rightW - 16
+        let side = max(80, min(gridAvail, bodyH))
+        let cell = (side - 7 * gap) / 8
+        return ZStack {
+            Color(red: 0.055, green: 0.065, blue: 0.085).ignoresSafeArea()
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    Text("GRID SELECTOR").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildCyan)
+                    buildGridSelTabChip("DEALT", 0)
+                    buildGridSelTabChip("MY LIBRARY", 1)
+                    buildGridSelSmallChip(buildGridSelQuantStep ? "STEP" : "INSTANT", on: false) { buildGridSelQuantStep.toggle() }
+                    if buildGridSelTab == 0 { buildGridSelSmallChip("RE-DEAL", on: false) { buildGridSelReDeal() } }
+                    Spacer()
+                    if let r = buildGridSelArrivalRow {
+                        Text("→ ROW \(r + 1)").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                    }
+                    Button { buildGridSelCommit() } label: {
+                        Text("COMMIT").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1)
+                            .foregroundColor(buildGridSelSel != nil ? .black : buildDim)
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(buildGridSelSel != nil ? buildCyan.opacity(0.92) : buildCell))
+                    }.disabled(buildGridSelSel == nil)
+                    Button { buildGridSelCancel() } label: {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(buildDim).padding(8)
+                    }
+                }.frame(height: headerH)
+                HStack(alignment: .top, spacing: 16) {
+                    ZStack {
+                        VStack(spacing: gap) {
+                            ForEach(0..<8, id: \.self) { r in
+                                HStack(spacing: gap) { ForEach(0..<8, id: \.self) { c in buildGridSelCell(r * 8 + c, w: cell, h: cell) } }
+                            }
+                        }.frame(width: side, height: side)
+                        if buildGridSelGenerating {
+                            VStack(spacing: 10) {
+                                ProgressView().tint(buildCyan)
+                                Text("DEALING 64 CHAINS…").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(buildDim)
+                            }.frame(width: side, height: side).background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.55)))
+                        }
+                    }
+                    buildGridSelRightColumn(width: rightW)
+                    Spacer(minLength: 0)
+                }
+            }.padding(outerPad)
+        }
+        .onDisappear { }   // teardown is explicit (COMMIT/CANCEL) so a stray dismiss can't strand the transient voice
+    }
+    @ViewBuilder private func buildGridSelTabChip(_ label: String, _ tab: Int) -> some View {
+        let on = buildGridSelTab == tab
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.8)
+            .foregroundColor(on ? .black : .white.opacity(0.7))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan.opacity(0.9) : buildCell))
+            .contentShape(Rectangle()).onTapGesture { if buildGridSelTab != tab { buildGridSelStopAudition(); buildGridSelTab = tab } }   // stop the transient before switching banks (no stranded voice)
+    }
+    @ViewBuilder private func buildGridSelSmallChip(_ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
+            .foregroundColor(on ? .black : .white.opacity(0.7))
+            .padding(.horizontal, 9).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan.opacity(0.9) : buildCell))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+    }
+    @ViewBuilder private func buildGridSelCell(_ i: Int, w: CGFloat, h: CGFloat) -> some View {
+        let present = buildGridSelPresent(i)
+        let sel = buildGridSelSel == i
+        ZStack {
+            if present {
+                // The static face is an Equatable subview (hash/hue/side) so the 4–8 Hz poll invalidation of the parent
+                // body does NOT redraw the 63 non-selected mosaics — only a real hash/hue/size change repaints.
+                BuildGridSelFace(hash: buildGridSelHash(buildGridSelKey(i)), hue: Color(hex: buildGridSelCellHex(i)), side: w).equatable()
+            } else {
+                RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03))
+            }
+            if sel {   // THE LIVE FRAME — the one auditioning cell (single TimelineView; the other 63 are static)
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
+                    let f = stagingPulseFraction(tl.date, period: 0.9)
+                    RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.45 + 0.5 * f), lineWidth: 3)
+                }
+            }
+        }
+        .frame(width: w, height: h)
+        .contentShape(Rectangle())
+        .onTapGesture { if present { buildGridSelAudition(i) } }
+    }
+    @ViewBuilder private func buildGridSelRightColumn(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("THE CHAIN").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(buildDim)
+            if let i = buildGridSelSel, buildGridSelPresent(i) {
+                let hue = Color(hex: buildGridSelCellHex(i))
+                let hash = buildGridSelHash(buildGridSelKey(i))
+                let face = min(width, 220)
+                Canvas { ctx, sz in
+                    drawMosaic(hash: hash, into: ctx, size: sz, hue: hue, breath: 0, seq: 0,
+                               crest: mosaicCrest(hash: hash), crestTone: mosaicCrestTone(hue))
+                }.frame(width: face, height: face)
+                Text(buildGridSelSummary(i)).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                Text(d.playing ? "playing against your input — the piece plays on" : "press ▶ play to hear it sweep")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(d.playing ? buildDim : buildCyan.opacity(0.8))
+            } else {
+                Text("tap a cell to hear its chain\nagainst your held input").font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(buildDim).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }.frame(width: width, alignment: .leading)
+    }
+}
+
+// One GRID SELECTOR cell face — a static chain-fingerprint mosaic. Equatable so the poll-driven parent re-render skips
+// the 63 unchanged cells (only a hash/hue/size change repaints the Canvas). The live frame is drawn by the parent.
+struct BuildGridSelFace: View, Equatable {
+    let hash: UInt64; let hue: Color; let side: CGFloat
+    var body: some View {
+        Canvas { ctx, sz in
+            drawMosaic(hash: hash, into: ctx, size: sz, hue: hue, breath: 0, seq: 0,
+                       crest: mosaicCrest(hash: hash), crestTone: mosaicCrestTone(hue))
+        }.frame(width: side, height: side)
     }
 }
 

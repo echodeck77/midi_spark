@@ -1,3 +1,18 @@
+# ✅ LANDED v1 — 2026-08-23 (iOS builds; UI-only, DEVICE eye/ear owed). A "GRID" button beside LIBRARY opens the full-
+# page 8×8: each cell = a complete MIDI chain drawn as its mosaic fingerprint; TAP auditions it live against the current
+# input via the existing chain-audition path (mutually-exclusive; QUANTIZE STEP|INSTANT chip; the deployed piece plays
+# on; the reel records it for free). RIGHT column = the selected chain read-only (larger mosaic + summary). COMMIT
+# overwrites the ARRIVAL row's chain (populated → one undo via the document colour; empty/fresh-part → mints onto the
+# first empty staging row + selects it); CANCEL restores the pre-open voice exactly (non-destructive by construction —
+# audition rides ONE transient ephemeral colour, the document is never touched until COMMIT). BANKS v1: DEALT (Dice.
+# rollEnsemble ×8 = 64 seeded chains off-thread + RE-DEAL) + MY LIBRARY (saved + factory cells, resolved by section).
+# The register home is baked into the audition chain (a leading TRANSPOSE utility) so a quantized swap lands atomically.
+# Built understand→implement→REVIEW: a 4-lens adversarial review caught 7 real bugs (nil-arrival COMMIT discard, tab/
+# re-deal stranding the voice, early register jump, CANCEL silencing a pre-open voice, wrong audition door, library
+# name-collision, 64-face poll re-render) — all fixed. DEFERRED / flagged for Paul: FACTORY as its own curated bank
+# (real content work); §2 EXCLUSIVE-OFF layering (audition BANDS); a stopped-transport audition is silent (inherent to
+# PLAY-THIS-MIDI-CHAIN — a hint shows); the working name pending the no-metaphors pass.
+#
 # SPEC → Code — THE GRID SELECTOR (Paul, 2026-08-22: "a fun way
 # to discover MIDI chains" — assessed GOOD, captured with pins;
 # name = working title, no-metaphors pass may rename to CHAIN GRID)

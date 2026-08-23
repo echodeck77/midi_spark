@@ -499,10 +499,14 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
   incl. fuzz; iOS builds. DEVICE eye/ear owed. **Echo tails now INHERIT the cell's channel/nudge (2026-08-23 review
   sweep) — [CHANNEL→ECHO] echoes on the cell's channel; the earlier "wire defaults" v1 limit is resolved.**
 - [ ] **RATIFIED 2026-08-22, UI-HEAVY — captured, DEVICE-owed (built off-device is not meaningful; need Paul's eyes):**
-  - [ ] **THE GRID SELECTOR** (`AcceptanceCriteria-grid-selector.md`) — a full-page 8×8 where each cell = one complete
-    MIDI chain, mutually exclusive; audition = real derivation vs current input; COMMIT/CANCEL; banks (FACTORY / MY
-    LIBRARY / DEALT — Paul scopes v1); mosaic faces; the reel rolls through it. §2 two toggles (QUANTIZE, EXCLUSIVE) =
-    captured, awaiting Paul's word. Big UI + audition/commit engine; a FACTORY curation deliverable. Not started.
+  - [~] **THE GRID SELECTOR** (`AcceptanceCriteria-grid-selector.md`) — **v1 LANDED 2026-08-23** (iOS builds; UI-only,
+    device eye/ear owed). Full-page 8×8, each cell = a complete MIDI chain (mosaic fingerprint); tap = live audition vs
+    current input (mutually-exclusive, QUANTIZE STEP|INSTANT); COMMIT overwrites the arrival row's chain (one undo) /
+    CANCEL restores the pre-open voice; RIGHT column = read-only chain; the reel records it. Banks v1: **DEALT** (64
+    seeded, off-thread + RE-DEAL) + **MY LIBRARY** (saved+factory by section). Built understand→implement→review (a
+    4-lens adversarial review caught + fixed 7 bugs). **DEFERRED / for Paul:** FACTORY as its own curated 64-bank (the
+    content deliverable); §2 EXCLUSIVE-OFF layering (audition BANDS); stopped-transport audition is silent (inherent,
+    a hint shows); the working name pending the no-metaphors pass.
   - [ ] **THE IN/OUT TRUTH STRIPS + THE STAGE EYE** (`AcceptanceCriteria-in-out-truth-strips.md`) — every stage panel
     gains an IN held-note strip (empty state teaches: "nothing held — LATCH at INPUT A") + an OUT mini-roll; tap = the
     STAGE EYE (INPUT roll · live MECHANISM widget · OUTPUT roll on one time axis). UI-heavy; not started (device-owed).
