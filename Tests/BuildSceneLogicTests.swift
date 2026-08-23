@@ -93,6 +93,24 @@ final class BuildSceneLogicTests: XCTestCase {
         XCTAssertEqual(s.cellAt(2, 2)?.colourID, "gold")
     }
 
+    // NO-MACHINE WIRE parity (Paul 2026-08-23): a staging/perform cell whose resolved chain is EMPTY must compose an
+    // EXPLICIT empty chain (→ passthrough / realtime wire), exactly like the chain-audition branch — NOT nil, which
+    // would delegate to the colour's (possibly stale/nil) templateChain and fall back to a gridded A-face.
+    func testNoMachineStagingAndPerformCellsAreExplicitPassthrough() {
+        var i = BuildSceneLogic.Input()
+        i.stagingPlaying = true
+        i.stagingCells = grid([(0, 2, "gold")]); i.stagingSel = [2, -1, -1, -1, -1, -1, -1, -1]
+        i.rowChain = Array(repeating: [], count: 8)          // no per-row variation → resolver passes [] (no-machine)
+        let s = BuildSceneLogic.composeScene(i)!
+        XCTAssertEqual(s.cellAt(0, 2)?.processors, [], "a no-machine staging cell is an explicit-empty passthrough, never nil")
+        var p = BuildSceneLogic.Input()
+        p.performPlaying = true
+        p.performCells = grid([(0, 0, "gold")]); p.performActiveRung = { c, r in c == 0 && r == 0 }
+        p.performChain = Array(repeating: Array(repeating: [], count: 8), count: 8)
+        let sp = BuildSceneLogic.composeScene(p)!
+        XCTAssertEqual(sp.cellAt(0, 0)?.processors, [], "a no-machine PERFORM cell is an explicit-empty passthrough too")
+    }
+
     func testPerRowIOOverridesTheDefaultElseInherits() {
         // PER-ROW I/O (Paul 2026-08-18): row 1 carries its OWN door + emitter; row 4 inherits the part default.
         var i = BuildSceneLogic.Input()

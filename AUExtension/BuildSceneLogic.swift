@@ -59,7 +59,7 @@ enum BuildSceneLogic {
                 var cell = Cell(colourID: cid, buses: emit)
                 cell.inputReceiver = max(0, min(3, r < i.performRecv.count ? i.performRecv[r] : 0))
                 let chain = (c < i.performChain.count && r < i.performChain[c].count) ? i.performChain[c][r] : []
-                cell.processors = chain.isEmpty ? nil : chain       // [] → fall to the colour's templateChain
+                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): performChain is the RESOLVED machine ([] = no-machine → passthrough wire), never nil-delegated to a stale template
                 s.setCell(c, r, cell)
             } }
         }
@@ -74,7 +74,7 @@ enum BuildSceneLogic {
                 var cell = Cell(colourID: cid, buses: buses)
                 cell.inputReceiver = recv
                 let chain = r < i.rowChain.count ? i.rowChain[r] : []
-                cell.processors = chain.isEmpty ? nil : chain
+                cell.processors = chain                             // EXPLICIT (Paul 2026-08-23): rowChain is the RESOLVED machine ([] = no-machine → passthrough wire), never nil-delegated to a stale template
                 s.setCell(c, r, cell)                               // the audition sits in front on a slot collision
             }
         }

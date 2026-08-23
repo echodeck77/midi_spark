@@ -1481,14 +1481,26 @@ extension DiagView {
         input.performActiveRung = { self.buildPerformActiveRung($0, $1) }
         input.performEmit = buildPerformEmit
         input.performRecv = buildPerformRecv
-        input.performChain = buildPerformChain
+        // RESOLVE the effective chain per PERFORM cell (Paul 2026-08-23): a per-cell VARIATION if it has one, else the
+        // colour's OWN machine (buildColourChain → [] for a NO-MACHINE colour). composeScene then passes it EXPLICITLY,
+        // so a no-machine cell is a passthrough (live wire) in the play grid too — not only via PLAY THIS MIDI CHAIN.
+        input.performChain = (0..<8).map { c in (0..<8).map { r -> [ProcessorSlot] in
+            let v = (c < buildPerformChain.count && r < buildPerformChain[c].count) ? buildPerformChain[c][r] : []
+            let cid = (c < buildPerformCells.count && r < buildPerformCells[c].count) ? buildPerformCells[c][r] : nil
+            return v.isEmpty ? buildColourChain(cid ?? "") : v
+        } }
         input.stagingCells = buildStagingCells
         input.stagingSel = buildStagingSel
         input.partEmitters = buildPartEmitters
         input.selReceiver = buildSelReceiver
         input.rowReceiver = (0..<8).map { buildRowReceiverResolved($0) }     // per-row I/O, resolved (nil → part default)
         input.rowEmitters = (0..<8).map { buildRowEmittersResolved($0) }
-        input.rowChain = buildRowChain
+        // RESOLVE the effective chain per STAGING row (same rule as PERFORM/CHAIN): the row's VARIATION if present, else
+        // the row colour's OWN machine ([] for a no-machine colour → passthrough wire). (Paul 2026-08-23)
+        input.rowChain = (0..<8).map { r -> [ProcessorSlot] in
+            let v = r < buildRowChain.count ? buildRowChain[r] : []
+            return v.isEmpty ? buildColourChain(buildRowColour(r) ?? "") : v
+        }
         if ddSolo, let cid = ddSelectedColourID {
             input.chainColourID = cid
             input.chainMachine = buildColourChain(cid)
@@ -3387,9 +3399,14 @@ extension DiagView {
         VStack(spacing: 2) {
             Text(override.map { "\($0)" } ?? letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(override != nil ? buildPink : buildDim)
             GeometryReader { g in
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { _ in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                     let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0   // SUSTAINED while notes are held (no decay/drop animation, Paul 2026-08-18)
-                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, held))
+                    // ATTACK FLASH (Paul 2026-08-23): an event-driven, decaying flash on every note-on (30 Hz peak feed),
+                    // so QUICK TAPS register even though the ~4 Hz held-velocity poll misses a note pressed+released
+                    // between two polls. Mirrors buildReceiverMeter. max(held, flash) → sustained holds still show full.
+                    let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
+                    let flash = (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.3)
+                    let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
                         RoundedRectangle(cornerRadius: 3).fill((override != nil ? buildPink : buildCyan).opacity(0.9)).frame(height: g.size.height * CGFloat(min(1, max(0, level))))
