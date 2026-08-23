@@ -63,7 +63,6 @@ struct ArrangementBar: View {
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
-                headerExtras                                                       // BUILD: RECORD · RATE · MIDI/RACK CONFIG — RIGHT-aligned (Paul 2026-08-23)
                 swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
                 if d.playing {
@@ -74,6 +73,7 @@ struct ArrangementBar: View {
                 undoRedo.helpAnchor("#undo")                                       // labelled UNDO/REDO, moved to the right (user 2026-08-03)
                 helpButton                                                         // "?" → the in-app manual at the last-touched control
                 cogOrCan.helpAnchor("#cog-open")                                    // ⚙ ⇄ 🗑 (the can in place during a drag)
+                headerExtras                                                       // BUILD: RATE · MIDI IN · MIDI OUT · RACK · RECORD — RECORD top-right corner (Paul 2026-08-23)
             }
             if showScenes { sceneChipRow }                                          // THE 16 SCENE CHIPS — hidden by default; toggled on the cog
         }

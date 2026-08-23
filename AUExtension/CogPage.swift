@@ -4,23 +4,16 @@ import SwiftUI
 /// the running instrument: audio/render never stop, MIDI flows, latches hold; every edit applies live; dismiss
 /// returns to uninterrupted play. It hosts the true GLOBALS, NOT performance roles.
 ///
-/// LAYOUT v2: the per-door MIDI INPUT config moved to its own RECEIVERS tab (`ReceiverConfigView`). The cog now
-/// holds OUTPUT (4 emitters A–D: stamp channel, each with a live OUT dot) · DISPLAY · HEALTH · about.
+/// The MIDI INPUT (doors) + MIDI OUTPUT (emitter channels) config moved to their own MIDI IN / MIDI OUT buttons
+/// (Paul 2026-08-23). The cog now holds the true globals: DISPLAY · HEALTH · about.
 struct CogPage: View {
-    @Environment(\.animationsPaused) private var animPaused
     let au: MidiSparkAudioUnit?
-    let busChannels: [Int]
     let d: KernelDiag                 // health readout (voices / held / panics)
-    let outAt: [Date]                 // last output activity per emitter (for the OUT dot fade)
     let aboutLine: String
     @Binding var showScenes: Bool     // DISPLAY: the arrangement bar's 16-scene row (hidden by default)
-    let onSetEmitterChannel: (Int, Int) -> Void
-    let onChanged: () -> Void         // refresh the VC's receivers/busChannels after a live edit
     let onClose: () -> Void
 
     private let ink = Color.white
-    private let cyan = UI.cyan
-    private let amber = UI.amber
     private let green = UI.green
 
     var body: some View {
@@ -30,11 +23,8 @@ struct CogPage: View {
                 header
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
-                        // LAYOUT v2: MIDI INPUT (the per-door config) moved to its own RECEIVERS tab. The cog keeps
-                        // the true globals below: MIDI OUTPUT · DISPLAY · HEALTH.
-                        section("MIDI OUTPUT")
-                        ForEach(0..<4, id: \.self) { outputRow($0) }
-                        divider
+                        // MIDI INPUT (the doors) has its own MIDI IN button; MIDI OUTPUT (emitter channels) moved to its
+                        // own MIDI OUT button (Paul 2026-08-23). The cog keeps the true globals: DISPLAY · HEALTH.
                         section("DISPLAY")
                         HStack(spacing: 8) {
                             Text("SCENES").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.85)).frame(width: 60, alignment: .leading)
@@ -78,17 +68,6 @@ struct CogPage: View {
     }
     private var divider: some View { Divider().overlay(ink.opacity(0.12)).padding(.vertical, 2) }
 
-    private func outputRow(_ i: Int) -> some View {
-        HStack(spacing: 8) {
-            Text(["A", "B", "C", "D"][i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(amber).frame(width: 26, alignment: .leading)
-            liveDot(outAt[safe: i], green)
-            Spacer()
-            labeled("CH") {
-                channelMenu(current: i < busChannels.count ? busChannels[i] : i + 1, omni: false) { onSetEmitterChannel(i, $0) }
-            }
-        }
-    }
-
     private var healthRow: some View {
         HStack(spacing: 14) {
             healthStat("VOICES", Int(d.activeVoiceCount))
@@ -120,24 +99,6 @@ struct CogPage: View {
 
     // MARK: controls
 
-    private func labeled<V: View>(_ t: String, @ViewBuilder _ content: () -> V) -> some View {
-        HStack(spacing: 4) {
-            Text(t).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(ink.opacity(0.4))
-            content()
-        }
-    }
-    // CHANNEL: OMNI + 1–16 (emitters: 1–16 only). A Menu — legible, no tiny steppers.
-    private func channelMenu(current: Int, omni: Bool = true, _ set: @escaping (Int) -> Void) -> some View {
-        Menu {
-            if omni { Button("OMNI") { set(0) } }
-            ForEach(1...16, id: \.self) { ch in Button("\(ch)") { set(ch) } }
-        } label: {
-            Text(current == 0 ? "OMNI" : "CH \(current)")
-                .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(cyan)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 4).fill(ink.opacity(0.08)))
-        }
-    }
     private func onOffToggle(on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Text(on ? "ON" : "OFF").font(.system(size: 9, weight: .heavy, design: .monospaced))
             .foregroundColor(on ? .black : ink.opacity(0.45))
@@ -146,17 +107,4 @@ struct CogPage: View {
             .contentShape(Rectangle()).onTapGesture { set(!on) }
     }
 
-    // MARK: indicators — a dot that fades from its last activity time (live while the page is open)
-
-    private func liveDot(_ at: Date, _ hue: Color) -> some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: animPaused)) { tl in
-            let lit = max(0, 1 - tl.date.timeIntervalSince(at) / 0.35)
-            Circle().fill(hue.opacity(0.12 + 0.88 * lit)).frame(width: 8, height: 8)
-                .overlay(Circle().stroke(hue.opacity(0.35), lineWidth: 0.5))
-        }
-    }
-}
-
-private extension Array where Element == Date {
-    subscript(safe i: Int) -> Date { indices.contains(i) ? self[i] : .distantPast }
 }

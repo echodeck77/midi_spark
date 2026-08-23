@@ -86,6 +86,7 @@ extension DiagView {
                 if reelShowPopup { AnyView(buildReelPopup(size: size)) }                                 // THE PASS BROWSER pop-up
                 if buildMidiConfigOpen { AnyView(buildMidiConfigSheet(size: size)) }                     // THE MIDI INPUTS sheet (config-sheets stage 5)
                 if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                     // THE OUTPUT CHAIN sheet (config-sheets §6)
+                if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }               // THE MIDI OUTPUTS sheet (emitter stamp channels)
                 if buildGridSelOpen { AnyView(buildGridSelectorOverlay(size: size)) }                    // THE GRID SELECTOR — the 8×8 chain browser
             }
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
@@ -143,6 +144,53 @@ extension DiagView {
             .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
             .padding(.top, 20)
+        }
+    }
+    // THE MIDI OUTPUTS sheet (Paul 2026-08-23) — the twin of MIDI INPUTS, moved out of the cog: each emitter A–D with a
+    // live OUT dot + its stamp CHANNEL (1–16). The RACK sheet stays separate (treatments/membership/setups).
+    @ViewBuilder private func buildMidiOutConfigSheet(size: CGSize) -> some View {
+        let chans = au?.uiBusChannels() ?? [1, 2, 3, 4]
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.65).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { buildMidiOutConfigOpen = false }
+            VStack(spacing: 0) {
+                HStack {
+                    Text("MIDI OUTPUTS").font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(2).foregroundColor(buildCyan)
+                    Spacer()
+                    Button { buildMidiOutConfigOpen = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).foregroundColor(buildDim).padding(10)
+                    }
+                }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 12)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 14) {
+                        ForEach(0..<4, id: \.self) { i in buildEmitterOutRow(i, chan: i < chans.count ? chans[i] : i + 1) }
+                    }.padding(.horizontal, 26).padding(.bottom, 30)
+                }
+            }
+            .frame(width: min(720, size.width - 32), height: size.height - 96)
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.07, green: 0.08, blue: 0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.top, 20)
+        }
+    }
+    @ViewBuilder private func buildEmitterOutRow(_ i: Int, chan: Int) -> some View {
+        let letter = ["A", "B", "C", "D"][i]
+        HStack(spacing: 14) {
+            Text(letter).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(width: 34, alignment: .leading)
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in   // live OUT dot — lights on emit, fades
+                let age = i < emitPeakAt.count ? tl.date.timeIntervalSince(emitPeakAt[i]) : 999
+                Circle().fill(Color(red: 0.36, green: 0.92, blue: 0.52).opacity(age < 0.4 ? 1.0 - age / 0.4 * 0.75 : 0.18)).frame(width: 10, height: 10)
+            }
+            Text("EMITTER \(letter)").font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.55))
+            Spacer()
+            Text("CHANNEL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+            Menu {
+                ForEach(1...16, id: \.self) { c in Button { setEmitterChannel(i, c) } label: { Label("CH \(c)", systemImage: chan == c ? "checkmark" : "circle") } }
+            } label: {
+                Text("CH \(chan)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(0.14)))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.6), lineWidth: 1))
+            }
         }
     }
     // THE RACK sheet (config-sheets §6, Paul 2026-08-21; public name RACK everywhere, Paul 2026-08-22) — the twin of MIDI INPUTS. A SETUPS radio (RACK 1–4 =
@@ -585,24 +633,26 @@ extension DiagView {
             buildOctBtn("+") { nudgeReceiverOctave(i, +1) }.frame(width: 40)
         }.fixedSize()
     }
-    // THE HEADER CONTROLS (Paul 2026-08-23): RECORD (reel) · RATE (per-part) · MIDI CONFIG · RACK CONFIG — rescaled to
-    // sit IN the top header bar (ArrangementBar), not a page row. Internal so the VC's `arrangementBar` var can embed it.
+    // THE HEADER CONTROLS (Paul 2026-08-23): RATE (per-part) · MIDI IN · MIDI OUT · RACK — wide/prominent menu buttons —
+    // then RECORD (reel) at the far RIGHT (top-right corner). Rendered IN the top header bar (ArrangementBar), rightmost.
+    // Internal so the VC's `arrangementBar` var can embed it.
     @ViewBuilder func buildHeaderControls() -> some View {
         HStack(alignment: .center, spacing: 8) {
-            buildReelButton()                                   // the recorder (keeps its share anchor + pass-browser hide)
             if !reelShowPopup {
                 buildRateControl()                              // the per-part rate
-                buildConfigButton("MIDI") { buildMidiConfigOpen = true }   // the MIDI-IN doors sheet
-                buildConfigButton("RACK") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
+                buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
+                buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
+                buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
             }
+            buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
         }
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-            .foregroundColor(buildCyan).lineLimit(1)
-            .frame(width: 52, height: 26)                                   // header scale (Paul 2026-08-23)
+        Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
+            .foregroundColor(buildCyan).lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: 84, height: 30)                                   // wide/prominent header menu button (Paul 2026-08-23)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.16), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildCyan.opacity(0.4), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
     }
     @ViewBuilder private func buildReelButton() -> some View {

@@ -172,6 +172,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   stopped, one-clock). **(3) THE N+2 WINDOW (Paul's request):** the roll now shows N+2 passes — one CONTEXT pass (left,
   just out of range) · the N GRABBED passes (HIGHLIGHTED cyan — exactly what LAST-N takes) · the CURRENT pass being input
   (right) — so the user SEES what they're grabbing. UI-only for (2)/(3); (1) is Kernel (iOS-built, device ear owed).**
+- **▶ TOP-HEADER polish + MIDI OUT button (2026-08-23, on `main`; iOS builds; UI-only, DEVICE eye owed). Paul's header
+  asks. (1) The header MENU BUTTONS are WIDER/more prominent (`buildConfigButton` 52→84 wide, font 10→11, cyan keyline).
+  (2) RECORD (reel) moved to the TOP-RIGHT CORNER — `headerExtras` now renders AFTER `cogOrCan` in the ArrangementBar, and
+  the reel button is the last (rightmost) control in `buildHeaderControls`. Header order is now RATE · MIDI IN · MIDI OUT
+  · RACK · RECORD. (3) NEW "MIDI OUT" BUTTON → `buildMidiOutConfigSheet` (a twin of MIDI INPUTS: each emitter A–D with a
+  live OUT dot + its stamp CHANNEL 1–16, via the existing `setEmitterChannel`), MOVED OUT OF THE COG. The cog's MIDI
+  OUTPUT section + its now-dead helpers (`outputRow`/`channelMenu`/`labeled`/`liveDot` + the `[safe:]` Date ext) and
+  params (`busChannels`/`outAt`/`onSetEmitterChannel`/`onChanged` + `amber`/`cyan`/`animPaused` tokens) were removed;
+  CogPage now holds DISPLAY · HEALTH only. Flag: the right side of the header is busier now — device-check the narrow/
+  portrait widths.**
 - **▶ REPLAY SYNC #2 — the START/STOP root cause: DoorRing history cleared on transport discontinuity (2026-08-23, on
   `main`; iOS builds, macOS green; DEVICE ear owed). Paul: sync STILL off around start/stop + normal play. A 4-lens
   adversarial hunt (`replay-sync-hunt`) proved the boundary/anchor math + the block look-ahead CORRECT (do not touch),
