@@ -74,6 +74,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .split && r.chance(0.6) { applyRandomSplit(&c.paramsA, &r) }
             if c.type == .ratchet && r.chance(0.5) { applyRandomRtc(&c.paramsA, &r) }
             if c.type == .burst && r.chance(0.5) { applyRandomBurst(&c.paramsA, &r) }
+            if c.type == .echo && r.chance(0.6) { applyRandomEcho(&c.paramsA, &r) }   // §7② hammer ROUTE=CHAIN (driver + non-driver) for no-stuck-notes
             if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
@@ -94,6 +95,7 @@ final class FuzzTests: XCTestCase {
                     if s.type == .split && r.chance(0.6) { applyRandomSplit(&s.params, &r) }
                     if s.type == .ratchet && r.chance(0.5) { applyRandomRtc(&s.params, &r) }
                     if s.type == .burst && r.chance(0.5) { applyRandomBurst(&s.params, &r) }
+                    if s.type == .echo && r.chance(0.6) { applyRandomEcho(&s.params, &r) }   // §7② CHAIN route hammered where echo sits mid-chain
                     if s.type == .octave || s.type == .transpose || s.type == .channel || s.type == .nudge { applyRandomUtil(&s.params, type: s.type, &r) }
                     applyRandomSpan(&s.params, type: s.type, &r)
                     return s
@@ -150,6 +152,14 @@ final class FuzzTests: XCTestCase {
     private func applyRandomSplit(_ p: inout ColourParams, _ r: inout FuzzRNG) {
         p.splitSet = ChordSplit(mode: SplitMode.allCases[r.int(SplitMode.allCases.count)], n: r.range(1, 6), note: r.int(128), high: r.chance(0.5))
         let f = r.range(1, 127); p.splitVel = VelWindow(floor: f, ceil: r.range(f, 127))   // incl. empty/full windows
+    }
+    private func applyRandomEcho(_ p: inout ColourParams, _ r: inout FuzzRNG) {   // §7② hammer echo params incl. ROUTE=CHAIN (the re-fold path)
+        p.echoRoute = r.chance(0.5) ? .chain : .direct
+        p.echoRepeats = r.range(1, 8)
+        p.echoThru = r.chance(0.6)
+        p.echoDecay = 0.3 + Double(r.int(7)) / 10.0    // 0.3…0.9
+        p.echoPitch = r.int(5) - 2                       // −2…+2 semitones per echo (range-drop hammered)
+        p.echoSpill = r.chance(0.5) ? .cut : .ring
     }
     private func applyRandomUtil(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {   // UTILITY pitch shift (Paul 2026-08-22)
         if type == .octave { p.utilOctave = r.int(7) - 3 }             // −3…+3 (extremes drop notes off the top/bottom)

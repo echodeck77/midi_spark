@@ -159,6 +159,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ECHO MID-CHAIN — the NON-DRIVER hold path, completing §7② (2026-08-23, on `main`; macOS green incl. fuzz + echo-
+  CHAIN randomizer, iOS builds; DEVICE ear owed). Follows the driver-path ROUTE=CHAIN (`ded3579`). Two shapes: (a)
+  hold-tail `[ECHO→HARMONIZE/SPLIT/…]` — the existing `chainEchoParams` block in `emitColumnHolds` (was DIRECT-only) is
+  now ROUTE-aware: CHAIN seeds from ECHO's INPUT set (composeChainSet upto ei-1) + stamps route/cellIdx/echoSlot so
+  `drainEchoTails`/`refoldEchoRepeat` re-fold each repeat through the post-ECHO stages ([ECHO→SPLIT] thins each repeat).
+  (b) `[ECHO→LENGTH]` — previously registered ZERO echoes (routed to `emitLengthComposedRow`, which swallows echo as a
+  composeChainSet passthrough); NEW `registerLengthChainEcho` (from `emitEchoColumn`, once per column entry) registers
+  its tails — DIRECT flat, CHAIN re-folded through LENGTH (choked/tied repeats). `emitLengthComposedRow` gains an
+  `echoMuteDry` guard (suppress the length-gated dry when the echo is MUTE = echoes-only). Byte-identical when route
+  stays DIRECT (the default) and for non-echo length chains. +3 RouterTests; the fuzz gained an ECHO randomizer that
+  hammers ROUTE=CHAIN (driver + non-driver) across every edge. **ADVERSARIAL-REVIEW WORKFLOW caught 2 bugs the fuzz
+  couldn't (neither a stuck note): (1) REGRESSION — `[ECHO(MUTE,FREE)→LENGTH]` went fully silent (dry suppressed + the
+  free-delay echoes registered nothing, since `pushEchoForNote` is synced-only); fixed — `registerLengthChainEcho` now
+  computes free/synced timeBeats like `registerEcho` and pushes via `pushEchoTail` directly (+regression test). (2)
+  CORRECTNESS — `refoldEchoRepeat` gated CHAIN repeats per-column, but the non-driver dry honors LENGTH SPAN=ROW → dry/
+  echo divergence; fixed — the refold now honors `lenSpan` for non-driver chains (byte-identical for driver + CELL span).**
+  v1 limits (flagged): the hold-tail `chainEchoParams` block stays synced-only (pre-existing; FREE echo there registers
+  nothing but the hold's dry still plays); MUTE isn't honored for hold-tail echo (the hold always emits the dry).**
 - **▶ THE UTILITY SET — OCTAVE · TRANSPOSE · CHANNEL · NUDGE (2026-08-22, on `main`; macOS green incl. fuzz, iOS
   builds; DEVICE eye/ear owed). Ratified this session (`AcceptanceCriteria-utility-set.md`, ferry) — four simple
   per-chain transforms + a new UTILITY storefront group. Built unattended, each with tests, in two commits.

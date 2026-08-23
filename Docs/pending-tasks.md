@@ -486,9 +486,11 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
     which now takes `box`; the `EchoTail` carries `route`/`cellIdx`/`echoSlot`). `emitDriverNote` registers CHAIN tails
     from the pre-post-echo set. `[ARP→ECHO→LENGTH]` = repeats choked/tied by the slice they land in · `[ECHO→SPLIT]` =
     thinned by register/velocity · `[ECHO→HARMONIZE]` dressed per repeat. +1 RouterTest. ROUTE chip in the echo box.
-    **REMAINING (follow-up):** the NON-DRIVER HOLD topology — `[ECHO→LENGTH]` with no driver — still routes through
-    `composeChainSet`/`emitLengthComposedRow`, which swallows ECHO (no tails). CHAIN there needs its own registration
-    path. Flagged; the driver path is the canonical/ratified core.
+    **NON-DRIVER HOLD PATH LANDED 2026-08-23** (macOS green incl. fuzz, iOS builds): hold-tail `[ECHO→HARMONIZE/SPLIT]`
+    `chainEchoParams` block made ROUTE-aware; `[ECHO→LENGTH]` (registered ZERO echoes — swallowed) now registers via
+    `registerLengthChainEcho` (from `emitEchoColumn`) + an `echoMuteDry` guard. +3 tests + fuzz echo-CHAIN randomizer.
+    An adversarial-review workflow caught 2 bugs (FREE+MUTE silence regression → free-timeBeats fix; SPAN=ROW dry/echo
+    divergence → refold honors lenSpan). v1: hold-tail block stays synced-only; MUTE not honored for hold-tail echo.
   - [ ] **③ PASSES v2 — the per-lap switchboard** — STILL CAPTURED, NOT ratified. Do not build until Paul's word.
 
 - [x] **THE UTILITY SET — OCTAVE·TRANSPOSE·CHANNEL·NUDGE — LANDED 2026-08-22** (`AcceptanceCriteria-utility-set.md`;

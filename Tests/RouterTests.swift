@@ -4743,6 +4743,71 @@ final class RouterTests: XCTestCase {
     /// post-ECHO LENGTH gate at ITS OWN beat, so repeats landing in MUTE slices are dropped. DIRECT (v1) echoes the
     /// final set position-blind. Proven two ways: CHAIN with all-PASS length == DIRECT (nothing dropped, DIRECT
     /// untouched); CHAIN with half-MUTE length emits STRICTLY FEWER notes than DIRECT (the muted-slice repeats vanish).
+    // §7② NON-DRIVER [ECHO→LENGTH] (Paul 2026-08-22): with no driver, LENGTH's re-articulator SWALLOWED the echo — the
+    // chain produced ZERO echoes. Now the tails register at column entry (emitEchoColumn); DIRECT echoes flat, CHAIN
+    // re-folds each repeat through LENGTH. Proven: (1) [ECHO→LENGTH] now adds echoes vs [LENGTH]; (2) CHAIN chokes vs DIRECT.
+    func testNonDriverEchoLengthRegistersAndChainFolds() {
+        func mk(route: EchoRoute, mute: Bool, echo: Bool) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var e = ProcessorSlot(type: .echo)
+                e.params.echoSync = true; e.params.echoDelayDiv = 1; e.params.echoRepeats = 8
+                e.params.echoFeedDelay = 1.0; e.params.echoDecay = 1.0; e.params.echoThru = true; e.params.echoRoute = route
+                var len = ProcessorSlot(type: .length)
+                len.params.lenSlices = mute ? [.pass, .mute, .pass, .mute, .pass, .mute, .pass, .mute]
+                                             : [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
+                c.processors = echo ? [e, len] : [len]
+                $0.cells[0][0] = c
+            }
+        }
+        let bare = RecordingEmitter(); run(mk(route: .direct, mute: false, echo: false), chord([60, 64, 67]), beats: 6, into: bare)   // just [LENGTH]
+        let echoed = RecordingEmitter(); run(mk(route: .direct, mute: false, echo: true), chord([60, 64, 67]), beats: 6, into: echoed)  // [ECHO→LENGTH]
+        XCTAssertGreaterThan(echoed.ons.filter { $0.cable == 1 }.count, bare.ons.filter { $0.cable == 1 }.count,
+                             "[ECHO→LENGTH] with no driver now adds echo repeats (was swallowed → zero)")
+        let dMute = RecordingEmitter(); run(mk(route: .direct, mute: true, echo: true), chord([60, 64, 67]), beats: 6, into: dMute)
+        let cMute = RecordingEmitter(); run(mk(route: .chain,  mute: true, echo: true), chord([60, 64, 67]), beats: 6, into: cMute)
+        XCTAssertLessThan(cMute.ons.filter { $0.cable == 1 }.count, dMute.ons.filter { $0.cable == 1 }.count,
+                          "[ECHO→LENGTH] CHAIN chokes the repeats landing in MUTE slices; DIRECT rings them all")
+        assertNothingLeftSounding(bare); assertNothingLeftSounding(echoed); assertNothingLeftSounding(dMute); assertNothingLeftSounding(cMute)
+    }
+    // §7② NON-DRIVER hold-tail [ECHO→SPLIT] CHAIN: each repeat is re-folded through SPLIT at its OWN (decayed) velocity,
+    // so a velocity-window SPLIT thins the quiet late repeats — DIRECT applies SPLIT once to the source (all repeats pass).
+    func testNonDriverEchoSplitChainThinsRepeats() {
+        func mk(_ route: EchoRoute) -> SnapshotBox {
+            box(colours: arpColours()) {
+                var c = Cell(colourID: "gold", buses: [.a])
+                var e = ProcessorSlot(type: .echo)
+                e.params.echoSync = true; e.params.echoDelayDiv = 2; e.params.echoRepeats = 6
+                e.params.echoFeedDelay = 1.0; e.params.echoDecay = 0.5; e.params.echoThru = true; e.params.echoRoute = route
+                var sp = ProcessorSlot(type: .split); sp.params.splitVel = VelWindow(floor: 30, ceil: 127)   // drop notes quieter than 30
+                c.processors = [e, sp]
+                $0.cells[0][0] = c
+            }
+        }
+        let direct = RecordingEmitter(); run(mk(.direct), chord([60, 64]), beats: 6, into: direct)
+        let chain  = RecordingEmitter(); run(mk(.chain),  chord([60, 64]), beats: 6, into: chain)
+        XCTAssertLessThan(chain.ons.filter { $0.cable == 1 }.count, direct.ons.filter { $0.cable == 1 }.count,
+                          "CHAIN re-folds each repeat through SPLIT at its decayed velocity → quiet repeats drop; DIRECT keeps them")
+        assertNothingLeftSounding(direct); assertNothingLeftSounding(chain)
+    }
+    // §7② regression guard (adversarial review 2026-08-23): a FREE-delay MUTE echo before LENGTH must STILL SOUND. The
+    // MUTE guard suppresses the length-gated dry, so the (free-delay) echoes must register — registerLengthChainEcho now
+    // computes free timeBeats like registerEcho (was synced-only via pushEchoForNote → dry-suppressed + no tails = silence).
+    func testNonDriverEchoLengthFreeMuteStillSounds() {
+        let b = box(colours: arpColours()) {
+            var c = Cell(colourID: "gold", buses: [.a])
+            var e = ProcessorSlot(type: .echo)
+            e.params.echoSync = false; e.params.echoDelayMs = 200; e.params.echoRepeats = 4    // FREE / ms delay
+            e.params.echoFeedDelay = 1.0; e.params.echoDecay = 0.8; e.params.echoThru = false   // MUTE (echoes only)
+            let len = ProcessorSlot(type: .length)   // all-PASS length tail
+            c.processors = [e, len]
+            $0.cells[0][0] = c
+        }
+        let e = RecordingEmitter(); run(b, chord([60, 64]), beats: 6, into: e)
+        XCTAssertGreaterThan(e.ons.filter { $0.cable == 1 }.count, 0,
+                             "[ECHO(MUTE,FREE)→LENGTH] still sounds via its free-delay echoes (dry suppressed, not silent)")
+        assertNothingLeftSounding(e)
+    }
     func testEchoChainRouteFoldsRepeatsThroughDownstreamLength() {
         func mk(_ route: EchoRoute, mute: Bool) -> SnapshotBox {
             box(colours: arpColours()) {

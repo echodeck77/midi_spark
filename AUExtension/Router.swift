@@ -1502,15 +1502,19 @@ final class Router {
                               velocity: vel, out: out, diag: &diag)
                 }
             }
-            // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→GATE]): register tails for the FULLY-PROCESSED set —
-            // echo's chain position doesn't change the content (v1), it repeats the final (harmonized) output. Without
-            // this the echo was silently dropped (composeChainSet folds it as pass-through). (user 2026-08-10 bug.)
-            if !reconcileOnly, holdChain, let ep = chainEchoParams(cell) {
-                composeChainSet(cell: cell, pool: cellPool, upto: tailIdx, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
+            // ECHO in a HOLD-tail chain ([ECHO→HARMONIZE], [ECHO→SPLIT], …): register tails. DIRECT (default) repeats the
+            // FULLY-PROCESSED final set (position-blind, v1 — without this the echo is dropped, composeChainSet folds it
+            // as pass-through; user 2026-08-10 bug). CHAIN (§7②, Paul 2026-08-22) seeds from ECHO's INPUT set and
+            // drainEchoTails re-folds each repeat through the stages AFTER the ECHO slot (so [ECHO→SPLIT] thins each repeat).
+            if !reconcileOnly, holdChain, let ei = chainEchoIndex(cell) {
+                let ep = cell.procs[ei]
+                let chainRoute = ep.echoRoute == .chain && ei < tailIdx     // CHAIN only when a downstream stage exists
+                composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : tailIdx, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)
                 for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
                     let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
                     let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
-                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S)
+                    pushEchoForNote(n, vel: max(1, chainScratch.velocity(UInt8(base))), bm: hbm, p: ep, onset: colStart, S: S,
+                                    route: chainRoute ? .chain : .direct, cellIdx: chainRoute ? currentCellIndex : -1, echoSlot: chainRoute ? ei : -1)
                 }
             }
         }
@@ -1538,12 +1542,49 @@ final class Router {
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: pass) { continue }
-            guard isEchoTail(cell) else { continue }   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
-            let tailIdx = cell.procs.count - 1
-            let p = cell.procs[tailIdx]                 // the ECHO slot's own controls (user 2026-08-08)
-            registerEcho(p, cell: cell, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
-                         colStart: colStart, onSample: onSample, S: S, a: a, beatPos: beatPos,
-                         beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+            if isEchoTail(cell) {   // single-slot [ECHO] OR a hold-upstream chain tail (…→ECHO)
+                let tailIdx = cell.procs.count - 1
+                let p = cell.procs[tailIdx]                 // the ECHO slot's own controls (user 2026-08-08)
+                registerEcho(p, cell: cell, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo,
+                             colStart: colStart, onSample: onSample, S: S, a: a, beatPos: beatPos,
+                             beatsPerSample: beatsPerSample, windowStart: windowStart, windowEnd: windowEnd, out: out, diag: &diag)
+            } else if composableLengthTailIndex(cell) != nil, let ei = chainEchoIndex(cell) {
+                // §7② [ECHO→…→LENGTH]: LENGTH re-articulates in the tick loop (emitLengthComposedRow), which SWALLOWS the
+                // echo (composeChainSet folds it as passthrough) — so this is the ONLY place its tails register. Column
+                // entry, once. DIRECT = echo the composed set flat; CHAIN = re-fold each repeat through LENGTH (choked/tied).
+                registerLengthChainEcho(cell: cell, echoIdx: ei, colour: colour, ci: ci, column: column, r: r, pool: pool, tempo: tempo, colStart: colStart, S: S)
+            }
+        }
+    }
+    /// §7② Register the echo tails for a non-driver [ECHO→…→LENGTH] chain (LENGTH's re-articulator swallows the echo).
+    /// Once per column entry (from emitEchoColumn). NO dry strike — the length-gated dry is emitted by emitLengthComposedRow
+    /// (which suppresses it when the echo is MUTE). CHAIN re-folds each repeat through LENGTH at drain; DIRECT echoes flat.
+    private func registerLengthChainEcho(cell: SnapCell, echoIdx ei: Int, colour: SnapColour, ci: Int, column: Int, r: Int,
+                                         pool: NotePool, tempo: Double, colStart: Double, S: Double) {
+        let ep = cell.procs[ei]
+        var last = -1, i = cell.procs.count - 1
+        while i >= 0 { if !cell.slotBypass[i] { last = i; break }; i -= 1 }
+        let chainRoute = ep.echoRoute == .chain && ei < last
+        // Compute the delay the SAME way registerEcho does — synced (div/16ths) OR free (ms→beats at tempo). pushEchoForNote
+        // is synced-only, so pushing directly here is what keeps a FREE-delay MUTE echo audible (else dry-suppressed + no
+        // tails = silence, the review's regression). (Paul 2026-08-23)
+        let timeBeats = ep.echoSync ? Double(ep.echoDelayDiv) / 4.0 : max(0.001, ep.echoDelayMs / 1000.0 * tempo / 60.0)
+        guard timeBeats > 0 else { return }
+        let repeats = max(1, min(16, ep.echoRepeats))
+        let gateBeats = min(timeBeats * 0.9, S * 0.9)
+        let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
+        let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
+        currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex; currentCellIndex = column * Snap.rows + r
+        let cellPool = effectivePool(for: cell, live: pool)
+        composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : last, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)   // CHAIN = ECHO's INPUT · DIRECT = the composed set (LENGTH is passthrough in composeChainSet)
+        let chopped = chopMask(cell, m: colStart, S: S, base: bm)
+        for k in 0..<chainScratch.srcCount(filter: 0, cableMask: 0b1111) {
+            let base = Int(chainScratch.srcAscending(k, filter: 0, cableMask: 0b1111))
+            let n = base + transpose; guard n >= 0 && n <= 127 else { continue }
+            pushEchoTail(onset: colStart, note: UInt8(n), vel: max(1, chainScratch.velocity(UInt8(base))), busMask: chopped,
+                         timeBeats: timeBeats, repeats: repeats, feedDelay: ep.echoFeedDelay, decay: ep.echoDecay,
+                         offset: ep.echoOffset, pitch: ep.echoPitch, gateBeats: gateBeats, spill: ep.echoSpill,
+                         route: chainRoute ? .chain : .direct, cellIdx: chainRoute ? currentCellIndex : -1, echoSlot: chainRoute ? ei : -1)
         }
     }
     /// Strike the DRY note (only when THRU) + register the echo tail for each source note of an echo-tail cell —
@@ -1665,9 +1706,13 @@ final class Router {
         }
         var offBeat = tau + e.gateBeats
         if let lp = lenP {                                          // LENGTH downstream: gate THIS repeat by the slice at tau
-            let sIdx = ((chopSlice(tau, columnBeats: S) + lp.lenRotate) % 8 + 8) % 8
+            // Match the DRY's gate width: a NON-DRIVER [ECHO→LENGTH] dry (emitLengthComposedRow) honors SPAN=ROW (the 8
+            // slices span the whole bar); the driver-fold dry (emitDriverNote) is per-column. Use the same so the repeats
+            // gate on the SAME pattern the dry does (else dry+echoes diverge for SPAN=ROW — the review's finding).
+            let lenColBeats = (chainDriverIndex(cell) < 0 && lp.lenSpan == .row) ? cycleBeats : S
+            let sIdx = ((chopSlice(tau, columnBeats: lenColBeats) + lp.lenRotate) % 8 + 8) % 8
             let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
-            switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: S) {
+            switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: lenColBeats) {
             case .drop:                return                       // MUTE slice → this repeat is silent
             case .keep:                break
             case .overrideOff(let ob): offBeat = ob
@@ -2804,6 +2849,12 @@ final class Router {
         for i in 0..<cell.procs.count where !cell.slotBypass[i] && cell.procs[i].type == .echo { return cell.procs[i] }
         return nil
     }
+    /// The first non-bypassed ECHO slot's INDEX (or nil) — §7② the non-driver CHAIN-echo path needs the slot position
+    /// so `drainEchoTails`/`refoldEchoRepeat` can re-fold each repeat through the stages AFTER it.
+    private func chainEchoIndex(_ cell: SnapCell) -> Int? {
+        for i in 0..<cell.procs.count where !cell.slotBypass[i] && cell.procs[i].type == .echo { return i }
+        return nil
+    }
 
     /// TUTTI PATTERN (standalone): render the held set as an authored SHAPE per slice, clocked at the slice rate — a
     /// per-slice re-articulator. TUTTI is not a driver; only a single-slot PATTERN cell reaches here (a chain routes
@@ -2911,6 +2962,7 @@ final class Router {
                                        a: Double, out: MIDIEmitter?, diag: inout KernelDiag) {
         guard S > 0, lenIdx >= 1, lenIdx < cell.procs.count else { return }
         let lp = cell.procs[lenIdx]
+        let echoMuteDry = (chainEchoParams(cell)?.echoThru == false)   // §7② [ECHO→…→LENGTH] MUTE: echoes only — suppress the length-gated dry (the tails register in emitEchoColumn)
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2933,7 +2985,7 @@ final class Router {
                         guard n >= 0 && n <= 127 else { continue }
                         let v = max(1, chainScratch.velocity(src))
                         storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: e.on)
-                        if emits && tbm != 0 { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: v, out: out, diag: &diag) }
+                        if emits && tbm != 0 && !echoMuteDry { emitArtic(note: UInt8(n), busMask: tbm, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: v, out: out, diag: &diag) }
                     }
                 }
             }
