@@ -213,6 +213,13 @@ func laneValue(lane: [Double], modes: [Int], rateMul: Double, absoluteBeat: Doub
 /// allocation after init. A class so the Kernel (writer) and Router (reader) share one instance
 /// with no copies on the hot path.
 final class NotePool {
+    // A FROZEN pool (LATCH / REPLAY / FILE) is already door-filtered (channel + cable + range) at CAPTURE, so a cell
+    // reading it must NOT re-apply the door filter — else a LATER channel/range edit drops the frozen notes (the
+    // "replay stops when I disable the input channel" bug). When true, `srcCount/srcAscending(for:)` and
+    // `arpPickSource(for:)` skip the door filter (OMNI channel/cable/full-range) but STILL apply the cell's velocity
+    // window + chord split (cell processing, not door admission). false for the live pool → filtered as before.
+    // (Paul 2026-08-23; mirrors the BYPASS path's `latched ? 0 : receiverChannels` read.)
+    var omniRead = false
     private var vel = [UInt8](repeating: 0, count: 128)   // velocity by note (0 = not held)
     private var chan = [UInt8](repeating: 0, count: 128)  // originating channel by note
     private var cbl = [UInt8](repeating: 0, count: 128)   // §item 11: originating input cable (1–4; 0 = untagged)
@@ -389,17 +396,30 @@ final class NotePool {
             : srcAscending(k, chanMask: cell.inputChanMask, cableMask: Int(cell.inputCableMask),
                            velLo: cell.velFloor, velHi: cell.velCeil, noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)
     }
-    // Full per-cell source read: velocity window (admission), THEN the chord split (a window on that list).
+    // omniRead (FROZEN pool): skip the door filter (OMNI channel/cable/full-range — the pool was door-filtered at
+    // capture) but KEEP the cell's velocity window (cell processing).
+    private func srcCntFilt(_ cell: SnapCell) -> Int {
+        if !omniRead { return srcCountFiltered(cell) }
+        return cell.velFloor <= 1 && cell.velCeil >= 127 ? srcCount(filter: 0, cableMask: 0b1111)
+            : srcCount(filter: 0, cableMask: 0b1111, velLo: cell.velFloor, velHi: cell.velCeil, noteLo: 0, noteHi: 127)
+    }
+    private func srcAscFilt(_ k: Int, _ cell: SnapCell) -> UInt8 {
+        if !omniRead { return srcAscendingFiltered(k, cell) }
+        return cell.velFloor <= 1 && cell.velCeil >= 127 ? srcAscending(k, filter: 0, cableMask: 0b1111)
+            : srcAscending(k, filter: 0, cableMask: 0b1111, velLo: cell.velFloor, velHi: cell.velCeil, noteLo: 0, noteHi: 127)
+    }
+    // Full per-cell source read: velocity window (admission), THEN the chord split (a window on that list). omniRead
+    // frozen pools skip the door filter (see `srcCntFilt`); the live pool is byte-identical (omniRead == false).
     func srcCount(for cell: SnapCell) -> Int {
-        let base = srcCountFiltered(cell)
+        let base = srcCntFilt(cell)
         if cell.chordSplit.mode == .all { return base }
-        return chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscendingFiltered($0, cell)) }.len
+        return chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscFilt($0, cell)) }.len
     }
     func srcAscending(_ k: Int, for cell: SnapCell) -> UInt8 {
-        if cell.chordSplit.mode == .all { return srcAscendingFiltered(k, cell) }
-        let base = srcCountFiltered(cell)
-        let start = chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscendingFiltered($0, cell)) }.start
-        return srcAscendingFiltered(start + k, cell)
+        if cell.chordSplit.mode == .all { return srcAscFilt(k, cell) }
+        let base = srcCntFilt(cell)
+        let start = chordSplitWindow(count: base, split: cell.chordSplit) { Int(srcAscFilt($0, cell)) }.start
+        return srcAscFilt(start + k, cell)
     }
 
     /// Rebuild the ascending note list; also re-derives `count` (belt-and-braces vs the incremental
@@ -890,14 +910,15 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// so the render loop's arp source-picks can't drift the pairing. The preview/audition paths keep the
 /// explicit-`filter:` form (they force a source, not the cell's).
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> Int {
+    // omniRead FROZEN pool: skip the door filter (channel/cable/range) — it was applied at capture (see NotePool.omniRead).
     arpPickSource(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-                  pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
-                  noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)   // RANGE (§2)
+                  pool: pool, filter: pool.omniRead ? 0 : cell.inputChannel, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
+                  noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi)   // RANGE (§2)
 }
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> (note: Int, vel: UInt8) {
     arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-            pool: pool, filter: cell.inputChannel, cableMask: Int(cell.inputCableMask),
-            noteLo: cell.inputRangeLo, noteHi: cell.inputRangeHi)   // RANGE (§2)
+            pool: pool, filter: pool.omniRead ? 0 : cell.inputChannel, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
+            noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi)   // RANGE (§2)
 }
 
 // MARK: - Processor dispatch (§3/§4)

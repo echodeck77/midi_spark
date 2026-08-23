@@ -172,6 +172,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   stopped, one-clock). **(3) THE N+2 WINDOW (Paul's request):** the roll now shows N+2 passes — one CONTEXT pass (left,
   just out of range) · the N GRABBED passes (HIGHLIGHTED cyan — exactly what LAST-N takes) · the CURRENT pass being input
   (right) — so the user SEES what they're grabbing. UI-only for (2)/(3); (1) is Kernel (iOS-built, device ear owed).**
+- **▶ REPLAY SYNC #3 — the frozen loop stopped when the input channel was DISABLED (2026-08-23, on `main`; iOS builds,
+  macOS green incl. fuzz; DEVICE ear owed). Paul: replay syncs, but DISABLING the door's channel (the "8x8 state selector")
+  stops playback — while merely stopping the external MIDI source does NOT. A 4-lens trace located it: the DoorRing/loop
+  is CHANNEL-FILTERED AT RECORD (`recordReplay` only records channels the door hears) + the frozen pool is filtered at
+  CAPTURE — but the grid cells RE-FILTERED the frozen pool by the door's CURRENT channel mask on every read (`srcCount
+  (for: cell)` / `arpPickSource(for: cell)`), so a LATER channel-mask edit dropped the loop. (The BYPASS path already
+  read latched pools WHOLE for exactly this reason.) FIX: a `NotePool.omniRead` flag (set on the Kernel's latchedPools);
+  when true, `srcCount/srcAscending(for:)` + `arpPickSource(for:)` skip the DOOR filter (OMNI channel/cable/full-range —
+  applied at capture) but KEEP the cell's velocity window + chord split (cell processing). BYTE-IDENTICAL for the LIVE
+  pool (omniRead=false) — a cell's channel mask always equals its door's CAPTURE mask, so OMNI-read == filtered-read
+  except after a post-capture mask change (the fix). +1 RouterTest (omniRead plays an excluded-channel frozen note ·
+  omniRead-off drops it). Covers ALL frozen modes (LATCH/REPLAY/FILE). NOTED: the arp path filters LIVE input by the
+  legacy single `inputChannel` (OMNI for a multi-channel-masked door), not `inputChanMask` — a pre-existing multi-channel
+  gap for arps on LIVE input, unchanged here.**
 - **▶ TOP-HEADER polish + MIDI OUT button (2026-08-23, on `main`; iOS builds; UI-only, DEVICE eye owed). Paul's header
   asks. (1) The header MENU BUTTONS are WIDER/more prominent (`buildConfigButton` 52→84 wide, font 10→11, cyan keyline).
   (2) RECORD (reel) moved to the TOP-RIGHT CORNER — `headerExtras` now renders AFTER `cogOrCan` in the ArrangementBar, and

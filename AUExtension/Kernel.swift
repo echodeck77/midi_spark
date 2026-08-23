@@ -142,7 +142,10 @@ final class Kernel {
     // receiver captures the live filtered chord while fingers are down and FREEZES it when they lift (a NEW
     // chord replaces automatically — fingers-down re-captures); a fresh arm starts empty. The frozen pools
     // survive snapshot rebuilds (ephemeral kernel state), so a MUTE silences but does not clear them.
-    private let latchedPools: [NotePool] = [NotePool(), NotePool(), NotePool(), NotePool()]
+    // omniRead = true: the FROZEN pools (LATCH/REPLAY/FILE) are door-filtered at capture, so the grid cells read them
+    // WHOLE — a later channel/range edit can't drop the frozen notes (the "replay stops when I disable the input
+    // channel" bug, Paul 2026-08-23). See NotePool.omniRead.
+    private let latchedPools: [NotePool] = (0..<4).map { _ in let p = NotePool(); p.omniRead = true; return p }
     private var latchArmMask: UInt8 = 0
     private var prevLatchArmMask: UInt8 = 0
     // PIANO LATCH is SELF-ARMING: a door in PIANO mode with picked notes latches WITHOUT the separate LATCH lock —

@@ -3133,6 +3133,35 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.contains { $0.note == 60 } && e.ons.contains { $0.note == 64 }, "the frozen chord's notes sound")
     }
 
+    // FROZEN-POOL omniRead (Paul 2026-08-23): the door REPLAY loop STOPPED when the input channel was disabled. A frozen
+    // pool (LATCH/REPLAY/FILE) is door-filtered at CAPTURE, so a cell reads it WHOLE — a LATER channel-mask edit
+    // (disabling the channel the loop is on) must NOT drop the loop. omniRead=true keeps it; omniRead=false (the old
+    // behaviour) re-filters and drops it. Mirrors the BYPASS path's latched-whole read.
+    func testFrozenPoolOmniReadPlaysRegardlessOfCellChannelFilter() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()
+        var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // an identity HOLD → reads via srcCount(for:) = inputChanMask
+        var st = PluginState(colours: cs, scenes: [s])
+        var r1 = Receiver(name: "1"); r1.channelMask = 0x0001        // the door now hears ONLY channel 1 (the user disabled ch4)
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        func run(omni: Bool) -> Set<UInt8> {
+            let frozen = NotePool(); frozen.omniRead = omni           // a captured loop note on CHANNEL 4 (chan index 3) — NOT in the current mask
+            frozen.noteOn(60, velocity: 100, channel: 3, cable: 1); frozen.rebuildSorted()
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter(); var beat = 0.0, ts = 0.0
+            for _ in 0..<6 {
+                router.process(box: b, pool: NotePool(), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                               timestampSample: ts, frameCount: frames, latchMask: 0b0001,
+                               latchedPools: [frozen, NotePool(), NotePool(), NotePool()], out: e, diag: &diag)
+                beat += wb; ts += Double(frames)
+            }
+            return Set(e.ons.map { $0.note })
+        }
+        XCTAssertTrue(run(omni: true).contains(60), "omniRead: the frozen loop plays even though the cell's channel mask now EXCLUDES its channel")
+        XCTAssertFalse(run(omni: false).contains(60), "omniRead OFF re-filters by the (changed) mask and DROPS the note — the old bug, proving omniRead is the fix")
+    }
     // INPUT ENABLE (the strip header): the "latch A, disable A, play B" workflow. A DISABLED + ARMED door keeps
     // feeding its FROZEN chord to the grid while IGNORING the live pool ("close the door, keep the room").
     func testDisabledReceiverKeepsFeedingArmedLatchIgnoringLive() {
