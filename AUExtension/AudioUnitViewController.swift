@@ -59,7 +59,7 @@ enum AppTab: String, CaseIterable {
 }
 
 /// One scrolling mark in the MIDI CONFIG REPLAY input roll: a note that ONSET at `born`, drifting right→left. (Paul 2026-08-20)
-struct InputMark: Equatable { let note: UInt8; let born: Date }
+struct InputMark: Equatable { let note: UInt8; let born: Date; let beat: Double }   // beat = the onset beat → the roll is BEAT-driven (freezes when stopped, stays pass-synced); born = the memory-prune stamp
 
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
@@ -791,7 +791,7 @@ struct DiagView: View {
                 var roll = recvInputRoll
                 for i in 0..<4 {
                     let cur = Set(i < notes.count ? notes[i] : []), prev = Set(i < recvHeldNotes.count ? recvHeldNotes[i] : [])
-                    for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow)) }   // a new onset
+                    for n in cur.subtracting(prev) { roll[i].append(InputMark(note: n, born: mnow, beat: nd.beat)) }   // a new onset (beat-stamped for the beat-driven roll)
                     roll[i] = roll[i].filter { mnow.timeIntervalSince($0.born) < 40.0 }   // generous; the roll view clips to its own N-pass window
                     if roll[i].count > 128 { roll[i] = Array(roll[i].suffix(128)) }
                 }

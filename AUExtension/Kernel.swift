@@ -199,10 +199,14 @@ final class Kernel {
             let bit = UInt8(1 << i)
             if replayEngagedMask & bit != 0 {                      // engaged → release
                 doorRings[i].clearLoop(); replayEngagedMask &= ~bit
-            } else if cycleBeats > 0 {                             // not engaged → capture the last N passes + engage
+            } else if cycleBeats > 0 {                             // not engaged → capture the last N COMPLETED passes + engage
                 let n = Int(replayPasses[i] == 0 ? 1 : replayPasses[i])
-                doorRings[i].capture(endBeat: beatPos, lengthBeats: Double(n) * cycleBeats)
-                replayAnchor[i] = beatPos; replayEngagedMask |= bit
+                // ALIGN to the last pass BOUNDARY, not the arbitrary press beat: capture [boundary − N·cyc, boundary]
+                // and anchor there, so the loop's pass boundaries land on the grid's — a mid-pass press no longer leaves
+                // the loop permanently phase-offset (the "looping not synced" bug, Paul 2026-08-23).
+                let boundary = (beatPos / cycleBeats).rounded(.down) * cycleBeats
+                doorRings[i].capture(endBeat: boundary, lengthBeats: Double(n) * cycleBeats)
+                replayAnchor[i] = boundary; replayEngagedMask |= bit
             }
         }
         replayCatchToggle = 0

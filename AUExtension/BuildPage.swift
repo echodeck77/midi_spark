@@ -438,57 +438,56 @@ extension DiagView {
             buildReplayInputRoll(door: i, passes: cur, width: 360, height: 84)
         }
     }
-    // The realtime INPUT ROLL: notes ONSET at the RIGHT and drift LEFT; the visible WINDOW = the N passes selected (so the
-    // roll shows exactly the material a LAST-N catch would grab). Vertical CELL lines every column (8 per pass) with
-    // heavier PASS dividers; pitch framed to whole octaves. Fed by recvInputRoll (the 4Hz onset feed). (Paul 2026-08-20)
+    // The realtime INPUT ROLL — BEAT-driven (Paul 2026-08-23): notes onset at the RIGHT and drift LEFT by BEAT, not
+    // wall-clock, so it FREEZES when the transport stops and stays locked to the passes. The visible window = N+2 passes:
+    // one CONTEXT pass (left, just out of grab range) · the N GRABBED passes (highlighted — exactly what LAST-N captures)
+    // · the CURRENT pass being input now (right). So you can SEE what you're grabbing. Fed by recvInputRoll (beat-stamped).
     @ViewBuilder private func buildReplayInputRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
         let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
         let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []                // CURRENTLY-held input — drawn LIVE at the right edge
-        let passSec = Double(Snap.cols) * stepBeats * 60.0 / max(1.0, d.tempo)   // one pass in seconds (global clock)
-        let life = max(0.5, Double(passes) * passSec)                            // the window spans N passes
+        let passBeats = max(0.0625, Double(Snap.cols) * stepBeats)               // one pass in beats
+        let windowBeats = Double(passes + 2) * passBeats                         // N grabbed + 1 context (left) + 1 current (right)
         let ns = marks.map { Int($0.note) } + held.map { Int($0) }
         let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
         let span = CGFloat(max(12, hi - lo))
-        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
+        return RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             .overlay(
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || (marks.isEmpty && held.isEmpty))) { tl in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
                     Canvas { ctx, sz in
-                        let now = tl.date
-                        // The CELL / PASS dividers SCROLL with the notes (Paul 2026-08-20): a boundary at reference time
-                        // `tb` maps to the SAME x as a note born then, so the grid drifts left in lockstep. Heavier on a
-                        // pass boundary (every Snap.cols cells).
-                        let cellSec = passSec / Double(Snap.cols)               // one column in seconds
-                        if cellSec > 0.01 {
-                            let nowSec = now.timeIntervalSinceReferenceDate
-                            var k = Int(floor(nowSec / cellSec))
-                            while true {
-                                let tb = Double(k) * cellSec
-                                let x = sz.width * (1 - CGFloat((nowSec - tb) / life))
-                                if x < 0 { break }
-                                if x <= sz.width {
-                                    let isPass = (((k % Snap.cols) + Snap.cols) % Snap.cols) == 0
-                                    ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
-                                               with: .color(.white.opacity(isPass ? 0.22 : 0.07)), lineWidth: isPass ? 1 : 0.5)
-                                }
-                                k -= 1
+                        // ONE CLOCK: the current beat, extrapolated from the last poll while playing; FROZEN when stopped.
+                        let cb = d.playing ? ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0 : ddBeatAnchor
+                        func xOf(_ beat: Double) -> CGFloat { sz.width * (1 - CGFloat((cb - beat) / windowBeats)) }
+                        func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (sz.height - 6) + 3 }
+                        let passStart = (cb / passBeats).rounded(.down) * passBeats   // start of the CURRENT (incomplete) pass
+                        // 1) HIGHLIGHT the N GRABBED passes = the N COMPLETED passes before the current one (what LAST-N takes)
+                        let hx0 = max(0, xOf(passStart - Double(passes) * passBeats)), hx1 = min(sz.width, xOf(passStart))
+                        if hx1 > hx0 { ctx.fill(Path(roundedRect: CGRect(x: hx0, y: 0, width: hx1 - hx0, height: sz.height), cornerRadius: 3), with: .color(buildCyan.opacity(0.13))) }
+                        // 2) CELL + PASS boundary lines (beat-derived, drift with the notes; heavier every Snap.cols = a pass)
+                        let cellBeats = passBeats / Double(Snap.cols)
+                        var k = Int((cb / cellBeats).rounded(.down))
+                        while true {
+                            let x = xOf(Double(k) * cellBeats)
+                            if x < 0 { break }
+                            if x <= sz.width {
+                                let onPass = ((k % Snap.cols) + Snap.cols) % Snap.cols == 0
+                                ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) },
+                                           with: .color(.white.opacity(onPass ? 0.22 : 0.07)), lineWidth: onPass ? 1 : 0.5)
                             }
+                            k -= 1
                         }
                         for n in stride(from: lo, through: hi, by: 12) {         // octave lines (C) — pitch, static
-                            let y = (1 - CGFloat(n - lo) / span) * (sz.height - 6) + 3
+                            let y = yOf(n)
                             ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
                         }
-                        for m in marks {
-                            let age = now.timeIntervalSince(m.born)
-                            if age < 0 || age > life { continue }
-                            let x = sz.width * (1 - CGFloat(age / life))          // born at the RIGHT, drifts LEFT across the N-pass window
-                            let y = (1 - CGFloat(Int(m.note) - lo) / span) * (sz.height - 6) + 3
-                            let a = max(0.0, min(1.0, (1 - age / life)))
-                            ctx.fill(Path(roundedRect: CGRect(x: x - 5, y: y - 2.5, width: 10, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.35 + 0.6 * a)))
+                        for m in marks {                                          // the onset marks — placed by their onset BEAT
+                            let x = xOf(m.beat)
+                            if x < -6 || x > sz.width + 6 { continue }
+                            let a = max(0.0, min(1.0, (x + 6) / sz.width))         // dimmer toward the left (older)
+                            ctx.fill(Path(roundedRect: CGRect(x: x - 5, y: yOf(Int(m.note)) - 2.5, width: 10, height: 5), cornerRadius: 2.5), with: .color(buildCyan.opacity(0.3 + 0.6 * a)))
                         }
-                        for note in held {                                       // CURRENTLY-held notes — a bright bar pinned at the RIGHT edge (live input, always visible)
-                            let y = (1 - CGFloat(Int(note) - lo) / span) * (sz.height - 6) + 3
-                            ctx.fill(Path(roundedRect: CGRect(x: sz.width - 13, y: y - 3, width: 12, height: 6), cornerRadius: 3), with: .color(Color(red: 0.36, green: 0.92, blue: 0.52)))
+                        for note in held {                                       // CURRENTLY-held notes — a bright bar pinned at the RIGHT edge (live input now)
+                            ctx.fill(Path(roundedRect: CGRect(x: sz.width - 13, y: yOf(Int(note)) - 3, width: 12, height: 6), cornerRadius: 3), with: .color(Color(red: 0.36, green: 0.92, blue: 0.52)))
                         }
                     }
                 }.frame(width: width, height: height)

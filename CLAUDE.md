@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ REPLAY SYNC — beat-driven input roll + pass-boundary-aligned capture (2026-08-23, on `main`; iOS builds, macOS
+  green; DEVICE ear/eye owed). Two linked fixes to the door REPLAY ("LAST N"). **(1) THE AUDIO — the real sync bug:** the
+  manual "LAST N" catch captured `[beatPos − N·cyc, beatPos]` and anchored the loop to the ARBITRARY press beat
+  (`replayAnchor = beatPos`), so a loop grabbed mid-pass plays permanently phase-offset from the bar. Fixed
+  (`Kernel.processReplayCatch`): capture + anchor to the LAST PASS BOUNDARY (`boundary = floor(beatPos/cyc)·cyc`) — the
+  N COMPLETED passes, so `phase = (beat − boundary) mod loopLen` lands every loop pass boundary on a grid pass boundary.
+  **(2) THE VISUAL — the disconnected roll:** `buildReplayInputRoll` was WALL-CLOCK-driven (marks' `born: Date` + grid
+  lines from `timeIntervalSinceReferenceDate`), so it animated even when the transport was STOPPED and never locked to
+  the passes (Paul's report). Rewritten BEAT-DRIVEN: `InputMark` gained `beat` (stamped from `nd.beat` in the poll), the
+  roll derives x from `(currentBeat − noteBeat)` with `currentBeat` extrapolated from `ddBeatAnchor`/`…At` (frozen when
+  stopped, one-clock). **(3) THE N+2 WINDOW (Paul's request):** the roll now shows N+2 passes — one CONTEXT pass (left,
+  just out of range) · the N GRABBED passes (HIGHLIGHTED cyan — exactly what LAST-N takes) · the CURRENT pass being input
+  (right) — so the user SEES what they're grabbing. UI-only for (2)/(3); (1) is Kernel (iOS-built, device ear owed).**
 - **▶ MOSAIC DROPPED · GRID SELECTOR piano-roll + INSTANT · MAIN-PAGE TOP HEADER (2026-08-23, on `main`; iOS builds,
   macOS 834 green; UI-only, DEVICE eye owed). Paul's four asks after the grid-selector v1. **(1) THE MOSAIC IS GONE:**
   the whole mosaic cell-face code is DELETED — GridUI `mosaicFace`/`drawMosaic`/`mosaicCrestTone`/`mosaicShapePath`/
