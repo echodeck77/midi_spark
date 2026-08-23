@@ -3,7 +3,39 @@
 _The canonical "what's left" list. CLAUDE.md's "Current status" is the backward log (what LANDED, with commit
 refs); THIS file is forward-looking (what's open). Keep them from overlapping: when a task lands, tick it here
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
-delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-23._
+delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
+
+## ★ DESIGN INBOX 2026-08-22/23 — FILED + QUEUED (4 ferries read + filed to `Docs/`; sequencing = Paul's word)
+- **ROW 8 (the "fifth row") — RATIFIED WHOLE, BUILD-READY** (`Docs/row8-spec.md`; supersedes the scenes-v2 doc's §3–6
+  fifth-row sections). The bottom row becomes **8 TYPED performance cells** `{TYPE · payload · MOVER (HELD|TOGGLE|ONE-SHOT)}`.
+  Type catalog: SEQUENCE · PART (play a part from a pad, scene-independent) · SETUP (rack-config radio) · MACRO · FREEZE ·
+  STUTTER · BROADCAST · SWAP · REDIRECT · HALFTIME · CC-PUNCH/PC-SEND · INPUT (door mode-act) · KILL. Factory "danger gradient"
+  deck (STUTTER·FREEZE·HALFTIME · `[+]` · REDIRECT·SWAP·KILL·BROADCAST). CONFIG lives on a dedicated **ROW 8 EDIT PAGE**
+  (the compact grid goes PERFORM-ONLY for row 8); ROW 8 is the **HUB** — the two bottom config buttons (MIDI/RACK CONFIG)
+  RETIRE, INPUT/SETUP cells jump to their sheets, ALL latch control runs through ROW 8. §5: NO factory reset. ENGINE ask
+  (the one genuinely new op): **REDIRECT** (stream re-stamp A→B while held) + its refcount handback; most other actions
+  reuse specced machinery (MACRO/TRIGGER/FREEZE/STUTTER/CC/PC). STATE split: authoring = DOCUMENT, pressing = RUNTIME
+  (scene-captured toggle states). A BIG feature → its own STAGED effort (type model → the edit page → each action's engine).
+  Sequence the build with Paul before starting.
+- **SCENES V2 — MULTI PLAY GRIDS** (`Docs/scenes-v2-multigrids.md`). A SCENE = one play-grid ARRANGEMENT (the deployed
+  instances per band); PARTS/colours/receivers/master are SHARED above the scenes. REFERENCE-not-move across scenes (a part
+  deploys many ways); **scene CHIPS** (8, pass-quantized switch · re-cue · drag-swap, never overwrite). M/S = LIVE mixer
+  (NOT scene state); rung-actives/mutes/FREE-picks/rates = per scene. §2 USER-DEFINED GRID MAKEUP (band count/heights/types
+  in the 8-row budget) = **DOCUMENT-LEVEL**, "captured, NOT commissioned" (v2). This retires the always-length-1 `scenes[]`
+  gap (the flagship-unbuilt hole in CLAUDE.md status). Large model change (per-scene arrangement state + chip grammar +
+  instance mapping) — design captured, build on Paul's word.
+- **MICROTONAL LADDER** (`Docs/microtonal-ladder.md`). Tuning-agnostic by construction (we emit note numbers). **TIER 0 =
+  CLAIM IT** (manual + one marketing line "we send the notes; your synth's tuning decides the pitches" + a GLIDE-caveat
+  support note) — DOCS-only, do now / at launch. **TIER 1 = ★ ONE "NOTES PER OCTAVE" cog setting** (default 12) read by
+  CLAIM's mod-12, OCTAVE/OCT±/FOLD's ±N, and the KEYS-door key count → EDO-native (19/24/31-EDO…); small, safe (12 = today),
+  future-proofs OCTAVE/PEDAL — **AWAITING PAUL'S WORD**. Tiers 2 (MTS-ESP client for display) + 3 (scala import · ratio-
+  HARMONIZE · per-scene tunings) parked with the KEY-door session.
+- **STANDALONE APP** (`Docs/standalone-app-analysis.md`; complements the DEFERRED `Docs/standalone-plan.md` + its 3 seam
+  rules, already enforced). ~2 Code-weeks, ENGINE UNCHANGED: (1) AVAudioEngine driver + internal transport (~2–3d, also
+  unlocks BACKGROUND) · (2) CoreMIDI OUT (4 virtual sources A–D) + IN (~2–3d; Network/BT MIDI free) · (3) Ableton Link
+  (~1–2d) · (4) app chrome — transport bar/port pickers (~2–3d) · (5) polish + device pass (~2–3d). WHY NOW: the beta pool
+  explodes (no host needed), XCUITest becomes possible, the standalone IS the store page. Recommendation: schedule the
+  spike AFTER the current queue settles; phase ① driver+transport+OUT (playable alone) → ② IN → ③ Link → ④ chrome.
 
 ## ★ CODE-REVIEW FINDINGS 2026-08-23 (6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code). Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz. Do SOON.
 
