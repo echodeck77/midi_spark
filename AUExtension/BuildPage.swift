@@ -586,27 +586,22 @@ extension DiagView {
             buildOctBtn("+") { nudgeReceiverOctave(i, +1) }.frame(width: 40)
         }.fixedSize()
     }
-    // THE TOP HEADER (Paul 2026-08-23): the page's top row — RECORD (reel) · RATE (per-part) · the two CONFIG buttons
-    // (MIDI CONFIG = the doors · RACK CONFIG = the rack/output-chain setups). Spans the page above the three columns
-    // (moved up from the bottom-left cluster). The config buttons jump to the existing MIDI-IN / rack surfaces.
-    @ViewBuilder private func buildTopHeader() -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            buildReelButton()                                   // LEFT — the recorder (keeps its share anchor + pass-browser hide)
-            if !reelShowPopup { buildRateControl() }             // the rate, beside the record button
-            Spacer(minLength: 0)
+    // THE HEADER CONTROLS (Paul 2026-08-23): RECORD (reel) · RATE (per-part) · MIDI CONFIG · RACK CONFIG — rescaled to
+    // sit IN the top header bar (ArrangementBar), not a page row. Internal so the VC's `arrangementBar` var can embed it.
+    @ViewBuilder func buildHeaderControls() -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            buildReelButton()                                   // the recorder (keeps its share anchor + pass-browser hide)
             if !reelShowPopup {
-                buildConfigButton("MIDI CONFIG") { buildMidiConfigOpen = true }   // RIGHT — the two config buttons
-                buildConfigButton("RACK CONFIG") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
+                buildRateControl()                              // the per-part rate
+                buildConfigButton("MIDI") { buildMidiConfigOpen = true }   // the MIDI-IN doors sheet
+                buildConfigButton("RACK") { buildRackConfigOpen = true }   // the rack / OUTPUT CHAIN sheet (config-sheets §6)
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 44)
-        .padding(.horizontal, 4)
     }
     @ViewBuilder private func buildConfigButton(_ label: String, _ action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
             .foregroundColor(buildCyan).lineLimit(1)
-            .frame(width: 92, height: 33)                                   // −25% from 44 (Paul 2026-08-20)
+            .frame(width: 52, height: 26)                                   // header scale (Paul 2026-08-23)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.16), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture(perform: action)
@@ -624,12 +619,12 @@ extension DiagView {
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let p = recording ? abs(sin(t * 2.4)) : 0.0                    // 0…1 breathing
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: "recordingtape").font(.system(size: 36, weight: .regular)).foregroundColor(c)
+                    Image(systemName: "recordingtape").font(.system(size: 22, weight: .regular)).foregroundColor(c)   // header scale (Paul 2026-08-23)
                         .scaleEffect(1.0 + 0.07 * p)
-                        .shadow(color: Color(red: 0.98, green: 0.2, blue: 0.2).opacity(recording ? 0.35 + 0.4 * p : 0), radius: 7)
+                        .shadow(color: Color(red: 0.98, green: 0.2, blue: 0.2).opacity(recording ? 0.35 + 0.4 * p : 0), radius: 5)
                     if recording {
                         Circle().fill(Color(red: 0.98, green: 0.2, blue: 0.2))
-                            .frame(width: 10, height: 10).opacity(0.7 + 0.3 * p).offset(x: 4, y: -1)
+                            .frame(width: 7, height: 7).opacity(0.7 + 0.3 * p).offset(x: 3, y: -1)
                     }
                 }
             }
@@ -650,12 +645,11 @@ extension DiagView {
             }
         } label: {
             let effRate = buildPartRate ?? StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)]   // the ACTUAL rate — the part override, else the scene default
-            Text(effRate.rawValue).font(.system(size: 19, weight: .black, design: .monospaced))   // RATE VALUE ONLY, bright (Paul 2026-08-20)
+            Text(effRate.rawValue).font(.system(size: 13, weight: .black, design: .monospaced))   // RATE VALUE ONLY — header scale (Paul 2026-08-23)
                 .foregroundColor(buildCyan)
-                .padding(.horizontal, 11).padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 9).fill(buildPanel))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(buildCyan.opacity(0.9), lineWidth: 1.5))
-                .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)   // floats ABOVE the grid, not a cell of it
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildCyan.opacity(0.9), lineWidth: 1.2))
                 .contentShape(Rectangle())
         }
     }
@@ -833,7 +827,6 @@ extension DiagView {
         // the PERFORM grid is widest: LEFT multi-row valve + LEFT single-row valve + 8 grid cells + RIGHT chevrons = 11 cells (+ 10 gaps).
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (gridColW - BuildGeom.cellGap * 10) / 11))
         VStack(spacing: 10) {
-            AnyView(buildTopHeader())                             // THE TOP HEADER: RECORD · RATE · MIDI CONFIG · RACK CONFIG (Paul 2026-08-23)
             HStack(alignment: .top, spacing: BuildGeom.colGap) {
                 // AnyView boundaries: opaque `some View` types get INLINED into the parent's concrete type, so the
                 // whole page collapses into ONE giant nested generic whose metadata instantiation overflows the Swift
@@ -857,7 +850,6 @@ extension DiagView {
     @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
         let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 10 - 24) / 11))   // play grid = 2 valves + 8 + chevrons = 11 cells
         VStack(spacing: 12) {
-            AnyView(buildTopHeader())                                        // THE TOP HEADER: RECORD · RATE · MIDI CONFIG · RACK CONFIG (Paul 2026-08-23)
             AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
             AnyView(buildStagingColumn(cell: cell))
             AnyView(buildPlayColumn(cell: cell))
@@ -874,7 +866,6 @@ extension DiagView {
         let castW = max(160, colW - 4)                            // the cast + processor boxes FILL the column width
         VStack(alignment: .center, spacing: 8) {
             AnyView(buildColumnButton("PLAY THIS MIDI CHAIN", active: buildDisplayVoice == .chain, fill: .grid, action: { buildRequestWorkshopVoice(buildDisplayVoice == .chain ? .none : .chain) })).padding(.bottom, 6)   // tap = play/STOP the chain; sweeps over the whole scene like the grids (Paul 2026-08-18)
-            if let tell = buildReferenceTell { AnyView(Text(tell).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)) }   // §2 the empty-input TELL: the audition is on the reference chord
             AnyView(buildColourTabs(castW: castW, cell: cell))    // the ROW SELECTOR tabs — above the outlined section
             AnyView(VStack(spacing: 8) {                          // THE OUTLINED MACHINE SECTION: receiver toggles · chain · buttons · emitter toggles (Paul 2026-08-18)
                 AnyView(buildMachineBlock(castW: castW, cell: cell))
@@ -908,15 +899,15 @@ extension DiagView {
     // The verb button stack, right of the MIDI chain. LEFT chevrons (<<<) act on the SELECTED colour's midi chain;
     // RIGHT chevrons (>>>) act on the PART grid. LIBRARY opens the cell library. (Paul 2026-08-18)
     @ViewBuilder private func buildChainButtonStack(width: CGFloat, height: CGFloat) -> some View {
-        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs — grouped + centred (spread reverted, Paul 2026-08-18)
-            buildChainBtn("LIBRARY")   { buildOpenLibrary() }
-            buildChainBtn("GRID")      { buildOpenGridSel() }       // THE GRID SELECTOR — browse chains by ear on an 8×8
-            buildChainBtn("RANDOMIZE") { buildRandomizeSimple() }   // reroll the chain
-            buildChainBtn("MUTATE")    { buildMutateChain() }       // nudge the chain
-            buildChainBtn("CLEAR")     { buildClearChain() }        // empty the chain
+        VStack(spacing: BuildGeom.castGap) {                                  // the CHAIN-scope verbs — SHARE the fixed height (fill:true) so adding GRID never overflows/resizes the chain grid (Paul 2026-08-23)
+            buildChainBtn("LIBRARY", fill: true)   { buildOpenLibrary() }
+            buildChainBtn("GRID", fill: true)      { buildOpenGridSel() }     // THE GRID SELECTOR — browse chains by ear on an 8×8
+            buildChainBtn("RANDOMIZE", fill: true) { buildRandomizeSimple() } // reroll the chain
+            buildChainBtn("MUTATE", fill: true)    { buildMutateChain() }     // nudge the chain
+            buildChainBtn("CLEAR", fill: true)     { buildClearChain() }      // empty the chain
         }
         .frame(width: width)
-        .frame(height: height, alignment: .center)                           // centre VERTICALLY within the chain-block height
+        .frame(height: height, alignment: .center)                           // the stack is EXACTLY this tall (matches the 4-row processor block); the buttons share it
         .frame(maxWidth: .infinity, alignment: .center)                      // centre HORIZONTALLY in the space beside the chain
     }
     // The GRID-scope verbs, below the part grid (the ">>>" moved here from the left stack + dropped from the label). (Paul 2026-08-18)
@@ -942,10 +933,12 @@ extension DiagView {
             }
         }
     }
-    @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+    @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, fill: Bool = false, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
-            .frame(maxWidth: .infinity).frame(height: 33)                     // compact fixed height (Paul 2026-08-18: +50%, 22 → 33)
+            // fill = SHARE the stack's fixed height (so N buttons never overflow it → the chain grid keeps its size,
+            // Paul 2026-08-23); else a compact fixed 33 (the GRID-verb HStack row).
+            .frame(maxWidth: .infinity).frame(maxHeight: fill ? .infinity : nil).frame(height: fill ? nil : 33)
             .background(RoundedRectangle(cornerRadius: 6).fill(buildCell))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildEdge, lineWidth: 1))
             .opacity(enabled ? 1 : 0.35)                                      // DISABLED → dimmed + inert (Paul 2026-08-18)
@@ -1372,14 +1365,8 @@ extension DiagView {
         buildStagingPlaying = false
         buildPublishScene()
     }
-    // §2 in-out-truth: the "no input — reference chord" tell — shown while the chain audition is the voice AND nothing
-    // is held on its door (so the fallback reference chord is what's sounding). nil hides it.
-    private var buildReferenceTell: String? {
-        guard buildDisplayVoice == .chain else { return nil }
-        let door = buildSelectedRow.map { buildRowReceiverResolved($0) } ?? buildSelReceiver
-        let held = (door >= 0 && door < recvHeld.count) && recvHeld[door].contains { $0 > 0 }
-        return held ? nil : "no input · reference chord"
-    }
+    // (The "no input · reference chord" tell was dropped 2026-08-23, Paul. The reference-chord ENGINE — setChainReference
+    // in buildPublishScene — stays; only the on-screen label is gone.)
     // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
     func buildCommitPendingVoice() {
         if let v = buildPendingWorkshopVoice {

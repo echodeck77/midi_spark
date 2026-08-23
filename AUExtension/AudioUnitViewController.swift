@@ -972,7 +972,8 @@ struct DiagView: View {
                        onOpenManual: { showManual = true },                     // "?" → the in-app manual
                        stepIndex: stepIndex, swing: swing,                      // LAYOUT v2: the clock now lives in the header
                        onStep: { au?.setStepRateIndex($0); refreshTiming() },
-                       onSwing: { au?.setSwing($0); refreshTiming() })
+                       onSwing: { au?.setSwing($0); refreshTiming() },
+                       headerExtras: AnyView(buildHeaderControls()))            // BUILD: RECORD · RATE · MIDI/RACK CONFIG in the header (Paul 2026-08-23)
     }
     // §3 PRESETS wiring
     func openPresets() {

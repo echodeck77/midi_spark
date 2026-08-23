@@ -171,10 +171,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   Recorder` vs a standard chord → normalized note bars) with a sweeping playhead; inactive cells are calm hue tiles
   (matches the main grid's idle=hue, active=roll). The right column shows the selected chain's piano-roll. `gridSelRoll
   Bars` is pure/Foundation so it runs off-thread. **(3) QUANTIZE default → INSTANT** (`buildGridSelQuantStep = false`):
-  tapping a cell switches instantly. **(4) MAIN-PAGE TOP HEADER:** `buildBottomBar` → `buildTopHeader`, moved from the
-  bottom of the left column to a page-spanning ROW above the three columns (landscape + portrait) — RECORD (reel) · RATE
-  · MIDI CONFIG · RACK CONFIG. v1 note (flagged): inactive grid-selector cells show only hue (no static fingerprint) —
-  static per-cell piano-rolls for all cells would need 64 offline renders per deal; the active-cell roll is the ask.**
+  tapping a cell switches instantly. **(4) MAIN-PAGE TOP HEADER:** RECORD (reel) · RATE · MIDI CONFIG · RACK CONFIG moved
+  out of the bottom-left cluster INTO THE ACTUAL TOP HEADER (`ArrangementBar`, via a new `headerExtras: AnyView` slot the
+  VC fills with `buildHeaderControls()`), RESCALED to header size (reel 36→22, rate 19→13, config 92×33→52×26 with MIDI/
+  RACK labels). v1 note (flagged): inactive grid-selector cells show only hue (no static fingerprint) — static per-cell
+  piano-rolls for all cells would need 64 offline renders per deal; the active-cell roll is the ask.
+- **▶ GRID-SELECTOR/HEADER FOLLOW-UPS (2026-08-23, on `main`; iOS builds; UI-only). Paul's three tweaks: (a) the four
+  controls now sit IN the top header bar (see above — first pass wrongly made a page row); (b) DROPPED the "no input ·
+  reference chord" tell (`buildReferenceTell` display removed — the reference-chord ENGINE stays); (c) the "GRID" button
+  no longer resizes the chain grid — `buildChainBtn` gained a `fill` option so the 5 chain verbs SHARE the stack's fixed
+  height (was fixed 33 each → 5 overflowed the 4-row frame on smaller layouts, shrinking the derived cell). Chain grid
+  keeps its size.**
 - **▶ THE GRID SELECTOR — the full-page 8×8 chain browser, v1 (2026-08-23, on `main`; iOS builds; UI-only, DEVICE
   eye/ear owed). `AcceptanceCriteria-grid-selector.md` (ratified). A "GRID" button beside LIBRARY opens an 8×8 where each
   cell = a COMPLETE MIDI chain drawn as its mosaic fingerprint; TAP auditions it live against the current input via the

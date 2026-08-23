@@ -34,6 +34,7 @@ struct ArrangementBar: View {
     var swing: Int = 50
     var onStep: (Int) -> Void = { _ in }     // AUParameter 0 (step rate index)
     var onSwing: (Int) -> Void = { _ in }    // AUParameter 1 (swing %)
+    var headerExtras: AnyView = AnyView(EmptyView())   // BUILD's header controls (RECORD · RATE · MIDI/RACK CONFIG), embedded in the bar (Paul 2026-08-23)
 
     // The bar's own interactive/derived state (was 8 @State vars scattered in the VC).
     @State private var pendingScene: Int? = nil       // armed switch (fires at the next pass start)
@@ -61,6 +62,7 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
+                headerExtras                                                       // BUILD: RECORD · RATE · MIDI/RACK CONFIG (Paul 2026-08-23)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
                 swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
