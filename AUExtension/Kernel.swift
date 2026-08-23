@@ -392,21 +392,26 @@ final class Kernel {
     // pass its filter. Refreshed each render into a fixed buffer (display-only, best-effort like the meters);
     // the UI reads it so a held-chord line/mark shows WHILE the chord is down and vanishes on release. A muted
     // receiver (filter ≥ 17) matches nothing → empty, as it should.
-    private var recvHeldVel = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)
-    private var recvHeldNote = [[UInt8]](repeating: [UInt8](repeating: 0, count: 12), count: 4)   // parallel PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
+    // FLATTENED to 4×12 VALUE arrays (index i*12+k) — NOT nested [[UInt8]] (Paul 2026-08-24, code-review CR-1). A nested
+    // array's per-element render write (`recvHeldVel[i][k] = v`) churns the INNER buffer's refcount while the ~4Hz poll
+    // reads that same inner slot → the documented SIGTRAP freelist-corruption race. A flat value array has no inner-array
+    // ARC, so the only residual race is a benign torn value (a stale meter byte). Mirrors the Router's flat feeds.
+    private var recvHeldVel = [UInt8](repeating: 0, count: 4 * 12)
+    private var recvHeldNote = [UInt8](repeating: 0, count: 4 * 12)   // parallel PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     private var recvHeldCount = [Int](repeating: 0, count: 4)
+    private var hearingScratch = [Bool](repeating: false, count: 4)   // CR-16: reused so handleIncoming's controller-forward doesn't heap-allocate a [Bool] per event (invariant 3)
     // the header DOT: bit i = a LIVE (never latch) accepted note held on receiver i. A SCALAR mask, published in one
     // store — NOT a shared array. (A [Bool] returned by reference and retained by the UI kept the Kernel's buffer
     // persistently shared, so the render thread's per-element write triggered copy-on-write + a refcount race →
     // EXC_BAD_ACCESS in _swift_release_dealloc on the poll's next @State assignment. The mask can't corrupt a buffer.)
     private var recvLiveHeldMask: UInt8 = 0
     func pollReceiverSounding() -> [[UInt8]] {
-        var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldVel[i][0..<recvHeldCount[i]])) }
+        var out = [[UInt8]](); for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); out.append(Array(recvHeldVel[i*12 ..< i*12 + c])) }
         return out
     }
     /// The PITCHES currently held per door (a fresh copy — race-safe like pollReceiverSounding). Drives the REPLAY roll.
     func pollReceiverSoundingNotes() -> [[UInt8]] {
-        var out = [[UInt8]](); for i in 0..<4 { out.append(Array(recvHeldNote[i][0..<recvHeldCount[i]])) }
+        var out = [[UInt8]](); for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); out.append(Array(recvHeldNote[i*12 ..< i*12 + c])) }
         return out
     }
     func pollReceiverLiveHeld() -> UInt8 { recvLiveHeldMask }
@@ -431,8 +436,8 @@ final class Kernel {
             let n = src.srcCount(chanMask: chMask, cableMask: cable)
             for k in 0..<n where recvHeldCount[i] < 12 {
                 let note = src.srcAscending(k, chanMask: chMask, cableMask: cable)
-                recvHeldNote[i][recvHeldCount[i]] = note
-                recvHeldVel[i][recvHeldCount[i]] = src.velocity(note); recvHeldCount[i] += 1
+                recvHeldNote[i*12 + recvHeldCount[i]] = note
+                recvHeldVel[i*12 + recvHeldCount[i]] = src.velocity(note); recvHeldCount[i] += 1
             }
         }
         recvLiveHeldMask = liveMask   // one scalar publish → the render→main boundary can't corrupt a COW buffer
@@ -669,7 +674,7 @@ final class Kernel {
         // monotone on those edges. A normal block advances beatPos by ~renderWindowBeats, so any backward move or a
         // forward jump ≫ one block is a discontinuity. The captured LOOP is left alone (it stays grid-aligned).
         let startEdge = playing && !prevRenderPlaying
-        let jumped = playing && prevRenderPlaying && (beatPos < prevRenderBeatPos - 1e-6 || beatPos - prevRenderBeatPos > 1.0)
+        let jumped = playing && prevRenderPlaying && (beatPos < prevRenderBeatPos - 1e-6 || beatPos - prevRenderBeatPos > max(1.0, 4.0 * renderWindowBeats))   // CR-12: scale with the block span — a NORMAL block advances ~renderWindowBeats, so a fixed >1.0 mis-fired every block at high tempo × large buffer (starved REPLAY capture)
         if startEdge || jumped { for r in 0..<4 { doorRings[r].clearHistory() } }
         prevRenderBeatPos = beatPos; prevRenderPlaying = playing
 
@@ -920,10 +925,8 @@ final class Kernel {
         // + system keep the passthrough below. (Ownership suppression — a BEND/MOD stage owning an address — is the
         // reserved rule, not v1: for now forward + generate both, last-writer.)
         if isForwardableController(bytes[0]), let out = midiOut {
-            var hearing = [false, false, false, false]
-            for i in 0..<4 where receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable)
-                              && receiverHearsMask(receiverChanMask[i], channel: channel) { hearing[i] = true }
-            let fwd = controllerForwardMask(hearing: hearing, masks: receiverControllerMask)
+            for i in 0..<4 { hearingScratch[i] = receiverHearsCable(mask: Int(receiverCables[i]), eventCable: cable) && receiverHearsMask(receiverChanMask[i], channel: channel) }   // CR-16: reused scratch (no per-event alloc)
+            let fwd = controllerForwardMask(hearing: hearingScratch, masks: receiverControllerMask)
             if fwd != 0 {
                 let n = min(length, 3)
                 for i in 0..<n { passthroughScratch[i] = bytes[i] }

@@ -723,7 +723,7 @@ struct DiagView: View {
             for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 { receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date() }
         }
         .onReceive(timer) { _ in
-            guard let au else { return }
+            guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
             buildPersistTick()   // BUILD: keep the saved unassigned part current + restore a just-loaded one (no-op off BUILD)
             #if DEBUG
             if chaosOn { let s = "\(chaos.oracleFlag) · \(chaos.eventCount)e"; if s != chaosStatus { chaosStatus = s } }   // CHAOS oracle readout
