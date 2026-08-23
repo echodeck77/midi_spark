@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ FRESH SESSION "PLAYS CHORDS FROM NOWHERE" FIXED — reference-chord fallback REMOVED + audition no longer auto-engages
+  (2026-08-23, on `main`; iOS builds, macOS green; DEVICE ear owed). Paul: a fresh session played a REPEATING CHORD with
+  NO input — not on the receiver velocity strip but on the emitter in the selected row's YELLOW. ROOT CAUSE (traced via a
+  reader agent): the BUILD chain audition AUTO-ENGAGED on appear (`onAppear` → `buildSelectMachineVoice` → `ddSolo`), which
+  ARMED the REFERENCE-CHORD fallback — a FIXED C-E-G triad `effectivePool` injected whenever the live pool was empty —
+  and sounded it through the just-selected EMPTY colour (a `.retrig` passthrough that re-strikes every column) → a
+  synthetic C-major triad repeating on the yellow emitter, invisible to the receiver strip (it's not real input). TWO
+  fixes: **(1) the reference-chord fallback is REMOVED ENTIRELY** (Paul: "should never be part of the user experience") —
+  Router `refPool`/`refChordDoor`/`referenceSet`/`setChainReference`/`clearChainReference` + the `effectivePool` branch +
+  the three emit-guard `|| referenceSet` clauses + the Kernel/AU wrappers + `buildPublishScene`'s arming + the RouterTest,
+  all deleted. Dice's offline chain evaluation feeds a REAL held chord (not `refPool`), so nothing internal depended on it.
+  **(2) the chain audition NO LONGER AUTO-ENGAGES on landing on BUILD** (`onAppear` seeds the cast only, no `ddSolo`) — it
+  sounds ONLY when the user presses PLAY THIS MIDI CHAIN, and then only REAL input (silent with nothing held). A fresh
+  session is now quiet with no input; playing passes straight through the makeInit GOLD `.drone` cells (legato sustain).
+  Supersedes the 2026-08-23 "AUDITION FALLBACK — reference chord" entry below (that feature is GONE).**
 - **▶ THRU MODE + "play straight" DEFAULT + live-along for KEYS/REPLAY/FILE + channel caption (2026-08-23, on `main`; iOS
   builds, macOS 838 green incl. fuzz; DEVICE ear/eye owed). Paul: a fresh app "defaults to some kind of hold instead of
   just playing through." ROOT CAUSE (diagnosed, not the door): `makeInit` placed 4 GOLD cells whose colour is `type:.arp`

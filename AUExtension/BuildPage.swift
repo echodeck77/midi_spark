@@ -1404,8 +1404,8 @@ extension DiagView {
         buildStagingPlaying = false
         buildPublishScene()
     }
-    // (The "no input · reference chord" tell was dropped 2026-08-23, Paul. The reference-chord ENGINE — setChainReference
-    // in buildPublishScene — stays; only the on-screen label is gone.)
+    // (The reference-chord fallback — engine + UI — was REMOVED 2026-08-23, Paul: a synthetic chord must never reach
+    // the user. PLAY THIS MIDI CHAIN sounds only real input; silent when nothing is held.)
     // Apply an armed voice switch at a cell boundary (or on transport stop). Called from the VC.
     func buildCommitPendingVoice() {
         if let v = buildPendingWorkshopVoice {
@@ -1463,9 +1463,8 @@ extension DiagView {
         input.stagingLane = buildStagingLane                     // PER-ROW LAP: the two grids loop independently
         input.performLane = buildPerformLane
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
-        // AUDITION FALLBACK (§2 in-out-truth, Paul 2026-08-23): while the chain is the voice, feed a reference chord to
-        // its door so PLAY THIS MIDI CHAIN never sounds silent with nothing held (real input always wins). Cleared otherwise.
-        if ddSolo { au?.setChainReference(door: input.chainReceiver) } else { au?.clearChainReference() }
+        // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
+        // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {

@@ -287,9 +287,6 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     /// UI gesture — writes the render-thread target only, never the document (no rebuild, not persisted).
     func setAudition(col: Int, row: Int) { kernel.setAudition(col * 8 + row) }
     func clearAudition() { kernel.setAudition(-1) }
-    // AUDITION FALLBACK (§2 in-out-truth, Paul 2026-08-23): arm/clear the reference chord for the BUILD chain audition.
-    func setChainReference(door: Int) { kernel.setChainReference(door: door) }
-    func clearChainReference() { kernel.clearChainReference() }
     // PREVIEW / cell audition (Phase 2): the staged VIRTUAL cell renders solo while PREVIEW is held.
     func setPreview(colourIndex: Int, filter: Int, busMask: UInt8, inputRow: Int) {
         kernel.setPreview(colourIndex: colourIndex, filter: filter, busMask: busMask, inputRow: inputRow)

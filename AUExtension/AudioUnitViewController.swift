@@ -856,7 +856,11 @@ struct DiagView: View {
         .environment(\.animationsPaused, animationsPaused)
         .onAppear {
             uiAppeared = true
-            if activeTab == .build && !buildStagingPlaying { buildSelectMachineVoice() }   // land on BUILD already SOLOing the machine — never the whole grid
+            // Seed the cast, but do NOT auto-engage the chain audition (Paul 2026-08-23). The auto-solo armed the
+            // REFERENCE CHORD (a fixed C-E-G triad the audition injects when no keys are held) and sounded the selected
+            // (empty, .retrig-passthrough) colour — so a fresh session "played chords from nowhere" before the user built
+            // anything. The audition now sounds ONLY when the user explicitly presses PLAY THIS MIDI CHAIN.
+            if activeTab == .build { buildSeedCastIfNeeded() }
         }
         .onDisappear { uiAppeared = false }
         .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // keep the playhead anchor fresh on EVERY tab (BUILD sweep, not just DRAG&DROP)

@@ -627,43 +627,8 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(post); assertNothingLeftSounding(pre)
     }
     // UTILITY — CHANNEL (Paul 2026-08-22): the cell exits on a chosen MIDI channel; WIRE keeps the bus stamp.
-    // AUDITION FALLBACK (§2 in-out-truth, Paul 2026-08-23): the chain audition sounds a REFERENCE CHORD through the
-    // chain when no live input is held — so "PLAY THIS MIDI CHAIN" never appears broken. Only when the live pool is
-    // empty (real input always wins); ephemeral, per-door. Proven: no-ref = silent · ref = the chain arps the triad.
-    func testChainReferenceFallbackSoundsOnlyWhenNothingIsLive() {
-        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
-            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0   // reads door R1 (resolvedReceiver = 0)
-                var arp = ProcessorSlot(type: .arp); arp.params.rate = .r1_8; arp.params.pattern = .up; arp.params.octaves = 1
-                c.processors = [arp]; return c }()
-            return s }()])
-        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]   // door 0 OMNI — so inputReceiver 0 resolves
-        let b = SnapshotBuilder.build(from: st)
-        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
-        let wb = Double(frames) * tempo / 60.0 / sr
-        func drive(reference: Bool, live: NotePool, windows: Int) -> RecordingEmitter {
-            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
-            if reference { router.setChainReference(door: 0) }
-            var beat = 0.0, ts = 0.0
-            for _ in 0..<windows {
-                router.process(box: b, pool: live, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-                beat += wb; ts += Double(frames)
-            }
-            router.process(box: b, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-            return e
-        }
-        let noRef = drive(reference: false, live: NotePool(), windows: 8)
-        XCTAssertTrue(noRef.ons.filter { $0.cable == 1 }.isEmpty, "no live input + no reference → the audition is silent (the bug the fallback fixes)")
-        let ref = drive(reference: true, live: NotePool(), windows: 8)
-        let refNotes = ref.ons.filter { $0.cable == 1 }
-        XCTAssertFalse(refNotes.isEmpty, "the reference chord drives the chain when nothing is live")
-        XCTAssertTrue(refNotes.allSatisfy { [0, 4, 7].contains(Int($0.note) % 12) }, "the audition arps the C-major reference triad (60/64/67)")
-        assertNothingLeftSounding(ref)
-        // real input WINS: with a held chord, the reference does NOT override (the live pool feeds the chain).
-        let liveHeld = drive(reference: true, live: chord([50, 55]), windows: 8)
-        let liveNotes = Set(liveHeld.ons.filter { $0.cable == 1 }.map { Int($0.note) % 12 })
-        XCTAssertTrue(liveNotes.contains(2) || liveNotes.contains(7), "live input (D/G = pc 2/7) drives the chain, not the reference")
-        assertNothingLeftSounding(liveHeld)
-    }
+    // (The reference-chord AUDITION FALLBACK was REMOVED 2026-08-23, Paul — a synthetic chord must never reach the user;
+    // its test went with it. The audition now sounds only real input, silent when nothing is held.)
     // review 2026-08-23: [CHANNEL→ECHO] — the dry AND its repeats sound on the cell's OWN channel (not a stale
     // neighbour's, not the wire). The dry uses cellChanOverride (registerEcho); the tails carry EchoTail.chan.
     func testChannelEchoSoundsEntirelyOnTheCellsChannel() {

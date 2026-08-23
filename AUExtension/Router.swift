@@ -430,24 +430,12 @@ final class Router {
     /// disabled — the point of "close the door, keep the room"); else, if the door is DISABLED (not listening),
     /// nothing; else the live pool. A row-fed cell (recv −1) always reads live (its root's latch reaches it via
     /// parentSoundingNote). Mute is handled upstream (the cell's match-nothing filter kills even the frozen read).
-    // AUDITION FALLBACK (§2 in-out-truth, Paul 2026-08-23): a FIXED reference chord fed to ONE door so the BUILD chain
-    // audition ("PLAY THIS MIDI CHAIN") never sounds silent when nothing is held. Only kicks in when the LIVE pool is
-    // empty (real input always wins). Ephemeral (never persisted). THREAD-SAFE: `refPool` is built ONCE and never
-    // mutated; the only main→render state is the scalar `refChordDoor` (a torn Int read is benign — worst case one
-    // render uses the stale door). v1 SCOPE: per-DOOR — a concurrent piece on the same door also hears it (per-row
-    // scope is a follow-up needing a SnapCell marker). The UI shows a "reference chord" tell.
-    private(set) var refChordDoor: Int = -1
-    private let refPool: NotePool = { let p = NotePool(); for n in [UInt8(60), 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted(); return p }()   // a fixed C-major triad
-    private var referenceSet: Bool { refChordDoor >= 0 }   // opens the emit guards when the live pool is empty
-    func setChainReference(door: Int) { refChordDoor = (door >= 0 && door < 4) ? door : -1 }
-    func clearChainReference() { refChordDoor = -1 }
     private func effectivePool(for cell: SnapCell, live: NotePool) -> NotePool {
         let r = cell.resolvedReceiver
         if r >= 0 {
             if receiverBypassMask & (1 << UInt8(r)) != 0 { return emptyPool }   // BYPASS: the door skips the grid (its stream injects to emitters instead)
             if latchMask & (1 << UInt8(r)) != 0, Int(r) < latchedPools.count { return latchedPools[Int(r)] }
             if receiverDisabledMask & (1 << UInt8(r)) != 0 { return emptyPool }   // not armed + not listening → silent
-            if refChordDoor >= 0 && Int(r) == refChordDoor && live.count == 0 { return refPool }   // AUDITION FALLBACK: no live input → the reference chord (never when real input is held)
         }
         return live
     }
@@ -1431,7 +1419,7 @@ final class Router {
         // feeds its subscribers even with no keys down (effectivePool). Non-subscribing cells read the empty live
         // pool → emit nothing, so opening the gate for the latch is safe. (Without this, the release of the keys
         // emptied the live pool and the whole hold loop was skipped — the latch "did nothing".)
-        if pool.count > 0 || latchMask != 0 || referenceSet {   // referenceSet: the audition reference chord feeds the ref door's holds when nothing's live
+        if pool.count > 0 || latchMask != 0 {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
             var cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
@@ -1562,7 +1550,7 @@ final class Router {
     private func emitEchoColumn(box: SnapshotBox, column: Int, pool: NotePool, pass: Int, S: Double, a: Double, tempo: Double,
                                mNow: Double, beatPos: Double, beatsPerSample: Double, windowStart: Int64,
                                windowEnd: Int64, out: MIDIEmitter?, onlyRow: Int? = nil, diag: inout KernelDiag) {
-        guard pool.count > 0 || latchMask != 0 || referenceSet else { return }
+        guard pool.count > 0 || latchMask != 0 else { return }
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                 windowStart: windowStart, S: S, a: a)
@@ -2160,7 +2148,7 @@ final class Router {
             }
         }
 
-        guard pool.count > 0 || latchMask != 0 || referenceSet else {   // latch/reference: a frozen or reference pool drives the TICK (arp) cells with no keys down
+        guard pool.count > 0 || latchMask != 0 else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 
