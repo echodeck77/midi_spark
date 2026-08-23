@@ -751,7 +751,7 @@ final class Kernel {
         if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
         if reelSelectRequest != Int.min {                          // the pop-up tapped a pass: pin it + REPLAY NOW (replace live output)
             let p = reelSelectRequest; reelSelectRequest = Int.min
-            if reel.selectPass(p) { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
+            if reel.selectPass(p) { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // reel REPLACES live output → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
         }
         if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
             reelStopRequest = false
@@ -766,7 +766,7 @@ final class Kernel {
         let reelPass = playing ? Int((beatPos / max(0.0001, reelCycleBeats)).rounded(.down)) : Int.min
         if playing, reelPass != reelLastPass {                     // pass boundary
             if reelRecordFromStart && !reelFrozen { reel.promote() }   // file ONLY a pass recorded start→finish, uninterrupted by reel mode
-            if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter) }
+            if reel.state == .armed { reel.state = .replaying; router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter, includeBypass: true) }   // armed→replaying: flush the live WIRE/bypass monitor too (see above)
             reel.startPass(); reelLastPass = reelPass
             reelRecordFromStart = playing && !reelFrozen           // will the NEW pass record from its start? (partial/frozen passes never file)
         }
