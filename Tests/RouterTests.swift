@@ -348,6 +348,30 @@ final class RouterTests: XCTestCase {
     // column, not gate off after one column. Forcing the column held the cell but emitColumnHolds only fired on the
     // (never-repeating) transition, so a NON-legato hold sounded one column then went silent — while the palette
     // still showed its colour "running". The fix re-runs the holds every window (immortal + adopted) under forceColumn.
+    // pending-tasks E / 2026-08-23 adversarial hunt: PLAY: THIS CELL (forceColumnHold) on a SELF-COLLIDING harmonize —
+    // {60,67}+7 fans 60's +7 onto 67's root — leaked a fresh immortal voice EVERY reconcile window: adoptLegatoBus
+    // un-marked BOTH colliding pairs on the first source's call, so the second source found none and re-struck. It
+    // machine-gunned and grew toward the voice cap under audition. The fix adopts one own+All pair per call, so the
+    // colliding wire is struck once then HELD (adopted), not re-struck each window.
+    func testForceColumnSelfCollidingHarmonizeDoesNotLeakVoices() {
+        var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
+        cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [7, 0, 0]   // +7: 60→67 collides with 67's root
+        let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let pool = chord([60, 67]); let frames: UInt32 = 2048, tempo = 120.0, sr = 48_000.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        var windows = 0
+        while beat < 8.0 {   // ~94 frozen-column reconcile windows — a per-window re-strike would show as ~94 ons on 67
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += wb; ts += Double(frames); windows += 1
+        }
+        let collidingOns = e.ons.filter { $0.cable == 1 && $0.note == 67 }.count
+        XCTAssertLessThan(collidingOns, 6, "the colliding harmony wire is held (adopted), not machine-gunned once per window (\(windows) windows, \(collidingOns) ons)")
+        XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { $0.note }), [60, 67, 74], "the +7 harmony sounds exactly {60,67,74}")
+        router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     func testForceColumnSustainsAHoldCell() {
         var cs = arpColours(); cs[colourIDs.firstIndex(of: "gold")!].type = .passgate   // identity hold (all-open, .retrig = non-legato)
         let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
@@ -507,6 +531,40 @@ final class RouterTests: XCTestCase {
     // PLAY: THIS CELL for a HARMONIZE cell (user 2026-08-10: "works on gold, not on orange"): harmonize is a HOLD
     // mode whose emitHarmony path wasn't adoptable, so under the frozen column it played one column then rested.
     // The fix makes each harmony voice immortal + adopted under forceColumn, so it sustains like an identity hold.
+    // pending-tasks E (HARMONIZER hung-note): GUARD for the fan-out COLLISION + live interval change. HARMONIZE's fan-out
+    // can collide two source notes onto one wire note ({60,67}+7 → 60's +7 = 67 collides with 67's root; 67's +7 = 74);
+    // a live INTERVAL CHANGE mid-sustain (no scene-flush) re-shapes the harmony at the next boundary. This path is CLEAN:
+    // mid-column the sounding wire set is exactly the current harmony (refcount-balanced), and nothing is stuck after
+    // stop. (The device-reported transient hung-note was NOT reproducible via this scenario — see the 2026-08-23 hunt.)
+    func testHarmonizeCollisionNoStuckNoteAcrossIntervalChange() {
+        let gi = colourIDs.firstIndex(of: "gold")!
+        func mk(_ iv: [Int]) -> SnapshotBox {
+            var cs = arpColours(); cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = iv
+            return box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        let held = chord([60, 67])
+        func render(_ b: SnapshotBox, playing: Bool, pool: NotePool) {
+            router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let a = mk([7, 0, 0])   // +7 on {60,67} → wire {60,67,74} (67 emitted by BOTH 60's +7 and 67's root — collision)
+        for _ in 0..<7 { render(a, playing: true, pool: held) }                 // ~0.6 beats — clearly mid the first column (harmony ON, off in the future)
+        func soundingSet() -> Set<Int> {   // wire notes whose LAST emitted event on cable 1 is an ON (refcount-safe)
+            var lastOn: [UInt8: Bool] = [:]
+            for ev in e.events where ev.cable == 1 {
+                if ev.status == 0x90 && ev.vel > 0 { lastOn[ev.note] = true } else if ev.status == 0x80 || ev.vel == 0 { lastOn[ev.note] = false }
+            }
+            return Set(lastOn.filter { $0.value }.keys.map { Int($0) })
+        }
+        XCTAssertEqual(soundingSet(), [60, 67, 74], "mid-column, the +7 harmony of {60,67} sounds exactly {60,67,74}")
+        for _ in 0..<24 { render(mk([5, 3, 0]), playing: true, pool: held) }    // interval change mid-sustain (no flush)
+        for _ in 0..<7 { render(mk([5, 3, 0]), playing: true, pool: held) }
+        render(mk([5, 3, 0]), playing: false, pool: NotePool())                 // release + stop
+        assertNothingLeftSounding(e)
+    }
     func testForceColumnSustainsAHarmonizeCell() {
         var cs = arpColours(); let gi = colourIDs.firstIndex(of: "gold")!
         cs[gi].type = .harmonize; cs[gi].paramsA.harmIntervals = [4, 7, 0]   // 60 → 60/64/67

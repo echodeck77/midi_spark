@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ HARMONIZE self-collision LEAK FIXED + hung-note ROOT-CAUSE HUNT (2026-08-23, on `main`; macOS green incl. fuzz,
+  Router-only so iOS unaffected; DEVICE ear owed for the audition). Chasing the long-open device-reported HARMONIZE
+  hung-note (pending-tasks E), I ran an adversarial 4-LENS HUNT WORKFLOW over `emitHarmony`/`openVoice`/`closeVoice`/
+  the refcount + a repro test. VERDICT: the NORMAL-PLAYBACK path is CLEAN — all four leak modes (fan-out collision vs
+  refcount · drainDue-vs-strike boundary ordering · live interval change without a scene-flush · on/off WIRE divergence
+  via fence/octave/masterKey) traced to SAFE with line citations, and a repro ({60,67}+7 collision + mid-sustain
+  interval change) shows the sounding set stays refcount-balanced, nothing stuck. So the reported transient hung-note is
+  NOT reproducible off-device → device-timing-specific (render-block/note-tracker); it stays open, owing a device repro.
+  **The hunt DID surface a SEPARATE real bug, now FIXED:** `adoptLegatoBus` un-marked EVERY candidate matching
+  (note,bus,ci,alt), so under a SELF-COLLIDING harmonize (two source notes fanning to the same wire, e.g. 60's +7 == 67's
+  root) auditioned via PLAY: THIS CELL (forceColumnHold), the first source's call un-marked BOTH colliding pairs → the
+  second found none → it re-struck a fresh IMMORTAL voice EVERY reconcile window (machine-gun + voice/refcount leak toward
+  the 128 cap). FIX: adopt exactly ONE strike's worth per call — one own-cable + one All-cable copy, preferring a real
+  voice over a CLAIM ghost — so colliding pairs are adopted separately. Byte-identical for the non-colliding + identity/
+  drone paths (they never self-collide). +2 RouterTests: a leak repro (62 re-strikes over 94 windows pre-fix → <6 post,
+  verified by stashing the fix) + a collision/interval-change GUARD; the existing PLAY: THIS CELL harmonize tests stay
+  green. The confident-hunt pattern again: no off-device bug where one was suspected, but a real adjacent one caught.**
 - **▶ AUDITION FALLBACK — the chain audition sounds a REFERENCE CHORD when nothing's held (2026-08-23, on `main`;
   macOS green, iOS builds; DEVICE eye/ear owed for the tell + feel). §2 of `AcceptanceCriteria-in-out-truth-strips.md`
   (ratified). BUILD's "PLAY THIS MIDI CHAIN" was SILENT with no input (the injected row reads an empty live pool → both

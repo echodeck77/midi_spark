@@ -525,12 +525,17 @@ The whole accumulated GUI + engine stack was run on device and ACCEPTED. Cleared
 
 ## E. Architecture debt (opportunistic, all accepted)
 - [ ] §6a CLAIM L3 residual (short-note All `on,off,on,off`) · `TODO(spec §7)` param route (writes doc then rebuilds) · `Cell.stack`/`srcMix` kept load-bearing for the v2→v3 migration.
-- [ ] **HARMONIZER hung-note ROOT CAUSE** (user-reported device bug, 2026-07-31) — the §a8b playing-time net now
-  auto-clears it within ~1 s (safety net, committed), but the underlying leak is NOT fixed. HARMONIZE emits
-  root + up to 3 interval voices per source note with column-boundary offs (Router `emitHarmony`); a missed/late
-  off leaves a stuck wire note. Suspect the close-vs-reemit ordering at a column boundary or a refcount imbalance
-  amplified by harmonize's fan-out (4× voices vs identity's 1×). Repro on device, then trace `emitHarmony` →
-  `emitArtic`/`openVoice` refcount across a column transition + a live interval change while a chord sustains.
+- [~] **HARMONIZER hung-note ROOT CAUSE** (user-reported device bug, 2026-07-31) — the §a8b playing-time net auto-clears
+  it within ~1 s (safety net, committed). **INVESTIGATED 2026-08-23 (adversarial 4-lens hunt + repro tests):** the
+  NORMAL-PLAYBACK harmonize path is CLEAN — all four leak modes (fan-out collision vs refcount · drainDue-vs-strike
+  boundary ordering · live interval change without flush · on/off wire divergence via fence/octave/masterKey) were
+  traced to safe with line citations, and a repro test (collision {60,67}+7 + mid-sustain interval change) shows the
+  sounding set stays refcount-balanced with nothing stuck. The reported transient hung-note was **NOT reproducible
+  off-device** → it is device-timing-specific (render-block/note-tracker), still owed a device repro to pin.
+  **The hunt DID find + FIX a separate real bug** (`adoptLegatoBus` over-un-marking under a SELF-COLLIDING harmonize
+  auditioned via PLAY: THIS CELL — a per-window immortal-voice/refcount leak that machine-guns toward the voice cap;
+  62 re-strikes over 94 windows → <6 after the fix, adopt one own+All pair per call). +2 RouterTests. Root-cause work
+  is thus advanced but the ORIGINAL device symptom remains open (needs the device repro).
 
 ## F. Codebase-review carry-over (§12, 2026-08-16)
 The currently-open medium/large work captured in `Docs/codebase-review-2026-08-16.md §12` (and CLAUDE.md status) that

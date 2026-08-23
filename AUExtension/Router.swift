@@ -903,13 +903,27 @@ final class Router {
     /// own cable + its All copy, both cleared). Returns true iff ≥1 matched, in which case the caller does
     /// NOT re-emit on this bus: the existing voices flow through the boundary with no off/on (the drone).
     private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int8, alt: Bool) -> Bool {
-        var found = false
+        // Adopt exactly ONE strike's worth — one own-cable copy + one All-cable copy (a strike opens exactly those two
+        // per bus). Un-marking EVERY match would break a SELF-COLLIDING harmonize (two source notes fanning to the same
+        // wire on one bus, e.g. {60,67}+7 → 60's +7 == 67's root): the first voice's call would un-mark BOTH pairs, the
+        // second source's call would then find none, and it would re-strike a fresh immortal voice EVERY window — a
+        // per-window voice/refcount leak that machine-guns and grows to the voice cap under PLAY: THIS CELL. Pairing
+        // one-per-cable adopts each colliding pair separately. Prefer a real (non-silent) voice over a CLAIM ghost so a
+        // ghost is never adopted in a real voice's place and then stranded. Byte-identical for the non-colliding case
+        // (one own + one All exist → both un-marked → found) and the identity/drone path (never self-collides).
+        var ownIdx = -1, allIdx = -1
         for i in voices.indices where holdCandidate[i]
             && voices[i].note == wire && voices[i].bus == bus
             && voices[i].colourIndex == ci && voices[i].alt == alt {
-            holdCandidate[i] = false
-            found = true
+            if voices[i].cable == 0 {
+                if allIdx < 0 || (voices[allIdx].silent && !voices[i].silent) { allIdx = i }
+            } else {
+                if ownIdx < 0 || (voices[ownIdx].silent && !voices[i].silent) { ownIdx = i }
+            }
         }
+        var found = false
+        if ownIdx >= 0 { holdCandidate[ownIdx] = false; found = true }
+        if allIdx >= 0 { holdCandidate[allIdx] = false; found = true }
         return found
     }
 
