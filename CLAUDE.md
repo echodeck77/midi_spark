@@ -183,9 +183,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   applied at capture) but KEEP the cell's velocity window + chord split (cell processing). BYTE-IDENTICAL for the LIVE
   pool (omniRead=false) — a cell's channel mask always equals its door's CAPTURE mask, so OMNI-read == filtered-read
   except after a post-capture mask change (the fix). +1 RouterTest (omniRead plays an excluded-channel frozen note ·
-  omniRead-off drops it). Covers ALL frozen modes (LATCH/REPLAY/FILE). NOTED: the arp path filters LIVE input by the
-  legacy single `inputChannel` (OMNI for a multi-channel-masked door), not `inputChanMask` — a pre-existing multi-channel
-  gap for arps on LIVE input, unchanged here.**
+  omniRead-off drops it). Covers ALL frozen modes (LATCH/REPLAY/FILE).**
+- **▶ ARP MULTI-CHANNEL on LIVE input — the pre-existing gap, FIXED (2026-08-23, on `main`; iOS builds, macOS green incl.
+  fuzz; DEVICE ear owed). Follows the replay-channel fix (which surfaced it): the arp source-pick filtered LIVE input by
+  the legacy SINGLE `cell.inputChannel` (0 = OMNI for a multi-channel-masked door), so an arp IGNORED a door's channel
+  MASK on live input (a hold honored it via `inputChanMask`; an arp didn't). FIX: `arpPick`/`arpPickSource` gained a
+  channel-MASK base (the single-`filter` overload delegates via a byte-identical 0→OMNI / n→bit-(n−1) conversion), and
+  the `for: cell` path now filters by `cell.inputChanMask` (frozen omniRead pools still read whole). Added mask-based
+  `NotePool.srcPlayed(chanMask:)` for the AS-PLAYED pattern. BYTE-IDENTICAL for single-channel/OMNI doors (mask == the
+  single-channel filter); only multi-channel doors change (now honored). +1 RouterTest (an arp on a door hearing ch 1+3
+  drops ch 2 live input). The whole RouterTests + Acceptance suite + fuzz stay green (determinism + no-stuck-notes hold).**
 - **▶ TOP-HEADER polish + MIDI OUT button (2026-08-23, on `main`; iOS builds; UI-only, DEVICE eye owed). Paul's header
   asks. (1) The header MENU BUTTONS are WIDER/more prominent (`buildConfigButton` 52→84 wide, font 10→11, cyan keyline).
   (2) RECORD (reel) moved to the TOP-RIGHT CORNER — `headerExtras` now renders AFTER `cogOrCan` in the ArrangementBar, and

@@ -3162,6 +3162,33 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(run(omni: true).contains(60), "omniRead: the frozen loop plays even though the cell's channel mask now EXCLUDES its channel")
         XCTAssertFalse(run(omni: false).contains(60), "omniRead OFF re-filters by the (changed) mask and DROPS the note — the old bug, proving omniRead is the fix")
     }
+    // MULTI-CHANNEL arp on LIVE input (Paul 2026-08-23): an arp on a door hearing channels {1,3} must DROP channel-2
+    // live input — the arp source-pick now filters by the door's channel MASK (was the legacy single inputChannel,
+    // which is OMNI for a multi-channel door, so the mask was ignored on live input).
+    func testArpHonoursMultiChannelMaskOnLiveInput() {
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // gold = arp (arpColours)
+        var st = PluginState(colours: arpColours(), scenes: [s])
+        var r1 = Receiver(name: "1"); r1.channelMask = 0x0005        // bits 0 + 2 = channels 1 and 3 (channel 2 disabled)
+        st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        let live = NotePool()
+        live.noteOn(60, velocity: 100, channel: 0, cable: 1)         // channel 1 — admitted
+        live.noteOn(64, velocity: 100, channel: 1, cable: 1)         // channel 2 — DROPPED (not in the mask)
+        live.noteOn(67, velocity: 100, channel: 2, cable: 1)         // channel 3 — admitted
+        live.rebuildSorted()
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
+        for _ in 0..<16 {
+            router.process(box: b, pool: live, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        let notes = Set(e.ons.map { $0.note })
+        XCTAssertTrue(notes.contains(60) && notes.contains(67), "the arp cycles the admitted channels 1 + 3")
+        XCTAssertFalse(notes.contains(64), "the arp DROPS channel 2 (not in the door's mask) — was read OMNI before the fix")
+    }
     // INPUT ENABLE (the strip header): the "latch A, disable A, play B" workflow. A DISABLED + ARMED door keeps
     // feeding its FROZEN chord to the grid while IGNORING the live pool ("close the door, keep the room").
     func testDisabledReceiverKeepsFeedingArmedLatchIgnoringLive() {

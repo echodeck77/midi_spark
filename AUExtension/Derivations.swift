@@ -358,6 +358,23 @@ final class NotePool {
         }
         return 255
     }
+    // MULTI-CHANNEL (Paul 2026-08-23): the AS-PLAYED reads by a channel MASK — so an arp honours a door's multi-channel
+    // subset on LIVE input (not just the legacy single channel). chanMask 0xFFFF = OMNI.
+    func srcPlayed(_ k: Int, chanMask: UInt16, cableMask: Int = 0b1111) -> UInt8 {
+        var seen = 0
+        for i in 0..<playedCount where matchesMask(order[i], chanMask, cableMask) {
+            if seen == k { return order[i] }; seen += 1
+        }
+        return 255
+    }
+    func srcPlayed(_ k: Int, chanMask: UInt16, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt8 {
+        var seen = 0
+        for i in 0..<playedCount where matchesMask(order[i], chanMask, cableMask) {
+            let note = order[i]; guard note >= noteLo && note <= noteHi else { continue }
+            if seen == k { return note }; seen += 1
+        }
+        return 255
+    }
 
     // §item 11: convenience readers — pull BOTH filter fields (channel + cable) off a SnapCell in one
     // place, so the render loop's ~dozen source-pick sites can't drift the (inputChannel, inputCableMask)
@@ -865,10 +882,20 @@ func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
              pool: NotePool, filter: UInt8 = 0, cableMask: Int = 0b1111,
              noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> (note: Int, vel: UInt8) {
+    // Legacy single-channel `filter` → channel MASK, byte-identical (0 → OMNI 0xFFFF · n → bit n−1) — then the mask body.
+    let mask: UInt16 = filter == 0 ? 0xFFFF : (filter >= 1 && filter <= 16 ? (UInt16(1) << UInt16(filter - 1)) : 0)
+    return arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool,
+                   chanMask: mask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi)
+}
+// MULTI-CHANNEL arp source pick (Paul 2026-08-23): filter the source by a channel MASK so an arp honours a door's
+// multi-channel subset on LIVE input (the `for: cell` path passes cell.inputChanMask; a frozen omniRead pool passes OMNI).
+func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
+             pool: NotePool, chanMask: UInt16, cableMask: Int = 0b1111,
+             noteLo: UInt8 = 0, noteHi: UInt8 = 127) -> (note: Int, vel: UInt8) {
     // RANGE (§2): arps admit only in-window source notes (vel window intentionally NOT applied to arps — unchanged).
     let fullRange = noteLo <= 0 && noteHi >= 127
-    let count = fullRange ? pool.srcCount(filter: filter, cableMask: cableMask)
-                          : pool.srcCount(filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
+    let count = fullRange ? pool.srcCount(chanMask: chanMask, cableMask: cableMask)
+                          : pool.srcCount(chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
     guard count > 0 else { return (-1, 0) }
     let span = count * max(1, octaves)
     let asc = Int(((phaseIndex % Int64(span)) + Int64(span)) % Int64(span))   // UP position 0…span-1
@@ -896,11 +923,11 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
     // AS-PLAYED reads the press-order list; every other pattern reads the sorted list. Both filtered (+ RANGE window).
     let note: Int
     if pat == .asPlayed {
-        note = Int(fullRange ? pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask)
-                             : pool.srcPlayed(pos % count, filter: filter, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi))
+        note = Int(fullRange ? pool.srcPlayed(pos % count, chanMask: chanMask, cableMask: cableMask)
+                             : pool.srcPlayed(pos % count, chanMask: chanMask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi))
     } else {
-        note = Int(fullRange ? pool.srcAscending(pos % count, filter: filter, cableMask: cableMask)
-                             : pool.srcAscending(pos % count, filter: filter, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
+        note = Int(fullRange ? pool.srcAscending(pos % count, chanMask: chanMask, cableMask: cableMask)
+                             : pool.srcAscending(pos % count, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
     }
     guard note >= 0 && note <= 127 else { return (-1, 0) }
     return (note + 12 * (pos / count), pool.velocity(UInt8(note)))
@@ -910,14 +937,14 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
 /// so the render loop's arp source-picks can't drift the pairing. The preview/audition paths keep the
 /// explicit-`filter:` form (they force a source, not the cell's).
 func arpPickSource(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> Int {
-    // omniRead FROZEN pool: skip the door filter (channel/cable/range) — it was applied at capture (see NotePool.omniRead).
-    arpPickSource(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-                  pool: pool, filter: pool.omniRead ? 0 : cell.inputChannel, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
-                  noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi)   // RANGE (§2)
+    arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern, pool: pool, for: cell).note
 }
 func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8, pool: NotePool, for cell: SnapCell) -> (note: Int, vel: UInt8) {
+    // MULTI-CHANNEL (Paul 2026-08-23): filter by the cell's channel MASK (was the legacy single `inputChannel` — which is
+    // OMNI for a multi-channel-masked door, so an arp ignored the mask on live input). omniRead FROZEN pool → skip the
+    // door filter entirely (channel/cable/range applied at capture; see NotePool.omniRead).
     arpPick(phaseIndex: phaseIndex, octaves: octaves, pattern: pattern,
-            pool: pool, filter: pool.omniRead ? 0 : cell.inputChannel, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
+            pool: pool, chanMask: pool.omniRead ? 0xFFFF : cell.inputChanMask, cableMask: pool.omniRead ? 0b1111 : Int(cell.inputCableMask),
             noteLo: pool.omniRead ? 0 : cell.inputRangeLo, noteHi: pool.omniRead ? 127 : cell.inputRangeHi)   // RANGE (§2)
 }
 
