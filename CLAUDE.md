@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ EMPTY CHAIN PASSES THROUGH (legato) + REPLAY ROLL shows the RECORDED LOOP with DURATION (2026-08-23, on `main`;
+  iOS builds, macOS 838 green incl. fuzz; DEVICE ear/eye owed). Two of Paul's follow-ups. **(1) PASSTHROUGH IS LEGATO:**
+  Paul asked why a chain with NO machines re-struck the chord every step — because `SnapshotBuilder.markPassthrough` built
+  a `.retrig` identity (default phase) and `emitColumnHolds` re-attacks a non-legato identity at every column boundary.
+  FIX: `markPassthrough` now sets `phase = .legato`, so an empty/all-bypassed chain PASSES THROUGH — the held note is
+  struck ONCE and SUSTAINED (adopted across columns), releasing on key-up. App-wide (every empty/newborn/emptied chain);
+  the passthrough tests assert "born audible" (still true) so 837 stayed green, +determinism/no-stuck-notes via fuzz.
+  **(2) REPLAY ROLL = the recorded loop, duration-aware:** Paul — the config-sheet REPLAY roll didn't show held chords,
+  showed NEW live notes during playback, and ignored note DURATION. It was an onset-point roll fed by live input. NEW
+  `DoorRing.loopRoll()` (pairs each on with its off; a note open at loop end closes at `loopLen`; +1 test) → Kernel/AU
+  `replayLoopRoll`/`replayLoopLen` (value copies, safe off-render like `reelSelectedRoll`) → VC polls into `recvReplayRoll`/
+  `recvReplayLen` while a REPLAY door is ENGAGED. `buildReplayInputRoll` now DISPATCHES: **ARMED** → `buildReplayLoopRoll`
+  draws the captured loop as DURATION BARS in `[0, loopLen]` (held chords sustain; note lengths real; bars LIT while
+  SOUNDING now via `recvHeldNotes`) — reflects the RECORDING, live play-along input is NOT drawn; **NOT armed** →
+  `buildReplayLiveRoll` (the existing scrolling live-input preview — what LAST-N will grab). Answers B/C/D/E of Paul's
+  message. (No sweeping playhead yet — the sounding-highlight shows what's playing; a playhead needs the replay anchor
+  exposed, a small follow-up if wanted.)**
 - **▶ FRESH SESSION "PLAYS CHORDS FROM NOWHERE" FIXED — reference-chord fallback REMOVED + audition no longer auto-engages
   (2026-08-23, on `main`; iOS builds, macOS green; DEVICE ear owed). Paul: a fresh session played a REPEATING CHORD with
   NO input — not on the receiver velocity strip but on the emitter in the selected row's YELLOW. ROOT CAUSE (traced via a

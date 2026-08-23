@@ -291,6 +291,8 @@ struct DiagView: View {
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
+    @State var recvReplayRoll: [[DoorRing.Note]] = [[], [], [], []]   // an ENGAGED REPLAY door's captured loop as DURATION notes — the roll reflects what's PLAYING (Paul 2026-08-23)
+    @State var recvReplayLen: [Double] = [0, 0, 0, 0]                 // each engaged loop's length in beats (x-scale for the roll)
     @State var replayEngagedMask: UInt8 = 0                     // which REPLAY doors are actively looping (the "LAST N" toggle state)
     @State var docColours: [Colour] = []
     @State var receivers: [Receiver] = []                     // delta §9 item 11: the RECEIVERS panel
@@ -797,8 +799,18 @@ struct DiagView: View {
                 recvInputRoll = roll
                 recvHeldNotes = notes
                 let eng = au.replayEngaged(); if eng != replayEngagedMask { replayEngagedMask = eng }   // the LAST-N toggle state
-            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) {
+                // REPLAY loop roll (Paul 2026-08-23): while a door is ENGAGED, poll its captured loop as DURATION notes so
+                // the piano roll shows exactly what's playing from the RECORDING (held chords, note lengths) — not live input.
+                var lroll = recvReplayRoll, llen = recvReplayLen
+                for i in 0..<4 {
+                    if eng & (1 << UInt8(i)) != 0 { lroll[i] = au.replayLoopRoll(door: i); llen[i] = au.replayLoopLen(door: i) }
+                    else if !lroll[i].isEmpty { lroll[i] = []; llen[i] = 0 }
+                }
+                if lroll != recvReplayRoll { recvReplayRoll = lroll }
+                if llen != recvReplayLen { recvReplayLen = llen }
+            } else if !recvInputRoll.allSatisfy({ $0.isEmpty }) || !recvReplayRoll.allSatisfy({ $0.isEmpty }) {
                 recvInputRoll = [[], [], [], []]; recvHeldNotes = [[], [], [], []]   // sheet closed → drop the marks
+                recvReplayRoll = [[], [], [], []]; recvReplayLen = [0, 0, 0, 0]
             }
             let nc = au.uiColours();       if nc != docColours { docColours = nc }
             let nr = au.uiReceivers();     if nr != receivers { receivers = nr }

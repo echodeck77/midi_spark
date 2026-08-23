@@ -547,6 +547,10 @@ final class Kernel {
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up reads the ring + selected roll; taps select+replay / stop (deferred to render).
     func reelPassNumbers() -> [Int] { reel.passNumbers() }
     func reelSelectedRoll() -> [ReelDeck.Note] { reel.selectedRoll() }   // read-only value copy — safe off the render thread (see BUILD reel note)
+    // The config-sheet REPLAY roll (Paul 2026-08-23): the ENGAGED door's captured loop as duration notes + its length,
+    // so the piano roll reflects what's playing from the RECORDING. Value copies — safe off the render thread.
+    func replayLoopRoll(door i: Int) -> [DoorRing.Note] { (i >= 0 && i < doorRings.count) ? doorRings[i].loopRoll() : [] }
+    func replayLoopLen(door i: Int) -> Double { (i >= 0 && i < doorRings.count) ? doorRings[i].loopLen : 0 }
     func reelSelectedPassNo() -> Int { reel.selectedPassNo }
     func reelSelectPass(_ p: Int) { reelSelectRequest = p }
     func reelStopReplay() { reelStopRequest = true }

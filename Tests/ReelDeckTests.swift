@@ -162,6 +162,20 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(sounding(0.5), [60, 64], "the sustained chord loops from the top (was dropped → silence)")
         XCTAssertEqual(sounding(1.5), [60, 64, 67], "the in-window note joins")
     }
+    // loopRoll (config-sheet REPLAY piano roll, Paul 2026-08-23): the captured loop as DURATION notes — each on paired
+    // with its off (a note still open at loop end closes at loopLen), preserving held-chord lengths + channel.
+    func testDoorRingLoopRollPairsNotesWithDuration() {
+        let ring = DoorRing()
+        ring.record(beat: 0.0, note: 60, vel: 100, on: true, chan: 2)
+        ring.record(beat: 1.0, note: 60, vel: 0, on: false, chan: 2)   // 60: [0,1]
+        ring.record(beat: 0.5, note: 64, vel: 90, on: true)            // 64: [0.5, loopEnd] (never released)
+        ring.capture(endBeat: 2.0, lengthBeats: 2.0)                   // start=0 → beats unchanged, loopLen 2
+        let roll = ring.loopRoll().sorted { $0.note < $1.note }
+        XCTAssertEqual(roll.count, 2)
+        XCTAssertEqual(roll[0].note, 60); XCTAssertEqual(roll[0].start, 0.0); XCTAssertEqual(roll[0].end, 1.0, accuracy: 1e-9); XCTAssertEqual(roll[0].chan, 2)
+        XCTAssertEqual(roll[1].note, 64); XCTAssertEqual(roll[1].start, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(roll[1].end, 2.0, accuracy: 1e-9, "a note still sounding at loop end closes at loopLen (real duration, not a point)")
+    }
     // TRANSPORT DISCONTINUITY (Paul 2026-08-23): the ring records at ABSOLUTE beats, and capture assumes ascending
     // arrival order. clearHistory() drops the recorded events so post-stop/seek recording restarts MONOTONE — else the
     // old + new passes superpose into a garbled, mis-phased loop. oldestBeat reports the available history (< N clamp).

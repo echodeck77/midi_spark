@@ -474,11 +474,54 @@ extension DiagView {
             buildReplayInputRoll(door: i, passes: cur, width: 360, height: 84)
         }
     }
-    // The realtime INPUT ROLL — BEAT-driven (Paul 2026-08-23): notes onset at the RIGHT and drift LEFT by BEAT, not
-    // wall-clock, so it FREEZES when the transport stops and stays locked to the passes. The visible window = N+1 passes:
-    // the N GRABBED passes (highlighted — exactly what LAST-N captures) · plus ONE extra pass split across the CURRENT
-    // pass being input (right) and a sliver of context (left). So you can SEE what you're grabbing. Fed by recvInputRoll.
+    // THE REPLAY ROLL (Paul 2026-08-23): while ARMED (looping), show the RECORDED LOOP as duration bars — held chords
+    // sustain, note lengths are real, and the notes currently SOUNDING are lit — so it reflects exactly what's playing
+    // from the recording (live play-along input is NOT drawn). While NOT armed, show the scrolling live-input preview so
+    // you can SEE what LAST-N will grab.
     @ViewBuilder private func buildReplayInputRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
+        let engaged = (replayEngagedMask & (1 << UInt8(i))) != 0
+        let loop = i < recvReplayRoll.count ? recvReplayRoll[i] : []
+        if engaged && !loop.isEmpty {
+            buildReplayLoopRoll(door: i, width: width, height: height)
+        } else {
+            buildReplayLiveRoll(door: i, passes: passes, width: width, height: height)
+        }
+    }
+    // ARMED: the captured loop as DURATION bars, x = beat within [0, loopLen], bars lit while sounding NOW (recvHeldNotes,
+    // which during playback is the loop at the current phase). Duration-aware; reflects the recording, not live input.
+    @ViewBuilder private func buildReplayLoopRoll(door i: Int, width: CGFloat, height: CGFloat) -> some View {
+        let notes = i < recvReplayRoll.count ? recvReplayRoll[i] : []
+        let len = max(0.0625, i < recvReplayLen.count ? recvReplayLen[i] : 0)
+        let sounding = Set((i < recvHeldNotes.count ? recvHeldNotes[i] : []).map { Int($0) })   // what's playing RIGHT NOW
+        let ns = notes.map { Int($0.note) }
+        let rawLo = ns.min() ?? 48, rawHi = ns.max() ?? 72
+        let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
+        let span = CGFloat(max(12, hi - lo))
+        let green = Color(red: 0.36, green: 0.92, blue: 0.52)
+        let passBeats = max(0.0625, Double(Snap.cols) * stepBeats)
+        return RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
+            .overlay(
+                Canvas { ctx, sz in
+                    func xOf(_ beat: Double) -> CGFloat { sz.width * CGFloat(min(len, max(0, beat)) / len) }
+                    func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (sz.height - 6) + 3 }
+                    var b = passBeats                                        // PASS boundary lines (each = one grid pass)
+                    while b < len - 1e-6 { let x = xOf(b); ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: sz.height)) }, with: .color(.white.opacity(0.18)), lineWidth: 1); b += passBeats }
+                    for n in stride(from: lo, through: hi, by: 12) {         // octave (C) lines
+                        let y = yOf(n); ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: sz.width, y: y)) }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
+                    }
+                    for nt in notes {                                       // NOTE BARS — real duration; lit while sounding now
+                        let x0 = xOf(nt.start), x1 = xOf(nt.end), w = max(2, x1 - x0)
+                        let on = sounding.contains(Int(nt.note))
+                        let col = on ? green : buildCyan.opacity(0.3 + 0.55 * Double(nt.vel) / 127.0)
+                        ctx.fill(Path(roundedRect: CGRect(x: x0, y: yOf(Int(nt.note)) - 2.5, width: w, height: 5), cornerRadius: 2.5), with: .color(col))
+                    }
+                }.frame(width: width, height: height)
+            )
+    }
+    // NOT armed: the realtime INPUT ROLL — BEAT-driven (Paul 2026-08-23): notes onset at the RIGHT and drift LEFT by BEAT,
+    // not wall-clock, so it FREEZES when the transport stops and stays locked to the passes. The visible window = N+1
+    // passes: the N GRABBED passes (highlighted — what LAST-N captures) · plus the CURRENT pass being input. Fed by recvInputRoll.
+    @ViewBuilder private func buildReplayLiveRoll(door i: Int, passes: Int, width: CGFloat, height: CGFloat) -> some View {
         let marks = i < recvInputRoll.count ? recvInputRoll[i] : []
         let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []                // CURRENTLY-held input — drawn LIVE at the right edge
         let passBeats = max(0.0625, Double(Snap.cols) * stepBeats)               // one pass in beats

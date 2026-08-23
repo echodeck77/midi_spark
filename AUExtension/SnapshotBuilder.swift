@@ -146,8 +146,11 @@ enum SnapshotBuilder {
         }
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
         func packMask(_ flags: [Bool]) -> UInt8 { var m: UInt8 = 0; for (i, on) in flags.prefix(4).enumerated() where on { m |= 1 << UInt8(i) }; return m }
-        // The ONE passthrough rule: a bypassed identity slot = the source plays untreated as a hold-tail.
-        func markPassthrough(_ sc: inout SnapCell) { sc.procs = [SnapParams()]; sc.slotBypass = [true]; sc.bypassed = true }
+        // The ONE passthrough rule: a bypassed identity slot = the source plays untreated as a hold-tail. LEGATO
+        // (Paul 2026-08-23): a chain with NO machines just PASSES THROUGH — the held note is struck once and SUSTAINED
+        // (adopted across columns) rather than re-struck every step. (A .retrig identity re-attacked the chord at each
+        // column boundary = "why does it restrike?".) emitColumnHolds sustains an identity only when its phase == .legato.
+        func markPassthrough(_ sc: inout SnapCell) { var sp = SnapParams(); sp.phase = .legato; sc.procs = [sp]; sc.slotBypass = [true]; sc.bypassed = true }
         let busEnabledMask = packMask(doc.busEnabledResolved)
         // THE RACK (design-the-rack §3, the two-tier law): pre-AND the per-emitter "board in the signal path"
         // gate into every treatment mask. A rack-off emitter drops out of claim/duck/alt entirely → its output is

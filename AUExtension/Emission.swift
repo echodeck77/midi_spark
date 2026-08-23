@@ -229,6 +229,25 @@ final class DoorRing {
         for k in 0..<n where loopN < DoorRing.cap { loop[loopN] = Ev(beat: beats[k], note: notes[k], vel: vels[k], on: ons[k]); loopN += 1 }
     }
 
+    /// The captured loop as drawable NOTES WITH DURATION (Paul 2026-08-23): pair each note-on with its next off; a note
+    /// still open at the loop end closes at `loopLen`. Drives the config-sheet REPLAY piano roll so it reflects EXACTLY
+    /// what's playing from the RECORDING (durations, held chords) — not live input. Returns fresh value structs (no shared
+    /// buffer); `loop` is a fixed-size value array written only on capture, so a main-thread read at 4 Hz is safe off the
+    /// render thread (a torn read during a re-capture → a benign garbled bar for one frame). Mirrors ReelDeck.selectedRoll.
+    struct Note: Equatable { var note: UInt8; var vel: UInt8; var start: Double; var end: Double; var chan: UInt8 }
+    func loopRoll() -> [Note] {
+        var out: [Note] = []
+        var open = [Int: (start: Double, vel: UInt8, chan: UInt8)]()   // key = note number
+        for i in 0..<loopN {
+            let e = loop[i]
+            if e.on && e.vel > 0 { open[Int(e.note)] = (e.beat, e.vel, e.chan) }
+            else if let o = open.removeValue(forKey: Int(e.note)) {
+                out.append(Note(note: e.note, vel: o.vel, start: o.start, end: max(o.start, e.beat), chan: o.chan))
+            }
+        }
+        for (n, o) in open { out.append(Note(note: UInt8(n), vel: o.vel, start: o.start, end: max(o.start, loopLen), chan: o.chan)) }   // still sounding at loop end → hold to length
+        return out
+    }
     /// The notes SOUNDING at loop `phase` ∈ [0, loopLen): each note's LAST on/off at or before `phase` wins (on ⇒
     /// sounding). Events are time-ordered (recorded in arrival order). Writes into `outNote`/`outVel`, returns the count.
     @discardableResult func notesSoundingAt(_ phase: Double, outNote: inout [UInt8], outVel: inout [UInt8], outChan: inout [UInt8]) -> Int {
