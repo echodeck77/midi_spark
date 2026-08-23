@@ -192,13 +192,16 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   all four doors — a 4-across A/B/C/D tab bar (`buildMidiTabBar`, `@State buildMidiConfigTab`) shows ONE door at a time;
   a tab switch resets the two GLOBAL range-keyboard flags (`buildRangeKbdDoor`/`buildRangeSetHi`) so a pop-up can't
   strand (the KEYS/REPLAY/FILE inline controls are per-door → follow the tab); an unset door wears a small cyan dot.
-  **(2) THE STRIP:** `buildDoorSection` is now HStack{ LEFT: channels·range·the mode list · RIGHT: `buildReceiverControl(i)` }
-  — the identical component used on the main page, for trialling the selected mode (removed the old `buildDoorEngage`
-  LIVE INPUT | MODE test buttons + my short-lived `buildReceiverStrip`). **(3) THE LATCH BUTTON = SHARED** (`buildReceiver
-  LatchButton`, replaces the plain `buildRecProminent("LATCH")` inside `buildReceiverControl`, so it changes BOTH the
-  main-page I/O box AND the tab): no mode chosen → **"SET"** (cyan pulse; tap OPENS that door's tab); a mode chosen but
-  not armed → the mode label (LATCH/HOLD/KEYS/**"LAST N"**/.MID) with an amber ready-to-arm pulse; ARMED → solid amber.
-  Arming reuses the real latch/replay engage (`latchMask` / `toggleReplayCatch`). **(4) EXPLICIT MODE:** the mode radios
+  **(2) THE STRIP — OVERLAID:** `buildDoorSection` is a VStack (channels · OCT/RANGE · the mode list at FULL width so
+  LATCH/HOLD/KEYS keep their original column width), with `buildReceiverControl(i)` — the identical main-page component —
+  OVERLAID (a `ZStack(alignment:.topTrailing)`, fixed `width: 96`) over the top-right of the mode list = over LATCH/HOLD/
+  KEYS, below OCT/RANGE; it floats, it does NOT squeeze the radios (removed the old `buildDoorEngage` LIVE INPUT | MODE
+  test buttons + my short-lived HStack/`buildReceiverStrip`). **(3) THE LATCH BUTTON = SHARED** (`buildReceiverLatchButton`,
+  replaces the plain `buildRecProminent("LATCH")` inside `buildReceiverControl`, so it changes BOTH the main-page I/O box
+  AND the tab): no mode chosen → **"SET"** (cyan, PULSING; tap OPENS that door's tab); a mode chosen → the mode label
+  (LATCH/HOLD/KEYS/**"LAST N"**/.MID), STATIC (NO pulse — Paul: once any latch-type mode is set it must stop pulsing),
+  dim-amber when not armed, solid amber when armed. Arming reuses the real latch/replay engage (`latchMask` /
+  `toggleReplayCatch`). **(4) EXPLICIT MODE:** the mode radios
   now highlight `r.doorMode == m` (was `doorModeResolved`, always filled LATCH) so `doorMode == nil` reads as "no mode /
   SET"; the engine still resolves nil→latch (functionally unchanged). The main-page MIDI-IN chips are unchanged. Plan:
   `~/.claude/plans/proud-leaping-waterfall.md`.**

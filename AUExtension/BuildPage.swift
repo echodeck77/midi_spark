@@ -290,21 +290,22 @@ extension DiagView {
     }
     @ViewBuilder private func buildDoorSection(_ i: Int, r: Receiver) -> some View {
         let hue = i < receiverHues.count ? receiverHues[i] : buildCyan
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 14) {             // LEFT: channels · range · the mode list
-                buildChannelButtons(i, r)                          // CHANNELS: 1–16 multi-select + ALL + NONE
-                HStack(spacing: 14) {
-                    buildDoorOctave(i)                             // OCT − / +
-                    buildDoorRangeRow(i, r)                         // RANGE: Full / a note window → the keyboard picker
-                }
-                if buildRangeKbdDoor == i { buildRangeKeyboard(i, r) }   // the large multi-octave range keyboard (min/max + DONE)
-                VStack(alignment: .leading, spacing: 8) {          // the mode list — selected mode carries its controls inline
+        VStack(alignment: .leading, spacing: 14) {                 // FULL-WIDTH column — LATCH/HOLD/KEYS keep their ORIGINAL width (Paul 2026-08-23)
+            buildChannelButtons(i, r)                              // CHANNELS: 1–16 multi-select + ALL + NONE
+            HStack(spacing: 14) {
+                buildDoorOctave(i)                                 // OCT − / +
+                buildDoorRangeRow(i, r)                             // RANGE: Full / a note window → the keyboard picker
+            }
+            if buildRangeKbdDoor == i { buildRangeKeyboard(i, r) } // the large multi-octave range keyboard (min/max + DONE)
+            ZStack(alignment: .topTrailing) {                      // the mode list, with the EXACT main-page strip OVERLAID over LATCH/HOLD/KEYS on the right, below OCT/RANGE (Paul 2026-08-23)
+                VStack(alignment: .leading, spacing: 8) {          // the mode list — FULL width, selected mode carries its controls inline
                     ForEach(DoorMode.allCases, id: \.self) { m in buildDoorModeOption(i, m, r: r) }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                buildReceiverControl(i).frame(width: 96)           // the receiver strip at its OWN width, floating over the radios (not squeezing the column)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            buildReceiverControl(i)                                 // RIGHT: the EXACT main-page receiver strip (velocity + LATCH/mode/SET) — for trialling the mode (Paul 2026-08-23)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(hue.opacity(0.3), lineWidth: 1))
@@ -3291,8 +3292,9 @@ extension DiagView {
             }
         }()
         let accent = hasMode ? amber : buildCyan
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || engaged)) { tl in
-            let pulse = engaged ? 0 : stagingPulseFraction(tl.date, period: 0.9)
+        // PULSE ONLY in the SET state (no mode chosen). Once ANY mode is set — armed or not — the button is STATIC (Paul 2026-08-23).
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || hasMode)) { tl in
+            let pulse = hasMode ? 0 : stagingPulseFraction(tl.date, period: 0.9)
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
                 .foregroundColor(engaged ? .black : (hasMode ? .white.opacity(0.85) : buildCyan))
                 .lineLimit(1).minimumScaleFactor(0.55)
