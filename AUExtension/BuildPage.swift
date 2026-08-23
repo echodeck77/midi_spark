@@ -115,6 +115,7 @@ extension DiagView {
     // teaches here (wordy allowed); performance stays silent elsewhere. Names per §9: "MIDI INPUTS" · "INPUT MODE".
     private func buildDoorModeCopy(_ m: DoorMode) -> String {
         switch m {
+        case .thru:   return "Play straight — live input feeds the grid, nothing latches."
         case .latch:  return "Each note toggles in or out of the held pool."
         case .hold:   return "A new chord replaces the held pool."
         case .keys:   return "Pick the held notes on the keyboard below."
@@ -3279,11 +3280,20 @@ extension DiagView {
     // amber "ready to arm" pulse; ARMED → solid amber. Arming reuses the real latch/replay engage.
     @ViewBuilder private func buildReceiverLatchButton(_ i: Int, _ rec: Receiver) -> some View {
         let amber = Color(red: 1.0, green: 0.72, blue: 0.2)
-        let hasMode = rec.doorMode != nil
+        let bit = UInt8(1) << UInt8(i)
+        let m = rec.doorMode
+        let unset = m == nil                             // no mode chosen at all → PULSE (prompt the user to pick)
+        let isThru = m == .thru                          // THRU = "play straight": also reads SET, but STATIC (a deliberate choice)
+        // Either arm can be live (replay OR latch). Compute BOTH so a running loop is always stoppable even if the mode
+        // was switched afterwards (review finding: a mode switch used to strand a running REPLAY loop).
+        let replayOn = (replayEngagedMask & bit) != 0
+        let latchOn  = (latchMask & bit) != 0
+        let engaged  = replayOn || latchOn
+        let showsSet = (unset || isThru) && !engaged     // SET only when neutral AND nothing is armed
         let mode = rec.doorModeResolved
-        let engaged = mode == .replay ? (replayEngagedMask & (1 << UInt8(i))) != 0 : (latchMask & (1 << UInt8(i))) != 0
-        let label: String = !hasMode ? "SET" : {
+        let modeLabel: String = {
             switch mode {
+            case .thru:   return "SET"                   // (unreachable via showsSet, but keeps the switch exhaustive)
             case .latch:  return "LATCH"
             case .hold:   return "HOLD"
             case .keys:   return "KEYS"
@@ -3291,21 +3301,25 @@ extension DiagView {
             case .file:   return ".MID"
             }
         }()
-        let accent = hasMode ? amber : buildCyan
-        // PULSE ONLY in the SET state (no mode chosen). Once ANY mode is set — armed or not — the button is STATIC (Paul 2026-08-23).
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || hasMode)) { tl in
-            let pulse = hasMode ? 0 : stagingPulseFraction(tl.date, period: 0.9)
+        // When engaged but the mode was switched to a non-armable one, show what's actually running.
+        let label = showsSet ? "SET" : (engaged && (isThru || unset) ? (replayOn ? "LAST \(rec.replayPassesResolved)" : "LATCH") : modeLabel)
+        let accent = showsSet ? buildCyan : amber
+        // PULSE only when UNSET (no mode chosen). THRU, any armable mode, and any engaged state are all STATIC (Paul 2026-08-23).
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !unset)) { tl in
+            let pulse = unset ? stagingPulseFraction(tl.date, period: 0.9) : 0
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(engaged ? .black : (hasMode ? .white.opacity(0.85) : buildCyan))
+                .foregroundColor(engaged ? .black : (showsSet ? buildCyan : .white.opacity(0.85)))
                 .lineLimit(1).minimumScaleFactor(0.55)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 5).fill(engaged ? amber : accent.opacity(0.10 + 0.18 * pulse)))
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(engaged ? Color.clear : accent.opacity(0.35 + 0.5 * pulse), lineWidth: 1.5))
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    if !hasMode { buildMidiConfigTab = i; buildMidiConfigOpen = true }   // SET → open this door's tab
+                    if showsSet { buildMidiConfigTab = i; buildMidiConfigOpen = true }   // SET / THRU → open this door's tab
                     else {
-                        if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
+                        if replayOn { au?.toggleReplayCatch(i) }          // stop a running loop regardless of the current mode
+                        else if latchOn { toggleReceiverLatch(i) }        // or a live latch
+                        else if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }   // else arm per the chosen mode
                         receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
                     }
                 }
@@ -3354,7 +3368,16 @@ extension DiagView {
             }
         }
     }
-    private func recChanLabel(_ rec: Receiver) -> String { rec.channel == 0 ? "OMNI" : "CH \(rec.channel)" }
+    // The channel-button caption ALWAYS reflects the chosen channel(s) (Paul 2026-08-23): reads the multi-channel MASK
+    // (the source of truth since 2026-08-21), not the legacy single `channel` field. OMNI = all · CH n = one · CH ×k =
+    // a subset · OFF = none.
+    private func recChanLabel(_ rec: Receiver) -> String {
+        let mask = rec.channelMaskResolved
+        if mask == 0xFFFF { return "OMNI" }
+        if mask == 0 { return "OFF" }
+        let chans = (0..<16).filter { mask & (UInt16(1) << UInt16($0)) != 0 }
+        return chans.count == 1 ? "CH \(chans[0] + 1)" : "CH ×\(chans.count)"
+    }
     // The incoming-velocity meter: the door letter over a bottom-filling bar that peaks on input then decays.
     @ViewBuilder private func buildReceiverMeter(_ i: Int, letter: String) -> some View {
         VStack(spacing: 2) {

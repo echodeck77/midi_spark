@@ -467,7 +467,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case .latch: r.latchAdd = true;  r.latchPiano = false
             case .hold:  r.latchAdd = false; r.latchPiano = false
             case .keys:  r.latchPiano = true
-            case .replay, .file: break
+            case .thru, .replay, .file: break   // THRU can't arm (the resolvers key off doorMode), so the latch fields are moot
             }
         }
     }

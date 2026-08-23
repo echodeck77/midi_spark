@@ -503,6 +503,19 @@ final class NotePool {
         }
         rebuildSorted()
     }
+    /// ADDITIVE filtered copy — merge `src`'s admitted notes INTO this pool WITHOUT clearing it (unlike captureFiltered).
+    /// Plays LIVE input alongside a FROZEN source: for KEYS/REPLAY/FILE the door's enabled channels feed the grid ON TOP
+    /// of the loop/clip/keyboard (Paul 2026-08-23). Channel-preserving; a pitch already present is overwritten by live
+    /// (last-writer, harmless — the pool is note-indexed, so a duplicate is one entry either way). Rebuilds the sorted view.
+    func mergeFiltered(from src: NotePool, chanMask: UInt16, cableMask: Int, noteLo: UInt8 = 0, noteHi: UInt8 = 127) {
+        for i in 0..<src.count {
+            let note = src.sorted[i]
+            if note >= noteLo && note <= noteHi && src.matchesMask(note, chanMask, cableMask) {
+                noteOn(note, velocity: src.vel[Int(note)], channel: src.chan[Int(note)], cable: src.cbl[Int(note)])
+            }
+        }
+        rebuildSorted()
+    }
 }
 
 /// MIDI note number → name: pitch class + a NON-NEGATIVE octave (note 0 = C0 … note 127 = G10) — the range

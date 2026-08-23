@@ -159,6 +159,28 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THRU MODE + "play straight" DEFAULT + live-along for KEYS/REPLAY/FILE + channel caption (2026-08-23, on `main`; iOS
+  builds, macOS 838 green incl. fuzz; DEVICE ear/eye owed). Paul: a fresh app "defaults to some kind of hold instead of
+  just playing through." ROOT CAUSE (diagnosed, not the door): `makeInit` placed 4 GOLD cells whose colour is `type:.arp`
+  (the "plain passthrough" comment lied) → a held note ARPEGGIATED. **(1) THRU DOOR MODE** (`DoorMode.thru`, Paul's
+  ruling: feed the grid, no latch — NOT a bypass): the neutral default; same audible feed as an un-armed latch door but
+  it CAN'T be armed. Added to the enum (first case, additive), the mode radio list (`buildDoorModeCopy`), `setDoorMode`
+  (no latch fields). Every door defaults to THRU (`makeInit` sets `doorMode=.thru`; the resolver keeps nil→.latch for old
+  docs). **(2) DEFAULT CELLS → DRONE** (`makeInit`): the top row is now 8 GOLD `.drone` cells (gate 1.0) — a drone is the
+  one hold-path mode that's UNCONDITIONALLY legato (struck once, adopted across all 8 columns, no per-step re-strike), so
+  a held note sustains STRAIGHT THROUGH and releases on key-up (a plain passgate/empty chain re-strikes per column, so
+  they're wrong here). **(3) SET BUTTON** (`buildReceiverLatchButton`): unset(nil)→"SET" PULSING (prompt); THRU→"SET"
+  STATIC (a deliberate neutral choice), both open the door's tab; LATCH/HOLD/KEYS/LAST N/.MID→label + arm. ALSO FIXED
+  review finding [16] here — `engaged` now reads BOTH `replayEngagedMask`|`latchMask` and the tap stops whichever is live,
+  so switching a door's mode no longer strands a running REPLAY loop. **(4) CHANNEL CAPTION** (`recChanLabel`): the strip's
+  channel button now reflects the chosen channel(s) from `channelMaskResolved` (OMNI · CH n · CH ×k · OFF) — it read the
+  legacy single `channel` field and always showed OMNI after the multi-channel redesign. **(5) LIVE-ALONG for KEYS/REPLAY/
+  FILE** (engine): `NotePool.mergeFiltered` (additive, channel-preserving, +1 DerivationsTest) merges the door's LIVE
+  input — on its enabled channels/cable/range — INTO the frozen pool each render, so you play ALONG with the keyboard
+  pick / loop / clip (LATCH/HOLD do NOT merge — they ARE the captured chord). Derived per render → a released live note
+  drops next render (no stuck notes). Kernel `mergeLiveIntoLatched` called in the three frozen branches (incl. the empty-
+  loop path). Plan: `~/.claude/plans/proud-leaping-waterfall.md`. FLAGGED for device: the DRONE feel + the 8-cell full-row
+  default; the THRU-as-default UX.**
 - **▶ REPLAY SYNC — beat-driven input roll + pass-boundary-aligned capture (2026-08-23, on `main`; iOS builds, macOS
   green; DEVICE ear/eye owed). Two linked fixes to the door REPLAY ("LAST N"). **(1) THE AUDIO — the real sync bug:** the
   manual "LAST N" catch captured `[beatPos − N·cyc, beatPos]` and anchored the loop to the ARBITRARY press beat

@@ -72,10 +72,9 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
   snapshot captured once in `.onAppear`; the editor has no backdrop (left column stays tappable), so switching the selected
   colour mid-edit leaves the snapshot on the original → CANCEL reverts X and strands Y's edits. FIX: re-snapshot on
   `ddSelectedColourID` change (`.onChange`), or revert the current target.
-- **[16] A door's running REPLAY loop is stranded when its mode is switched** (in the just-shipped `buildReceiverLatchButton`).
-  `BuildPage.swift:3284` — `engaged` is mode-gated, so switching a looping REPLAY door to LATCH makes the button read
-  `latchMask` (unarmed) + tap toggles the chord latch instead of stopping the loop. FIX: compute `replayOn || latchOn`, stop
-  whichever is active on tap.
+- ~~**[16] A door's running REPLAY loop is stranded when its mode is switched**~~ FIXED 2026-08-23 (folded into the THRU/SET-button
+  rewrite): `buildReceiverLatchButton` now computes `engaged = replayOn || latchOn` and the tap stops whichever arm is live,
+  so a mode switch can't strand a running loop.
 - **[17] RANGE-picker keyboard hard-codes `width: 660`, overflowing narrow sheets.** `BuildPage.swift:375` — sheet is
   `min(720, width-32)`; on a < ~712 pt AUM pane the top octaves render off-screen → high MIN/MAX bounds untappable. FIX:
   derive the keyboard width from the available sheet width.

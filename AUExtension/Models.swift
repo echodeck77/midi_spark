@@ -505,7 +505,10 @@ struct ProcessorSlot: Codable, Equatable {
 /// (the door input ring loops as living input — stage 3) · FILE (a loaded .mid loops as living input — stage 4). The 3
 /// EXISTING modes map to the legacy latchAdd/latchPiano fields; REPLAY/FILE are reserved (not yet wired → a HOLD-like
 /// fallback until their stages land).
-enum DoorMode: String, Codable, CaseIterable { case latch, hold, keys, replay, file }
+// THRU (Paul 2026-08-23) = "play it straight": the door feeds LIVE input to the grid with NO latching (the neutral
+// default). It's the same audible feed as an un-armed latch door, but it CAN'T be armed — its strip button reads "SET"
+// (static) and opens the config, rather than arming. LATCH/HOLD/KEYS/REPLAY/FILE are the armable modes.
+enum DoorMode: String, Codable, CaseIterable { case thru, latch, hold, keys, replay, file }
 
 struct Receiver: Codable, Equatable {
     var name: String = ""
@@ -1088,13 +1091,24 @@ struct PluginState: Codable, Equatable {
         var state = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty()])
         state.formatVersion = 4
         state.synthesizeReceiversIfNeeded()
-        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1 }
-        // Start with ONE colour on the grid (user 2026-08-09): so the DRAG&DROP palette shows a single colour and
-        // there is a piece to drag onto an empty slot (FORK → a new colour). GOLD, plain passthrough, top row.
-        // SUBSCRIBE to R1 (inputReceiver 0) so the default cells hear R1's LATCH/PIANO frozen pool, not just live —
-        // a nil receiver reads live OMNI only (resolvedReceiver = −1), so a latched chord never reaches them. R1 is
-        // OMNI here, so live input is identical. (fix 2026-08-10: PIANO latch "nothing plays" on a fresh instance.)
-        for c in 0..<4 { state.scenes[0].cells[c][0] = { var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0; return cell }() }
+        // Every door defaults to THRU (Paul 2026-08-23): a fresh instance plays STRAIGHT — live input feeds the grid,
+        // nothing latches. The user opts into latching by choosing LATCH/HOLD/KEYS/REPLAY/FILE.
+        for i in state.receivers!.indices { state.receivers![i].channel = i == 0 ? 0 : i + 1; state.receivers![i].doorMode = .thru }
+        // Start with ONE colour on the grid (user 2026-08-09): so the palette shows a single colour and there's a piece
+        // to drag/fork. GOLD, a DRONE across the WHOLE top row (Paul 2026-08-23): a held note sounds STRAIGHT THROUGH —
+        // a drone is a legato sustained hold (struck once, adopted across all 8 columns with NO per-step re-strike), so a
+        // held note sustains continuously while down and releases on key-up. (Was a single-slot .arp, which re-struck
+        // every 1/16 = the "some kind of hold" a fresh app defaulted to; a plain passgate/empty chain re-strikes per
+        // column, so DRONE is the one hold-path mode that's unconditionally legato.) SUBSCRIBE to R1 (inputReceiver 0)
+        // so the cells hear R1's frozen pool too (a nil receiver reads live OMNI only → a latched chord never reaches
+        // them). R1 is OMNI, so live input is identical.
+        for c in 0..<8 {
+            state.scenes[0].cells[c][0] = {
+                var cell = Cell(colourID: "gold", buses: [.a]); cell.inputReceiver = 0
+                cell.processors = [{ var p = ColourParams(); p.gate = 1.0; return ProcessorSlot(type: .drone, params: p) }()]   // legato sustained pass-through
+                return cell
+            }()
+        }
         state.padScenes()
         state.markDefinedFromUsage()   // one used Colour (GOLD) → palette shows GOLD + fifteen "+" slots
         return state

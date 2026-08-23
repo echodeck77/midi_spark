@@ -258,8 +258,9 @@ final class Kernel {
                 // at replayAnchor[i] (phase = beat − anchor); a FILE clip plays from beat 0 (anchor 0). Re-based to
                 // [0, loopLen). Refresh each render (pure f(beat) → replay-safe). STAMP the door's wire channel.
                 let ring = doorRings[i]
-                guard ring.loopLen > 0 else { latchedPools[i].reset(); latchedPools[i].rebuildSorted(); continue }
                 let isFile = fileMask & bit != 0
+                latchedPools[i].reset()
+                if ring.loopLen <= 0 { mergeLiveIntoLatched(i); continue }   // empty loop → still pass LIVE (Paul 2026-08-23)
                 let anchor = isFile ? 0.0 : replayAnchor[i]
                 // BLOCK-LATENCY COMPENSATION (Paul 2026-08-22): sample the loop at this block's END, not its start —
                 // live input notes are added mid-block (handleIncoming) and so are present for their whole arrival
@@ -272,9 +273,8 @@ final class Kernel {
                 // channel-filtered cell admits the loop exactly as it did the live input (the "channel 3 → silent" bug).
                 // FILE stamps the door's wire channel (a .mid clip carries no meaningful door channel).
                 let fileStamp: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
-                latchedPools[i].reset()
                 for k in 0..<cnt { latchedPools[i].noteOn(replayNoteBuf[k], velocity: replayVelBuf[k], channel: isFile ? fileStamp : replayChanBuf[k]) }
-                latchedPools[i].rebuildSorted()
+                mergeLiveIntoLatched(i)   // REPLAY/FILE: LIVE input on the door's enabled channels plays ALONGSIDE the loop/clip (Paul 2026-08-23); also rebuilds sorted
                 continue
             }
             if pianoMask & bit != 0 {
@@ -285,7 +285,7 @@ final class Kernel {
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
                 for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }
-                latchedPools[i].rebuildSorted()
+                mergeLiveIntoLatched(i)   // KEYS: play ALONG live — the door's enabled channels feed the grid on top of the keyboard pick (Paul 2026-08-23)
                 continue
             }
             let rLo = receiverRangeLo[i], rHi = receiverRangeHi[i]   // RANGE (§2): the latch admits only in-window notes
@@ -301,6 +301,15 @@ final class Kernel {
             }
         }
         prevLatchArmMask = effectiveLatchMask
+    }
+
+    /// KEYS/REPLAY/FILE only (Paul 2026-08-23): merge the door's LIVE input — on its enabled channels (OMNI or the
+    /// chosen subset), cable, and range — INTO the frozen pool, so you can play ALONG with the keyboard pick / loop /
+    /// clip. Channel-preserving; derived each render (a released live note simply isn't re-merged next render → the
+    /// grid's hold reconcile closes it, so no stuck notes). LATCH/HOLD do NOT call this — they ARE the captured chord.
+    private func mergeLiveIntoLatched(_ i: Int) {
+        latchedPools[i].mergeFiltered(from: pool, chanMask: receiverChanMask[i], cableMask: Int(receiverCables[i]),
+                                      noteLo: receiverRangeLo[i], noteHi: receiverRangeHi[i])
     }
 
     // §6a PERFORM velocity override: per-emitter forced velocity, packed byte-per-emitter (0 = none,

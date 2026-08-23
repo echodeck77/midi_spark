@@ -523,6 +523,27 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(p.srcAscending(0, for: cell), 60)
     }
 
+    // mergeFiltered (KEYS/REPLAY/FILE live-along, Paul 2026-08-23): live notes on the door's ENABLED channels layer
+    // ONTO a frozen pool WITHOUT clearing it, channel-preserving; a disabled channel is dropped; a duplicate pitch
+    // stays one entry (last-writer). Contrast captureFiltered, which resets first.
+    func testMergeFilteredLayersLiveOntoFrozenAndRespectsChannel() {
+        let frozen = NotePool()                                   // the "loop/clip/keyboard" pick
+        frozen.noteOn(60, velocity: 90, channel: 0)              // C on wire ch 1 (filter/channel 0)
+        frozen.rebuildSorted()
+        let live = NotePool()
+        live.noteOn(67, velocity: 100, channel: 0)              // G on ch 1 (door hears it)
+        live.noteOn(72, velocity: 100, channel: 2)              // C on ch 3 (door does NOT hear it)
+        live.noteOn(60, velocity: 111, channel: 0)             // duplicate of a frozen pitch
+        live.rebuildSorted()
+        // door mask = channel 1 only (bit 0). Merge live IN — frozen note kept, ch-1 live added, ch-3 live dropped.
+        frozen.mergeFiltered(from: live, chanMask: 0x0001, cableMask: 0b1111)
+        XCTAssertEqual(frozen.count, 2)                         // 60 (dup collapsed) + 67; 72 excluded by channel
+        XCTAssertEqual(frozen.srcCount(chanMask: 0xFFFF), 2)
+        XCTAssertEqual(frozen.velocity(67), 100)               // the live G is present
+        XCTAssertEqual(frozen.velocity(72), 0)                 // the ch-3 note was NOT admitted
+        XCTAssertEqual(frozen.velocity(60), 111)               // duplicate → last-writer (live), still one entry
+    }
+
     func testPoolSortsAndCounts() {
         let p = pool([67, 60, 64])
         XCTAssertEqual(p.count, 3)
