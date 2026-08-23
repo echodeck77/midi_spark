@@ -303,7 +303,7 @@ extension DiagView {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            buildReceiverStrip(i, r)                                // RIGHT: the TRIAL STRIP (arm + meter + held) — replaces the old TEST buttons
+            buildReceiverControl(i)                                 // RIGHT: the EXACT main-page receiver strip (velocity + LATCH/mode/SET) — for trialling the mode (Paul 2026-08-23)
         }
         .padding(20)
         .background(RoundedRectangle(cornerRadius: 14).fill(hue.opacity(0.07)))
@@ -417,57 +417,6 @@ extension DiagView {
                 }
             }
         }.frame(width: width, height: height, alignment: .topLeading)
-    }
-    // THE TRIAL STRIP (Paul 2026-08-23) — a vertical channel strip per door, right of the mode list. Replaces the old
-    // LIVE INPUT | MODE test buttons. Top = the ARM button (labelled by the selected mode; "LAST N" while a REPLAY
-    // plays; PULSES when a mode is chosen but not yet armed; solid green when armed; inert "PICK A MODE" when the door
-    // has no explicit mode). Middle = the live velocity METER (reused). Bottom = HELD-note dots. Arming reuses the REAL
-    // latch arm (latchMask / toggleReplayCatch), so trialling a mode genuinely feeds the door to the grid.
-    @ViewBuilder private func buildReceiverStrip(_ i: Int, _ r: Receiver) -> some View {
-        let green = Color(red: 0.36, green: 0.92, blue: 0.52)
-        let hasMode = r.doorMode != nil
-        let mode = r.doorModeResolved
-        let engaged = mode == .replay ? (replayEngagedMask & (1 << UInt8(i))) != 0
-                                      : (latchMask & (1 << UInt8(i))) != 0
-        let armLabel: String = {
-            switch mode {
-            case .latch:  return "LATCH"
-            case .hold:   return "HOLD"
-            case .keys:   return "KEYS"
-            case .replay: return "LAST \(r.replayPassesResolved)"   // Paul: "last 2 for playback"
-            case .file:   return ".MID"
-            }
-        }()
-        let toggle = {
-            if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
-            receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
-        }
-        let held = i < recvHeldNotes.count ? recvHeldNotes[i] : []
-        VStack(spacing: 12) {
-            // ARM button — pulses when READY (mode chosen, not armed); solid when armed; inert when no mode.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || engaged || !hasMode)) { tl in
-                let pulse = (hasMode && !engaged) ? stagingPulseFraction(tl.date, period: 0.9) : 0
-                Text(hasMode ? armLabel : "PICK A\nMODE")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.7)
-                    .foregroundColor(!hasMode ? buildDim : (engaged ? .black : green))
-                    .frame(maxWidth: .infinity).frame(height: 52)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(engaged ? green : (hasMode ? green.opacity(0.12 + 0.22 * pulse) : buildCell)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(hasMode ? green.opacity(0.4 + 0.6 * pulse) : buildEdge, lineWidth: 2))
-                    .contentShape(Rectangle())
-                    .onTapGesture { if hasMode { toggle() } }
-            }
-            buildReceiverMeter(i, letter: ["A", "B", "C", "D"][i]).frame(height: 130)   // live velocity meter (reused)
-            HStack(spacing: 4) {                                                        // HELD-note dots (live, sheet-gated feed)
-                ForEach(0..<6, id: \.self) { k in
-                    Circle().fill(k < held.count ? green : Color.white.opacity(0.12)).frame(width: 8, height: 8)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(width: 116)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.2)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
     }
     // One INPUT MODE row: the radio + description, and — when SELECTED — its own controls INLINE beneath (Paul 2026-08-20).
     @ViewBuilder private func buildDoorModeOption(_ i: Int, _ m: DoorMode, r: Receiver) -> some View {
@@ -1038,32 +987,14 @@ extension DiagView {
     // like the centre column's emitter A–D chips (buildIOChip: cyan-when-armed, muted idle), but two-line: "MIDI IN"
     // small over a big A/B/C/D. A radio — one door selected, feeding the part. (Paul 2026-08-18)
     @ViewBuilder private func buildReceiverSelector(castW: CGFloat) -> some View {
-        let recvs = au?.uiReceivers() ?? receivers                       // resolved once (fresh) → the SET check is reliable
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { i in buildReceiverSelectChip(i, unset: (i < recvs.count ? recvs[i].doorMode : nil) == nil) }
+            ForEach(0..<4, id: \.self) { i in buildReceiverSelectChip(i) }
         }
         .frame(width: castW)
     }
-    @ViewBuilder private func buildReceiverSelectChip(_ i: Int, unset: Bool) -> some View {
-        if unset {
-            // NO MODE CHOSEN → a pulsing SET chip that OPENS this door's tab in the MIDI IN sheet (Paul 2026-08-23).
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let p = stagingPulseFraction(tl.date, period: 0.9)
-                VStack(spacing: 1) {
-                    Text("MIDI IN").font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.5)
-                    Text("SET").font(.system(size: 13, weight: .black, design: .monospaced))
-                }
-                .foregroundColor(buildCyan)
-                .frame(maxWidth: .infinity).frame(height: 48)
-                .background(RoundedRectangle(cornerRadius: 7).fill(buildCyan.opacity(0.10 + 0.18 * p)))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(buildCyan.opacity(0.4 + 0.5 * p), lineWidth: 1.5))
-                .contentShape(Rectangle())
-                .onTapGesture { buildMidiConfigTab = i; buildMidiConfigOpen = true }
-            }
-        } else {
-            let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door; nothing on a row → unselected (Paul 2026-08-18)
-            buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
-        }
+    @ViewBuilder private func buildReceiverSelectChip(_ i: Int) -> some View {
+        let on = buildSelectedRow.map { buildRowReceiverResolved($0) == i } ?? false   // the SELECTED row's door; nothing on a row → unselected (Paul 2026-08-18)
+        buildIOSelectChip(top: "MIDI IN", letter: ["A", "B", "C", "D"][i], on: on, action: { buildSelectDoor(i) }, onAll: { buildSelectDoorAll(i) })
     }
     // THE EMITTER (MIDI-OUT) TOGGLES — below the left column's button box. Four toggles (A–D), IDENTICAL in style to
     // the MIDI-IN receiver selector, toggling the PART's output emitters (part-owned, so every colour follows). (Paul 2026-08-18)
@@ -3327,19 +3258,55 @@ extension DiagView {
         let rec = i < receivers.count ? receivers[i] : Receiver()
         let letter = ["A", "B", "C", "D"][i]
         let soloed = soloReceiverMask & (1 << UInt8(i)) != 0
-        let latched = latchMask & (1 << UInt8(i)) != 0
         let h: CGFloat = 148                                                    // total control height, split into 4 EQUAL rows on the right (Paul 2026-08-18)
         HStack(spacing: 6) {
             buildReceiverFader(i, letter: letter).frame(width: 22, height: h)   // velocity INDICATOR — draggable to override input velocity (spring-back on release)
             VStack(spacing: 3) {                                                // four EQUAL rows, top → bottom
                 buildRecProminent(recChanLabel(rec), on: rec.inputEnabledResolved, colour: Color(red: 0.36, green: 0.92, blue: 0.52)) { toggleReceiverEnabled(i) }   // TOP: OMNI / CH n (ENABLE)
-                buildRecProminent("LATCH", on: latched, colour: Color(red: 1.0, green: 0.72, blue: 0.2)) { toggleReceiverLatch(i) }                                   // LATCH
+                buildReceiverLatchButton(i, rec)                                    // LATCH — SET (no mode) / mode label / "LAST N" · pulses when ready · solid when armed
                 buildOctRow(oct: i < receiverOctave.count ? receiverOctave[i] : 0, onDown: { nudgeReceiverOctave(i, -1) }, onUp: { nudgeReceiverOctave(i, 1) })   // OCT −/+ (between LATCH and S/M)
                 HStack(spacing: 3) {                                            // BOTTOM: SOLO (left) · MUTE (right)
                     buildRecMini("S", on: soloed, colour: buildCyan) { toggleReceiverSolo(i) }
                     buildRecMini("M", on: rec.muted, colour: buildPink) { toggleReceiverMute(i) }
                 }
             }.frame(height: h)
+        }
+    }
+    // THE LATCH/arm button on a receiver strip (Paul 2026-08-23) — shared by the main-page I/O box AND the MIDI-IN
+    // settings tab (the same buildReceiverControl is used in both). States: no mode chosen → "SET" (cyan pulse; tap
+    // OPENS that door's tab); a mode chosen but not armed → the mode label (LATCH/HOLD/KEYS/"LAST N"/.MID) with an
+    // amber "ready to arm" pulse; ARMED → solid amber. Arming reuses the real latch/replay engage.
+    @ViewBuilder private func buildReceiverLatchButton(_ i: Int, _ rec: Receiver) -> some View {
+        let amber = Color(red: 1.0, green: 0.72, blue: 0.2)
+        let hasMode = rec.doorMode != nil
+        let mode = rec.doorModeResolved
+        let engaged = mode == .replay ? (replayEngagedMask & (1 << UInt8(i))) != 0 : (latchMask & (1 << UInt8(i))) != 0
+        let label: String = !hasMode ? "SET" : {
+            switch mode {
+            case .latch:  return "LATCH"
+            case .hold:   return "HOLD"
+            case .keys:   return "KEYS"
+            case .replay: return "LAST \(rec.replayPassesResolved)"   // Paul: "last 2 for playback"
+            case .file:   return ".MID"
+            }
+        }()
+        let accent = hasMode ? amber : buildCyan
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || engaged)) { tl in
+            let pulse = engaged ? 0 : stagingPulseFraction(tl.date, period: 0.9)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.5)
+                .foregroundColor(engaged ? .black : (hasMode ? .white.opacity(0.85) : buildCyan))
+                .lineLimit(1).minimumScaleFactor(0.55)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 5).fill(engaged ? amber : accent.opacity(0.10 + 0.18 * pulse)))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(engaged ? Color.clear : accent.opacity(0.35 + 0.5 * pulse), lineWidth: 1.5))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !hasMode { buildMidiConfigTab = i; buildMidiConfigOpen = true }   // SET → open this door's tab
+                    else {
+                        if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
+                        receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
+                    }
+                }
         }
     }
     // A shared OCTAVE nudge row: −  OCT ±n  + (±3 octaves). Used by both the receiver and emitter controls. (Paul 2026-08-18)

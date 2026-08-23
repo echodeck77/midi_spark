@@ -184,22 +184,24 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   pool (omniRead=false) — a cell's channel mask always equals its door's CAPTURE mask, so OMNI-read == filtered-read
   except after a post-capture mask change (the fix). +1 RouterTest (omniRead plays an excluded-channel frozen note ·
   omniRead-off drops it). Covers ALL frozen modes (LATCH/REPLAY/FILE).**
-- **▶ MIDI-IN SETTINGS REDESIGN — A/B/C/D tabs + per-door TRIAL STRIP + main-page SET affordance (2026-08-23, on `main`;
-  iOS builds; UI-only so macOS suite unaffected; DEVICE eye owed). Paul's redesign of the MIDI INPUTS sheet. **(1) TABS:**
-  the sheet no longer stacks all four doors — a 4-across A/B/C/D tab bar (`buildMidiTabBar`, `@State buildMidiConfigTab`)
-  shows ONE door at a time; a tab switch resets the two GLOBAL range-keyboard flags (`buildRangeKbdDoor`/`buildRangeSetHi`)
-  so a pop-up can't strand (the KEYS/REPLAY/FILE inline controls are per-door → they follow the tab); an unset door wears
-  a small cyan "needs SET" dot. **(2) THE TRIAL STRIP** (`buildReceiverStrip`, replaces the old `buildDoorEngage` LIVE
-  INPUT | MODE test buttons): a vertical channel strip right of the mode list — an ARM button on top (labelled by the
-  selected mode, **"LAST N"** while a REPLAY plays; PULSES via `stagingPulseFraction` when a mode is chosen but not armed;
-  solid green when armed; inert "PICK A MODE" when the door has no explicit mode), the live velocity METER (reused
-  `buildReceiverMeter`), and HELD-note dots (`recvHeldNotes[i]`). Arming reuses the REAL latch arm (`latchMask` /
-  `toggleReplayCatch`), so trialling a mode genuinely feeds the door to the grid. **(3) EXPLICIT MODE:** the mode radios
-  now highlight `r.doorMode == m` (was `doorModeResolved` which always filled LATCH), so `doorMode == nil` reads as "no
-  mode selected"; the engine still resolves nil→latch (functionally unchanged). **(4) MAIN-PAGE SET:** the MIDI-IN A–D
-  chips (`buildReceiverSelectChip`) show a pulsing **SET** when that door's `doorMode == nil` and open its tab on tap
-  (`buildMidiConfigTab = i; buildMidiConfigOpen = true`); otherwise the normal door-select chip. Removed `buildDoorEngage`/
-  `buildEngageButton`. Plan: `~/.claude/plans/proud-leaping-waterfall.md`.**
+- **▶ MIDI-IN SETTINGS REDESIGN — A/B/C/D tabs + the EXACT receiver strip reused + SET on its LATCH (2026-08-23, on
+  `main`; iOS builds; UI-only so macOS suite unaffected; DEVICE eye owed). Paul's redesign of the MIDI INPUTS sheet.
+  KEY RULING (Paul's 2nd clarification): reuse the EXACT main-page receiver strip `buildReceiverControl(i)` (the one in
+  `buildIOBox`'s MIDI-IN row = velocity fader + ENABLE/LATCH/OCT/S-M) in BOTH places; the SET/mode state lives on THAT
+  strip's LATCH button — NOT a new control, NOT the left-column MIDI-IN chips. **(1) TABS:** the sheet no longer stacks
+  all four doors — a 4-across A/B/C/D tab bar (`buildMidiTabBar`, `@State buildMidiConfigTab`) shows ONE door at a time;
+  a tab switch resets the two GLOBAL range-keyboard flags (`buildRangeKbdDoor`/`buildRangeSetHi`) so a pop-up can't
+  strand (the KEYS/REPLAY/FILE inline controls are per-door → follow the tab); an unset door wears a small cyan dot.
+  **(2) THE STRIP:** `buildDoorSection` is now HStack{ LEFT: channels·range·the mode list · RIGHT: `buildReceiverControl(i)` }
+  — the identical component used on the main page, for trialling the selected mode (removed the old `buildDoorEngage`
+  LIVE INPUT | MODE test buttons + my short-lived `buildReceiverStrip`). **(3) THE LATCH BUTTON = SHARED** (`buildReceiver
+  LatchButton`, replaces the plain `buildRecProminent("LATCH")` inside `buildReceiverControl`, so it changes BOTH the
+  main-page I/O box AND the tab): no mode chosen → **"SET"** (cyan pulse; tap OPENS that door's tab); a mode chosen but
+  not armed → the mode label (LATCH/HOLD/KEYS/**"LAST N"**/.MID) with an amber ready-to-arm pulse; ARMED → solid amber.
+  Arming reuses the real latch/replay engage (`latchMask` / `toggleReplayCatch`). **(4) EXPLICIT MODE:** the mode radios
+  now highlight `r.doorMode == m` (was `doorModeResolved`, always filled LATCH) so `doorMode == nil` reads as "no mode /
+  SET"; the engine still resolves nil→latch (functionally unchanged). The main-page MIDI-IN chips are unchanged. Plan:
+  `~/.claude/plans/proud-leaping-waterfall.md`.**
 - **▶ ARP MULTI-CHANNEL on LIVE input — the pre-existing gap, FIXED (2026-08-23, on `main`; iOS builds, macOS green incl.
   fuzz; DEVICE ear owed). Follows the replay-channel fix (which surfaced it): the arp source-pick filtered LIVE input by
   the legacy SINGLE `cell.inputChannel` (0 = OMNI for a multi-channel-masked door), so an arp IGNORED a door's channel
