@@ -2057,6 +2057,30 @@ final class RouterTests: XCTestCase {
         step(NotePool()); step(NotePool(), false)         // release + stop
         assertNothingLeftSounding(e)
     }
+    // The BUILD-workshop shape: a colour whose chain resolves to ALL-BYPASSED (an ephemeral empty colour carries a
+    // bypassed-passgate placeholder), a nil-processors cell reading a door — must ALSO take the realtime wire.
+    func testAllBypassedTemplateIsAlsoARealtimeWire() {
+        var gold = Colour(colourID: "gold", type: .passgate)
+        gold.templateChain = [{ var s = ProcessorSlot(type: .arp); s.bypassed = true; return s }()]   // all-bypassed ≡ empty
+        var st = PluginState(colours: [gold] + arpColours().dropFirst(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }()   // nil processors → follows the all-bypassed template
+            return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.passEmitterMask[0] & 0b0001, 0b0001, "an all-bypassed-template cell registers as a live wire")
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 256, sr = 48_000.0, tempo = 120.0, bps = tempo / 60.0 / sr
+        var ts: Int64 = 0
+        func step(_ pool: NotePool, _ playing: Bool = true) {
+            router.process(box: b, pool: pool, playing: playing, beatPos: Double(ts) * bps, tempo: tempo, sampleRate: sr, timestampSample: Double(ts), frameCount: frames, out: e, diag: &diag)
+            ts += Int64(frames)
+        }
+        step(NotePool()); XCTAssertTrue(e.ons.isEmpty)
+        step(chord([60]))                                  // mid-column press
+        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "the all-bypassed-template no-machine cell also strikes in realtime")
+        step(NotePool()); step(NotePool(), false)
+        assertNothingLeftSounding(e)
+    }
     // BUG FIX (Paul, device 2026-08-05): a chain whose slots are ALL bypassed ≡ an EMPTY chain → the born-audible
     // passthrough (raw held chord), for ANY depth. Mirrors testEmptyChainIsBornAudiblePassthrough.
     func testAllBypassedChainIsPassthroughAtAnyDepth() {
