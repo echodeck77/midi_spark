@@ -645,12 +645,14 @@ extension DiagView {
             }
         } label: {
             let effRate = buildPartRate ?? StepRate.allCases[min(stepIndex, StepRate.allCases.count - 1)]   // the ACTUAL rate — the part override, else the scene default
-            Text(effRate.rawValue).font(.system(size: 13, weight: .black, design: .monospaced))   // RATE VALUE ONLY — header scale (Paul 2026-08-23)
-                .foregroundColor(buildCyan)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(buildPanel))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(buildCyan.opacity(0.9), lineWidth: 1.2))
-                .contentShape(Rectangle())
+            HStack(spacing: 4) {                                              // MATCH the header clock chip's format (Paul 2026-08-23)
+                Image(systemName: "timer").font(.system(size: 10, weight: .semibold))
+                Text(effRate.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced))
+            }
+            .foregroundColor(buildCyan)
+            .padding(.horizontal, 8).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
+            .contentShape(Rectangle())
         }
     }
     func buildSetPartRate(_ r: StepRate?) {

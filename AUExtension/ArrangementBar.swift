@@ -62,8 +62,8 @@ struct ArrangementBar: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onSecretTap() }   // dev: reveal the T-session loader
                     .helpAnchor("#logo")
                 presetButton.helpAnchor("#presets-open")                           // §3 PRESETS: right of the logo (user 2026-08-03)
-                headerExtras                                                       // BUILD: RECORD · RATE · MIDI/RACK CONFIG (Paul 2026-08-23)
                 Spacer(minLength: 8)                                               // the chips moved down → the cog trails the header
+                headerExtras                                                       // BUILD: RECORD · RATE · MIDI/RACK CONFIG — RIGHT-aligned (Paul 2026-08-23)
                 swingControl                                                       // SWING — straight on the header (Paul 2026-08-19)
                 clockControl.helpAnchor("#clock")                                  // LAYOUT v2: STEP rate (SWING moved out to the header)
                 if d.playing {
