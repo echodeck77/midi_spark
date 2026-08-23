@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ NO-MACHINE CHAIN = A LIVE WIRE (realtime passthrough) (2026-08-23, on `main`; iOS builds, macOS 839 green incl.
+  fuzz; DEVICE ear owed). Paul: an empty chain (no machine) re-struck at the next column instead of passing through in
+  realtime — because the grid is a STEP SEQUENCER: every cell, incl. a passthrough, is a HOLD that only strikes at column
+  boundaries. Ratified (Paul chose "live wire"): a DOOR-CONNECTED no-machine cell now passes its input STRAIGHT THROUGH in
+  realtime via the proven BYPASS MONITOR (`reconcileBypass`), not the grid clock — immediate note-on/off, natural length,
+  monitors even when stopped. IMPL: `SnapCell.passthrough` (set by `markPassthrough`), `SnapshotBox.passEmitterMask[4]`
+  (builder: per door, the UNION of non-muted passthrough cells' emitters), `reconcileBypass` ORs it into `destMask` (solo-
+  excluded doors silent, like bypass) + the fast-path guard, and `emitColumnHolds` SKIPS a passthrough cell WITH A DOOR
+  (`resolvedReceiver >= 0`) — a door-less passthrough (test cells) stays a gridded hold, so the existing born-audible
+  passthrough tests are unaffected. Reuses the refcount/close-on-release/panic safety of the bypass path (no stuck notes,
+  fuzz-verified). v1: raw note (no octave/key/fence shaping, like bypass); a passthrough row is a WIRE (not sequenced),
+  plays stopped. +1 RouterTest (a mid-column press strikes immediately, where a gridded hold couldn't; nothing stuck).
+  OPEN (Paul's follow-up questions): extend realtime-live-play to MACHINE cells (a "monitor + effect" layer → note
+  DOUBLING) and a per-colour HOLD-as-an-option vs WIRE model — a design pass, not built.**
 - **▶ EMPTY CHAIN PASSES THROUGH (legato) + REPLAY ROLL shows the RECORDED LOOP with DURATION (2026-08-23, on `main`;
   iOS builds, macOS 838 green incl. fuzz; DEVICE ear/eye owed). Two of Paul's follow-ups. **(1) PASSTHROUGH IS LEGATO:**
   Paul asked why a chain with NO machines re-struck the chord every step — because `SnapshotBuilder.markPassthrough` built

@@ -74,7 +74,11 @@ enum BuildSelfTest {
             beat += wb; ts += Double(frames)
         }
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
-                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop → flush every voice
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop → flush the gridded voices
+        // RELEASE the input, then render once more: a NO-MACHINE WIRE / bypass monitor SURVIVES a transport stop
+        // (it's a live monitor) and closes only when the input releases — so a proper no-stuck check must lift the keys.
+        router.process(box: box, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts + Double(frames), frameCount: frames, out: e, diag: &diag)
         return e
     }
 

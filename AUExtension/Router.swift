@@ -424,6 +424,7 @@ final class Router {
     private var receiverRangeHi: [UInt8] = [127, 127, 127, 127]
     private var receiverBypassMask: UInt8 = 0
     private var receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111]
+    private var passEmitterMask: [UInt8] = [0, 0, 0, 0]   // NO-MACHINE WIRE: per door, the union of passthrough cells' emitters (reconcileBypass injects the door's input to them in realtime)
     private var bypassDesired = [Bool](repeating: false, count: 128)   // scratch: desired source notes this render
     private var bypassScratch = [UInt8](repeating: 0, count: 128)      // scratch: the desired notes, read once
     /// The pool a cell reads: its receiver's frozen LATCH pool when armed (which STILL feeds while the door is
@@ -447,7 +448,7 @@ final class Router {
     /// roles. v1 applies RANGE + channel/cable admission (a muted/disabled door goes quiet — same filter);
     /// octave/velocity SHAPING is deferred (the output note = the source note, so on/off balance by note).
     private func reconcileBypass(pool: NotePool, atSample sample: Int64, out: MIDIEmitter?) {
-        guard receiverBypassMask != 0 || anyBypassVoiceActive() else { return }   // fast path: nothing bypassed & none to close
+        guard receiverBypassMask != 0 || passEmitterMask.contains(where: { $0 != 0 }) || anyBypassVoiceActive() else { return }   // fast path: nothing bypassed / no wire cells / none to close
         let savedCI = currentColourIndex, savedCell = currentCellIndex, savedAlt = currentAlt
         currentColourIndex = -1; currentCellIndex = -1; currentAlt = false        // bypass voices carry no grid identity / SEAL
         defer { currentColourIndex = savedCI; currentCellIndex = savedCell; currentAlt = savedAlt }
@@ -456,7 +457,9 @@ final class Router {
             // too — the door mutes with the grid. (LIVE-off already silences bypass via the match-nothing filter.)
             let soloExcluded = soloReceiverMask != 0 && (soloReceiverMask & (1 << UInt8(r))) == 0
             let bypassed = (receiverBypassMask & (1 << UInt8(r)) != 0) && !soloExcluded
-            let destMask = bypassed ? receiverBypassDest[r] : 0
+            // NO-MACHINE WIRE (Paul 2026-08-23): a passthrough cell's emitters get the door's input in realtime, right
+            // alongside a real BYPASS dest (both are "straight through"). Solo-excluded doors go silent, like bypass.
+            let destMask = (bypassed ? receiverBypassDest[r] : 0) | (soloExcluded ? 0 : passEmitterMask[r])
             // LATCH (incl. self-armed PIANO): a bypassed door with an armed latch injects its FROZEN chord, not the
             // (for PIANO, empty) live pool. The frozen pool is already receiver-filtered at capture, so read it whole
             // (OMNI / all-cables / full-range) — mirrors the input meter's `armed ? OMNI` read.
@@ -1423,6 +1426,7 @@ final class Router {
         for r in 0..<Snap.rows where onlyRow == nil || onlyRow == r {   // PER-PART CLOCK: one row, or all (no per-call allocation)
             var cell = box.cells[column * Snap.rows + r]
             if cell.colourIndex < 0 || cell.busMask == 0 || cellSoloedOut(column, r) || (!cellSoloForced(column, r) && (cell.muted || cell.dormant || tapMuted(column, r))) { continue }   // §9 ON TAP = MUTE · LADDER dormant (PLAY: THIS CELL overrides both)
+            if cell.passthrough && cell.resolvedReceiver >= 0 { continue }   // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected passthrough passes its input straight through in REALTIME (reconcileBypass), NOT on the grid's step clock. (A door-less passthrough — no receiver to source from in the per-door bypass pass — stays a gridded hold.)
             applyInternalMods(&cell, column: column, pool: pool, mNow: mNow, S: S, box: box)   // §2 INTERNAL MOD: modulate this hold cell's chain params (no-op unless a MOD targets the chain)
             if isCoveredChain(cell) { continue }   // CELL MACHINE stage-2: the ARP tail emits in the tick loop; the head must not chord-hold here
             if composableLengthTailIndex(cell) != nil { continue }   // [→ LENGTH] re-articulates the composed set in the tick loop (emitLengthComposedRow), never a plain hold here
@@ -1891,7 +1895,7 @@ final class Router {
         self.receiverDisabledMask = box.receiverDisabledMask   // INPUT ENABLE: disabled doors block their cells' live read
         self.receiverChannels = box.receiverChannels; self.receiverCables = box.receiverCables   // BYPASS: per-receiver admission for the direct-injection pass
         self.receiverRangeLo = box.receiverRangeLo; self.receiverRangeHi = box.receiverRangeHi
-        self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest
+        self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest; self.passEmitterMask = box.passEmitterMask
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)

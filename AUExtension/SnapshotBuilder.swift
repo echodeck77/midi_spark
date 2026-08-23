@@ -138,6 +138,15 @@ enum SnapshotBuilder {
             }
         }
 
+        // NO-MACHINE WIRE (Paul 2026-08-23): per DOOR, the UNION of the emitters of every empty-chain (passthrough) cell
+        // reading it, EXCLUDING muted cells. The Router passes each door's input straight to these emitters in realtime
+        // (reconcileBypass), and skips these cells in the grid's step clock — so a no-machine chain plays LIVE, not quantized.
+        var passEmit = [UInt8](repeating: 0, count: 4)
+        for idx in 0..<cells.count where cells[idx].passthrough && !cells[idx].muted {
+            let r = Int(cells[idx].resolvedReceiver)
+            if r >= 0 && r < 4 { passEmit[r] |= cells[idx].busMask }
+        }
+
         // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
         var busCh = [UInt8](repeating: 0, count: 4)
         for i in 0..<4 {
@@ -150,7 +159,7 @@ enum SnapshotBuilder {
         // (Paul 2026-08-23): a chain with NO machines just PASSES THROUGH — the held note is struck once and SUSTAINED
         // (adopted across columns) rather than re-struck every step. (A .retrig identity re-attacked the chord at each
         // column boundary = "why does it restrike?".) emitColumnHolds sustains an identity only when its phase == .legato.
-        func markPassthrough(_ sc: inout SnapCell) { var sp = SnapParams(); sp.phase = .legato; sc.procs = [sp]; sc.slotBypass = [true]; sc.bypassed = true }
+        func markPassthrough(_ sc: inout SnapCell) { var sp = SnapParams(); sp.phase = .legato; sc.procs = [sp]; sc.slotBypass = [true]; sc.bypassed = true; sc.passthrough = true }
         let busEnabledMask = packMask(doc.busEnabledResolved)
         // THE RACK (design-the-rack §3, the two-tier law): pre-AND the per-emitter "board in the signal path"
         // gate into every treatment mask. A rack-off emitter drops out of claim/duck/alt entirely → its output is
@@ -272,6 +281,7 @@ enum SnapshotBuilder {
                            receiverRangeHi: receiverRangeHi,
                            receiverBypassMask: receiverBypassMask,
                            receiverBypassDest: receiverBypassDest,
+                           passEmitterMask: passEmit,
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,

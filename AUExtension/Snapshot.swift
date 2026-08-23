@@ -29,6 +29,8 @@ struct SnapCell {
     var colourIndex: Int8 = -1
     var alt = false
     var bypassed = false
+    var passthrough = false     // NO-MACHINE chain (Paul 2026-08-23): a LIVE WIRE — its input passes straight through in
+                                // realtime via the bypass monitor (reconcileBypass), NOT the grid's step clock; skipped in emitColumnHolds.
     var muted = false
     var dormant = false        // LADDER: a non-active rung while LADDER mode is on — silent (skipped at the emit
                                // guards, like `muted`) but present/visible; resolved in the builder so the render
@@ -233,6 +235,7 @@ final class SnapshotBox {
     let receiverRangeHi: [UInt8]     // RANGE (§2): the 4 receivers' note-window high bound (0…127)
     let receiverBypassMask: UInt8    // BYPASS (§1/§2): bit i = receiver i bypasses the grid (its stream injects straight to emitters)
     let receiverBypassDest: [UInt8]  // BYPASS: the 4 receivers' destination emitter masks (A–D), default ALL
+    let passEmitterMask: [UInt8]     // NO-MACHINE WIRE (Paul 2026-08-23): per door, the UNION of empty-chain (passthrough) cells' emitters — their input passes straight through in realtime via reconcileBypass (like bypass, but per-cell)
     let receiverControllerMask: [UInt8]  // CONTROLLER ROUTING (v1): each door's emitters (A–D) it forwards incoming CC/PB/AT/PC to, re-stamped. Default ALL-LIVE.
     let receiverPianoMask: UInt8         // PIANO LATCH: bit i = receiver i's latch reads its on-screen keyboard selection (not live input)
     let receiverPianoNotes: [[UInt8]]    // PIANO LATCH: per-receiver chosen notes (the frozen chord when armed in PIANO mode)
@@ -264,6 +267,7 @@ final class SnapshotBox {
          receiverDisabledMask: UInt8 = 0,
          receiverRangeLo: [UInt8] = [0, 0, 0, 0], receiverRangeHi: [UInt8] = [127, 127, 127, 127],
          receiverBypassMask: UInt8 = 0, receiverBypassDest: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
+         passEmitterMask: [UInt8] = [0, 0, 0, 0],
          receiverControllerMask: [UInt8] = [0b1111, 0b1111, 0b1111, 0b1111],
          receiverPianoMask: UInt8 = 0, receiverPianoNotes: [[UInt8]] = [[], [], [], []],
          receiverReplayMask: UInt8 = 0, receiverReplayPasses: [UInt8] = [1, 1, 1, 1],
@@ -311,6 +315,7 @@ final class SnapshotBox {
         self.receiverRangeHi = receiverRangeHi
         self.receiverBypassMask = receiverBypassMask
         self.receiverBypassDest = receiverBypassDest
+        self.passEmitterMask = passEmitterMask
         self.receiverControllerMask = receiverControllerMask
         self.receiverPianoMask = receiverPianoMask
         self.receiverPianoNotes = receiverPianoNotes

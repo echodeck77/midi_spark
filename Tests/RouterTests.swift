@@ -2033,6 +2033,30 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // NO-MACHINE WIRE (Paul 2026-08-23): a door-connected empty chain passes its input STRAIGHT THROUGH in REALTIME
+    // (via reconcileBypass), not on the grid's step clock — so a note pressed MID-column strikes immediately, where a
+    // gridded hold would wait for the next column boundary. Also: no stuck notes on release.
+    func testNoMachineChainIsARealtimeWire() {
+        var st = PluginState(colours: arpColours(), scenes: [{ var s = SceneState.empty()
+            s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; c.processors = []; return c }()   // EMPTY chain, reads door R1 (OMNI)
+            return s }()])
+        st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
+        let b = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(b.passEmitterMask[0] & 0b0001, 0b0001, "the no-machine cell registers emitter A as a live wire on door 0")
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 256, sr = 48_000.0, tempo = 120.0, bps = tempo / 60.0 / sr
+        var ts: Int64 = 0
+        func step(_ pool: NotePool, _ playing: Bool = true) {
+            router.process(box: b, pool: pool, playing: playing, beatPos: Double(ts) * bps, tempo: tempo, sampleRate: sr, timestampSample: Double(ts), frameCount: frames, out: e, diag: &diag)
+            ts += Int64(frames)
+        }
+        step(NotePool())                                  // window 0 (beat 0, column 0): nothing held
+        XCTAssertTrue(e.ons.isEmpty, "nothing held → nothing sounds")
+        step(chord([60]))                                 // window 1: STILL column 0 (no boundary crossed) — a gridded hold could NOT strike here
+        XCTAssertTrue(e.ons.contains { $0.note == 60 }, "the no-machine wire strikes the held note in realtime, mid-column")
+        step(NotePool()); step(NotePool(), false)         // release + stop
+        assertNothingLeftSounding(e)
+    }
     // BUG FIX (Paul, device 2026-08-05): a chain whose slots are ALL bypassed ≡ an EMPTY chain → the born-audible
     // passthrough (raw held chord), for ANY depth. Mirrors testEmptyChainIsBornAudiblePassthrough.
     func testAllBypassedChainIsPassthroughAtAnyDepth() {
