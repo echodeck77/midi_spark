@@ -159,6 +159,27 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ OVERNIGHT AUTONOMOUS BATCH — CODE REVIEW (17/18) + ROW 8 (model+FREEZE/HALFTIME+REDIRECT/SWAP+strip+edit page) +
+  SCENES V2 v1 (2026-08-24, on `main`; iOS builds, macOS 855 green incl. fuzz; DEVICE eye/ear owed on all the UI + the
+  ROW 8/scenes engines). Paul: "fix the code review, implement row 8, implement scenes — attempt all 3 unattended." **CODE
+  REVIEW — 17 of 18 findings FIXED + committed** (`e1f6925` CR-1/12/16/17 · `67bd53c` CR-2/3/4/5/6/7/9/10/11/13 · `9e72626`
+  CR-14/15 + the 7 EXTRAS): the render↔main crash (CR-1 nested→flat), GLIDE flush edges, ReelDeck synthetic-off (no stuck
+  on re-select), master-mute-silences-bypass, MONO-before-governor, BURST 12/16, param-tree resync on load, rackConfigs
+  pad, pendingBuildUnassigned reset, multi-clock tracker reseed, colourIndex Int8→Int16, editor-CANCEL re-snapshot, RANGE
+  keyboard responsive width, + the extras (inverted vel/range guards, reel-replay silence-leak exempt, dead-state cull,
+  ARP-chordSplit documented, deploy `>=0` guards). **CR-8 DEFERRED** (task #17): the one data-loss decode fix (non-Optional
+  post-v2 fields throw on a pre-v2 doc) — its Optional-conversion ripple wants the round-trip suite WATCHED, not done
+  blind; low real-world exposure (fresh installs + all factory/preset builders set the fields). **ROW 8** (`95d7cfd` model ·
+  `58ceb83` FREEZE/HALFTIME engine · `69f45da` strip+edit page+AU wiring · `4dc3a3a` REDIRECT/SWAP+SETUP/MACRO/KILL):
+  `Row8Type`(16)/`Row8Mover`/`Row8Cell` + `factoryDeck` (the danger gradient) in Models; `PluginState.row8` + `SceneState.
+  row8On` (per-scene lit toggles, Codable-verified). FREEZE (sustain+pause, box-driven) + HALFTIME (÷2/×2 clock scale) are
+  LIVE + Router-tested + fuzzed; REDIRECT/SWAP re-stamp the wire at emitOneBus (voice-stored cable/chan → release-handoff,
+  no stuck notes) + fuzzed; the perform STRIP (below the play grid) + the EDIT PAGE (type picker + payload + mover) author
+  + drive them; SETUP/MACRO/KILL call the existing engine. **SCENES V2 v1** (`0c65033`): an IN-MEMORY play-grid scene
+  switcher (BuildSceneSnapshot + a chip strip; capture/restore/add) — the arrangement is per-scene, parts/colours shared.
+  **OPEN (deferred, flagged): CR-8** · ROW 8 **BROADCAST** (fan-out), **PART/INPUT/CC-PUNCH/PC-SEND**, the **HUB** (config-
+  button retire + edit-setups jump), the **held-mover press-gesture** · SCENES V2 **persistence + pass-quantized switch +
+  drag-swap/delete**. Everything device-owed (blind build). +21 tests across the batch.**
 - **▶ NO-MACHINE WIRE — PARITY across all 3 play paths + receiver-strip attack flash (2026-08-23, on `main`; iOS builds,
   macOS 841 green incl. fuzz; DEVICE ear owed). Follows the wire (`9419b42`). Device: a no-machine cell was realtime ONLY
   via PLAY THIS MIDI CHAIN; the PART grid + PLAY grid still played late. ROOT CAUSE (reader-agent traced): `composeScene`'s

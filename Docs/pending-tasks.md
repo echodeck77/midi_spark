@@ -6,6 +6,17 @@ AND add its commit line to CLAUDE.md status. Terse by design — detail lives in
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
 ## ★ DESIGN INBOX 2026-08-22/23 — FILED + QUEUED (4 ferries read + filed to `Docs/`; sequencing = Paul's word)
+- **⟳ ROW 8 — LARGELY BUILT 2026-08-24 (overnight autonomous; see CLAUDE.md status). DONE: the type MODEL + factory deck +
+  per-scene toggle capture; the FREEZE + HALFTIME engines (live, tested, fuzzed); REDIRECT + SWAP (wire re-stamp, tested,
+  fuzzed); the perform STRIP + the EDIT PAGE (author every type); SETUP/MACRO/KILL wired to the existing engine. OPEN
+  (deferred, each substantial): BROADCAST (a per-note fan-out — voice/refcount+governor design), PART (scene-independent
+  part playback), INPUT (door mode-act — reuse latch/replay engage), CC-PUNCH/PC-SEND (need an on-demand CC/PC emission
+  path), the HUB (retire the 2 bottom config buttons + the SETUP "edit setups →" jump + the INPUT cell type), and the
+  HELD-mover spring press-gesture (v1 toggles via row8On). Device eye/ear owed on all of it.**
+- **⟳ SCENES V2 — v1 SWITCHER BUILT 2026-08-24 (in-memory). DONE: BuildSceneSnapshot + a chip strip on the play column;
+  capture/restore/add (arrangement per-scene, parts/colours shared). OPEN: PERSIST scenes with the document; PASS-QUANTIZED
+  switch (arm/blink/next-pass + a hard sceneFlush) — v1 is an instant republish; drag-swap + cog-trash delete; the §2
+  user-defined grid makeup (band count/heights) + factory form templates. Device owed.**
 - **ROW 8 (the "fifth row") — RATIFIED WHOLE, BUILD-READY** (`Docs/row8-spec.md`; supersedes the scenes-v2 doc's §3–6
   fifth-row sections). The bottom row becomes **8 TYPED performance cells** `{TYPE · payload · MOVER (HELD|TOGGLE|ONE-SHOT)}`.
   Type catalog: SEQUENCE · PART (play a part from a pad, scene-independent) · SETUP (rack-config radio) · MACRO · FREEZE ·
@@ -37,7 +48,15 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
   explodes (no host needed), XCUITest becomes possible, the standalone IS the store page. Recommendation: schedule the
   spike AFTER the current queue settles; phase ① driver+transport+OUT (playable alone) → ② IN → ③ Link → ④ chrome.
 
-## ★ CODE-REVIEW FINDINGS 2026-08-23 (6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code). Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz. Do SOON.
+## ★ CODE-REVIEW FINDINGS 2026-08-23 — ✅ 17 of 18 FIXED + committed 2026-08-24 (overnight autonomous batch; see CLAUDE.md
+## status). ALL findings below (numbered [1]–[18] in the sub-sections + the 7 EXTRAS) are DONE except **[9]/CR-8 (the
+## non-Optional post-v2 decode fields)** — DEFERRED: its Optional-conversion ripple + round-trip verification wants the
+## macOS suite WATCHED, not done blind overnight (low real-world exposure — fresh installs + every factory/preset builder
+## sets busChannels/activeScene/morphMaster). Commits: e1f6925 (CR-1/12/16/17) · 67bd53c (CR-2/3/4/5/6/7/9/10/11/13) ·
+## 9e72626 (CR-14/15 + the 7 EXTRAS). +CR-3/4/6/9 regression tests + the fuzz. macOS 855 green. The historical finding
+## text is kept below for the record. NEXT (attended): CR-8 (make the 3 fields Optional+resolved OR a decodeIfPresent init).
+##
+## (original sweep header:) 6-reviewer adversarial sweep — Router · Kernel · Derivations/Builder · Models/Emission · BuildPage · VC/AU; each finding VERIFIED against the code. Fix in small individually-verifiable commits (macOS suite + iOS build after each); the render-engine ones are byte-identical-sensitive — lean on RouterTests + fuzz.
 
 ### Crashes & races (do FIRST)
 - **[1] Nested `[[UInt8]]` receiver-sounding feed = live render↔main race (the known SIGTRAP class).** `Kernel.swift:389,398,428`
