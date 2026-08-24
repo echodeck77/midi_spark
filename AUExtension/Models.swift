@@ -636,6 +636,15 @@ struct SceneState: Codable, Equatable {
         return nil
     }
 
+    // ROW 8 (Paul 2026-08-22): the TOGGLE/RADIO lit state of the 8 action cells is captured PER SCENE (a scene switch
+    // carries the lit toggles; HELD/ONE-SHOT acts are momentary and never stored). Additive-Optional → nil ⇒ all off.
+    var row8On: [Bool]? = nil
+    /// The 8 lit flags, nil/short-array safe (missing ⇒ off). Non-persisting read helper.
+    var row8OnResolved: [Bool] {
+        let o = row8On ?? []
+        return (0..<8).map { $0 < o.count ? o[$0] : false }
+    }
+
     static func empty() -> SceneState {
         SceneState(cells: Array(repeating: Array(repeating: nil, count: 8), count: 8))
     }
@@ -722,6 +731,96 @@ struct Macro: Codable, Equatable {
     var laneRateMulResolved: Double { let i = max(0, min(Macro.laneRateMul.count - 1, laneRate)); return Macro.laneRateMul[i] }
 }
 
+// MARK: - ROW 8 — the action strip (Paul 2026-08-22, Docs/row8-spec.md)
+// The bottom row = 8 TYPED cells, each a SEATED MACRO BUTTON {type · payload · mover}. Perform-only on the grid;
+// authored on the ROW 8 EDIT PAGE. Scenes capture toggle/radio LIT state. Routing-class types ANNOUNCE (the wire law).
+
+/// The action catalog. `.empty` = the [+] authoring invitation. Append-only (Codable rawValues are frozen).
+enum Row8Type: String, Codable, CaseIterable {
+    case empty            // the [+] — an unauthored cell (renders the ADD-glow invitation)
+    // the zero-config instant-payoff trio (danger gradient, left)
+    case stutter          // HELD: the sounding set retriggers at RATE (the DJ stutter)
+    case freeze           // TOGGLE: sounding notes SUSTAIN + derivation pauses (the pad-of-now)
+    case halftime         // TOGGLE: ÷2 | ×1 | ×2 the whole play-grid clock, boundary-deferred
+    // the routing-class wing (announces)
+    case redirect         // HELD: one wire's stream re-stamped onto another (A→B)
+    case swap             // HELD|TOGGLE: two wires EXCHANGE streams (A↔B)
+    case broadcast        // HELD: every emission MIRRORS to all wires (+channels) — the wall
+    case kill             // ONE-SHOT: all-notes-off, soft or hard
+    // the seated types
+    case part             // TOGGLE: a referenced PART plays FROM THE CELL, scene-independent
+    case sequence         // TOGGLE: a captured phrase loops (deferred payload — v1 stub)
+    case setup            // ONE-SHOT (radio): activate rack SETUP n (the setup cells form a radio)
+    case macro            // the macro's own nature: fire/hold macro n
+    case input            // the door's mode-act (LATCH/HOLD/REPLAY/KEYS/FILE), dynamic per door mode
+    case ccPunch          // HELD: punch a CC value while held
+    case pcSend           // ONE-SHOT: send a Program Change
+}
+
+/// The mover column — how a press behaves. The macro/trigger family grammar, reused verbatim.
+enum Row8Mover: String, Codable, CaseIterable {
+    case held             // spring: acts while pressed, releases on lift
+    case toggle           // latched on/off
+    case oneShot          // fires once per tap
+}
+
+/// One ROW 8 cell: {type · payload · mover}. Only the payload fields relevant to `type` are used. Additive-Optional
+/// payloads so future types extend without a migration break. Equatable/Codable for the document + scene capture.
+struct Row8Cell: Codable, Equatable {
+    var type: Row8Type = .empty
+    var mover: Row8Mover = .toggle       // stored explicit; authoring seeds it from `Row8Type.defaultMover`
+    // payloads — one per family (nil unless the type uses it):
+    var partRef: Int? = nil              // PART: which part index
+    var setupN: Int? = nil               // SETUP: rack config 0…3
+    var macroN: Int? = nil               // MACRO: macro slot 0…7
+    var doorRef: Int? = nil              // INPUT: which door A–D (0…3)
+    var wireFrom: Int? = nil             // REDIRECT/SWAP: source wire A–D (0…3)
+    var wireTo: Int? = nil               // REDIRECT/SWAP: dest wire A–D (0…3)
+    var rate: ArpRate? = nil             // STUTTER: the retrigger rate (1/8 · 1/16 · 1/32 — ArpRate has the fast values)
+    var halftimeMode: Int? = nil         // HALFTIME: 0 = ÷2 · 1 = ×1 · 2 = ×2
+    var ccNum: Int? = nil                // CC-PUNCH: controller number 0…127
+    var ccVal: Int? = nil                // CC-PUNCH: the value punched while held (0…127)
+    var pcNum: Int? = nil                // PC-SEND: program number 0…127
+    var killHard: Bool? = nil            // KILL: false = soft (notes-off) · true = hard (+ sound-off/panic)
+    var broadcastAllChannels: Bool? = nil// BROADCAST: also mirror across all 16 channels
+    var label: String? = nil             // optional user label (else the type glyph + a derived caption)
+
+    /// The sensible default MOVER per type (spec §THE MODEL). Authoring seeds `mover` from this; the user can cycle it.
+    static func defaultMover(for t: Row8Type) -> Row8Mover {
+        switch t {
+        case .stutter, .redirect, .broadcast, .ccPunch: return .held
+        case .freeze, .halftime, .swap, .part, .sequence, .macro: return .toggle
+        case .kill, .setup, .pcSend, .input, .empty: return .oneShot
+        }
+    }
+    /// A freshly-authored cell of a type, with its default mover + type-appropriate payload seeds.
+    static func make(_ t: Row8Type) -> Row8Cell {
+        var c = Row8Cell(); c.type = t; c.mover = defaultMover(for: t)
+        switch t {
+        case .stutter:  c.rate = .r1_16
+        case .halftime: c.halftimeMode = 0                      // ÷2 (the drop)
+        case .redirect, .swap: c.wireFrom = 0; c.wireTo = 1     // A→B
+        case .broadcast: c.broadcastAllChannels = true
+        case .kill: c.killHard = false                          // soft
+        case .setup: c.setupN = 0
+        case .macro: c.macroN = 0
+        case .part: c.partRef = 0
+        case .input: c.doorRef = 0
+        case .ccPunch: c.ccNum = 74; c.ccVal = 127              // cutoff, full
+        case .pcSend: c.pcNum = 0
+        default: break
+        }
+        return c
+    }
+
+    /// THE FACTORY DECK — the "danger gradient": left plays, right wields (spec §2). The shipping default (no reset;
+    /// the layout is just the default, fully editable). Cell 4 is the deliberate [+] authoring invitation.
+    static var factoryDeck: [Row8Cell] {
+        [ make(.stutter), make(.freeze), make(.halftime), Row8Cell(),
+          make(.redirect), make(.swap), make(.kill), make(.broadcast) ]
+    }
+}
+
 struct PluginState: Codable, Equatable {
     var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
     var colours: [Colour]
@@ -730,6 +829,15 @@ struct PluginState: Codable, Equatable {
     var morphMaster: Double = 0    // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
                                    // but the render no longer applies it — morph is per-Colour only.
     var busChannels: [Int] = [1, 2, 3, 4]   // v3.0 (delta §7): each bus A–D stamps this channel on exit
+    // ROW 8 (Paul 2026-08-22, Docs/row8-spec.md): the bottom ACTION strip — 8 TYPED performance cells. DOCUMENT state is
+    // the authoring {type · payload · mover}; the toggle/radio LIT state is captured PER SCENE (SceneState.row8On).
+    // Additive-Optional → old docs decode nil ⇒ the factory "danger gradient" deck (Row8Cell.factoryDeck).
+    var row8: [Row8Cell]? = nil
+    /// The 8 action cells, nil/short-array safe (missing ⇒ the factory deck). Non-persisting read helper.
+    var row8Resolved: [Row8Cell] {
+        let r = row8 ?? Row8Cell.factoryDeck
+        return (0..<8).map { $0 < r.count ? r[$0] : Row8Cell() }
+    }
     // delta §6a: per-emitter enable (the per-output performance mute). Optional so v2/old docs decode as
     // nil → all-enabled (the loader default); the gate lives ONLY at the emission boundary (seam rule 3).
     var busEnabled: [Bool]? = nil
