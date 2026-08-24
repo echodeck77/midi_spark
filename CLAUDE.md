@@ -159,6 +159,23 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ ROW 8 + SCENES — PAUL'S FEEDBACK PASS + PERSISTENCE + more engines (2026-08-24, on `main`; iOS builds, macOS 857
+  green incl. fuzz; DEVICE eye/ear owed). Four corrections from Paul's device look + two follow-ups. **THE AUDIO FIX
+  (`4d56fd0`, why FREEZE/HALFTIME were silent):** `renderDoc` composes a staging scene when BUILD plays and did
+  `temp.scenes[si] = scene` — which DROPPED the `row8On` lit toggles → the engine never saw freeze/halftime/redirect. Now
+  preserves `scene.row8On` onto the composed scene (like `stepRate`/`swing`). **ROW 8 IS THE GRID'S BOTTOM ROW:** removed
+  the separate strip; the play grid's row 7 (already carved out of the part bands `[3,2,1,1]`) now renders the 8 action
+  cells as POPULATED grid cells (`buildRow8GridCell` — lit = cyan fill, empty = `[+]` recess; TAP performs). **EDIT IN THE
+  HEADER:** a "ROW 8" `buildConfigButton` after RACK opens the authoring page (no long-press on cells). **USE THE EXISTING
+  SCENE STRIP:** dropped the duplicate; BUILD hooks the existing ArrangementBar chips via `onChange(activeSceneIdx)` →
+  `buildSyncSceneSwitch` (save old arrangement, restore target). **PERSISTENCE (`c72ddeb`):** `BuildSceneSnapshot` is
+  Codable; `PluginState.buildScenes`/`buildScenesActive` (additive) travel in the fullState encode like `buildUnassigned`
+  — this ALSO persists the deployed play grid (the long-open gap). `buildCaptureScenes`/`buildRestoreScenes` wired into
+  `buildPersistTick`; +1 round-trip test. **MORE ENGINES (`750f516`):** BROADCAST (emitOneBus mirrors every note to all 4
+  wires; voice-stored cable → release-handoff, no stuck notes) + INPUT (door mode-act via a shared `buildEngageDoor`).
+  Fuzz now flips FREEZE/HALFTIME/REDIRECT/SWAP/BROADCAST under sounding notes. OPEN (deferred): CC-PUNCH/PC-SEND (render-
+  safe on-demand emit + a routing spec), PART (scene-independent playback subsystem), the HUB (retire the 2 config
+  buttons), broadcast-all-channels, the held-mover spring gesture; SCENES pass-quant + drag-swap↔snapshot pairing.**
 - **▶ OVERNIGHT AUTONOMOUS BATCH — CODE REVIEW (17/18) + ROW 8 (model+FREEZE/HALFTIME+REDIRECT/SWAP+strip+edit page) +
   SCENES V2 v1 (2026-08-24, on `main`; iOS builds, macOS 855 green incl. fuzz; DEVICE eye/ear owed on all the UI + the
   ROW 8/scenes engines). Paul: "fix the code review, implement row 8, implement scenes — attempt all 3 unattended." **CODE
