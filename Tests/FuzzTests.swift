@@ -182,7 +182,7 @@ final class FuzzTests: XCTestCase {
         case .length:  if r.chance(0.6) { p.lenSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.lenSpan = .row }
         case .cascade: if r.chance(0.5) { p.cascadeSpan = .row }
         case .mod:     if r.chance(0.5) { p.modSpan = .row }
-        case .tutti:   if r.chance(0.5) { p.tuttiSpan = .row }
+        case .tutti:   if r.chance(0.5) { p.tuttiSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.tuttiSpan = .row }   // RATE×ladder stage 2 — hammer the re-anchor periods
         case .ratchet: if r.chance(0.5) { p.rtcSpan = .row }
         default:       break
         }

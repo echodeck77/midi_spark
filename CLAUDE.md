@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIER 2 — THE SPAN LADDER, stage 2a: TUTTI PATTERN gets the RATE×ladder (2026-08-24, on `main`; iOS builds, macOS
+  green incl. fuzz; DEVICE EAR OWED — the model proof, verify before rolling to the other 3). Per Paul's ruling (RATE ×
+  ladder), the FLAGSHIP rate proc: RATE stays the SLICE WIDTH; the new SPAN dial (1·2·3·4·6·8·×2·×4) sets the LOOP PERIOD
+  in columns — the 8-slice walk RE-ANCHORS every N columns (`idx = (localG + rotate) % 8`, localG from `columnStart(tau,
+  spanBeats)`), so odd N = polymeter against the bar. **OPT-IN / byte-identical:** `tuttiSpanN: Int?` (nil ⇒ the LEGACY
+  CELL|ROW path verbatim, so old docs never shift); SnapParams carries `tuttiSpanN: Int` (0 = legacy sentinel · >0 =
+  ladder). The UI dial migrates the legacy span for DISPLAY (CELL→1/ROW→8) but WRITES tuttiSpanN → the new model on first
+  touch (so touching CELL→1 switches from the old global-walk to per-column re-anchor — the intended v2 feel, device-
+  owed). +1 RouterTest (period 3 ≠ period 8 polymeter + replay-safe); fuzz hammers the periods. **NEXT: roll the same
+  RATE×ladder to RATCHET PATTERN · MOD · CASCADE** (each a different emit shape — its own mapping) once Paul confirms the
+  TUTTI feel on device. Then Tier 2 is complete.**
 - **▶ TIER 2 — THE SPAN LADDER, stage 1: the WIDTH procs (EUCLID · BURST · LENGTH) (2026-08-24, on `main`; iOS builds,
   macOS green incl. fuzz; DEVICE ear owed). INSTRUCTIONS-state-matrix §3. Paul RULED the rate-proc semantics =
   **RATE × ladder (both)** (RATE = slice width · SPAN = loop period in columns) — so the ladder is now a staged rollout

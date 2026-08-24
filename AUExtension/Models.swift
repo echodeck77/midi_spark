@@ -216,6 +216,7 @@ struct ColourParams: Codable, Equatable {
     var tuttiRate: ArpRate? = .r1_8     // PATTERN: slices per window (reuses the arp rate divisions)
     var tuttiRotate: Int? = 0           // PATTERN: rotate the slice pattern along the bar (0…7)
     var tuttiSpan: PatternSpan? = nil   // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
+    var tuttiSpanN: Int? = nil          // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop PERIOD in columns (re-anchor every N). nil ⇒ LEGACY CELL|ROW (byte-identical); 1·2·3·4·6·8·16(×2)·32(×4)
     // LENGTH (Paul 2026-08-05) — 8 slices of the STEP (like CHOP), each PASS/MUTE/SHORT/LONG, plus two gate lengths +
     // ROTATE. Default all-PASS = the chord sustains. Append-only Optional (old docs decode nil → defaults).
     var lenSlices: [LenState]? = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]

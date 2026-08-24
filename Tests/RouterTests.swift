@@ -151,6 +151,25 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ons(legacy: .row), 3, "legacy euclidSpan=.row migrates to SPAN 8 (byte-identical)")
         XCTAssertEqual(ons(), 12, "no span set = CELL (SPAN 1, byte-identical)")
     }
+    // SPAN LADDER stage 2 — TUTTI PATTERN (Paul 2026-08-22, RATE×ladder): RATE = slice width, SPAN N = the loop period
+    // in columns (re-anchor every N). Different periods produce different (polymeter) patterns; the run is replay-safe.
+    func testTuttiSpanLadderReAnchorsThePatternByPeriod() {
+        func notes(spanN: Int?) -> [Int] {
+            var c = Colour(colourID: "gold", type: .tutti)
+            c.paramsA.tuttiMode = .pattern
+            c.paramsA.tuttiSlices = [.all, .rest, .low, .rest, .high, .rest, .bot2, .rest]
+            c.paramsA.tuttiSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 16, into: e)   // one 8-column bar
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let n3 = notes(spanN: 3), n8 = notes(spanN: 8)
+        XCTAssertFalse(n3.isEmpty, "the RATE×ladder path sounds")
+        XCTAssertNotEqual(n3, n8, "period 3 (polymeter) differs from period 8 (bar-locked)")
+        XCTAssertEqual(n3, notes(spanN: 3), "the ladder is replay-safe (deterministic)")
+    }
     // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
     func testEuclidPickLowStrikesOnlyTheLowestNote() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

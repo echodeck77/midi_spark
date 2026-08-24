@@ -151,6 +151,7 @@ struct SnapParams {
     var tuttiSliceBeats: Double = 0.5    // PATTERN: slice width in beats (from tuttiRate)
     var tuttiRotate: Int = 0             // PATTERN: rotate the 8-slice pattern along the bar (0…7)
     var tuttiSpan: PatternSpan = .cell   // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
+    var tuttiSpanN: Int = 0              // SPAN LADDER (RATE×ladder): 0 = LEGACY CELL|ROW path · >0 = the loop period in columns (RATE stays the slice width)
     // LENGTH — 8 slices of the STEP, each PASS/MUTE/SHORT/LONG, + two gate lengths + rotate.
     var lenSlices: [LenState] = [.pass, .pass, .pass, .pass, .pass, .pass, .pass, .pass]
     var lenShort: Double = 0.4           // SHORT gate = 5…95% of one slice

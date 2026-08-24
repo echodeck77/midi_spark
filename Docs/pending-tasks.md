@@ -23,9 +23,11 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    - **SPAN LADDER (§3) — Paul RULED: RATE × ladder (both)** (RATE = slice width · SPAN = loop period in columns). Staged:
      - **✅ STAGE 1 — DONE (2026-08-24, next commit):** the 3 WIDTH procs (EUCLID · BURST · LENGTH) — dial 1·2·3·4·6·8·×2·×4,
        `spanLadderBeats`, byte-identical CELL=1/ROW=8, polymeter for odd N. +1 test, fuzz-hammered. DEVICE ear owed.
-     - **STAGE 2 — TODO:** the 4 RATE procs (TUTTI PATTERN · RATCHET PATTERN · MOD · CASCADE). RATE stays the slice width;
-       the ladder N sets the loop period (re-anchor every N columns). Changes their CELL slice-width semantics — make it
-       OPT-IN via the new `*SpanN` field (nil ⇒ legacy CELL|ROW byte-identical) so old docs don't shift. Device-ear owed.
+     - **STAGE 2a — DONE (2026-08-24, next commit): TUTTI PATTERN** — the RATE×ladder model proof. RATE = slice width;
+       `tuttiSpanN` (opt-in, nil ⇒ legacy byte-identical) sets the loop period; the 8-slice walk re-anchors every N cols.
+       +1 test, fuzz-hammered. **DEVICE EAR OWED before rolling further.**
+     - **STAGE 2b — TODO (after Paul verifies TUTTI): RATCHET PATTERN · MOD · CASCADE** — same RATE×ladder, but each has a
+       different emit shape (RATCHET coin/pattern, MOD CC LFO/steps, CASCADE note-reveal) → its own per-proc mapping.
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).

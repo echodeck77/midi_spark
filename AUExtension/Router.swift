@@ -3042,9 +3042,13 @@ final class Router {
                                      windowEnd: Int64, beatsPerSample: Double, S: Double, a: Double,
                                      out: MIDIEmitter?, diag: inout KernelDiag) {
         let p = colour.a
-        // SPAN: CELL strides the 8-slice pattern at the RATE (default); ROW makes the 8 slices span exactly one bar
-        // (slice i = column i) — a whole-bar set-shape phrase. (Paul 2026-08-19)
-        let sub = (p.tuttiSpan == .row) ? max(0.03125, Double(Snap.cols) * S / 8.0) : max(0.03125, p.tuttiSliceBeats)
+        // SPAN LADDER (Paul 2026-08-22, RATE×ladder): when tuttiSpanN>0, the RATE is the slice width and SPAN N sets the
+        // loop PERIOD in columns (the pattern re-anchors every N columns → polymeter). tuttiSpanN==0 keeps the LEGACY
+        // CELL|ROW path (byte-identical): CELL strides the 8-slice pattern at the RATE; ROW spans the 8 slices over the bar.
+        let tuttiLadder = p.tuttiSpanN > 0
+        let tuttiSpanBeats = tuttiLadder ? spanLadderBeats(p.tuttiSpanN, S: S, row: Double(Snap.cols) * S) : 0
+        let sub = tuttiLadder ? max(0.03125, p.tuttiSliceBeats)
+                              : ((p.tuttiSpan == .row) ? max(0.03125, Double(Snap.cols) * S / 8.0) : max(0.03125, p.tuttiSliceBeats))
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: diag.pass)
         let mWinStart = musicalOf(beatPos, stepBeats: S, a: a)
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -3064,7 +3068,13 @@ final class Router {
         for g in gStart...gEnd {
             let tau = Double(g) * sub
             guard tau >= mWinStart && tau < mWinEnd else { continue }
-            let idx = (((g + p.tuttiRotate) % 8) + 8) % 8
+            let idx: Int
+            if tuttiLadder {   // re-anchor the slice walk every N columns (the loop period) → polymeter
+                let localG = Int(((tau - columnStart(tau, tuttiSpanBeats)) / sub).rounded(.down))
+                idx = (((localG + p.tuttiRotate) % 8) + 8) % 8
+            } else {
+                idx = (((g + p.tuttiRotate) % 8) + 8) % 8
+            }
             let (rankCount, oct) = tuttiSliceRanksInto(&tuttiRankBufA, idx < p.tuttiSlices.count ? p.tuttiSlices[idx] : .all, count: count)
             guard rankCount > 0 else { continue }                  // REST → silent slice
             var offBeat = tau + sub * 0.9                           // TUTTI's own ~90%-of-slice gate

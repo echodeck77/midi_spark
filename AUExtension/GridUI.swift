@@ -1116,8 +1116,8 @@ struct ProcessorBox: View {
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
                 field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
                     setParam { $0.tuttiRotate = i } } }
-                let tspan = p.tuttiSpan ?? .cell
-                field("SPAN") { seg(["CELL", "ROW"], sel: tspan == .row ? "ROW" : "CELL") { i in setParam { $0.tuttiSpan = (i == 1) ? .row : .cell } } }   // CELL = GRID stride · ROW = the 8 slices span the bar (Paul 2026-08-19)
+                // SPAN LADDER (RATE×ladder): RATE (above) = slice width; this dial = the pattern's loop period in columns.
+                spanLadderField(p.tuttiSpanN ?? ((p.tuttiSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.tuttiSpanN = v } }
             }
         case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)
             field("LENGTH PER STEP — tap a cell: that step takes that length") {
