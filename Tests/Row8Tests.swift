@@ -67,6 +67,29 @@ final class Row8Tests: XCTestCase {
         XCTAssertEqual(back.scenes[0].row8OnResolved[0], false)
     }
 
+    // SCENES V2 persistence: the deployed play-grid arrangements (BuildSceneSnapshot) travel with the document.
+    func testBuildScenesSurviveCodableRoundTrip() throws {
+        var st = PluginState(colours: [Colour(colourID: "gold", type: .arp)], scenes: [SceneState.empty()])
+        var cells = Array(repeating: Array(repeating: String?.none, count: 8), count: 8)
+        cells[0][0] = "gold"
+        let snap = BuildSceneSnapshot(
+            performCells: cells,
+            performChain: Array(repeating: Array(repeating: [ProcessorSlot](), count: 8), count: 8),
+            performRecv: Array(repeating: 0, count: 8), performEmit: Array(repeating: Set<Bus>([.a]), count: 8),
+            performPart: [0, -1, -1, -1, -1, -1, -1, -1], performMute: [3],
+            performStagingRow: Array(repeating: -1, count: 8), performLane: 0,
+            row8On: [false, true, false, false, false, false, false, false], name: "verse")
+        st.buildScenes = [snap, snap]; st.buildScenesActive = 1
+        let back = try JSONDecoder().decode(PluginState.self, from: try JSONEncoder().encode(st))
+        XCTAssertEqual(back.buildScenes?.count, 2)
+        XCTAssertEqual(back.buildScenesActive, 1)
+        XCTAssertEqual(back.buildScenes?[0].performCells[0][0], "gold")
+        XCTAssertEqual(back.buildScenes?[0].performPart[0], 0)
+        XCTAssertEqual(back.buildScenes?[0].performMute, [3])
+        XCTAssertEqual(back.buildScenes?[0].row8On[1], true)
+        XCTAssertEqual(back.buildScenes?[0].performEmit[0], [.a])
+    }
+
     func testRow8OnResolvedNilSafe() {
         var s = SceneState.empty()
         XCTAssertEqual(s.row8OnResolved, Array(repeating: false, count: 8), "nil ⇒ all off")

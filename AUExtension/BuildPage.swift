@@ -1776,6 +1776,22 @@ extension DiagView {
         buildActiveScene = newIdx
         buildRestoreScene(buildScenes[newIdx])                        // load the target arrangement
     }
+    // PERSISTENCE (Paul 2026-08-24): the scenes travel with the document — and since a scene snapshot IS the deployed
+    // play grid, this also persists the deployed arrangement (the long-open gap). Fold the LIVE arrangement into the active
+    // slot so what's on screen is what's saved; single-scene use still persists slot 0.
+    func buildCaptureScenes() -> [BuildSceneSnapshot] {
+        var s = buildScenes
+        let cur = buildCaptureCurrentScene()
+        if s.isEmpty { s = [cur] }
+        else if buildActiveScene >= 0, buildActiveScene < s.count { s[buildActiveScene] = cur }
+        return s
+    }
+    func buildRestoreScenes(_ scenes: [BuildSceneSnapshot], active: Int) {
+        guard !scenes.isEmpty else { return }
+        buildScenes = scenes
+        buildActiveScene = max(0, min(scenes.count - 1, active))
+        buildRestoreScene(scenes[buildActiveScene])                  // restore the live arrangement (the deployed grid) + republish
+    }
 
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
@@ -2241,7 +2257,9 @@ extension DiagView {
     func buildPersistTick() {
         guard activeTab == .build else { return }
         if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u) }   // a host load happened while on BUILD
+        if let sc = au?.consumeBuildScenes() { buildRestoreScenes(sc.scenes, active: sc.active) }   // SCENES V2: restore the saved play-grid arrangements
         au?.setBuildUnassigned(buildCaptureUnassigned())                         // keep fullState's copy fresh
+        au?.setBuildScenes(buildCaptureScenes(), active: buildActiveScene)       // …and the scenes (the live arrangement folds into the active slot)
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in

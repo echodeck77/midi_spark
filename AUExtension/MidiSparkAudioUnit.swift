@@ -1333,12 +1333,24 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         if u != nil { document.buildUnassigned = nil }   // not render-relevant → no rebuild; a plain one-shot transport
         return u
     }
+    // SCENES V2 (Paul 2026-08-24): the DEPLOYED play-grid arrangements travel with the save, like the unassigned part.
+    private var pendingBuildScenes: [BuildSceneSnapshot]? = nil
+    private var pendingBuildScenesActive: Int? = nil
+    func setBuildScenes(_ scenes: [BuildSceneSnapshot]?, active: Int) { pendingBuildScenes = scenes; pendingBuildScenesActive = active }
+    /// On load, hand BUILD the restored scenes ONCE (then clear them so they aren't re-restored).
+    func consumeBuildScenes() -> (scenes: [BuildSceneSnapshot], active: Int)? {
+        guard let s = document.buildScenes, !s.isEmpty else { return nil }
+        let a = document.buildScenesActive ?? 0
+        document.buildScenes = nil; document.buildScenesActive = nil   // one-shot; not render-relevant
+        return (s, a)
+    }
 
     public override var fullState: [String: Any]? {
         get {
             var state = super.fullState ?? [:]
             var encodeDoc = document
             encodeDoc.buildUnassigned = pendingBuildUnassigned   // BUILD's half-built piece travels with the save (Paul 2026-08-16)
+            encodeDoc.buildScenes = pendingBuildScenes; encodeDoc.buildScenesActive = pendingBuildScenesActive   // SCENES V2: the deployed play-grid arrangements travel too (Paul 2026-08-24)
             if let data = try? JSONEncoder().encode(encodeDoc) { state[Self.stateKey] = data }
             return state
         }
@@ -1349,6 +1361,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
                 document = doc
                 pendingBuildUnassigned = nil          // CR-10: the loaded doc carries its OWN unassigned part (via consumeBuildUnassigned) — drop the outgoing session's stale one so the next fullState save doesn't re-encode it over the restored part
+                pendingBuildScenes = nil; pendingBuildScenesActive = nil   // …and its OWN scenes (consumeBuildScenes) — same reason
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
                 suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false   // CR-7: mirror the restored doc into the param tree

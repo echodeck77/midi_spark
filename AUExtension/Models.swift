@@ -969,6 +969,12 @@ struct PluginState: Codable, Equatable {
     // BUILD: the single UNASSIGNED workshop part, saved with the document (Paul 2026-08-16). Additive-Optional →
     // old saves decode as nil. Populated at save time from the live workshop; restored into BUILD @State on load.
     var buildUnassigned: BuildUnassignedData? = nil
+    // SCENES V2 (Paul 2026-08-24): the DEPLOYED play-grid arrangements, one per scene index — this ALSO persists the
+    // deployed play grid (the long-open gap). Additive-Optional → old saves decode nil. Restored into BUILD @State on load;
+    // `buildScenesActive` = which was live. (The document's `scenes[]` + `activeScene` are the RENDER scenes; these are the
+    // BUILD-authoring arrangements that compose into them.)
+    var buildScenes: [BuildSceneSnapshot]? = nil
+    var buildScenesActive: Int? = nil
     // receiver strip: the THRU pip — a PERSISTED one-of-4 radio (structure persists). Passthrough (CC/PB/AT +
     // stopped-note soundcheck) follows THIS receiver, superseding the hardwired follows-R1 rule. Optional so
     // old docs decode nil ⇒ default R1 (index 0). Mirrors claimEmitter's persist-and-radio shape.

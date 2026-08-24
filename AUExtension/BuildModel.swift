@@ -42,7 +42,7 @@ struct BuildUnassignedData: Codable, Equatable {
 // each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, colours, casts,
 // doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an
 // IN-MEMORY switcher (not yet persisted with the document); switching is INSTANT (pass-quantized arm/blink = a follow-up).
-struct BuildSceneSnapshot: Equatable {
+struct BuildSceneSnapshot: Codable, Equatable {
     var performCells: [[String?]]
     var performChain: [[[ProcessorSlot]]]
     var performRecv: [Int]
