@@ -5,6 +5,24 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-24._
 
+## ★★ DESIGN INBOX 2026-08-22 BATCH — 8 RATIFIED SPECS, filed to `Docs/` 2026-08-24 (sequencing = Paul's word). NONE built yet.
+Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euclid-variations.md`, `SPEC-exclude-complement.md`,
+`SPEC-glide-modes.md`, `SPEC-grid-selector.md`, `SPEC-motif-processor.md`, `SPEC-riff-processor.md` (all in `Docs/`). Reply in
+`_dear_claude/REPLY-2026-08-24-eight-specs-filed.md`. **Recommended build order (mine — Paul picks):**
+1. **QUICK ENGINE WINS (independent, small):** ARP OCT-DIRECTION + RANDOM-ANCHOR (`SPEC-arp-additions`) · EUCLID PICK +
+   INVERT (`SPEC-euclid-variations §1/§2`) · GLIDE SYNTH + STEP modes + on-screen text (`SPEC-glide-modes`) · KEYS EXCLUDE
+   complement door (`SPEC-exclude-complement`). Each is an additive param + a chip; no shared-widget dependency.
+2. **THE FOUNDATION (big cross-cutting UI):** STATE MATRIX + SLIDER LANE + SPAN LADDER (`INSTRUCTIONS-state-matrix §1-3`) —
+   two reusable widget species that RETIRE pick-then-paint (convert RATCHET/TUTTI/LENGTH; SPAN CELL|ROW → a 1·2·3·4·6·8·×2·×4
+   polymeter dial). Unblocks everything visual below. The SPAN-ladder engine = `rowStep % N` per line (replay-safe).
+3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
+   the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
+   (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
+4. **GRID SELECTOR §2/§3** (`SPEC-grid-selector`) — enhances the ALREADY-BUILT grid selector: QUANTIZE/EXCLUSIVE toggles,
+   the PREGEN CORPUS (bulk background generation → preset mining), PART-BUTTONS-as-COMMIT, the right-column browse-context I/O.
+5. **DEFERRED (ratified, lower priority):** CHANCE PATTERN (odds lane) · TIMING LANE (per-step nudge) · DEST MATRIX (wire/step)
+   · MUTE MATRIX (part-muting) — all build from the two widget species. ARRANGEMENT MATRIX = NOT ratified (scenes-v3 birthstone).
+
 ## ★ DESIGN INBOX 2026-08-22/23 — FILED + QUEUED (4 ferries read + filed to `Docs/`; sequencing = Paul's word)
 - **⟳ ROW 8 — LARGELY BUILT 2026-08-24 (overnight autonomous; see CLAUDE.md status). DONE: the type MODEL + factory deck +
   per-scene toggle capture; the FREEZE + HALFTIME engines (live, tested, fuzzed); REDIRECT + SWAP (wire re-stamp, tested,
