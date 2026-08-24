@@ -702,11 +702,7 @@ struct ProcessorBox: View {
     var plainTitle: Bool = false                        // pop-up: show the type as a plain TITLE (no type-picker button)
     var showSlotChrome: Bool = true                     // slotMode: draw the built-in title row (name + BYPASS/✕ pills). BUILD hides it and supplies its own large Delete/Bypass header.
     @State private var showTypePicker = false           // B1: the title-as-picker popover
-    @State private var tuttiPaint: TuttiSlice = .low     // TUTTI PATTERN: the brush shape — defaults to LOW so it CONTRASTS with the all-ALL slices (first tap visibly paints)
-    @State private var burstPaint: BurstSlice = .carry   // BURST PATTERN: the brush (defaults to CARRY — the novel state — so a first tap visibly paints)
-    @State private var lenPaint: LenState = .mute        // LENGTH: the brush — defaults to MUTE so it contrasts with the all-PASS slices (first tap carves a visible rest)
     @State private var weaveBrush: StepRate = .r1_8      // WEAVE DRAWN: the rate loaded on the brush
-    @State private var rtcBrush: Int = 3                 // RATCHET PATTERN: the count loaded on the brush (0 = plain)
 
     static let panelHeight: CGFloat = 300               // fixed — sized for the largest field set + morph
 
@@ -899,21 +895,13 @@ struct ProcessorBox: View {
                     setParam { $0.rtcCountLo = i + 1; if ($0.rtcCountHi ?? 4) < i + 1 { $0.rtcCountHi = i + 1 } } } }
                 field("SIZE MAX  \(p.rtcCountHi ?? 4)  (burst length range)") { seg((1...8).map { "\($0)" }, sel: "\(p.rtcCountHi ?? 4)") { i in
                     setParam { $0.rtcCountHi = i + 1; if ($0.rtcCountLo ?? 2) > i + 1 { $0.rtcCountLo = i + 1 } } } }
-            } else {   // pattern
-                field("PAINT ROLLS — pick, then tap slices  (· = plain · 2/3/4 = roll)") { seg(["·", "2", "3", "4"], sel: rtcBrush == 0 ? "·" : "\(rtcBrush)") { i in
-                    rtcBrush = [0, 2, 3, 4][i] } }
-                field("SLICES — the bar, left → right at RATE") { HStack(spacing: 4) {
-                    ForEach(0..<8, id: \.self) { i in
-                        let cur = rtcSliceAt(p.rtcSlices, i)
-                        Text(cur <= 0 ? "·" : "\(cur)").font(.system(size: 14, weight: .heavy, design: .monospaced))
-                            .foregroundColor(cur <= 0 ? .white.opacity(0.4) : .black)
-                            .frame(maxWidth: .infinity).frame(height: 36)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(cur <= 0 ? Color.white.opacity(0.06) : accent.opacity(0.85)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                            .contentShape(Rectangle())
-                            .onTapGesture { setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = rtcBrush; $0.rtcSlices = s } }
-                    }
-                } }
+            } else {   // pattern — a STATE MATRIX (rows = burst counts, cols = the 8 steps)
+                field("ROLLS PER STEP — tap a cell  (· = plain · 2/3/4 = roll)") {
+                    stateMatrixRadio([0, 2, 3, 4],
+                        header: { v in AnyView(Text(v <= 0 ? "·" : "\(v)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 22, alignment: .leading)) },
+                        selected: { i in rtcSliceAt(p.rtcSlices, i) },
+                        set: { i, v in setParam { var s = $0.rtcSlices ?? Array(repeating: 0, count: 8); while s.count < 8 { s.append(0) }; s[i] = v; $0.rtcSlices = s } })
+                }
                 field("GRID — slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rtcRate ?? .r1_8).rawValue) { i in
                     setParam { $0.rtcRate = ArpRate.allCases[i] } } }
                 field("ROTATE — walk the pattern  (\(p.rtcRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.rtcRotate ?? 0)") { i in
@@ -1011,29 +999,14 @@ struct ProcessorBox: View {
                 let ch = p.burstChance ?? 0.5
                 field("CHANCE  \(Int(ch * 100))%") { Slider(value: bind(ch) { v in setParam { $0.burstChance = v } }, in: 0...1).tint(accent) }
             }
-            if bmode == .pattern {
-                let brush = burstPaint
-                field("PAINT") { HStack(spacing: 4) {
-                    ForEach(BurstSlice.allCases, id: \.self) { st in
-                        Text(burstSliceName(st)).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(brush == st ? .black : accent)
-                            .frame(maxWidth: .infinity).frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(brush == st ? accent : accent.opacity(0.14)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(brush == st ? Color.white : .clear, lineWidth: 2))
-                            .contentShape(Rectangle()).onTapGesture { burstPaint = st }
-                    }
-                } }
-                field("SLICES — B launch · C carry · R rest") { HStack(spacing: 4) {
-                    ForEach(0..<8, id: \.self) { i in
-                        let s = p.burstSlices ?? [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
-                        let cur = i < s.count ? s[i] : .rest
-                        Text(cur.rawValue).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(cur == .rest ? .white.opacity(0.4) : .black)
-                            .frame(maxWidth: .infinity).frame(height: 40)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(burstSliceFill(cur, accent)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                            .contentShape(Rectangle())
-                            .onTapGesture { setParam { var s2 = $0.burstSlices ?? [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]; while s2.count < 8 { s2.append(.rest) }; s2[i] = brush; $0.burstSlices = s2 } }
-                    }
-                } }
+            if bmode == .pattern {   // a STATE MATRIX — rows = B/C/R, cols = the 8 steps
+                let defBurst: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]
+                field("BURST SHAPE PER STEP — tap a cell  (B launch · C carry · R rest)") {
+                    stateMatrixRadio(BurstSlice.allCases,
+                        header: { st in AnyView(Text(burstSliceName(st)).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75)).frame(width: 46, alignment: .leading)) },
+                        selected: { i in let s = p.burstSlices ?? defBurst; return i < s.count ? s[i] : .rest },
+                        set: { i, st in setParam { var s2 = $0.burstSlices ?? defBurst; while s2.count < 8 { s2.append(.rest) }; s2[i] = st; $0.burstSlices = s2 } })
+                }
                 field("ROTATE  (\(p.burstRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.burstRotate ?? 0)") { i in setParam { $0.burstRotate = i } } }
             }
             let bspan = p.burstSpan ?? .cell
@@ -1131,31 +1104,16 @@ struct ProcessorBox: View {
                 field("SOLO NOTE  (which note carries a SOLO step)") { seg(TuttiPick.allCases.map(\.rawValue), sel: (p.tuttiPick ?? .low).rawValue) { i in
                     setParam { $0.tuttiPick = TuttiPick.allCases[i] } } }
             } else {
-                // PAINT palette — each chip DRAWS the chord shape (dots = which notes sound); tap to load the brush.
-                field("PAINT — pick a shape, then tap the slices below") { HStack(spacing: 4) {
-                    ForEach(TuttiSlice.allCases, id: \.self) { st in
-                        let on = (tuttiPaint == st)
-                        tuttiShapeIcon(st, tint: on ? .black : accent)
-                            .frame(maxWidth: .infinity).frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : accent.opacity(0.14)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white : .clear, lineWidth: 2))
-                            .contentShape(Rectangle()).onTapGesture { tuttiPaint = st }
-                    }
-                } }
-                Text("brush:  \(tuttiName(tuttiPaint))")   // names the loaded shape in plain English (learn by picking)
-                    .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                field("SLICES — the bar plays these left → right at RATE") { HStack(spacing: 4) {
-                    ForEach(0..<8, id: \.self) { i in
-                        let cur = tuttiSliceAt(p.tuttiSlices, i)
-                        tuttiShapeIcon(cur, tint: cur == .rest ? .white.opacity(0.35) : .black)
-                            .frame(maxWidth: .infinity).frame(height: 40)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(cur == .rest ? Color.white.opacity(0.06) : accent.opacity(0.85)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))   // reads as a tappable cell
-                            .contentShape(Rectangle())
-                            .onTapGesture { setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = tuttiPaint; $0.tuttiSlices = s } }
-                    }
-                } }
+                // An 8×8 STATE MATRIX — rows = the chord shapes, columns = the 8 steps; tap a cell to set that step.
+                field("CHORD SHAPE PER STEP — tap a cell (dots = which notes sound)") {
+                    stateMatrixRadio(TuttiSlice.allCases,
+                        header: { st in AnyView(HStack(spacing: 4) {
+                            tuttiShapeIcon(st, tint: accent).frame(width: 16)
+                            Text(st.rawValue).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.7))
+                        }) },
+                        selected: { i in tuttiSliceAt(p.tuttiSlices, i) },
+                        set: { i, st in setParam { var s = $0.tuttiSlices ?? Array(repeating: .all, count: 8); while s.count < 8 { s.append(.all) }; s[i] = st; $0.tuttiSlices = s } })
+                }
                 field("GRID — how many slices per bar") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.tuttiRate ?? .r1_8).rawValue) { i in
                     setParam { $0.tuttiRate = ArpRate.allCases[i] } } }
                 field("ROTATE — slide the whole figure earlier/later  (\(p.tuttiRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.tuttiRotate ?? 0)") { i in
@@ -1163,31 +1121,16 @@ struct ProcessorBox: View {
                 let tspan = p.tuttiSpan ?? .cell
                 field("SPAN") { seg(["CELL", "ROW"], sel: tspan == .row ? "ROW" : "CELL") { i in setParam { $0.tuttiSpan = (i == 1) ? .row : .cell } } }   // CELL = GRID stride · ROW = the 8 slices span the bar (Paul 2026-08-19)
             }
-        case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG drawn as bars (how long the note sounds in the slice)
-            field("PAINT — pick a length, then tap the slices") { HStack(spacing: 4) {
-                ForEach(LenState.allCases, id: \.self) { st in
-                    let on = (lenPaint == st)
-                    lenGlyph(st, tint: on ? .black : accent)
-                        .frame(maxWidth: .infinity).frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(on ? accent : accent.opacity(0.14)))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? Color.white : .clear, lineWidth: 2))
-                        .contentShape(Rectangle()).onTapGesture { lenPaint = st }
-                }
-            } }
-            Text("brush:  \(lenName(lenPaint))")
-                .font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            field("SLICES — the step, left → right") { HStack(spacing: 4) {
-                ForEach(0..<8, id: \.self) { i in
-                    let cur = lenSliceAt(p.lenSlices, i)
-                    lenGlyph(cur, tint: cur == .mute ? .white.opacity(0.35) : .black)
-                        .frame(maxWidth: .infinity).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(cur == .mute ? Color.white.opacity(0.06) : accent.opacity(0.8)))
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                        .contentShape(Rectangle())
-                        .onTapGesture { setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = lenPaint; $0.lenSlices = s } }
-                }
-            } }
+        case .length:   // per-slice GATE override — PASS/MUTE/SHORT/LONG as a STATE MATRIX (rows = states, cols = steps)
+            field("LENGTH PER STEP — tap a cell: that step takes that length") {
+                stateMatrixRadio(LenState.allCases,
+                    header: { st in AnyView(HStack(spacing: 5) {
+                        lenGlyph(st, tint: accent).frame(width: 20)
+                        Text(st.rawValue).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.75))
+                    }) },
+                    selected: { i in lenSliceAt(p.lenSlices, i) },
+                    set: { i, st in setParam { var s = $0.lenSlices ?? Array(repeating: .pass, count: 8); while s.count < 8 { s.append(.pass) }; s[i] = st; $0.lenSlices = s } })
+            }
             field("SHORT =  \(Int((p.lenShort ?? 0.4) * 100))% of a slice") {
                 Slider(value: bind(p.lenShort ?? 0.4) { v in setParam { $0.lenShort = v } }, in: 0.05...0.95).tint(accent) }
             field("LONG =  \(Int((p.lenLong ?? 0.7) * 100))%  (25% … step end)") {
@@ -1285,21 +1228,6 @@ struct ProcessorBox: View {
     }
     /// TUTTI PATTERN — the shape's plain-English name (the caption teaches the vocabulary without a legend).
     private func burstSliceName(_ s: BurstSlice) -> String { s == .burst ? "BURST" : (s == .carry ? "CARRY" : "REST") }
-    private func burstSliceFill(_ s: BurstSlice, _ accent: Color) -> Color {
-        switch s { case .burst: return accent.opacity(0.85); case .carry: return accent.opacity(0.45); case .rest: return Color.white.opacity(0.06) }
-    }
-    private func tuttiName(_ s: TuttiSlice) -> String {
-        switch s {
-        case .all:        return "ALL — the whole chord"
-        case .low:        return "LOW — the bottom note"
-        case .high:       return "HIGH — the top note"
-        case .top2:       return "TOP 2 — the two highest notes"
-        case .bot2:       return "BOT 2 — the two lowest notes"
-        case .lowOct:     return "LOW +8ᵛᵃ — bottom note, an octave up"
-        case .allDownOct: return "ALL −8ᵛᵃ — whole chord, an octave down"
-        case .rest:       return "REST — a silent slice"
-        }
-    }
     /// TUTTI PATTERN — DRAW the chord shape: 3 stacked dots (top = high note … bottom = low), filled = sounds; an
     /// arrow marks an octave shift; REST is a dash. Language-free, so T2/B2/L+8 don't need decoding.
     private func tuttiShapeFill(_ s: TuttiSlice) -> (fill: [Bool], oct: Int) {   // [low, mid, high] filled + octave shift
@@ -1332,14 +1260,6 @@ struct ProcessorBox: View {
         }
     }
 
-    private func lenName(_ s: LenState) -> String {
-        switch s {
-        case .pass:  return "PASS — the chord keeps sounding (sustain)"
-        case .mute:  return "MUTE — silence (a rest)"
-        case .short: return "SHORT — a staccato stab"
-        case .long:  return "LONG — a re-attacked long note"
-        }
-    }
     private func lenSliceAt(_ arr: [LenState]?, _ i: Int) -> LenState {   // safe read (a loaded doc may carry <8)
         let a = arr ?? []; return i >= 0 && i < a.count ? a[i] : .pass
     }
@@ -1361,6 +1281,30 @@ struct ProcessorBox: View {
             }
         }
         .padding(.horizontal, 4)
+    }
+
+    /// THE STATE MATRIX (Paul 2026-08-22): rows = options · columns = 8 steps · RADIO-PER-COLUMN (exactly one lit per
+    /// step). Retires pick-then-paint — every touch responds instantly (tap a cell = that step takes that state, no
+    /// brush, no dead first touch). Row headers (left edge) carry the option's glyph + name — permanent and positional;
+    /// the whole pattern reads as geometry. One reusable widget for LENGTH · RATCHET PATTERN · TUTTI PATTERN · … .
+    @ViewBuilder private func stateMatrixRadio<Opt: Hashable>(
+        _ options: [Opt], header: @escaping (Opt) -> AnyView,
+        selected: @escaping (Int) -> Opt, set: @escaping (Int, Opt) -> Void
+    ) -> some View {
+        VStack(spacing: 3) {
+            ForEach(Array(options.enumerated()), id: \.offset) { (_, opt) in
+                HStack(spacing: 3) {
+                    header(opt).frame(width: 64, alignment: .leading)
+                    ForEach(0..<8, id: \.self) { step in
+                        let on = selected(step) == opt
+                        RoundedRectangle(cornerRadius: 4).fill(on ? accent : Color.white.opacity(0.06))
+                            .frame(maxWidth: .infinity).frame(height: 26)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: on ? 1.5 : 1))
+                            .contentShape(Rectangle()).onTapGesture { set(step, opt) }
+                    }
+                }
+            }
+        }
     }
     // ECHO: a 1…16 selector as an 8×2 box (user 2026-08-08) — repeats + the synced 16th-note delay both use it.
     private func grid16(sel: Int, _ set: @escaping (Int) -> Void) -> some View {

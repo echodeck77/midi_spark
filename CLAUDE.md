@@ -159,6 +159,17 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIER 2 (start) — THE STATE MATRIX: pick-then-paint RETIRED on the exclusive-state editors (2026-08-24, on `main`;
+  iOS builds; UI-only — macOS suite unaffected, DEVICE eye owed). First slice of Tier 2 (INSTRUCTIONS-state-matrix §1).
+  A new reusable `stateMatrixRadio` widget in GridUI: rows = the option states · columns = the 8 steps · RADIO-PER-COLUMN
+  (exactly one lit per step); row headers (left edge) carry the option's glyph + name; tap a cell = that step takes that
+  state — INSTANT, no brush, no dead first touch. Converted FOUR editors from pick-then-paint (a PAINT-brush row + a
+  SLICES row) to the matrix, reading/writing the SAME slice arrays (zero engine change, migration-invisible): **LENGTH**
+  (PASS/MUTE/SHORT/LONG × 8) · **RATCHET PATTERN** (·/2/3/4 × 8) · **TUTTI PATTERN** (the 8 chord shapes × 8 = the 8×8
+  the spec blesses) · **BURST PATTERN** (B/C/R × 8). Removed the now-dead brush @State (lenPaint/rtcBrush/tuttiPaint/
+  burstPaint) + orphaned helpers (lenName/tuttiName/burstSliceFill). The whole pattern now reads as geometry. NEXT Tier-2:
+  the SLIDER LANE (§2 — one shared 8-slider-per-step component; STEP MOD the origin, VELOCITY PATTERN when it lands) +
+  the SPAN LADDER (§3 — CELL|ROW → a 1·2·3·4·6·8·×2·×4 polymeter dial, `rowStep % N`, across the 7 span-capable procs).**
 - **▶ TIER 1 QUICK ENGINE WINS #2 — GLIDE MODES (BEND·SYNTH·STEP) · KEYS EXCLUDE (the complement door) (2026-08-24,
   on `main`; iOS builds, macOS green incl. fuzz; DEVICE ear/eye owed). Completes Tier 1 (Docs/SPEC-glide-modes.md,
   SPEC-exclude-complement.md — both ratified). **GLIDE MODES** (`glideMode: GlideMode?`, default .bend ⇒ byte-identical):
