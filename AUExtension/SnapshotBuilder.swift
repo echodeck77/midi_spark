@@ -51,7 +51,7 @@ enum SnapshotBuilder {
                       let cell = scene.cells[c][r],
                       let colourIndex = colourIndexByID[cell.colourID] else { continue }   // resolve by the DOCUMENT-order index (correct-by-construction); the old canonical-first lookup read the wrong SnapColour if colours were ever reordered (Paul 2026-08-16)
                 var sc = SnapCell()
-                sc.colourIndex = Int8(colourIndex)
+                sc.colourIndex = Int16(colourIndex)   // CR-13a: Int16 — a document colour index can exceed 127 (Int8 trapped)
                 sc.alt = cell.alt
                 // CELL MACHINE (feat/EditPageSpike): resolve the HEAD treatment — the FIRST chain slot's
                 // type+params, else the referenced Colour's A face (already resolved into colours[colourIndex].a,
@@ -125,7 +125,7 @@ enum SnapshotBuilder {
         //      column 0, and each active rung's legato arp arrives badly phase-advanced (plays mid/end of its cycle).
         for r in 0..<Snap.rows {
             var runStart = -1
-            var runColour: Int8 = -1
+            var runColour: Int16 = -1   // CR-13a: SnapCell.colourIndex is Int16 (a doc colour index can exceed 127)
             for c in 0..<Snap.cols {
                 let idx = c * Snap.rows + r
                 let ci = cells[idx].colourIndex
@@ -301,7 +301,7 @@ enum SnapshotBuilder {
         if let v = p.octaves { out.octaves = UInt8(clamp(v, 1, 4)) }
         if let v = p.gate { out.gate = clamp(v, 0.05, 1) }
         if let v = p.phase { out.phase = v }
-        if let v = p.count { out.count = UInt8(clamp(v, 2, 8)) }
+        if let v = p.count { out.count = UInt8(clamp(v, 2, 16)) }   // CR-6: BURST reads up to 16 (Router min(16,·)); RATCHET re-snaps ≤8 via effectiveRepeats, so widening the clamp only unlocks BURST's HITS 12/16 (were both silently = 8)
         if let v = p.ramp { out.ramp = clamp(v, 0, 1) }
         if let v = p.passes {
             out.passMask = 0

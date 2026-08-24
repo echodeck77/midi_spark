@@ -1061,9 +1061,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case ParamAddress.morphMaster:
                 self.document.morphMaster = Double(value)
             case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
-                self.document.colours[Int(a - 200)].morph = Double(value)
+                let idx = Int(a - 200); if idx < self.document.colours.count { self.document.colours[idx].morph = Double(value) }   // CR-13b: a decoded doc may have <16 colours
             case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
-                self.document.colours[Int(a - 100)].transpose = Int(value)
+                let idx = Int(a - 100); if idx < self.document.colours.count { self.document.colours[idx].transpose = Int(value) }
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
                 // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
                 if self.document.macros == nil { self.document.macros = self.document.macrosResolved }
@@ -1079,9 +1079,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
             case ParamAddress.morphMaster: return AUValue(self.document.morphMaster)
             case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
-                return AUValue(self.document.colours[Int(a - 200)].morph)
+                let idx = Int(a - 200); return idx < self.document.colours.count ? AUValue(self.document.colours[idx].morph) : 0   // CR-13b: <16-colour doc guard
             case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
-                return AUValue(self.document.colours[Int(a - 100)].transpose)
+                let idx = Int(a - 100); return idx < self.document.colours.count ? AUValue(self.document.colours[idx].transpose) : 0
             case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
                 return AUValue(self.document.macrosResolved[Int(a - 400)].value)
             default: return 0
@@ -1169,6 +1169,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         kernel.flushVoices()
         editDocument { $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded() }   // migrate is a no-op for v4 builders
         currentPresetName = name
+        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {
@@ -1188,6 +1189,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         kernel.flushVoices()                 // a session act — no arm ceremony
         editDocument { $0 = doc }            // one undoable step
         currentPresetName = PresetStore.sanitize(name)
+        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree
     }
     private func presetNumber(for name: String) -> Int {
         (PresetStore.list().firstIndex(of: name).map { -($0 + 1) }) ?? -1   // user presets use negative numbers
@@ -1267,7 +1269,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
         _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMaster)
-        for i in colourIDs.indices {
+        for i in colourIDs.indices where i < document.colours.count {   // CR-13b: a decoded doc may carry <16 colours
             _parameterTree.parameter(withAddress: ParamAddress.morph(i))?.value =
                 AUValue(document.colours[i].morph)
             _parameterTree.parameter(withAddress: ParamAddress.transpose(i))?.value =
@@ -1311,8 +1313,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
                 document = doc
+                pendingBuildUnassigned = nil          // CR-10: the loaded doc carries its OWN unassigned part (via consumeBuildUnassigned) — drop the outgoing session's stale one so the next fullState save doesn't re-encode it over the restored part
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
+                suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false   // CR-7: mirror the restored doc into the param tree
                 scheduleRebuild()
             }
         }

@@ -63,7 +63,31 @@ final class ReelDeck {
         for i in 0..<n { hist[slot * ReelDeck.histCap + i] = cur[i] }
         histLen[slot] = n; histPassNo[slot] = passCounter
         passCounter += 1
-        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] } }   // auto: latest → loop
+        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] }; closeOpenLoopNotes() }   // auto: latest → loop
+    }
+
+    // CR-5[review]: a pass's note-OFF can be missing from `loop` — truncated at `histCap` when re-selected from the browser,
+    // OR simply because the note is held across the pass boundary (its off lives in the NEXT pass). Either way the looping
+    // replay() would re-emit an ON with no OFF ⇒ a stuck note (invariant 4). Close every note still open at the loop end by
+    // appending a synthetic OFF at `cycleBeats`, so the note re-strikes each loop instead of hanging. Fixed scratch, no alloc
+    // (this runs once per promote/select, off the per-window render path). Uses the last-set `cycleBeats` (a step-rate change
+    // is rare and self-corrects on the next promote/select).
+    private var openStatus = [UInt8](repeating: 0xFF, count: 4 * 128)   // per (cable 1–4, note) the open ON's status byte; 0xFF = closed
+    private func closeOpenLoopNotes() {
+        for i in openStatus.indices { openStatus[i] = 0xFF }
+        for i in 0..<loopN {
+            let e = loop[i]
+            guard e.cable >= 1, e.cable <= 4 else { continue }
+            let k = Int(e.cable - 1) * 128 + Int(e.b1 & 0x7F)
+            let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
+            let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
+            if isOn { openStatus[k] = e.b0 } else if isOff { openStatus[k] = 0xFF }
+        }
+        let off = max(0.0, cycleBeats)
+        for k in openStatus.indices where openStatus[k] != 0xFF && loopN < ReelDeck.cap {
+            let cable = UInt8(k / 128 + 1), note = UInt8(k % 128), status = 0x80 | (openStatus[k] & 0x0F)
+            loop[loopN] = Ev(beat: off, cable: cable, b0: status, b1: note, b2: 0); loopN += 1
+        }
     }
     func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1
         for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1 } }
@@ -87,6 +111,7 @@ final class ReelDeck {
         guard histPassNo[slot] == passNo, histLen[slot] > 0 else { return false }
         loopN = min(histLen[slot], ReelDeck.cap)
         for i in 0..<loopN { loop[i] = hist[slot * ReelDeck.histCap + i] }
+        closeOpenLoopNotes()          // CR-5[review]: a truncated / boundary-held pass must not strand a note-OFF
         selectedPassNo = passNo
         return true
     }

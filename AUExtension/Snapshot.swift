@@ -26,7 +26,7 @@ enum Snap {
 // MARK: - Flat cell (one per grid position; colourIndex < 0 = empty)
 
 struct SnapCell {
-    var colourIndex: Int8 = -1
+    var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — with the 16-colour cap gone, a document colour index can exceed 127; Int8(index) trapped at ≥128
     var alt = false
     var bypassed = false
     var passthrough = false     // NO-MACHINE chain (Paul 2026-08-23): a LIVE WIRE — its input passes straight through in

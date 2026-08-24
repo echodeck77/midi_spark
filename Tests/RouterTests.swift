@@ -3306,10 +3306,10 @@ final class RouterTests: XCTestCase {
 
     // BYPASS (§1/§2) — a bypassed door skips the grid and injects straight to its dest emitters.
     private func bypassBox(dest: Int, rangeLo: Int? = nil, rangeHi: Int? = nil,
-                           cell: Bool = false) -> SnapshotBox {
+                           cell: Bool = false, masterMute: Bool = false) -> SnapshotBox {
         var s = SceneState.empty()
         if cell { s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.inputReceiver = 0; return c }() }
-        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]; st.masterMute = masterMute
         var r1 = Receiver(name: "1"); r1.bypass = true; r1.bypassDest = dest; r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         return SnapshotBuilder.build(from: st)
@@ -3337,6 +3337,16 @@ final class RouterTests: XCTestCase {
         XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 1 && $0.chan == 0 }, "injects on dest emitter A")
         XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "and on the ALL cable")
         XCTAssertFalse(e.ons.contains { $0.cable == 2 || $0.cable == 3 || $0.cable == 4 }, "not on unselected emitters")
+    }
+
+    // CR-4[review]: MASTER MUTE is a global emission kill (the emitOneBus grid path already honours it) — the BYPASS
+    // monitor is a parallel emission path, so it must fall silent under master mute too, else the whole-instrument mute
+    // leaks a live wire.
+    func testMasterMuteSilencesTheBypassMonitor() {
+        let b = bypassBox(dest: 0b0001, masterMute: true)
+        let router = Router(); let e = RecordingEmitter()
+        stepWindow(router, b, chord([60]), playing: true, beat: 0, out: e)
+        XCTAssertTrue(e.ons.isEmpty, "master mute silences the bypass wire, not just the grid")
     }
 
     // Releasing the key emits the bypass note-off — no stuck note.

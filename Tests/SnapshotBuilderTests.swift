@@ -83,6 +83,16 @@ final class SnapshotBuilderTests: XCTestCase {
         st.rackActiveConfig = 9
         XCTAssertEqual(st.rackActiveConfigResolved, 3, "an out-of-range active config clamps to 0…3")
     }
+    // CR-9[review]: a short/long rackConfigs array (a truncated or forward-compat doc) must PAD/TRUNCATE to 4, not be
+    // discarded wholesale — dropping it silently reverted every config to defaults (data-loss).
+    func testRackConfigsShortOrLongArrayPadsNotDiscards() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.rackEnabledMask = 0b0101
+        st.rackConfigs = [0b0010, 0b0011]                          // only 2 present (a truncated doc)
+        XCTAssertEqual(st.rackConfigsResolved, [0b0010, 0b0011, 0b1111, 0b1111], "the two real configs survive; the missing tail defaults")
+        st.rackConfigs = [0b0001, 0b0010, 0b0100, 0b1000, 0b1111]  // 5 present (forward-compat doc)
+        XCTAssertEqual(st.rackConfigsResolved, [0b0001, 0b0010, 0b0100, 0b1000], "extra trailing configs truncate to 4")
+    }
     func testRackConfigsSurviveCodableRoundTrip() throws {
         var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         st.rackConfigs = [0b0001, 0b0010, 0b0100, 0b1000]; st.rackActiveConfig = 2

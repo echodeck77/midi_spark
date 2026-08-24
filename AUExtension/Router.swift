@@ -48,7 +48,7 @@ final class Router {
         // COLOUR-AND-FACE (colourIndex + alt). At a column boundary a re-held identical voice is ADOPTED
         // (kept, no off/on); a changed one closes and the new one strikes. Stamped for every voice
         // (harmless on non-hold voices — only audible immortal voices are ever adoption-matched).
-        var colourIndex: Int8 = -1
+        var colourIndex: Int16 = -1   // CR-13a: Int16 (was Int8) — matches SnapCell; a colour index can exceed 127
         var alt = false
         var vel: UInt8 = 0           // §strips-done: the emit velocity, for the per-emitter hold-while-sounding feed
         var cellIndex: Int8 = -1     // SEAL comet: the emitting cell's grid index (col*8+row), for the per-cell
@@ -203,7 +203,7 @@ final class Router {
     private var soundVel = [UInt8](repeating: 0, count: 48)   // FLAT 4×12 (index bus*12+i) — see markVel note (render↔main ARC-safe)
     private var soundCol = [Int8](repeating: -1, count: 48)
     private var soundCount = [Int](repeating: 0, count: 4)
-    private var currentColourIndex: Int8 = -1        // the emitting cell's colourIndex (for the SEAL comet feed)
+    private var currentColourIndex: Int16 = -1        // the emitting cell's colourIndex (for the SEAL comet feed) — CR-13a Int16
     private var curBox: SnapshotBox?                  // this render's box — so openVoice can read the sounding colour's DISPLAY hue to tag the reel (Paul 2026-08-19)
     // THE SEAL COMET: per-CELL peak note velocity since the last drain (index = col*8+row) — the grid comet's
     // motion signal. Accumulated on the render thread at the emit boundary, read-and-cleared by the UI poll (the
@@ -231,6 +231,7 @@ final class Router {
     private var holdCandidate = [Bool](repeating: false, count: 128)
     private var wasPlaying = false
     private var prevEffColumn = -1   // column-transition edge (§7): change ⇒ truncate voices
+    private var prevUniformFast = true   // CR-11: was the last render on the uniform clock? A live uniform↔multi switch isn't a flush, so the per-row trackers must be re-seeded on the change (else a stale prevEffColumnRow[r] skips a row's transition reconcile → phantom drone)
     // PER-PART CLOCK (Paul 2026-08-19): the multi-clock render path. Each ROW runs its own step rate, so its
     // column-transition edge is tracked SEPARATELY (prevEffColumnRow) and its per-window clock is derived into the
     // scratch buffers below (fixed-size, no render-path alloc). Uniform scenes never touch any of this (fast path).
@@ -459,7 +460,9 @@ final class Router {
             let bypassed = (receiverBypassMask & (1 << UInt8(r)) != 0) && !soloExcluded
             // NO-MACHINE WIRE (Paul 2026-08-23): a passthrough cell's emitters get the door's input in realtime, right
             // alongside a real BYPASS dest (both are "straight through"). Solo-excluded doors go silent, like bypass.
-            let destMask = (bypassed ? receiverBypassDest[r] : 0) | (soloExcluded ? 0 : passEmitterMask[r])
+            // CR-4: master MUTE (the "nothing sounds" contract) silences the BYPASS/wire monitor too — destMask 0 both
+            // opens none AND closes any live monitor voice (the reconcile below). Matches the grid/MOD/GLIDE mute guards.
+            let destMask = (masterMute && !previewMode) ? 0 : ((bypassed ? receiverBypassDest[r] : 0) | (soloExcluded ? 0 : passEmitterMask[r]))
             // LATCH (incl. self-armed PIANO): a bypassed door with an armed latch injects its FROZEN chord, not the
             // (for PIANO, empty) live pool. The frozen pool is already receiver-filtered at capture, so read it whole
             // (OMNI / all-cables / full-range) — mirrors the input meter's `armed ? OMNI` read.
@@ -771,7 +774,7 @@ final class Router {
             let b = Int(v.bus)
             guard b >= 0, b < 4, soundCount[b] < 12 else { continue }
             soundVel[b * 12 + soundCount[b]] = v.vel
-            soundCol[b * 12 + soundCount[b]] = v.colourIndex
+            soundCol[b * 12 + soundCount[b]] = Int8(clamping: v.colourIndex)   // CR-13a: the UI-tint feed stays Int8 (a colour ≥128 tints as 127 — cosmetic, no trap)
             soundCount[b] += 1
         }
     }
@@ -893,7 +896,7 @@ final class Router {
     /// re-held identity — same wire NOTE + EMITTER (bus) + COLOUR-AND-FACE — and un-mark them (keep alive:
     /// own cable + its All copy, both cleared). Returns true iff ≥1 matched, in which case the caller does
     /// NOT re-emit on this bus: the existing voices flow through the boundary with no off/on (the drone).
-    private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int8, alt: Bool) -> Bool {
+    private func adoptLegatoBus(wire: UInt8, bus: UInt8, ci: Int16, alt: Bool) -> Bool {
         // Adopt exactly ONE strike's worth — one own-cable copy + one All-cable copy (a strike opens exactly those two
         // per bus). Un-marking EVERY match would break a SELF-COLLIDING harmonize (two source notes fanning to the same
         // wire on one bus, e.g. {60,67}+7 → 60's +7 == 67's root): the first voice's call would un-mark BOTH pairs, the
@@ -1105,7 +1108,7 @@ final class Router {
                 if leak == 0 {
                     // THE WITHHELD TELL: record the fully-suppressed note-on so the strip can render it hollow.
                     if withheldCount[bus] < 8 {
-                        withheldVel[bus * 8 + withheldCount[bus]] = velocity; withheldCol[bus * 8 + withheldCount[bus]] = currentColourIndex
+                        withheldVel[bus * 8 + withheldCount[bus]] = velocity; withheldCol[bus * 8 + withheldCount[bus]] = Int8(clamping: currentColourIndex)
                         withheldCount[bus] += 1
                     }
                     return -1
@@ -1161,6 +1164,11 @@ final class Router {
         // decide by PRIORITY whether the new note wins; if it loses, suppress it (return −1 before metering); if it
         // wins, STEAL — close the holder's voices (own + its All copy) at this onSample, then fall through to open
         // the new note (RETRIG: old off, new on). Same-note re-articulation isn't a steal (refcount handles it).
+        // THE FLOOD GOVERNOR — the CAPACITY check runs BEFORE the MONO steal (CR-5): a hard per-emitter budget per beat;
+        // overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
+        // Ordering matters: if the governor would drop this note, return -1 NOW — else MONO below closes the emitter's
+        // holder for a note the governor then drops → the emitter goes silent for the beat. previewMode is exempt.
+        if !previewMode && noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
         if bit(monoMask, bus) && !previewMode {
             var holder = -1
             for vv in voices where vv.active && !vv.silent && vv.bus == UInt8(bus) && vv.cable == UInt8(bus + 1) { holder = Int(vv.note); break }
@@ -1177,13 +1185,9 @@ final class Router {
                 }
             }
         }
-        // THE FLOOD GOVERNOR: this note-on has passed every suppression gate and WOULD sound. Cap it — a hard
-        // per-emitter budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a
-        // dropped on simply never opens a voice → nothing to leave stuck. previewMode (stopped audition) is exempt.
-        if !previewMode {
-            if noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
-            noteOnsThisBeat[bus] &+= 1
-        }
+        // CONSUME the flood budget only once the note is going to sound (after MONO's suppression decision, so a
+        // MONO-suppressed note doesn't eat the budget — behaviour-preserving for the non-flood case).
+        if !previewMode { noteOnsThisBeat[bus] &+= 1 }
         if v > meterPeakVel[bus] { meterPeakVel[bus] = v }   // §6a metering (post-transform vel, incl. override)
         meterEvents[bus] &+= 1
         if currentCellIndex >= 0 && currentCellIndex < 64 {
@@ -1195,7 +1199,7 @@ final class Router {
         }
 
         if markCount[bus] < 8 {                              // item 4: a floating velocity MARK for this note-on
-            markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = currentColourIndex
+            markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = Int8(clamping: currentColourIndex)
             markCount[bus] += 1
         }
         let ch = (chanOverride >= 0 && !previewMode) ? UInt8(chanOverride) : (busChannels[bus] &- 1) & 15   // UTILITY CHANNEL override (previewMode bypasses, like NUDGE), else the bus stamp (1–16 → 0–15 wire)
@@ -1247,7 +1251,7 @@ final class Router {
                     let sw = Int(harmNotes[i]) + emitterOctaveShift(Int(b)) + masterKey
                     guard sw >= 0 && sw <= 127 else { continue }
                     guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }
-                    if !adoptLegatoBus(wire: w, bus: b, ci: Int8(currentColourIndex), alt: currentAlt) { emitMask |= (1 << b) }
+                    if !adoptLegatoBus(wire: w, bus: b, ci: currentColourIndex, alt: currentAlt) { emitMask |= (1 << b) }
                 }
                 if emitMask != 0 {
                     emitArtic(note: UInt8(harmNotes[i]), busMask: emitMask, onSample: on, offSample: .max,
@@ -1512,7 +1516,7 @@ final class Router {
                         let sw = n + emitterOctaveShift(Int(b)) + masterKey  // the octave/key-shifted pitch…
                         guard sw >= 0 && sw <= 127 else { continue }         // out of range → emitOneBus would drop it
                         guard let w = fencedNote(UInt8(sw), bus: Int(b)) else { continue }  // …then FENCE — the exact wire pitch emitOneBus will open (DROP → no bus)
-                        if !adoptLegatoBus(wire: w, bus: b, ci: Int8(ci), alt: altFlag) { emitMask |= (1 << b) }
+                        if !adoptLegatoBus(wire: w, bus: b, ci: Int16(ci), alt: altFlag) { emitMask |= (1 << b) }
                     }
                     if emitMask != 0 {
                         emitArtic(note: UInt8(n), busMask: emitMask,
@@ -1943,6 +1947,10 @@ final class Router {
         if busEnabledMask != prevBusEnabledMask {
             let turnedOff = prevBusEnabledMask & ~busEnabledMask
             for bus: UInt8 in 0..<4 where turnedOff & (1 << bus) != 0 { closeBus(bus, atSample: windowStart, out: out) }
+            // GLIDE (review 2026-08-23 [4]): closeBus closed any immortal glide ANCHOR on a disabled bus — forget its stale
+            // bookkeeping (else the freed voice slot is later reused and wrongly closed → a spurious off on an unrelated note,
+            // and the glide goes silent). Targeted to the disabled buses so glides on still-live emitters survive.
+            for i in glideVoices.indices where glideVoices[i].bus >= 0 && (turnedOff & (1 << UInt8(glideVoices[i].bus))) != 0 { glideVoices[i] = GlideVoice() }
             prevBusEnabledMask = busEnabledMask
         }
         let beatsPerSample = tempo / 60.0 / sampleRate
@@ -2016,6 +2024,8 @@ final class Router {
             auditionStartSample = windowStart; auditionLastTick = -1
             for i in lastTick.indices { lastTick[i] = -1; lastGenStep[i] = Int64.min }      // free the solo row's tick-dedup
             previewPrevColumn = -1; strumProgress[0] = 0        // fresh column edge for the virtual cell
+            clearEchoTails()                                    // parity with the other flush edges
+            flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()   // review 2026-08-23 [4]: allNotesOff closed the immortal MOD/GLIDE anchors — forget their stale bookkeeping (else a reused slot later emits a spurious off + the glide/CC goes silent)
             prevPreviewActive = preview.active
         }
 
@@ -2105,7 +2115,7 @@ final class Router {
         } else {
             // ===== MULTI-CLOCK PATH — each row on its own step rate; each transition on that row's OWN clock =====
             let globalPass = diag.pass
-            if prevEffColumn == -1 { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge reset the whole grid this window
+            if prevEffColumn == -1 || prevUniformFast { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge, OR a live uniform→multi switch (CR-11), re-seeds the per-row trackers so each row reconciles this window
             for r in 0..<Snap.rows {
                 let Sr = box.rowStep[r]
                 let Lr = box.rowLength[r]
@@ -2127,6 +2137,7 @@ final class Router {
             diag.pass = globalPass
             prevEffColumn = effColumn   // keep the GLOBAL edge current (echo dry now fires per-row above, on each row's own clock)
         }
+        prevUniformFast = uniformFast   // CR-11: remember the clock mode so the next render detects a live uniform↔multi switch
 
         // ECHO tails ring out independent of the column and even after the source releases — BEFORE the empty-pool guard.
         chanOverride = -1; nudgeSamples = 0   // UTILITY: the holds above set these per-cell; echo tails use the wire defaults (v1)

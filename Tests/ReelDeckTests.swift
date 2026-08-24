@@ -205,4 +205,26 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(c, 2, "both notes sound at 1.5")
         for k in 0..<c { XCTAssertEqual(ch[k], 2, "note \(n[k]) replays on its recorded channel 3 (0-based 2), not a re-stamp") }
     }
+
+    // CR-3[review]: a note-ON with no matching OFF (held across the pass boundary, or truncated when the pass was
+    // re-selected from the browser) must get a SYNTHETIC off at the loop end — else replay() re-emits the ON forever
+    // with no OFF ⇒ a stuck note (invariant 4).
+    func testUnclosedNoteGetsSyntheticOffAtLoopEnd() {
+        let deck = ReelDeck()
+        deck.cycleBeats = 4.0
+        deck.record(beat: 1.0, cable: 1, 0x90, 62, 100)   // ON, NO matching OFF
+        deck.promote()                                    // auto-loop → closeOpenLoopNotes appends a synthetic OFF at cycleBeats
+        XCTAssertTrue(deck.hasLoop)
+        // window [3.5, 4.5): the note's ON next-occurrence is 5.0 (out of window); ONLY the synthetic OFF at 4.0 lands.
+        let rec = ReelRec()
+        deck.replay(beatPos: 3.5, windowBeats: 1.0, cycleBeats: 4.0, beatsPerSample: 0.001, windowStart: 0, out: rec)
+        XCTAssertEqual(rec.events.count, 1, "just the synthetic OFF in this window")
+        XCTAssertEqual(rec.events[0].b0 & 0xF0, 0x80, "it's a note-OFF")
+        XCTAssertEqual(rec.events[0].b1, 62, "for the note left open")
+        // and the ON still fires earlier in the pass (round-trip, no note lost)
+        let rec2 = ReelRec()
+        deck.replay(beatPos: 0.5, windowBeats: 1.0, cycleBeats: 4.0, beatsPerSample: 0.001, windowStart: 0, out: rec2)
+        XCTAssertEqual(rec2.events.count, 1)
+        XCTAssertEqual(rec2.events[0].b0 & 0xF0, 0x90, "the ON plays [1,4)")
+    }
 }

@@ -222,6 +222,16 @@ final class AcceptanceBurstTests: XCTestCase {
         XCTAssertEqual(Double(c8) / Double(c4), 2.0, accuracy: 0.6, "count 8 ≈ 2× count 4")
     }
 
+    // CR-6[review]: HITS 12 / HITS 16 used to render as 8 — the shared `count` was clamped to 2…8 in the snapshot, so
+    // BURST (which reads up to 16) topped out. Widened to 2…16; the two high settings must now out-strike count 8.
+    func testBurstHits12And16BeatCount8() {
+        let c8  = Accept.onsA([burst(count: 8)]).count
+        let c12 = Accept.onsA([burst(count: 12)]).count
+        let c16 = Accept.onsA([burst(count: 16)]).count
+        XCTAssertGreaterThan(c12, c8,  "HITS 12 emits more than HITS 8 (was silently capped equal)")
+        XCTAssertGreaterThan(c16, c12, "HITS 16 emits more than HITS 12")
+    }
+
     // BURST is an ACCEL/DECEL roll across the step; the CURVE shapes the distribution. curve=0 spreads the strikes
     // EVENLY; the two curve extremes skew it OPPOSITELY — accel bunches toward one end, decel toward the other, so
     // exactly ONE extreme is front-heavy. (Event mass, robust to sub-bucket merging.)

@@ -834,8 +834,9 @@ struct PluginState: Codable, Equatable {
     var rackActiveConfig: Int? = nil       // which config is LIVE (0…3)
     /// The 4 configs, resolved (a clean/old doc → config 0 is the legacy mask, the rest all-in).
     var rackConfigsResolved: [UInt8] {
-        if let c = rackConfigs, c.count == 4 { return c.map { $0 & 0b1111 } }
-        return [rackEnabledResolved, 0b1111, 0b1111, 0b1111]
+        let dflt: [UInt8] = [rackEnabledResolved, 0b1111, 0b1111, 0b1111]
+        guard let c = rackConfigs, !c.isEmpty else { return dflt }
+        return (0..<4).map { $0 < c.count ? (c[$0] & 0b1111) : dflt[$0] }   // CR-9: PAD short / TRUNCATE long — don't discard user configs when the array isn't exactly length 4 (matches resolved4/busEnabledResolved)
     }
     /// Which config is live (0…3, clamped).
     var rackActiveConfigResolved: Int { max(0, min(3, rackActiveConfig ?? 0)) }
