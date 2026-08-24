@@ -83,6 +83,17 @@ final class SnapshotBuilderTests: XCTestCase {
         st.rackActiveConfig = 9
         XCTAssertEqual(st.rackActiveConfigResolved, 3, "an out-of-range active config clamps to 0…3")
     }
+    // CR-18[extras]: inverted-window resolvers must ORDER their bounds, not silently mute.
+    func testInvertedResolversOrderTheirBoundsInsteadOfMuting() {
+        var r = Receiver(name: "1"); r.rangeLo = 72; r.rangeHi = 48          // decoded window backwards
+        XCTAssertLessThanOrEqual(r.rangeLoResolved, r.rangeHiResolved, "a door's range resolver orders lo ≤ hi (never a silent door)")
+        XCTAssertEqual(r.rangeHiResolved, 72, "hi is lifted to lo")
+        var s = SceneState.empty()
+        s.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.velWindow = VelWindow(floor: 120, ceil: 20); return c }()
+        let box = SnapshotBuilder.build(from: PluginState(colours: colours(customizing: 0) { _ in }, scenes: [s]))
+        let sc = box.cells[0]
+        XCTAssertLessThanOrEqual(sc.velFloor, sc.velCeil, "an inverted per-cell velocity window is ordered, not left muting the cell")
+    }
     // CR-9[review]: a short/long rackConfigs array (a truncated or forward-compat doc) must PAD/TRUNCATE to 4, not be
     // discarded wholesale — dropping it silently reverted every config to defaults (data-loss).
     func testRackConfigsShortOrLongArrayPadsNotDiscards() {

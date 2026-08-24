@@ -257,7 +257,8 @@ struct DiagView: View {
     @State var masterKey = 0                                // master panel: per-scene transpose (persisted)
     @State var soloReceiverMask: UInt8 = 0                    // receiver strip: additive input SOLO set (ephemeral)
     @State var receiverOctave: [Int] = [0, 0, 0, 0]          // receiver strip: per-receiver ±octave nudge (ephemeral)
-    @State var receiverNote: [Int] = [0, 0, 0, 0]           // receiver strip: per-receiver ±semitone NOTE nudge (ephemeral)
+    // CR-18[extra]: the ±semitone NOTE-nudge @State was write-only (init + reset, never read/driven — no UI control) —
+    // removed. The ENGINE path (au.setInputSemitone → Kernel/Router inputSemitone) stays live for a future control.
     @State var latchMask: UInt8 = 0                          // receiver strip: per-receiver chord LATCH (ephemeral)
     @State var holdLatch = false             // delta §5c: HOLD — the sustain pedal for gestures (button removed 2026-08-05; localized holds pending)
     @State private var contentOverflows = false   // whole-UI scroll: the content column is taller than the viewport → wrap header+tabs+body in ONE ScrollView
@@ -539,8 +540,8 @@ struct DiagView: View {
     /// Clear the receiver-strip PERFORM overlays (weather) — fired on the transport play→stop edge.
     func clearReceiverPerform() {
         soloReceiverMask = 0; au?.setSoloReceiverMask(0)
-        receiverOctave = [0, 0, 0, 0]; receiverNote = [0, 0, 0, 0]
-        for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputSemitone(i, 0); au?.setInputVelOverride(i, nil) }
+        receiverOctave = [0, 0, 0, 0]
+        for i in 0..<4 { au?.setInputOctave(i, 0); au?.setInputSemitone(i, 0); au?.setInputVelOverride(i, nil) }   // setInputSemitone still resets the live ENGINE nudge
         clearReceiverLatch()
     }
 

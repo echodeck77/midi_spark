@@ -373,7 +373,10 @@ extension DiagView {
                     .padding(.horizontal, 14).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(buildCyan))
                     .contentShape(Rectangle()).onTapGesture { buildRangeKbdDoor = nil }
             }
-            buildRangePiano(i, lo: lo, hi: hi, width: 660)
+            // CR-15[review 17]: derive the keyboard width from the sheet's available width (was hard-coded 660, which
+            // ran the top octaves off-screen on a < ~712 pt AUM pane → high MIN/MAX bounds untappable). 76 = the piano's fixed height.
+            GeometryReader { g in buildRangePiano(i, lo: lo, hi: hi, width: max(200, g.size.width)) }
+                .frame(height: 76)
         }
     }
     @ViewBuilder private func buildRangeBoundChip(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
@@ -2080,7 +2083,7 @@ extension DiagView {
     // §1: deploying the current part to a SINGLE play-grid row CHRISTENS it (PART n) and copies its per-column selection
     // into the tapped row (selected cell regardless of staging row · blank where unselected), carrying the part's I/O.
     func buildDeployCurrentPart(toRow R: Int) {
-        guard buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }
+        guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count, R >= 0, R < 8 else { return }   // CR-18[extra]: >= 0 guard for symmetry with the siblings — a -1 part would trap on buildParts[-1]
         buildParts[buildCurrentPart].deployed = true
         let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
         buildApplyDeployLength(len)
@@ -2096,7 +2099,7 @@ extension DiagView {
     //     becomes a band rung, top-down, capped to the band's height. Nothing is dropped; the muted cells are the rungs.
     //   • SINGLE-ROW band (rows == 1): the selected cell per column (regardless of row), blank where unselected.
     func buildDeployBand(base: Int, rows: Int) {
-        guard buildCurrentPart < buildParts.count else { return }
+        guard buildCurrentPart >= 0, buildCurrentPart < buildParts.count else { return }   // CR-18[extra]: >= 0 guard for symmetry
         buildParts[buildCurrentPart].deployed = true
         let len = buildDeployLength()                           // PROMOTE = LOOPED COLUMNS: the loop span sets the length
         buildApplyDeployLength(len)
@@ -3721,6 +3724,12 @@ extension DiagView {
                 }
             }
             .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
+            // CR-14[review 15]: the editor has NO backdrop, so the user can switch the selected colour mid-edit. Re-snapshot
+            // the NEW target — else CANCEL reverts the ORIGINAL colour to ITS snapshot and strands the new colour's edits.
+            .onChange(of: ddSelectedColourID) { newID in
+                guard let newID, newID != buildEditorSnapCid else { return }
+                buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = newID
+            }
         }
     }
 

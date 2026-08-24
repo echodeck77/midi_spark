@@ -939,6 +939,10 @@ func arpPick(phaseIndex: Int64, octaves: Int, pattern: UInt8,
         note = Int(fullRange ? pool.srcPlayed(pos % count, chanMask: chanMask, cableMask: cableMask)
                              : pool.srcPlayed(pos % count, chanMask: chanMask, cableMask: cableMask, noteLo: noteLo, noteHi: noteHi))
     } else {
+        // CR-18[extra] DECISION: the ARP walk reads the whole (channel/cable/RANGE-filtered) pool — the cell's VELOCITY
+        // WINDOW (velLo/velHi pinned 0…127 here) and its CHORD SPLIT are INTENTIONALLY NOT applied to the arp, unlike
+        // HOLD/STRUM/RATCHET. Long-standing (the vel-window omission is documented elsewhere); to punch holes in an arp's
+        // pool by register/velocity, chain a SPLIT stage before the ARP. Documented, not changed (would alter every arp).
         note = Int(fullRange ? pool.srcAscending(pos % count, chanMask: chanMask, cableMask: cableMask)
                              : pool.srcAscending(pos % count, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi))
     }

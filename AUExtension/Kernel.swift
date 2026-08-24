@@ -830,7 +830,9 @@ final class Kernel {
             // grid has no source: after a debounce (kept ≥ a few columns so a note released mid-column still
             // rings to its boundary) any voice left sounding is stuck (e.g. a harmonizer off that went missing).
             // Soft-heal only (log + all-notes-off) — heuristic, so it never hard-traps.
-            let liveEmpty = playing && pool.count == 0 && effectiveLatchMask == 0 && audition < 0
+            // CR-18[extra]: reel REPLAY replaces the live output and SKIPS router.process, so diag.activeVoiceCount goes
+            // stale — exempt the replay state from the leak net (else it false-fires "playing silence leak", bumping diag.panics).
+            let liveEmpty = playing && pool.count == 0 && effectiveLatchMask == 0 && audition < 0 && reel.state != .replaying
             emptyInputSamples = liveEmpty ? emptyInputSamples &+ Int64(frameCount) : 0
             let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
             let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail

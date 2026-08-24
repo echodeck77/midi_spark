@@ -85,7 +85,8 @@ enum SnapshotBuilder {
                 sc.busMask = busBitmask(cell.buses)
                 sc.chordSplit = cell.chordSplitResolved         // §cell-edit D: the source-note split (ALL default)
                 let vw = cell.velWindowResolved                 // §cell-edit D: the velocity window (1…127 default)
-                sc.velFloor = UInt8(max(1, min(127, vw.floor))); sc.velCeil = UInt8(max(1, min(127, vw.ceil)))
+                sc.velFloor = UInt8(max(1, min(127, vw.floor)))
+                sc.velCeil = max(sc.velFloor, UInt8(max(1, min(127, vw.ceil))))   // CR-18[extra]: order the bounds — an inverted decoded/library window (ceil < floor) would otherwise mute the cell (SPLIT's splitVel + RACK FENCE both guard theirs)
                 let chp = cell.chopResolved                      // §cell-edit F: per-slice output chop (independent main/alt/mute)
                 sc.chopMain = chp.mainMask; sc.chopAlt = chp.altMask; sc.chopMute = chp.muteMask
                 sc.chopAltMask = busBitmask(chp.altDest)
