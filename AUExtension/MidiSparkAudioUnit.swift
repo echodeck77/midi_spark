@@ -435,7 +435,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func pollEmitterSounding() -> [[(vel: UInt8, col: Int8)]] { kernel.drainEmitterSounding() }   // §strips-done: currently-sounding per emitter (cargo-tinted)
 
     /// Read-only snapshot of the per-bus stamp channels for the OUTPUTS panel (delta §7).
-    func uiBusChannels() -> [Int] { document.busChannels }
+    func uiBusChannels() -> [Int] { document.busChannelsResolved }
 
     /// delta §9 item 11: the four resolved receivers (nil-safe) for the editor's INPUT radio + the panel.
     func uiReceivers() -> [Receiver] { document.receiversResolved }
@@ -763,11 +763,11 @@ public class MidiSparkAudioUnit: AUAudioUnit {
 
     // MASTER PANEL. KEY = per-scene transpose (persisted); MUTE = global emission kill (persisted); the FADER
     // = the momentary master velocity override (ephemeral kernel feed); PANIC = the one-shot hard flush.
-    private func activeSceneIndex() -> Int { max(0, min(document.activeScene, document.scenes.count - 1)) }
+    private func activeSceneIndex() -> Int { document.activeSceneResolved }   // CR-8: activeScene is Optional now
     func uiMasterKey() -> Int { document.scenes[activeSceneIndex()].masterKeyResolved }
     func nudgeMasterKey(_ delta: Int) {
         editDocument { d in
-            let i = max(0, min(d.activeScene, d.scenes.count - 1))
+            let i = d.activeSceneResolved
             d.scenes[i].masterKey = max(-12, min(12, d.scenes[i].masterKeyResolved + delta))
         }
     }
@@ -1115,7 +1115,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             case ParamAddress.stepRate:
                 return AUValue(StepRate.allCases.firstIndex(of: self.document.activeSceneState.stepRate) ?? 2)
             case ParamAddress.swing: return AUValue(self.document.activeSceneState.swing)
-            case ParamAddress.morphMaster: return AUValue(self.document.morphMaster)
+            case ParamAddress.morphMaster: return AUValue(self.document.morphMasterResolved)
             case let a where a >= 200 && a < 200 + AUParameterAddress(colourIDs.count):
                 let idx = Int(a - 200); return idx < self.document.colours.count ? AUValue(self.document.colours[idx].morph) : 0   // CR-13b: <16-colour doc guard
             case let a where a >= 100 && a < 100 + AUParameterAddress(colourIDs.count):
@@ -1306,7 +1306,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
         _parameterTree.parameter(withAddress: ParamAddress.stepRate)?.value =
             AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2)
         _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(scene.swing)
-        _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMaster)
+        _parameterTree.parameter(withAddress: ParamAddress.morphMaster)?.value = AUValue(document.morphMasterResolved)
         for i in colourIDs.indices where i < document.colours.count {   // CR-13b: a decoded doc may carry <16 colours
             _parameterTree.parameter(withAddress: ParamAddress.morph(i))?.value =
                 AUValue(document.colours[i].morph)

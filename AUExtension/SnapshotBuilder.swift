@@ -151,7 +151,7 @@ enum SnapshotBuilder {
         // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
         var busCh = [UInt8](repeating: 0, count: 4)
         for i in 0..<4 {
-            let v = i < doc.busChannels.count ? doc.busChannels[i] : (i + 1)
+            let v = doc.busChannelsResolved[i]   // CR-8: nil/short-safe (busChannels is now Optional)
             busCh[i] = UInt8(max(1, min(16, v)))
         }
         // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
@@ -262,7 +262,7 @@ enum SnapshotBuilder {
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
-                           morphMaster: max(0, min(1, doc.morphMaster)),
+                           morphMaster: max(0, min(1, doc.morphMasterResolved)),
                            colours: colours,
                            cells: cells,
                            busChannels: busCh,

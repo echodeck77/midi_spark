@@ -79,7 +79,9 @@ extension DiagView {
         // until a real, finite size arrives.
         if size.width.isFinite, size.height.isFinite, size.width > 80, size.height > 80 {
             ZStack {
-                if size.width > size.height { AnyView(buildLandscape(size)) } else { AnyView(buildPortrait(size)) }
+                // LANDSCAPE-ONLY (Paul 2026-08-24): always use the landscape layout — the app is designed for landscape, so
+                // a narrow/portrait host pane keeps the landscape structure rather than switching to a separate portrait tree.
+                AnyView(buildLandscape(size))
                 if let slot = buildEditSlot { AnyView(buildProcessorEditor(slot: slot, size: size)) }   // the processor pop-up editor
                 if let slot = buildAddSlot { AnyView(buildProcessorPicker(slot: slot, size: size)) }    // the ADD-processor picker
                 if buildFlowOpen { AnyView(buildFlowPopup(size: size)) }                               // the signal-flow diagram pop-up
@@ -936,16 +938,7 @@ extension DiagView {
     }
 
     // ── PORTRAIT: height is abundant → a plain stack (palette → staging → play → machinery) ────────────────────────
-    @ViewBuilder private func buildPortrait(_ size: CGSize) -> some View {
-        let cell = max(BuildGeom.cellMin, min(BuildGeom.cellMax, (size.width - BuildGeom.cellGap * 10 - 24) / 11))   // play grid = 2 valves + 8 + chevrons = 11 cells
-        VStack(spacing: 12) {
-            AnyView(buildPaletteColumn(colW: size.width - 20, cell: cell))   // AnyView boundaries — see buildLandscape's note (metadata-stack overflow); each column carries its own button box
-            AnyView(buildStagingColumn(cell: cell))
-            AnyView(buildPlayColumn(cell: cell))
-            AnyView(buildIOBox())                                            // the combined MIDI-IN + MIDI-OUT panel (Paul 2026-08-18)
-        }
-        .padding(.horizontal, 10).padding(.top, 6)
-    }
+    // (buildPortrait retired 2026-08-24 — LANDSCAPE-ONLY; git history keeps the vertical-stack layout if ever needed.)
 
     // ── LEFT COLUMN: play-cell · part · input(+keyboard) · cast 4×4 (+🎲) · output · APPLY TO STAGING · litter ──────
     // IMPORTANT: keep this VStack SHALLOW — the INPUT/CAST/OUTPUT groups are SEPARATE opaque sub-views. A single

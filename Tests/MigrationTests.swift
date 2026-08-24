@@ -340,6 +340,23 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(r.turnsPerNoteResolved, false); XCTAssertEqual(r.ladderModeResolved, false)
     }
 
+    // CR-8: a PRE-v2 document missing busChannels / activeScene / morphMaster used to THROW at decode (the whole document
+    // failed to load — data-loss). Now those three are additive-Optional: a missing key decodes nil + resolves to defaults.
+    func testPreV2DocMissingBusChannelsActiveSceneMorphDecodes() throws {
+        var d = PluginState(colours: colourIDs.map { Colour(colourID: $0, type: .arp) }, scenes: [SceneState.empty(), SceneState.empty()])
+        d.busChannels = [7, 8, 9, 10]; d.activeScene = 1; d.morphMaster = 0.5   // set them, then strip → simulate an even-older doc
+        var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
+        for k in ["busChannels", "activeScene", "morphMaster"] { root.removeValue(forKey: k) }
+        let r = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: root))   // must NOT throw
+        XCTAssertNil(r.busChannels); XCTAssertNil(r.activeScene); XCTAssertNil(r.morphMaster)
+        XCTAssertEqual(r.busChannelsResolved, [1, 2, 3, 4], "nil ⇒ the default stamp channels")
+        XCTAssertEqual(r.activeSceneResolved, 0, "nil ⇒ scene 0")
+        XCTAssertEqual(r.morphMasterResolved, 0)
+        // and the present values still round-trip when the keys ARE there
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.busChannelsResolved, [7, 8, 9, 10]); XCTAssertEqual(back.activeSceneResolved, 1); XCTAssertEqual(back.morphMasterResolved, 0.5)
+    }
+
     /// `resolved4` — the shared nil-safe per-emitter resolver behind ~11 rack helpers. Its four branches:
     /// nil→all-default · short→pad-with-default · out-of-range→clamp · over-long→truncate to exactly 4.
     func testResolved4ResolverBranches() {
@@ -611,8 +628,8 @@ final class MigrationTests: XCTestCase {
     func testSwitchSceneOnlyToNonEmpty() {
         var d = multi()
         d.scenes[3].cells[0][0] = Cell(colourID: "gold")
-        d.switchScene(to: 3); XCTAssertEqual(d.activeScene, 3)
-        d.switchScene(to: 5); XCTAssertEqual(d.activeScene, 3, "empty slots aren't playable — the switch is ignored")
+        d.switchScene(to: 3); XCTAssertEqual(d.activeSceneResolved, 3)
+        d.switchScene(to: 5); XCTAssertEqual(d.activeSceneResolved, 3, "empty slots aren't playable — the switch is ignored")
     }
 
     func testSaveCurrentSceneCopiesActiveIntoSlotWithoutSwitching() {
@@ -620,7 +637,7 @@ final class MigrationTests: XCTestCase {
         d.scenes[0].cells[2][2] = Cell(colourID: "cyan")
         d.saveCurrentScene(toSlot: 7)
         XCTAssertEqual(d.scenes[7].cells[2][2]?.colourID, "cyan", "slot 7 = a copy of the active scene")
-        XCTAssertEqual(d.activeScene, 0, "save-here does NOT switch")
+        XCTAssertEqual(d.activeSceneResolved, 0, "save-here does NOT switch")
     }
 
     // MARK: - S3 drag: MOVE / SWAP / DELETE (never overwrite; active follows content; active refuses trash)
@@ -646,7 +663,7 @@ final class MigrationTests: XCTestCase {
         var d = multi()
         d.scenes[3].cells[0][0] = Cell(colourID: "gold"); d.activeScene = 3
         d.moveScene(from: 3, to: 7)
-        XCTAssertEqual(d.activeScene, 7, "the playing scene follows its content to the new slot")
+        XCTAssertEqual(d.activeSceneResolved, 7, "the playing scene follows its content to the new slot")
     }
 
     func testSwapCarriesTheActiveIndex() {
@@ -655,7 +672,7 @@ final class MigrationTests: XCTestCase {
         d.scenes[6].cells[0][0] = Cell(colourID: "cyan")
         d.activeScene = 6
         d.swapScenes(3, 6)
-        XCTAssertEqual(d.activeScene, 3, "active followed its content across the swap")
+        XCTAssertEqual(d.activeSceneResolved, 3, "active followed its content across the swap")
         XCTAssertEqual(d.scenes[3].cells[0][0]?.colourID, "cyan", "…which is now in slot 3")
     }
 
@@ -933,21 +950,21 @@ final class StampConfigTests: XCTestCase {
 final class PreviewOverlayTests: XCTestCase {
     private func doc(with cell: Cell?, at col: Int, _ row: Int) -> PluginState {
         var d = PluginState.factory()
-        d.scenes[d.activeScene].cells[col][row] = cell
+        d.scenes[d.activeSceneResolved].cells[col][row] = cell
         return d
     }
     func testRestoringCellReplacesActiveSceneCell() {
         let preview = Cell(colourID: "gold")
         let d = doc(with: preview, at: 3, 4)                    // preview cell sitting in the document
         let restored = d.restoringCell(col: 3, row: 4, to: nil) // encode with the covered (empty) cell
-        XCTAssertNil(restored.scenes[restored.activeScene].cells[3][4], "preview stripped for encoding")
-        XCTAssertEqual(d.scenes[d.activeScene].cells[3][4]?.colourID, "gold", "the live document is untouched")
+        XCTAssertNil(restored.scenes[restored.activeSceneResolved].cells[3][4], "preview stripped for encoding")
+        XCTAssertEqual(d.scenes[d.activeSceneResolved].cells[3][4]?.colourID, "gold", "the live document is untouched")
     }
     func testRestoringCellRestoresACoveredCell() {
         let covered = Cell(colourID: "cyan")
         var d = doc(with: Cell(colourID: "gold"), at: 1, 1)     // preview covering a cyan cell
         let restored = d.restoringCell(col: 1, row: 1, to: covered)
-        XCTAssertEqual(restored.scenes[restored.activeScene].cells[1][1]?.colourID, "cyan")
+        XCTAssertEqual(restored.scenes[restored.activeSceneResolved].cells[1][1]?.colourID, "cyan")
         _ = d
     }
     func testRestoringCellOutOfRangeIsNoOp() {
@@ -961,7 +978,7 @@ final class PreviewOverlayTests: XCTestCase {
         let encodeDoc = d.restoringCell(col: 2, row: 2, to: nil)
         let data = try JSONEncoder().encode(encodeDoc)
         let decoded = try JSONDecoder().decode(PluginState.self, from: data)
-        XCTAssertNil(decoded.scenes[decoded.activeScene].cells[2][2], "the reloaded preset has no preview cell")
+        XCTAssertNil(decoded.scenes[decoded.activeSceneResolved].cells[2][2], "the reloaded preset has no preview cell")
     }
 }
 

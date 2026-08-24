@@ -825,10 +825,16 @@ struct PluginState: Codable, Equatable {
     var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
     var colours: [Colour]
     var scenes: [SceneState]       // length 1 in v2.x; scenes are the flagship next feature
-    var activeScene: Int = 0
-    var morphMaster: Double = 0    // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
+    // CR-8: these three were the ONLY non-Optional post-v2 fields, so a PRE-v2 document (missing the keys) threw at
+    // decode and the WHOLE document failed to load (data-loss). Now additive-Optional (a missing key decodes nil), with
+    // resolvers giving the same defaults. New/factory/preset docs still write them, so this is decode-tolerance only.
+    var activeScene: Int? = nil
+    var morphMaster: Double? = nil // RETIRED (delta §9 item 5): param #300 stays registered (invariant 5)
                                    // but the render no longer applies it — morph is per-Colour only.
-    var busChannels: [Int] = [1, 2, 3, 4]   // v3.0 (delta §7): each bus A–D stamps this channel on exit
+    var morphMasterResolved: Double { morphMaster ?? 0 }
+    var busChannels: [Int]? = nil  // v3.0 (delta §7): each bus A–D stamps this channel on exit
+    /// The 4 stamp channels, nil/short-array safe (missing ⇒ 1,2,3,4). Non-persisting read helper.
+    var busChannelsResolved: [Int] { let b = busChannels ?? []; return (0..<4).map { $0 < b.count ? b[$0] : $0 + 1 } }
     // ROW 8 (Paul 2026-08-22, Docs/row8-spec.md): the bottom ACTION strip — 8 TYPED performance cells. DOCUMENT state is
     // the authoring {type · payload · mover}; the toggle/radio LIT state is captured PER SCENE (SceneState.row8On).
     // Additive-Optional → old docs decode nil ⇒ the factory "danger gradient" deck (Row8Cell.factoryDeck).
@@ -995,10 +1001,11 @@ struct PluginState: Codable, Equatable {
     /// in context), so a host autosave landing mid-hover must encode the RESTORED cell, never the preview.
     /// Bounds-guarded → returns self unchanged for an out-of-range address.
     func restoringCell(col: Int, row: Int, to cell: Cell?) -> PluginState {
-        guard activeScene >= 0, activeScene < scenes.count,
-              col >= 0, col < scenes[activeScene].cells.count, row >= 0, row < scenes[activeScene].cells[col].count else { return self }
+        let a = activeSceneResolved
+        guard a >= 0, a < scenes.count,
+              col >= 0, col < scenes[a].cells.count, row >= 0, row < scenes[a].cells[col].count else { return self }
         var s = self
-        s.scenes[activeScene].cells[col][row] = cell
+        s.scenes[a].cells[col][row] = cell
         return s
     }
 
@@ -1007,7 +1014,7 @@ struct PluginState: Codable, Equatable {
     static let maxScenes = 16          // the strip's fixed slot count (16 — the scene row sits on its own line below the header)
 
     /// The active scene index, always in-bounds (clamped; falls back to 0 if the doc is odd). Never crashes.
-    var activeSceneResolved: Int { scenes.isEmpty ? 0 : max(0, min(scenes.count - 1, activeScene)) }
+    var activeSceneResolved: Int { scenes.isEmpty ? 0 : max(0, min(scenes.count - 1, activeScene ?? 0)) }
     /// The active scene (bounds-safe), for the render + UI.
     var activeSceneState: SceneState { scenes.isEmpty ? .empty() : scenes[activeSceneResolved] }
 

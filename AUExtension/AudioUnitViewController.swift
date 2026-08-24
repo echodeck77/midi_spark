@@ -671,8 +671,9 @@ struct DiagView: View {
     func setEmitterChannel(_ i: Int, _ ch: Int) {
         guard let au else { return }
         au.editDocument { d in
-            while d.busChannels.count < 4 { d.busChannels.append(d.busChannels.count + 1) }
-            d.busChannels[i] = max(1, min(16, ch))
+            var bc = d.busChannels ?? []                       // CR-8: busChannels is Optional now — seed to 4 before writing
+            while bc.count < 4 { bc.append(bc.count + 1) }
+            bc[i] = max(1, min(16, ch)); d.busChannels = bc
         }
         busChannels = au.uiBusChannels()
     }
