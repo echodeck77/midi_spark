@@ -13,9 +13,18 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    INVERT · GLIDE SYNTH + STEP modes + on-screen text · KEYS EXCLUDE complement door. All additive-Optional chips,
    +10 tests, macOS green incl. fuzz, iOS builds. DEVICE ear/eye owed. v1 flags: GLIDE driven-path stays BEND (mono-
    driver commission); STEP run-window = glideTime (rate chip later); KEYS EXCLUDE Kernel subtraction device-owed.
-2. **THE FOUNDATION (big cross-cutting UI):** STATE MATRIX + SLIDER LANE + SPAN LADDER (`INSTRUCTIONS-state-matrix §1-3`) —
-   two reusable widget species that RETIRE pick-then-paint (convert RATCHET/TUTTI/LENGTH; SPAN CELL|ROW → a 1·2·3·4·6·8·×2·×4
-   polymeter dial). Unblocks everything visual below. The SPAN-ladder engine = `rowStep % N` per line (replay-safe).
+2. **THE FOUNDATION (big cross-cutting UI):** STATE MATRIX + SLIDER LANE + SPAN LADDER (`INSTRUCTIONS-state-matrix §1-3`).
+   - **✅ STATE MATRIX — DONE (2026-08-24, `bc40be2`):** the `stateMatrixRadio` widget (rows = states · cols = 8 steps ·
+     radio-per-column · instant, no brush). Converted LENGTH · RATCHET PATTERN · TUTTI PATTERN (8×8) · BURST PATTERN.
+     UI-only, reads the same slice arrays. DEVICE eye owed.
+   - **SLIDER LANE (§2): the component ALREADY EXISTS** as `modStepBars` (tap-set + drag-draw, variable step count) at its
+     origin STEP MOD. No new consumer to wire until VELOCITY/CHANCE/TIMING PATTERN land (Tier 3/5). Optional: rename it
+     `sliderLane` + reuse when the first new consumer is built.
+   - **⚠ SPAN LADDER (§3) — BLOCKED ON A DESIGN RULING.** Clean (byte-identical CELL=1/ROW=8, `columnStart(beat, N·S)`
+     polymeter) for the 3 WIDTH-based procs (EUCLID · BURST · LENGTH). But TUTTI PATTERN · RATCHET PATTERN · MOD · CASCADE
+     have RATE-based CELL (`sub` = a rate param, not S) — the spec's column-width ladder doesn't reconcile with their RATE
+     chip. NEEDS PAUL: for a rate-based pattern, does the ladder (2·3·4·6) mean N columns (superseding the RATE chip in
+     span mode), or does the RATE chip stay and the ladder only scales bar-multiples? Once ruled, build all 7 consistently.
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
