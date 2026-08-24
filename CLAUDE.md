@@ -159,6 +159,20 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIER 1 QUICK ENGINE WINS #1 — ARP OCT-DIRECTION + RANDOM-ANCHOR · EUCLID PICK + INVERT (2026-08-24, on `main`;
+  iOS builds, macOS 546 RouterTests + 299 DerivationsTests green; DEVICE ear owed). First two of the four ratified
+  Tier-1 chip additions (Docs/SPEC-arp-additions.md, SPEC-euclid-variations.md §11). All additive-Optional (nil ⇒
+  today's behaviour, byte-identical for old docs). **ARP** (`arpOctDown: Bool?` · `arpRandomAnchor: Int?`): OCT
+  DIRECTION UP|DOWN — the PATTERN orders within a lap, OCT DIR orders the LAPS (DOWN plays the top octave first,
+  descending); RANDOM ANCHOR OFF|LOW|HIGH — PATTERN=RANDOM opens each pool×oct cycle on the anchor note (seeded,
+  wrap-scoped via `asc==0`). Threaded through `arpPick` (both the `.random` anchor branch + the octave inversion in
+  the return), the legacy + two `for: cell` overloads, and all 6 Router call sites. UI: OCT DIR toggle beside OCTAVES;
+  RANDOM ANCHOR chip shown only when PATTERN=RANDOM. **EUCLID** (`euclidPick: EuclidPick?` · `euclidInvert: Bool?`):
+  PICK ALL|CYCLE|LOW|HIGH|RANDOM — what each hit strikes (LOW/HIGH = pool extremes, CYCLE = the euclid-arp walking the
+  chord one-note-per-pulse, RANDOM = seeded scatter — all keyed by a replay-exact PULSE ORDINAL: floored-cycle × hits
+  + hits-up-to-step); INVERT — strike the N−K RESTS (the anti-pattern). Both fold through `strikeChord(onlyIndex:)`.
+  UI: PICK + INVERT segs on the euclid box. +5 tests (2 Derivations ARP oct/anchor, 3 Router euclid pick-low/invert/
+  cycle-walks). NEXT Tier-1: GLIDE SYNTH+STEP, KEYS EXCLUDE; then Tier 2 (STATE MATRIX + SLIDER LANE + SPAN LADDER).**
 - **▶ ROW 8 + SCENES — PAUL'S FEEDBACK PASS + PERSISTENCE + more engines (2026-08-24, on `main`; iOS builds, macOS 857
   green incl. fuzz; DEVICE eye/ear owed). Four corrections from Paul's device look + two follow-ups. **THE AUDIO FIX
   (`4d56fd0`, why FREEZE/HALFTIME were silent):** `renderDoc` composes a staging scene when BUILD plays and did

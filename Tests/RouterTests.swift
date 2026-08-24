@@ -133,6 +133,44 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
         assertNothingLeftSounding(e)
     }
+    // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
+    func testEuclidPickLowStrikesOnlyTheLowestNote() {
+        let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+            c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = .low; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+        let e = RecordingEmitter()
+        run(b, chord([60, 64, 67]), beats: 2, into: e)
+        let ons = e.ons.filter { $0.cable == 1 }
+        XCTAssertEqual(ons.count, 4, "4 pulses × 1 picked note")
+        XCTAssertTrue(ons.allSatisfy { $0.note == 60 }, "PICK LOW strikes only the lowest pool note")
+        assertNothingLeftSounding(e)
+    }
+    // EUCLID INVERT (Paul 2026-08-22): strike the N−K rests. 3-of-8 = 3 hits (9 ons) vs INVERT = 5 rests (15 ons).
+    func testEuclidInvertPlaysTheRests() {
+        func count(_ inv: Bool) -> Int {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 3; c.paramsA.euclidSteps = 8; c.paramsA.euclidInvert = inv; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(count(false), 9, "3 hits × 3 notes")
+        XCTAssertEqual(count(true), 15, "INVERT plays the 5 rests × 3 notes")
+    }
+    // EUCLID PICK CYCLE (Paul 2026-08-22): the euclid-arp — one note per pulse, walking the chord.
+    func testEuclidPickCycleWalksTheChordOneNotePerPulse() {
+        func mk(_ pick: EuclidPick) -> (Int, Set<UInt8>) {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 5; c.paramsA.euclidSteps = 8; c.paramsA.euclidPick = pick; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 8, into: e)
+            assertNothingLeftSounding(e)
+            let ons = e.ons.filter { $0.cable == 1 }
+            return (ons.count, Set(ons.map { $0.note }))
+        }
+        let (allC, _) = mk(.all)
+        let (cycC, cycNotes) = mk(.cycle)
+        XCTAssertEqual(cycC * 3, allC, "CYCLE strikes one note per pulse; ALL strikes all three")
+        XCTAssertEqual(cycNotes, [60, 64, 67], "CYCLE walks through every chord note")
+    }
     // PER-PART CLOCK (Paul 2026-08-19): two rows on DIFFERENT step rates play at different tempos in ONE grid —
     // the multi-clock render path. Both rows are fully populated with the SAME 4-of-8 euclid; row 0 runs SLOW
     // (2/1 = 8 beats/step) on bus A, row 1 runs FAST (1/8 = 0.5 beats/step) on bus B. Over a fixed span the fast

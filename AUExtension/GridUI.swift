@@ -871,13 +871,21 @@ struct ProcessorBox: View {
             HStack(spacing: 8) {
                 field("OCTAVES") { seg(["1","2","3","4"], sel: "\(p.octaves ?? 1)") { i in
                     setParam { $0.octaves = i + 1 } } }
-                field("NEW CHORD") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
-                    setParam { $0.phase = ArpPhase.allCases[i] } } }
+                // OCT DIRECTION (Paul 2026-08-22): the laps ascend the octaves (UP) or descend them (DOWN).
+                field("OCT DIR") { seg(["UP", "DOWN"], sel: (p.arpOctDown ?? false) ? "DOWN" : "UP") { i in
+                    setParam { $0.arpOctDown = (i == 1) } } }
             }
+            field("NEW CHORD") { seg(ArpPhase.allCases.map(\.rawValue), sel: p.phase?.rawValue ?? "RETRIG") { i in
+                setParam { $0.phase = ArpPhase.allCases[i] } } }
             field("LENGTH \(Int((p.gate ?? 0.6) * 100))%") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent)
             }
             field("FIT 1 BEAT") { seg(["OFF", "ON"], sel: (p.arpFit ?? false) ? "ON" : "OFF") { i in setParam { $0.arpFit = (i == 1) } } }
+            // RANDOM ANCHOR (Paul 2026-08-22): only meaningful for RANDOM — pins the first note of each cycle low/high.
+            if (p.pattern ?? .up) == .random {
+                field("RANDOM ANCHOR") { seg(["OFF", "LOW", "HIGH"], sel: ["OFF", "LOW", "HIGH"][max(0, min(2, p.arpRandomAnchor ?? 0))]) { i in
+                    setParam { $0.arpRandomAnchor = i } } }
+            }
         case .ratchet:
             let rmode = p.rtcMode ?? .all      // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if rmode == .all {
@@ -990,6 +998,9 @@ struct ProcessorBox: View {
             field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
             let span = p.euclidSpan ?? .cell
             field("SPAN") { seg(["CELL", "ROW"], sel: span == .row ? "ROW" : "CELL") { i in setParam { $0.euclidSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column · ROW = N steps span the bar (Paul 2026-08-18)
+            // PICK = what each hit strikes; INVERT = play the N−K rests (Paul 2026-08-22)
+            field("PICK") { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
+            field("INVERT") { seg(["OFF", "ON"], sel: (p.euclidInvert ?? false) ? "ON" : "OFF") { i in setParam { $0.euclidInvert = (i == 1) } } }
         case .burst:    // GENERATOR — accel/decel roll (family: ONCE | COIN | PATTERN, Paul 2026-08-19)
             let bmode = p.burstMode ?? .once   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             field("HITS  \(p.count ?? 4)") { seg(["2", "3", "4", "6", "8", "12", "16"], sel: "\(p.count ?? 4)") { i in setParam { $0.count = [2, 3, 4, 6, 8, 12, 16][i] } } }

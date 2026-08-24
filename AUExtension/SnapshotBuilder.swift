@@ -368,6 +368,8 @@ enum SnapshotBuilder {
         if let v = p.rtcRotate { out.rtcRotate = ((v % 8) + 8) % 8 }
         if let v = p.rtcSpan { out.rtcSpan = v }
         if let v = p.arpFit { out.arpFit = v }
+        if let v = p.arpOctDown { out.arpOctDown = v }
+        if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
         if let v = p.harmIntervals {
             func clampInt(_ i: Int) -> Int8 { Int8(clamp(i, -24, 24)) }
             out.harmIntervals = (clampInt(v.count > 0 ? v[0] : 0),
@@ -392,6 +394,8 @@ enum SnapshotBuilder {
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         if let v = p.euclidSpan { out.euclidSpan = v }
+        if let v = p.euclidPick { out.euclidPick = v }
+        if let v = p.euclidInvert { out.euclidInvert = v }
         if let v = p.burstSpan { out.burstSpan = v }
         if let v = p.burstMode { out.burstMode = v }
         if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }

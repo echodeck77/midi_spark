@@ -83,6 +83,8 @@ enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D
 /// mask packing can't drift. Pure.
 @inline(__always) func busBitmask<S: Sequence>(_ buses: S) -> UInt8 where S.Element == Bus { buses.reduce(0) { $0 | (1 << $1.cable) } }
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
+// EUCLID PICK (Paul 2026-08-22) — what each euclidean hit strikes (the TUTTI vocabulary on euclid's hits).
+enum EuclidPick: String, Codable, CaseIterable { case all = "ALL", cycle = "CYCLE", low = "LOW", high = "HIGH", random = "RANDOM" }
 enum TapAction: String, Codable, CaseIterable {
     case alt = "ALT", byp = "BYP", mute = "MUTE"
 }
@@ -138,6 +140,8 @@ struct ColourParams: Codable, Equatable {
     var chanceTilt: Double? = 0    // chance WEIGHT −1…1 (user 2026-08-11): +favours TOP notes, −favours BOTTOM
     var chanceDensity: Bool? = false // chance CONSTANT-DENSITY: keep ~a constant NUMBER of notes regardless of chord size
     var arpFit: Bool? = false      // arp FIT (user 2026-08-11): rate derives so ONE pool traversal = one beat (constant cycle)
+    var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
+    var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).
     // harmonize (§3): up to 3 added voices, each an interval −24…+24 st (0 = voice OFF), plus a
     // velocity scale 0.1…1 applied to the ADDED voices (root stays full). B overrides the intervals.
     var harmIntervals: [Int]? = [0, 0, 0]
@@ -161,6 +165,8 @@ struct ColourParams: Codable, Equatable {
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
     var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
+    var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
+    var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
     var burstMode: BurstMode? = nil           // BURST family: ONCE (default) | COIN | PATTERN — Paul 2026-08-19
     var burstSlices: [BurstSlice]? = nil      // PATTERN: 8 slices (B/C/R), pick-then-paint (nil ⇒ a default figure)

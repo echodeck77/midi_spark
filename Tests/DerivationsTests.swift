@@ -1924,4 +1924,25 @@ final class DerivationsTests: XCTestCase {
         XCTAssertGreaterThan(plain, 0, "plain slices still sound")
         XCTAssertEqual(Accept.notesA([pat(Array(repeating: 3, count: 8))]), [60, 64, 67], "the chord sounds")
     }
+
+    // ARP OCT DIRECTION (Paul 2026-08-22): the PATTERN orders WITHIN a lap; OCT DIRECTION orders the LAPS. DOWN = top octave first.
+    func testArpOctDirectionInvertsTheLaps() {
+        let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()
+        let count = 3, octaves = 2   // UP pattern = index 0
+        XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 0, pool: p).note, 60, "UP: lap 0 opens on the lowest note")
+        XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p).note, 72, "UP: lap 1 = the lowest note an octave up")
+        // OCT DOWN: the laps invert — lap 0 lands in the TOP octave, lap 1 in the bottom.
+        XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 0, pool: p, octDown: true).note, 72, "DOWN: opens on the top octave")
+        XCTAssertEqual(arpPick(phaseIndex: Int64(count), octaves: octaves, pattern: 0, pool: p, octDown: true).note, 60, "DOWN: descends to the bottom octave")
+    }
+
+    // ARP RANDOM ANCHOR (Paul 2026-08-22): PATTERN=RANDOM opens each cycle (a full pool×oct traversal) on the anchor note.
+    func testArpRandomAnchorOpensOnLowOrHigh() {
+        let p = NotePool(); for n: UInt8 in [60, 64, 67] { p.noteOn(n, velocity: 100, channel: 0) }; p.rebuildSorted()
+        let octaves = 2, span = 6   // RANDOM pattern = index 3; span = 3 notes × 2 octaves
+        for k in 0..<3 {   // LOW anchor: every wrap (phaseIndex = k·span) opens on the lowest note
+            XCTAssertEqual(arpPick(phaseIndex: Int64(k * span), octaves: octaves, pattern: 3, pool: p, randomAnchor: 1).note, 60, "LOW anchor at wrap \(k)")
+        }
+        XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 3, pool: p, randomAnchor: 2).note, 79, "HIGH anchor = top note of the top octave (67+12)")
+    }
 }

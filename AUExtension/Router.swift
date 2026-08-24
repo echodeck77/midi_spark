@@ -2742,6 +2742,13 @@ final class Router {
             // whole bar (a cross-column phrase). Only `sub` changes — the column gate below keeps each cell voicing
             // only the pulses that fall in its own column, so a euclid on a full row plays as one phrase. (Paul 2026-08-18)
             let sub = (p.euclidSpan == .row ? cyc : S) / Double(n)
+            // PICK (Paul 2026-08-22): ALL strikes the full chord; LOW/HIGH the pool extremes; CYCLE WALKS the chord
+            // (the euclid-arp); RANDOM scatters — all keyed by the PULSE ORDINAL (count of hits, replay-exact).
+            // INVERT (Paul 2026-08-22): strike the N−K RESTS instead — the anti-pattern.
+            let pick = p.euclidPick, invert = p.euclidInvert
+            var cycleHits = 0; for s in 0..<n where (invert ? !euclidBuf[s] : euclidBuf[s]) { cycleHits += 1 }
+            let effHits = Int64(max(1, cycleHits))
+            let srcCount = srcNotes.count
             // Emit via iterateTicks (like the ARP) instead of a window-scan: its floor + per-row dedup CATCHES the
             // downbeat pulse (step 0, sitting exactly on the column boundary) that the old `tau >= mWinStart` scan
             // dropped whenever a render block didn't begin precisely on the boundary — i.e. almost always, so every
@@ -2751,7 +2758,25 @@ final class Router {
                          beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                          beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded()))) { tick, mTickBeat, _, _ in
                 let step = Int(((tick % Int64(n)) + Int64(n)) % Int64(n))
-                if euclidBuf[step] { strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9)) }
+                let isHit = invert ? !euclidBuf[step] : euclidBuf[step]
+                guard isHit else { return }
+                var pickIndex: Int? = nil
+                switch pick {
+                case .all: pickIndex = nil
+                case .low: pickIndex = 0
+                case .high: pickIndex = srcCount - 1
+                case .cycle, .random:
+                    // pulse ordinal = full cycles × hits-per-cycle + hits within this cycle up to `step` (0-based)
+                    let cy = (tick - Int64(step)) / Int64(n)                 // floored cycle (tick = cy·n + step)
+                    var hitsUpTo = 0; for s in 0...step where (invert ? !euclidBuf[s] : euclidBuf[s]) { hitsUpTo += 1 }
+                    let ord = cy * effHits + Int64(hitsUpTo - 1)
+                    if srcCount > 0 {
+                        pickIndex = pick == .cycle
+                            ? Int(((ord % Int64(srcCount)) + Int64(srcCount)) % Int64(srcCount))
+                            : Int(splitmix64Mix(UInt64(bitPattern: ord) &+ 0x9E3779B97F4A7C15) % UInt64(srcCount))
+                    }
+                }
+                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: min(sub * 0.9, S * 0.9), onlyIndex: pickIndex)
             }
         case .burst:
             let count = Int(max(2, min(16, p.count)))
@@ -3103,7 +3128,8 @@ final class Router {
             let pIdx = phaseIndex(tick: tick, mTickBeat: Double(tick) * arpBeats, arpBeats: arpBeats, S: S,
                                   cycleBeats: cycleBeats, phase: p.phase, runStartColumn: cell.runStartColumn)
             let pick = arpPick(phaseIndex: pIdx, octaves: Int(p.octaves), pattern: p.patternIndex,
-                               pool: src, filter: 0, cableMask: 0b1111)   // velocity inherited from the picked source note
+                               pool: src, filter: 0, cableMask: 0b1111,
+                               octDown: p.arpOctDown, randomAnchor: p.arpRandomAnchor)   // velocity inherited from the picked source note
             if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
             let colStart = columnStart(m, S)
@@ -3348,12 +3374,14 @@ final class Router {
                 // tick (OMNI, past the input filter). Derived per tick → pool-correct (arps ALL upstream voices).
                 composeChainSet(cell: cell, pool: pool, upto: chainDriver - 1, m: mTickBeat, S: S, cycleBeats: cycleBeats)
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex,
-                                   pool: chainScratch, filter: 0, cableMask: 0b1111)
+                                   pool: chainScratch, filter: 0, cableMask: 0b1111,
+                                   octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             } else {
                 let pick = arpPick(phaseIndex: pIdx, octaves: octaves,
-                                   pattern: colour.a.patternIndex, pool: pool, for: cell)   // §7 source filter
+                                   pattern: colour.a.patternIndex, pool: pool, for: cell,
+                                   octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)   // §7 source filter
                 guard pick.note >= 0 else { return }
                 base = pick.note; srcVel = max(1, pick.vel)
             }
@@ -3567,7 +3595,8 @@ final class Router {
         auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: clockBeat, windowBeats: windowBeats,
                       windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
             let pick = arpPick(phaseIndex: tick, octaves: octaves, pattern: colour.a.patternIndex,
-                               pool: pool, filter: UInt8(clamping: filter))
+                               pool: pool, filter: UInt8(clamping: filter),
+                               octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
             guard pick.note >= 0 else { return }
             let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
             emitArtic(note: UInt8(n), busMask: busMask, onSample: onT, offSample: offT, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
@@ -3619,7 +3648,7 @@ final class Router {
                          windowBeats: windowBeats, windowStart: windowStart, beatsPerSample: beatsPerSample, S: S, a: a) { tick, mTickBeat, onTime, offTime in
                 let pIdx = phaseIndex(tick: tick, mTickBeat: mTickBeat, arpBeats: arpBeats, S: S,
                                       cycleBeats: cycleBeats, phase: colour.a.phase, runStartColumn: -1)
-                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f)
+                let pick = arpPick(phaseIndex: pIdx, octaves: octaves, pattern: colour.a.patternIndex, pool: pool, filter: f, octDown: colour.a.arpOctDown, randomAnchor: colour.a.arpRandomAnchor)
                 guard pick.note >= 0 else { return }
                 let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: busMask, onSample: onTime, offSample: offTime, windowEnd: windowEnd, velocity: max(1, pick.vel), out: out, diag: &diag)
@@ -3740,7 +3769,8 @@ final class Router {
             auditionTicks(sub: arpBeats, gateFraction: gate, startBeat: auditionBeat, windowBeats: windowBeats,
                           windowStart: windowStart, beatsPerSample: beatsPerSample) { tick, onT, offT in
                 let pick = arpPick(phaseIndex: tick, octaves: octaves,   // phase zeroed: index = ticks since hold
-                                   pattern: treat.a.patternIndex, pool: pool, for: cell)
+                                   pattern: treat.a.patternIndex, pool: pool, for: cell,
+                                   octDown: treat.a.arpOctDown, randomAnchor: treat.a.arpRandomAnchor)
                 guard pick.note >= 0 else { return }
                 let n = pick.note + transpose; guard n >= 0 && n <= 127 else { return }
                 emitArtic(note: UInt8(n), busMask: cell.busMask, onSample: onT, offSample: offT,

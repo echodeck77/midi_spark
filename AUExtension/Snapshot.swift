@@ -86,6 +86,8 @@ struct SnapParams {
     var chanceTilt: Double = 0       // chance WEIGHT −1…1 (user 2026-08-11)
     var chanceDensity: Bool = false  // chance CONSTANT-DENSITY (keep ~a constant count regardless of chord size)
     var arpFit: Bool = false         // arp FIT: one pool traversal = one beat (constant cycle)
+    var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
+    var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
     var harmIntervals: (Int8, Int8, Int8) = (0, 0, 0)   // harmonize: 3 added-voice intervals (0 = off)
     var harmVelScale: Double = 0.8   // harmonize: velocity scale on added voices
     // ECHO (user 2026-08-08)
@@ -106,6 +108,8 @@ struct SnapParams {
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
     var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
+    var euclidPick: EuclidPick = .all        // what each hit strikes: ALL | CYCLE (walk) | LOW | HIGH | RANDOM (Paul 2026-08-22)
+    var euclidInvert: Bool = false           // play the N−K rests instead (the anti-pattern) — Paul 2026-08-22
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)
     var burstSlices: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]   // PATTERN: 8 slices (B/C/R)
