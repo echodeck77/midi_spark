@@ -179,6 +179,7 @@ struct ColourParams: Codable, Equatable {
     var burstRotate: Int? = 0                 // PATTERN: rotate the slice figure (0…7)
     var burstChance: Double? = 0.5            // COIN: seeded chance-of-burst per step (0…1)
     var cascadeSpan: PatternSpan? = nil       // CASCADE: CELL (reveal per column) | ROW (the reveal spans the bar) — Paul 2026-08-19
+    var cascadeSpanN: Int? = nil              // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = reveal spacing · SPAN N = the reveal window in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
     // THE MOD PROCESSOR (CC generator, delta). Append-only Optional. Reuses `rate` as the LFO PERIOD (one full shape
     // cycle per rate-beats). modReset = the LEAVE-DISPOSITION: true = reset the CC to 0 on column exit, false = leave-as-landed.
     var modCC: Int? = 74                // target controller number 0…127 (74 = filter cutoff, a common default)
@@ -245,6 +246,7 @@ struct ColourParams: Codable, Equatable {
     var rtcRate: ArpRate? = .r1_8              // PATTERN: slice rate (slices per window, walks the bar)
     var rtcRotate: Int? = 0                    // PATTERN: rotate the slice pattern (0…7)
     var rtcSpan: PatternSpan? = nil            // PATTERN: CELL (the RATE stride, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
+    var rtcSpanN: Int? = nil                   // SPAN LADDER (Paul 2026-08-22, RATE×ladder): RATE = slice width · SPAN N = the loop period in columns. nil ⇒ LEGACY CELL|ROW (byte-identical)
     // UTILITY SET (Paul 2026-08-22) — simple per-chain transforms. Append-only Optionals.
     var utilOctave: Int? = 0                    // OCTAVE: shift ±3 octaves (×12 semitones), pitch-class preserved
     var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones

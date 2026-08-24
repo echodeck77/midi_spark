@@ -159,7 +159,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
-- **▶ TIER 2 — THE SPAN LADDER, stage 2a: TUTTI PATTERN gets the RATE×ladder (2026-08-24, on `main`; iOS builds, macOS
+- **▶ TIER 2 — THE SPAN LADDER, stage 2b: RATCHET PATTERN + CASCADE get the RATE×ladder; MOD excluded (2026-08-24, on
+  `main`; iOS builds, macOS green incl. fuzz; DEVICE ear owed). Rolls the proven (stage 2a) RATE×ladder to the other
+  slice-walk/reveal rate procs. **RATCHET PATTERN** (`rtcSpanN`): RATE = slice width, SPAN N = the loop period (the
+  8-count walk re-anchors every N cols → polymeter). **CASCADE** (`cascadeSpanN`): RATE = the reveal spacing, SPAN N =
+  the reveal WINDOW in columns (anchored at the span origin, re-anchors every N). Both OPT-IN (nil ⇒ LEGACY CELL|ROW
+  verbatim, byte-identical) via the 0-sentinel SnapParams Int; both UI dials migrate the legacy span for display but
+  write the new field. **MOD is the sole EXCLUSION** — its rate IS the LFO/shape PERIOD (no slice-width × period
+  decomposition), and STEP MOD already carries its own `modStepSpan` ladder (PERIOD·ROW·×2·×4), so the RATE×ladder
+  doesn't map; MOD keeps its existing span controls (flagged — its own design if a fuller ladder is wanted). +2 Router
+  tests (RATCHET period 3≠8; CASCADE window 2≠8, both replay-safe); fuzz hammers both. **SPAN LADDER now on 6/7 span
+  procs** (EUCLID·BURST·LENGTH·TUTTI·RATCHET·CASCADE); MOD by design. Whole rate-proc feel (the re-anchor v2 semantics
+  + the CELL global-walk→re-anchor shift) is DEVICE-EAR OWED across TUTTI/RATCHET/CASCADE. **TIER 2 ENGINE COMPLETE.**
   green incl. fuzz; DEVICE EAR OWED — the model proof, verify before rolling to the other 3). Per Paul's ruling (RATE ×
   ladder), the FLAGSHIP rate proc: RATE stays the SLICE WIDTH; the new SPAN dial (1·2·3·4·6·8·×2·×4) sets the LOOP PERIOD
   in columns — the 8-slice walk RE-ANCHORS every N columns (`idx = (localG + rotate) % 8`, localG from `columnStart(tau,

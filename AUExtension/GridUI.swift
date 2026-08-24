@@ -906,8 +906,8 @@ struct ProcessorBox: View {
                     setParam { $0.rtcRate = ArpRate.allCases[i] } } }
                 field("ROTATE — walk the pattern  (\(p.rtcRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.rtcRotate ?? 0)") { i in
                     setParam { $0.rtcRotate = i } } }
-                let rspan = p.rtcSpan ?? .cell
-                field("SPAN") { seg(["CELL", "ROW"], sel: rspan == .row ? "ROW" : "CELL") { i in setParam { $0.rtcSpan = (i == 1) ? .row : .cell } } }   // CELL = RATE stride · ROW = the 8 slices span the bar (Paul 2026-08-19)
+                // SPAN LADDER (RATE×ladder): GRID (above) = slice width; this dial = the pattern's loop period in columns.
+                spanLadderField(p.rtcSpanN ?? ((p.rtcSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.rtcSpanN = v } }
             }
             field("BURST FADE — velocity across a burst  \(Int((p.ramp ?? 0.5) * 100))%") {
                 Slider(value: bind(p.ramp ?? 0.5) { v in setParam { $0.ramp = v } }, in: 0...1).tint(accent)
@@ -1012,8 +1012,8 @@ struct ProcessorBox: View {
         case .cascade:  // GENERATOR — incremental chord reveal
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
-            let cspan = p.cascadeSpan ?? .cell
-            field("SPAN") { seg(["CELL", "ROW"], sel: cspan == .row ? "ROW" : "CELL") { i in setParam { $0.cascadeSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
+            // SPAN LADDER (RATE×ladder): RATE = reveal spacing; this dial = the reveal window in columns.
+            spanLadderField(p.cascadeSpanN ?? ((p.cascadeSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.cascadeSpanN = v } }
         case .drone:    // GENERATOR — flat sustained pad (gate = pad level)
             field("LEVEL  \(Int((p.gate ?? 0.6) * 127))") {
                 Slider(value: bind(p.gate ?? 0.6) { v in setParam { $0.gate = v } }, in: 0.05...1).tint(accent) }

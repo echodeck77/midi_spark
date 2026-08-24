@@ -119,6 +119,7 @@ struct SnapParams {
     var burstRotate: Int = 0                 // PATTERN: rotate the slice figure
     var burstChance: Double = 0.5            // COIN: seeded chance-of-burst per step
     var cascadeSpan: PatternSpan = .cell     // CASCADE: CELL = per-column reveal · ROW = the reveal spans the bar (Paul 2026-08-19)
+    var cascadeSpanN: Int = 0                // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW · >0 = the reveal window in columns
     // THE MOD PROCESSOR (CC generator, delta / CC-stage §1).
     var modCC: Int = 74
     var modSource: ModSource = .shape    // SHAPE · FOLLOW · STEPS · STRIKE · EXTERN
@@ -178,6 +179,7 @@ struct SnapParams {
     var rtcRateBeats: Double = 0.5                    // PATTERN: slice width in beats (from rtcRate)
     var rtcRotate: Int = 0
     var rtcSpan: PatternSpan = .cell                 // PATTERN: CELL = the RATE stride · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
+    var rtcSpanN: Int = 0                            // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW · >0 = the loop period in columns
     var utilOctave: Int = 0                           // OCTAVE: ±3 octave shift (UTILITY, Paul 2026-08-22)
     var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
     var utilChannel: Int = 0                          // CHANNEL: 0 = WIRE (bus stamp) · 1–16 = output-channel override

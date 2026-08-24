@@ -170,6 +170,40 @@ final class RouterTests: XCTestCase {
         XCTAssertNotEqual(n3, n8, "period 3 (polymeter) differs from period 8 (bar-locked)")
         XCTAssertEqual(n3, notes(spanN: 3), "the ladder is replay-safe (deterministic)")
     }
+    // SPAN LADDER stage 2b — RATCHET PATTERN (RATE×ladder): RATE = slice width, SPAN N = the loop period in columns.
+    func testRatchetSpanLadderReAnchorsThePatternByPeriod() {
+        func onCount(spanN: Int?) -> Int {
+            var c = Colour(colourID: "gold", type: .ratchet)
+            c.paramsA.rtcMode = .pattern
+            c.paramsA.rtcSlices = [3, 0, 2, 0, 4, 0, 2, 0]
+            c.paramsA.rtcSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 16, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        let c3 = onCount(spanN: 3), c8 = onCount(spanN: 8)
+        XCTAssertGreaterThan(c3, 0, "the RATE×ladder ratchet sounds")
+        XCTAssertNotEqual(c3, c8, "period 3 (polymeter) differs from period 8")
+        XCTAssertEqual(c3, onCount(spanN: 3), "replay-safe")
+    }
+    // SPAN LADDER stage 2b — CASCADE (RATE×ladder): RATE = reveal spacing, SPAN N = the reveal window in columns.
+    func testCascadeSpanLadderChangesTheRevealWindow() {
+        func seq(spanN: Int?) -> [Int] {
+            var c = Colour(colourID: "gold", type: .cascade)
+            c.paramsA.cascadeSpanN = spanN
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { for col in 0..<8 { $0.cells[col][0] = Cell(colourID: "gold", buses: [.a]) } }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67, 72]), beats: 16, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
+        }
+        let s2 = seq(spanN: 2), s8 = seq(spanN: 8)
+        XCTAssertFalse(s2.isEmpty, "the RATE×ladder cascade reveals notes")
+        XCTAssertNotEqual(s2, s8, "a shorter reveal window re-anchors more often")
+        XCTAssertEqual(s2, seq(spanN: 2), "replay-safe")
+    }
     // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
     func testEuclidPickLowStrikesOnlyTheLowestNote() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

@@ -26,8 +26,10 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
      - **STAGE 2a — DONE (2026-08-24, next commit): TUTTI PATTERN** — the RATE×ladder model proof. RATE = slice width;
        `tuttiSpanN` (opt-in, nil ⇒ legacy byte-identical) sets the loop period; the 8-slice walk re-anchors every N cols.
        +1 test, fuzz-hammered. **DEVICE EAR OWED before rolling further.**
-     - **STAGE 2b — TODO (after Paul verifies TUTTI): RATCHET PATTERN · MOD · CASCADE** — same RATE×ladder, but each has a
-       different emit shape (RATCHET coin/pattern, MOD CC LFO/steps, CASCADE note-reveal) → its own per-proc mapping.
+     - **STAGE 2b — DONE (2026-08-24): RATCHET PATTERN + CASCADE** — same RATE×ladder (opt-in, byte-identical legacy).
+       RATCHET: RATE = slice width, SPAN N = loop period. CASCADE: RATE = reveal spacing, SPAN N = reveal window. +2 tests,
+       fuzz-hammered. **MOD EXCLUDED by design** — its rate IS the LFO/shape period (no width×period split; STEP MOD already
+       has `modStepSpan`). SPAN LADDER now on 6/7 span procs. Whole rate-proc feel DEVICE-EAR OWED. **TIER 2 ENGINE DONE.**
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).

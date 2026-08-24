@@ -180,10 +180,10 @@ final class FuzzTests: XCTestCase {
         case .euclid:  if r.chance(0.6) { p.euclidSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.euclidSpan = .row }
         case .burst:   if r.chance(0.6) { p.burstSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.burstSpan = .row }
         case .length:  if r.chance(0.6) { p.lenSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.lenSpan = .row }
-        case .cascade: if r.chance(0.5) { p.cascadeSpan = .row }
+        case .cascade: if r.chance(0.5) { p.cascadeSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.cascadeSpan = .row }   // RATE×ladder stage 2b
         case .mod:     if r.chance(0.5) { p.modSpan = .row }
         case .tutti:   if r.chance(0.5) { p.tuttiSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.tuttiSpan = .row }   // RATE×ladder stage 2 — hammer the re-anchor periods
-        case .ratchet: if r.chance(0.5) { p.rtcSpan = .row }
+        case .ratchet: if r.chance(0.5) { p.rtcSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.rtcSpan = .row }   // RATE×ladder stage 2b
         default:       break
         }
     }

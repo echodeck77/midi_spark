@@ -2872,10 +2872,14 @@ final class Router {
             let srcN = srcNotes.count
             // SPAN: CELL reveals across the column at the arp rate; ROW spreads the reveal EVENLY across the whole BAR
             // (one note per bar-slice), anchored at the bar start. (Paul 2026-08-19)
+            // SPAN LADDER (Paul 2026-08-22, RATE×ladder): cascadeSpanN>0 ⇒ RATE = the reveal spacing, SPAN N = the reveal
+            // WINDOW in columns (anchored at the span origin; re-anchors every N cols). cascadeSpanN==0 ⇒ LEGACY CELL|ROW.
+            let cLadder = p.cascadeSpanN > 0
             let cRow = (p.cascadeSpan == .row)
-            let cWidth = cRow ? cyc : S
-            let cAnchor = cRow ? columnStart(colStart, cyc) : colStart
-            let sub = cRow ? (cWidth / Double(max(1, srcN))) : Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+            let arpRateReveal = Snap.arpRateBeats[Int(max(0, min(Int8(Snap.arpRateBeats.count - 1), p.rateIndex)))]
+            let cWidth = cLadder ? spanLadderBeats(p.cascadeSpanN, S: S, row: cyc) : (cRow ? cyc : S)
+            let cAnchor = cLadder ? columnStart(colStart, cWidth) : (cRow ? columnStart(colStart, cyc) : colStart)
+            let sub = cLadder ? arpRateReveal : (cRow ? (cWidth / Double(max(1, srcN))) : arpRateReveal)
             guard sub > 0 else { break }
             for j in 0..<srcN {                                   // reveal note j at tick j, HELD to the boundary (accumulating)
                 let tau = cAnchor + Double(j) * sub
@@ -3561,16 +3565,26 @@ final class Router {
                                     windowEnd: windowEnd, S: S, cycleBeats: cycleBeats, beatsPerSample: beatsPerSample, out: out, diag: &diag)
                 }
             } else {   // PATTERN
-                // SPAN: CELL strides the 8-slice counts at the RATE (default); ROW makes the 8 slices span the whole bar
-                // (slice i = column i) — a whole-bar per-slice-count phrase. (Paul 2026-08-19)
-                let sliceBeats = (p.rtcSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.rtcRateBeats)
+                // SPAN LADDER (Paul 2026-08-22, RATE×ladder): rtcSpanN>0 ⇒ RATE = slice width, SPAN N = the loop PERIOD in
+                // columns (the 8-slice walk re-anchors every N cols → polymeter). rtcSpanN==0 ⇒ LEGACY CELL|ROW (byte-
+                // identical): CELL strides the counts at the RATE; ROW spans the 8 slices over the bar.
+                let rtcLadder = p.rtcSpanN > 0
+                let rtcSpanBeats = rtcLadder ? spanLadderBeats(p.rtcSpanN, S: S, row: cycleBeats) : 0
+                let sliceBeats = rtcLadder ? max(0.03125, p.rtcRateBeats)
+                                           : ((p.rtcSpan == .row) ? max(0.03125, cycleBeats / 8.0) : max(0.03125, p.rtcRateBeats))
                 var sIdx = 0
                 while true {
                     let sliceStart = col + Double(sIdx) * sliceBeats
                     if sliceStart >= colEnd { break }
                     sIdx += 1
                     let g = Int((sliceStart / sliceBeats).rounded(.down))
-                    let idx = (((g + p.rtcRotate) % 8) + 8) % 8
+                    let idx: Int
+                    if rtcLadder {   // re-anchor the count walk every N columns
+                        let localG = Int(((sliceStart - columnStart(sliceStart, rtcSpanBeats)) / sliceBeats).rounded(.down))
+                        idx = (((localG + p.rtcRotate) % 8) + 8) % 8
+                    } else {
+                        idx = (((g + p.rtcRotate) % 8) + 8) % 8
+                    }
                     let raw = idx < p.rtcSlices.count ? p.rtcSlices[idx] : 0
                     let count = raw <= 0 ? 1 : min(8, raw)                 // 0 = plain single hit
                     let sEnd = min(colEnd, sliceStart + sliceBeats), subSlice = sliceBeats / Double(count)

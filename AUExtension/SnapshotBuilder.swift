@@ -371,6 +371,7 @@ enum SnapshotBuilder {
         if let v = p.rtcRate { out.rtcRateBeats = max(0.03125, v.beats) }
         if let v = p.rtcRotate { out.rtcRotate = ((v % 8) + 8) % 8 }
         if let v = p.rtcSpan { out.rtcSpan = v }
+        out.rtcSpanN = p.rtcSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = loop period in columns
         if let v = p.arpFit { out.arpFit = v }
         if let v = p.arpOctDown { out.arpOctDown = v }
         if let v = p.arpRandomAnchor { out.arpRandomAnchor = max(0, min(2, v)) }
@@ -409,6 +410,7 @@ enum SnapshotBuilder {
         if let v = p.burstRotate { out.burstRotate = ((v % 8) + 8) % 8 }
         if let v = p.burstChance { out.burstChance = clamp(v, 0, 1) }
         if let v = p.cascadeSpan { out.cascadeSpan = v }
+        out.cascadeSpanN = p.cascadeSpanN ?? 0   // SPAN LADDER (RATE×ladder): 0 = legacy CELL|ROW; >0 = reveal window in columns
         // THE MOD PROCESSOR (CC generator / CC-stage §1)
         if let v = p.modCC { out.modCC = clamp(v, 0, 127) }
         if let v = p.modSource { out.modSource = v }
