@@ -55,6 +55,7 @@ private let buildCell  = Color(red: 0.10, green: 0.12, blue: 0.15)
 private let buildDim   = Color(white: 0.36)
 private let buildPink  = Color(red: 0.94, green: 0.41, blue: 0.85)
 private let buildCyan  = Color(red: 0.19, green: 0.83, blue: 0.91)
+private let buildRed   = Color(red: 0.91, green: 0.36, blue: 0.44)   // ROW 8 CLEAR + destructive verbs
 private let buildEdge  = Color(white: 1).opacity(0.17)   // §0 MUTED-CHROME: a neutral whisper for default (non-armed) chrome borders — replaces standing cyan strokes
 // BUILD grid PIANO-ROLL (Paul 2026-08-19): one scrolling note mark on a cell face; `lane` = pitch (0…1), born = when it sounded.
 struct BuildRollNote: Equatable { var born: Date; var vel: Double; var lane: Double }
@@ -88,6 +89,7 @@ extension DiagView {
                 if buildRackConfigOpen { AnyView(buildRackConfigSheet(size: size)) }                     // THE OUTPUT CHAIN sheet (config-sheets §6)
                 if buildMidiOutConfigOpen { AnyView(buildMidiOutConfigSheet(size: size)) }               // THE MIDI OUTPUTS sheet (emitter stamp channels)
                 if buildGridSelOpen { AnyView(buildGridSelectorOverlay(size: size)) }                    // THE GRID SELECTOR — the 8×8 chain browser
+                if buildRow8EditOpen { AnyView(buildRow8EditPage(size: size)) }                          // ROW 8 — the action-cell authoring page (§4)
             }
             .overlay(alignment: .top) { buildIOHoldBanner() }                                            // "HOLD TO APPLY TO ALL" (Paul 2026-08-19)
             .fileImporter(isPresented: Binding(get: { buildFileImportDoor != nil }, set: { if !$0 { buildFileImportDoor = nil } }),
@@ -1018,6 +1020,271 @@ extension DiagView {
             }
         }
     }
+    // MARK: - ROW 8 — the action strip (Paul 2026-08-22, Docs/row8-spec.md)
+    // A perform-only strip below the play grid: the 8 typed action cells. TAP performs (toggle/radio/fire); LONG-PRESS
+    // opens the EDIT PAGE at that cell (authoring). v1 ENGINE: FREEZE + HALFTIME are live (toggle cells); the routing-class
+    // + seated types render + light but their engines land in the next increments.
+    private func row8Glyph(_ t: Row8Type) -> String {
+        switch t {
+        case .empty:     return "plus"
+        case .stutter:   return "repeat"
+        case .freeze:    return "snowflake"
+        case .halftime:  return "tortoise.fill"
+        case .redirect:  return "arrow.turn.up.right"
+        case .swap:      return "arrow.left.arrow.right"
+        case .broadcast: return "antenna.radiowaves.left.and.right"
+        case .kill:      return "xmark.octagon.fill"
+        case .part:      return "square.grid.3x3.fill"
+        case .sequence:  return "music.note.list"
+        case .setup:     return "slider.horizontal.3"
+        case .macro:     return "dial.medium.fill"
+        case .input:     return "pianokeys"
+        case .ccPunch:   return "hand.point.up.left.fill"
+        case .pcSend:    return "paperplane.fill"
+        }
+    }
+    private func row8Caption(_ c: Row8Cell) -> String {
+        switch c.type {
+        case .empty:     return "＋"
+        case .stutter:   return "STUT " + (c.rate?.rawValue ?? "")
+        case .freeze:    return "FREEZE"
+        case .halftime:  return ["÷2", "×1", "×2"][max(0, min(2, c.halftimeMode ?? 1))] + " TIME"
+        case .redirect:  return "\(busLetter(c.wireFrom ?? 0))→\(busLetter(c.wireTo ?? 1))"
+        case .swap:      return "\(busLetter(c.wireFrom ?? 0))↔\(busLetter(c.wireTo ?? 1))"
+        case .broadcast: return "CAST"
+        case .kill:      return (c.killHard ?? false) ? "KILL!" : "KILL"
+        case .part:      return "PART \((c.partRef ?? 0) + 1)"
+        case .sequence:  return "SEQ"
+        case .setup:     return "SETUP \((c.setupN ?? 0) + 1)"
+        case .macro:     return "MACRO \((c.macroN ?? 0) + 1)"
+        case .input:     return "IN \(busLetter(c.doorRef ?? 0))"
+        case .ccPunch:   return "CC \(c.ccNum ?? 74)"
+        case .pcSend:    return "PC \(c.pcNum ?? 0)"
+        }
+    }
+    private func busLetter(_ i: Int) -> String { i >= 0 && i < 4 ? String(UnicodeScalar(UInt8(65 + i))) : "?" }
+    /// Whether a lit ROW 8 cell has a LIVE engine (v1: only the FREEZE/HALFTIME toggles affect audio yet).
+    private func row8Live(_ t: Row8Type) -> Bool { t == .freeze || t == .halftime }
+
+    private func buildRow8Perform(_ i: Int) {
+        guard i >= 0, i < 8, i < buildRow8Cells.count else { return }
+        let c = buildRow8Cells[i]
+        switch c.type {
+        case .empty:
+            buildRow8EditSlot = i; buildRow8EditOpen = true          // an empty cell invites authoring
+        case .setup:
+            au?.setRow8OnRadioSetup(i); refreshFromDocument()        // SETUP cells are a radio
+        default:
+            let now = !(i < buildRow8On.count && buildRow8On[i])
+            if i < buildRow8On.count { buildRow8On[i] = now }         // optimistic
+            au?.setRow8On(i, now)                                    // v1: TAP = toggle the lit state (FREEZE/HALFTIME act; held/one-shot engines land next)
+        }
+    }
+
+    @ViewBuilder private func buildRow8Strip(cell: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<8, id: \.self) { i in
+                let c = i < buildRow8Cells.count ? buildRow8Cells[i] : Row8Cell()
+                let on = i < buildRow8On.count && buildRow8On[i] && c.type != .empty
+                let live = row8Live(c.type)
+                VStack(spacing: 2) {
+                    Image(systemName: row8Glyph(c.type))
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundColor(c.type == .empty ? buildDim : (on ? .black : (live ? .white : .white.opacity(0.7))))
+                    Text(row8Caption(c)).font(.system(size: 6.5, weight: .heavy, design: .monospaced))
+                        .foregroundColor(c.type == .empty ? buildDim : (on ? .black : buildDim))
+                        .lineLimit(1).minimumScaleFactor(0.5)
+                }
+                .frame(maxWidth: .infinity).frame(height: 40)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : (c.type == .empty ? Color.clear : buildCell)))
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(c.type == .empty ? buildEdge : (on ? buildCyan : buildEdge),
+                                  style: StrokeStyle(lineWidth: 1, dash: c.type == .empty ? [3, 3] : [])))
+                .opacity(c.type != .empty && !live && !on ? 0.82 : 1)   // non-live authored cells recede a touch (their engine is pending)
+                .contentShape(Rectangle())
+                .onTapGesture { buildRow8Perform(i) }
+                .onLongPressGesture(minimumDuration: 0.35) { buildRow8EditSlot = i; buildRow8EditOpen = true }
+            }
+        }
+    }
+
+    // THE ROW 8 EDIT PAGE (§4): a spacious authoring surface. The 8 cells across the top; tap one to select; below, the
+    // TYPE picker (cards), the MOVER chip, and the selected type's payload. Config lives here (the grid is perform-only).
+    private static let row8Catalog: [Row8Type] = [.stutter, .freeze, .halftime, .redirect, .swap, .broadcast, .kill,
+                                                  .part, .sequence, .setup, .macro, .input, .ccPunch, .pcSend]
+    private func row8TypeName(_ t: Row8Type) -> String {
+        switch t {
+        case .empty: return "EMPTY"; case .stutter: return "STUTTER"; case .freeze: return "FREEZE"
+        case .halftime: return "HALFTIME"; case .redirect: return "REDIRECT"; case .swap: return "SWAP"
+        case .broadcast: return "BROADCAST"; case .kill: return "KILL"; case .part: return "PART"
+        case .sequence: return "SEQUENCE"; case .setup: return "SETUP"; case .macro: return "MACRO"
+        case .input: return "INPUT"; case .ccPunch: return "CC PUNCH"; case .pcSend: return "PC SEND"
+        }
+    }
+    private func row8TypeBlurb(_ t: Row8Type) -> String {
+        switch t {
+        case .empty: return "an empty slot"
+        case .stutter: return "held: retrigger the sounding set at a rate"
+        case .freeze: return "toggle: sustain the sound + pause the grid"
+        case .halftime: return "toggle: ÷2 · ×1 · ×2 the whole grid clock"
+        case .redirect: return "held: send one wire's stream onto another"
+        case .swap: return "two wires exchange their streams"
+        case .broadcast: return "held: mirror every note to all wires"
+        case .kill: return "one-shot: all-notes-off, soft or hard"
+        case .part: return "toggle: play a part from the cell, any scene"
+        case .sequence: return "toggle: a captured phrase loops"
+        case .setup: return "one-shot radio: activate a rack setup"
+        case .macro: return "fire or hold a macro"
+        case .input: return "the door's mode-act (latch/keys/replay…)"
+        case .ccPunch: return "held: punch a CC value"
+        case .pcSend: return "one-shot: send a program change"
+        }
+    }
+    private func buildRow8Edit(_ slot: Int, _ mutate: (inout Row8Cell) -> Void) {
+        guard slot >= 0, slot < 8, slot < buildRow8Cells.count else { return }
+        var c = buildRow8Cells[slot]; mutate(&c)
+        buildRow8Cells[slot] = c                     // optimistic
+        au?.setRow8Cell(slot, c); refreshFromDocument()
+    }
+    @ViewBuilder private func buildRow8EditPage(size: CGSize) -> some View {
+        let slot = (buildRow8EditSlot >= 0 && buildRow8EditSlot < 8) ? buildRow8EditSlot : 0
+        let c = slot < buildRow8Cells.count ? buildRow8Cells[slot] : Row8Cell()
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { buildRow8EditOpen = false }
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("ROW 8 · ACTIONS").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(.white)
+                    Spacer()
+                    Text("DONE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.black)
+                        .padding(.horizontal, 16).frame(height: 30).background(RoundedRectangle(cornerRadius: 6).fill(buildCyan))
+                        .contentShape(Rectangle()).onTapGesture { buildRow8EditOpen = false }
+                }
+                // the 8 cells — tap to select which one to author
+                HStack(spacing: 6) {
+                    ForEach(0..<8, id: \.self) { i in
+                        let cc = i < buildRow8Cells.count ? buildRow8Cells[i] : Row8Cell()
+                        VStack(spacing: 2) {
+                            Image(systemName: row8Glyph(cc.type)).font(.system(size: 16, weight: .black)).foregroundColor(cc.type == .empty ? buildDim : .white)
+                            Text(row8Caption(cc)).font(.system(size: 6.5, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).lineLimit(1).minimumScaleFactor(0.5)
+                        }
+                        .frame(maxWidth: .infinity).frame(height: 46)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(i == slot ? buildCell : Color.white.opacity(0.04)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(i == slot ? buildCyan : buildEdge, lineWidth: i == slot ? 2 : 1))
+                        .contentShape(Rectangle()).onTapGesture { buildRow8EditSlot = i }
+                    }
+                }
+                Text("CELL \(slot + 1) — TYPE").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                // the TYPE picker — cards with one-liners (the storefront grammar, reused)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                    ForEach(Self.row8Catalog, id: \.self) { t in
+                        let sel = c.type == t
+                        VStack(spacing: 3) {
+                            Image(systemName: row8Glyph(t)).font(.system(size: 15, weight: .black)).foregroundColor(sel ? .black : .white)
+                            Text(row8TypeName(t)).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(sel ? .black : .white).lineLimit(1).minimumScaleFactor(0.6)
+                        }
+                        .frame(maxWidth: .infinity).frame(height: 42)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(sel ? buildCyan : buildCell))
+                        .contentShape(Rectangle())
+                        .onTapGesture { buildRow8Edit(slot) { $0 = Row8Cell.make(t) } }   // pick = re-author the cell to this type (default mover + payload)
+                    }
+                }
+                Text(row8TypeBlurb(c.type)).font(.system(size: 10, design: .monospaced)).foregroundColor(buildDim)
+                // MOVER + the type's payload
+                if c.type != .empty {
+                    HStack(spacing: 6) {
+                        Text("MOVER").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                        ForEach(Row8Mover.allCases, id: \.self) { m in
+                            let on = c.mover == m
+                            Text(m == .oneShot ? "ONE-SHOT" : m.rawValue.uppercased())
+                                .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white)
+                                .padding(.horizontal, 10).frame(height: 26)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : buildCell))
+                                .contentShape(Rectangle()).onTapGesture { buildRow8Edit(slot) { $0.mover = m } }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    buildRow8Payload(slot: slot, c: c)
+                }
+                // DELETE → the [+] invitation
+                HStack {
+                    Spacer()
+                    Text("CLEAR CELL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildRed)
+                        .padding(.horizontal, 14).frame(height: 28).background(RoundedRectangle(cornerRadius: 6).fill(buildRed.opacity(0.15)))
+                        .contentShape(Rectangle()).onTapGesture { buildRow8Edit(slot) { $0 = Row8Cell() }; au?.setRow8On(slot, false) }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .frame(width: min(560, size.width - 32), height: min(size.height - 60, 520))
+            .background(RoundedRectangle(cornerRadius: 16).fill(buildPanel))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(buildEdge, lineWidth: 1))
+        }
+    }
+    // The payload editor for the selected type (rate/mode/wire pair/number). Compact steppers + cycles.
+    @ViewBuilder private func buildRow8Payload(slot: Int, c: Row8Cell) -> some View {
+        switch c.type {
+        case .stutter:
+            row8Row("RATE") { HStack(spacing: 6) { ForEach([ArpRate.r1_8, .r1_16, .r1_32], id: \.self) { r in
+                row8Chip(r.rawValue, on: (c.rate ?? .r1_16) == r) { buildRow8Edit(slot) { $0.rate = r } } } } }
+        case .halftime:
+            row8Row("SPEED") { HStack(spacing: 6) { ForEach(0..<3, id: \.self) { m in
+                row8Chip(["÷2", "×1", "×2"][m], on: (c.halftimeMode ?? 1) == m) { buildRow8Edit(slot) { $0.halftimeMode = m } } } } }
+        case .redirect, .swap:
+            VStack(alignment: .leading, spacing: 6) {
+                row8Row("FROM") { HStack(spacing: 6) { ForEach(0..<4, id: \.self) { w in
+                    row8Chip(busLetter(w), on: (c.wireFrom ?? 0) == w) { buildRow8Edit(slot) { $0.wireFrom = w } } } } }
+                row8Row("TO") { HStack(spacing: 6) { ForEach(0..<4, id: \.self) { w in
+                    row8Chip(busLetter(w), on: (c.wireTo ?? 1) == w) { buildRow8Edit(slot) { $0.wireTo = w } } } } }
+            }
+        case .kill:
+            row8Row("MODE") { HStack(spacing: 6) {
+                row8Chip("SOFT", on: !(c.killHard ?? false)) { buildRow8Edit(slot) { $0.killHard = false } }
+                row8Chip("HARD", on: c.killHard ?? false) { buildRow8Edit(slot) { $0.killHard = true } } } }
+        case .broadcast:
+            row8Row("CHANNELS") { HStack(spacing: 6) {
+                row8Chip("WIRES", on: !(c.broadcastAllChannels ?? true)) { buildRow8Edit(slot) { $0.broadcastAllChannels = false } }
+                row8Chip("+ ALL CH", on: c.broadcastAllChannels ?? true) { buildRow8Edit(slot) { $0.broadcastAllChannels = true } } } }
+        case .setup:
+            row8Row("SETUP") { row8Stepper(value: (c.setupN ?? 0) + 1, lo: 1, hi: 4) { v in buildRow8Edit(slot) { $0.setupN = v - 1 } } }
+        case .macro:
+            row8Row("MACRO") { row8Stepper(value: (c.macroN ?? 0) + 1, lo: 1, hi: 8) { v in buildRow8Edit(slot) { $0.macroN = v - 1 } } }
+        case .part:
+            row8Row("PART") { row8Stepper(value: (c.partRef ?? 0) + 1, lo: 1, hi: 8) { v in buildRow8Edit(slot) { $0.partRef = v - 1 } } }
+        case .input:
+            row8Row("DOOR") { HStack(spacing: 6) { ForEach(0..<4, id: \.self) { d in
+                row8Chip(busLetter(d), on: (c.doorRef ?? 0) == d) { buildRow8Edit(slot) { $0.doorRef = d } } } } }
+        case .ccPunch:
+            VStack(alignment: .leading, spacing: 6) {
+                row8Row("CC #") { row8Stepper(value: c.ccNum ?? 74, lo: 0, hi: 127) { v in buildRow8Edit(slot) { $0.ccNum = v } } }
+                row8Row("VALUE") { row8Stepper(value: c.ccVal ?? 127, lo: 0, hi: 127) { v in buildRow8Edit(slot) { $0.ccVal = v } } }
+            }
+        case .pcSend:
+            row8Row("PROGRAM") { row8Stepper(value: c.pcNum ?? 0, lo: 0, hi: 127) { v in buildRow8Edit(slot) { $0.pcNum = v } } }
+        default:
+            EmptyView()
+        }
+    }
+    @ViewBuilder private func row8Row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(buildDim).frame(width: 74, alignment: .leading)
+            content(); Spacer(minLength: 0)
+        }
+    }
+    @ViewBuilder private func row8Chip(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white)
+            .padding(.horizontal, 10).frame(height: 26).background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : buildCell))
+            .contentShape(Rectangle()).onTapGesture(perform: tap)
+    }
+    @ViewBuilder private func row8Stepper(value: Int, lo: Int, hi: Int, _ set: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 8) {
+            Text("−").font(.system(size: 16, weight: .black)).foregroundColor(.white).frame(width: 34, height: 26)
+                .background(RoundedRectangle(cornerRadius: 5).fill(buildCell)).contentShape(Rectangle()).onTapGesture { set(max(lo, value - 1)) }
+            Text("\(value)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white).frame(minWidth: 34)
+            Text("+").font(.system(size: 16, weight: .black)).foregroundColor(.white).frame(width: 34, height: 26)
+                .background(RoundedRectangle(cornerRadius: 5).fill(buildCell)).contentShape(Rectangle()).onTapGesture { set(min(hi, value + 1)) }
+        }
+    }
+
     @ViewBuilder private func buildChainBtn(_ label: String, enabled: Bool = true, fill: Bool = false, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.2)
             .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 3)
@@ -2848,7 +3115,8 @@ extension DiagView {
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
-            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 12)   // the eye in the play grid's top-left corner cell (doubled gap to the rack buttons)
+            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 8)   // the eye in the play grid's top-left corner cell
+            AnyView(buildRow8Strip(cell: cell))                  // ROW 8: the perform action strip (Paul 2026-08-22)
             AnyView(buildRackButtons())                          // four RACK placeholders below the play grid (Paul 2026-08-18)
             // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)

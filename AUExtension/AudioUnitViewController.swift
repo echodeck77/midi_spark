@@ -135,6 +135,10 @@ struct DiagView: View {
     @State var buildPerformPart: [Int] = Array(repeating: -1, count: 8)         // which PART index sits in each perform row (§2 brightness: the current part's band lights bright)
     @State var buildPerformMute: Set<Int> = []                                  // play grid: per-cell MUTE (key c*8+r) — single-rung parts only, drops a step from the mix (Paul 2026-08-15)
     @State var buildPerformStagingRow: [Int] = Array(repeating: -1, count: 8)   // play grid: each MULTI-rung grid row ← its source staging row (−1 = single-rung/none). Maps play-grid rung selection back to the part's stagingSel (Paul 2026-08-15)
+    @State var buildRow8Cells: [Row8Cell] = Row8Cell.factoryDeck   // ROW 8 (Paul 2026-08-22): the authored action cells (refreshed from the document)
+    @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
+    @State var buildRow8EditOpen: Bool = false   // ROW 8: the EDIT PAGE (authoring) overlay
+    @State var buildRow8EditSlot: Int = -1       // ROW 8 EDIT: which cell the page is authoring (−1 = the cell grid)
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildMidiConfigTab: Int = 0         // MIDI INPUTS: which door (A–D) tab is shown (Paul 2026-08-23)
@@ -445,6 +449,8 @@ struct DiagView: View {
         guard let au else { return }
         scene = au.uiScene()
         docColours = au.uiColours()
+        buildRow8Cells = au.uiRow8()          // ROW 8: authored cells + the scene's lit toggles
+        buildRow8On = au.uiRow8On()
         busChannels = au.uiBusChannels()
         busEnabled = au.uiBusEnabled()
         claimMask = au.uiClaimMask()

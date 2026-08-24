@@ -788,6 +788,40 @@ public class MidiSparkAudioUnit: AUAudioUnit {
             s.activeRow = ar
         }
     }
+    // ROW 8 (Paul 2026-08-22): the action strip. `uiRow8` = the authored cells (document); `uiRow8On` = the active
+    // scene's lit TOGGLE state. `setRow8On` is a PERFORMANCE write (record:false, scene-captured, rebuilds — the toggle
+    // engine FREEZE/HALFTIME reads it from the box). `setRow8Cell` AUTHORS a cell (undoable document edit).
+    func uiRow8() -> [Row8Cell] { document.row8Resolved }
+    func uiRow8On() -> [Bool] { document.activeSceneState.row8OnResolved }
+    func setRow8On(_ i: Int, _ on: Bool) {
+        guard i >= 0, i < 8 else { return }
+        editScene(record: false) { s in
+            var o = s.row8On ?? [Bool](repeating: false, count: 8)
+            while o.count < 8 { o.append(false) }
+            o[i] = on
+            s.row8On = o
+        }
+    }
+    /// SETUP cells are a radio among themselves (spec): lighting one clears the others. Called by the perform strip.
+    func setRow8OnRadioSetup(_ i: Int) {
+        guard i >= 0, i < 8 else { return }
+        let cells = document.row8Resolved
+        editScene(record: false) { s in
+            var o = s.row8On ?? [Bool](repeating: false, count: 8)
+            while o.count < 8 { o.append(false) }
+            for j in 0..<8 where cells[j].type == .setup { o[j] = (j == i) }
+            s.row8On = o
+        }
+    }
+    func setRow8Cell(_ i: Int, _ cell: Row8Cell) {
+        guard i >= 0, i < 8 else { return }
+        editDocument { d in
+            var r = d.row8 ?? Row8Cell.factoryDeck
+            while r.count < 8 { r.append(Row8Cell()) }
+            r[i] = cell
+            d.row8 = r
+        }
+    }
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
