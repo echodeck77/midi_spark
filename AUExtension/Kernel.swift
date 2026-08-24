@@ -542,6 +542,37 @@ final class Kernel {
     private var reelLastPass = Int.min
     private var reelTempoStored = 120.0
     private var reelCycleStored = 4.0
+    // ROW 8 CC-PUNCH / PC-SEND (Paul 2026-08-24): a UI-queued control message, emitted on the EMITTER WIRES (the app's
+    // outputs — how notes route out) each render. SPSC ring: main writes `ctrlTail`, render reads `ctrlHead`; each slot is
+    // a UInt32-packed (type<<16)|(d1<<8)|d2 (type 0 = CC, 1 = PC). Aligned UInt32 element reads/writes are atomic on arm64
+    // and the buffer is fixed (no ARC churn) → render-safe; a rare torn read only garbles one control byte (never a stuck note).
+    private var ctrlRing = [UInt32](repeating: 0, count: 16)
+    private var ctrlHead: UInt32 = 0
+    private var ctrlTail: UInt32 = 0
+    private var ctrlScratch: [UInt8] = [0, 0, 0]
+    /// Queue a control message (main thread). type 0 = CC (d1 = cc#, d2 = value) · 1 = PC (d1 = program, d2 = 0).
+    func queueControl(type: Int, d1: Int, d2: Int) {
+        ctrlRing[Int(ctrlTail & 15)] = (UInt32(max(0, min(1, type))) << 16) | (UInt32(d1 & 0x7F) << 8) | UInt32(d2 & 0x7F)
+        ctrlTail &+= 1
+    }
+    private func drainControl(box: SnapshotBox) {
+        guard midiOut != nil else { ctrlHead = ctrlTail; return }
+        while ctrlHead != ctrlTail {
+            let p = ctrlRing[Int(ctrlHead & 15)]; ctrlHead &+= 1
+            let isPC = ((p >> 16) & 0xFF) == 1
+            let d1 = UInt8((p >> 8) & 0x7F), d2 = UInt8(p & 0x7F)
+            let hi: UInt8 = isPC ? 0xC0 : 0xB0
+            for e in 0..<4 where (box.busEnabledMask & (1 << UInt8(e))) != 0 {   // the enabled emitters, at their stamp channels
+                emitCtrl(cable: UInt8(e + 1), status: hi | ((box.busChannels[e] &- 1) & 15), d1: d1, d2: d2, isPC: isPC)
+            }
+            emitCtrl(cable: 0, status: hi, d1: d1, d2: d2, isPC: isPC)          // + the ALL cable (channel 1)
+        }
+    }
+    private func emitCtrl(cable: UInt8, status: UInt8, d1: UInt8, d2: UInt8, isPC: Bool) {
+        guard let midiOut else { return }
+        ctrlScratch[0] = status; ctrlScratch[1] = d1; ctrlScratch[2] = d2
+        _ = midiOut(renderSampleImmediate, cable, isPC ? 2 : 3, &ctrlScratch)   // PC is a 2-byte message — never send a trailing 0
+    }
     private var reelSelectRequest = Int.min                         // control thread: a pass to select+replay (Int.min = none)
     private var reelStopRequest = false                             // control thread: stop replay → resume live
     private var reelBrowsing = false                                // the PASS BROWSER pop-up is open → freeze the history tape
@@ -612,6 +643,7 @@ final class Kernel {
         pianoNotes = box.receiverPianoNotes
         replayMask = box.receiverReplayMask             // REPLAY: which doors loop their input ring
         replayPasses = box.receiverReplayPasses
+        drainControl(box: box)                          // ROW 8 CC-PUNCH / PC-SEND: flush any UI-queued control messages onto the emitter wires
         // FILE: load each door's clip into its ring when the snapshot generation changes (a clip edit → a new box).
         if fileClipGen != box.generation {
             fileClipGen = box.generation

@@ -1089,6 +1089,15 @@ extension DiagView {
             if on, i < buildRow8On.count { buildRow8On[i] = false; au?.setRow8On(i, false) }   // KILL never latches
         case .input:
             buildEngageDoor(c.doorRef ?? 0)                          // the door's mode-act (LATCH/HOLD/KEYS arm · REPLAY re-catch), shared with the strip's LATCH button
+        case .ccPunch:
+            let now = !(i < buildRow8On.count && buildRow8On[i])
+            if i < buildRow8On.count { buildRow8On[i] = now }
+            au?.setRow8On(i, now)
+            au?.punchCC(max(0, min(127, c.ccNum ?? 74)), now ? max(0, min(127, c.ccVal ?? 127)) : 0)   // punch the value ON; release → 0 (a momentary punch, v1 via the toggle)
+        case .pcSend:
+            au?.sendProgramChange(max(0, min(127, c.pcNum ?? 0)))    // one-shot: a Program Change on the emitter wires
+            let on = i < buildRow8On.count && buildRow8On[i]
+            if on, i < buildRow8On.count { buildRow8On[i] = false; au?.setRow8On(i, false) }   // never latches (a brief flash)
         default:
             let now = !(i < buildRow8On.count && buildRow8On[i])
             if i < buildRow8On.count { buildRow8On[i] = now }         // optimistic

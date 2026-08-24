@@ -826,6 +826,9 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setMasterVelOverride(_ value: Int?) { kernel.setMasterVelOverride(value) }
     func setMasterKill(_ on: Bool) { kernel.setMasterKill(on) }   // §4b master fader-kill (bottom = all silent)
     func masterPanic() { kernel.panic() }
+    // ROW 8 CC-PUNCH / PC-SEND (Paul 2026-08-24): send a control message on the emitter wires (the app's outputs).
+    func punchCC(_ cc: Int, _ value: Int) { kernel.queueControl(type: 0, d1: cc, d2: value) }
+    func sendProgramChange(_ program: Int) { kernel.queueControl(type: 1, d1: program, d2: 0) }
 
     /// receiver strip: the THRU pip — the receiver (0–3) passthrough follows. Persisted RADIO, but unlike
     /// CLAIM there is ALWAYS exactly one lit (no clear): tapping a strip's pip moves THRU there directly.
