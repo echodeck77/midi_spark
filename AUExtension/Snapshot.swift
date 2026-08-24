@@ -85,6 +85,9 @@ struct SnapParams {
     var probability: Double = 1      // chance: pass-through probability 0…1
     var chanceTilt: Double = 0       // chance WEIGHT −1…1 (user 2026-08-11)
     var chanceDensity: Bool = false  // chance CONSTANT-DENSITY (keep ~a constant count regardless of chord size)
+    var chanceMode: ChanceMode = .single   // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = 8 per-step odds
+    var chanceSlices: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]   // PATTERN: per-step odds 0…100%
+    var chanceRotate: Int = 0        // PATTERN: rotate the odds figure
     var arpFit: Bool = false         // arp FIT: one pool traversal = one beat (constant cycle)
     var arpOctDown: Bool = false     // OCT DIRECTION: laps descend the octaves (top octave first)
     var arpRandomAnchor: Int = 0     // RANDOM ANCHOR: 0 off · 1 low-first · 2 high-first (RANDOM pattern)
@@ -484,7 +487,17 @@ func effectiveRamp(_ c: SnapColour) -> Double { clamp(c.a.ramp, 0, 1) }
 func effectiveSpread(_ c: SnapColour) -> Double { clamp(c.a.spread, 0, 1) }
 
 @inline(__always)
-func effectiveProbability(_ c: SnapColour) -> Double { clamp(c.a.probability, 0, 1) }
+// CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE returns the one probability; PATTERN returns the odds for the given STEP
+// (the column index; the 8-slice figure, rotated). Beat-derived + replay-safe via chancePasses. `step` defaults to 0
+// (the SINGLE path + audition ignore it).
+func effectiveProbability(_ a: SnapParams, step: Int = 0) -> Double {
+    if a.chanceMode == .pattern {
+        let i = (((step + a.chanceRotate) % 8) + 8) % 8
+        let v = i < a.chanceSlices.count ? a.chanceSlices[i] : 100
+        return clamp(Double(v) / 100.0, 0, 1)
+    }
+    return clamp(a.probability, 0, 1)
+}
 
 @inline(__always)
 func effectiveHarmInterval(_ c: SnapColour, voice: Int) -> Int {

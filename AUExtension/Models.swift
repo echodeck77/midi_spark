@@ -88,6 +88,8 @@ enum Bus: String, Codable, CaseIterable { case a = "A", b = "B", c = "C", d = "D
 enum StrumDir: String, Codable, CaseIterable { case up = "UP", down = "DOWN", alternate = "ALT" }   // §3 STRUM
 // EUCLID PICK (Paul 2026-08-22) — what each euclidean hit strikes (the TUTTI vocabulary on euclid's hits).
 enum EuclidPick: String, Codable, CaseIterable { case all = "ALL", cycle = "CYCLE", low = "LOW", high = "HIGH", random = "RANDOM" }
+// CHANCE MODE (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = 8 per-step odds (the odds SLIDER LANE).
+enum ChanceMode: String, Codable, CaseIterable { case single = "SINGLE", pattern = "PATTERN" }
 enum TapAction: String, Codable, CaseIterable {
     case alt = "ALT", byp = "BYP", mute = "MUTE"
 }
@@ -142,6 +144,9 @@ struct ColourParams: Codable, Equatable {
     var probability: Double? = 1   // chance: pass-through probability 0…1 per note-on
     var chanceTilt: Double? = 0    // chance WEIGHT −1…1 (user 2026-08-11): +favours TOP notes, −favours BOTTOM
     var chanceDensity: Bool? = false // chance CONSTANT-DENSITY: keep ~a constant NUMBER of notes regardless of chord size
+    var chanceMode: ChanceMode? = nil   // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE (one probability, default) | PATTERN (8 per-step odds). nil ⇒ SINGLE
+    var chanceSlices: [Int]? = nil      // PATTERN: 8 per-step odds 0…100% (the Elektron trig-condition, drawn). nil ⇒ the default figure
+    var chanceRotate: Int? = 0          // PATTERN: rotate the odds figure (0…7)
     var arpFit: Bool? = false      // arp FIT (user 2026-08-11): rate derives so ONE pool traversal = one beat (constant cycle)
     var arpOctDown: Bool? = false  // OCT DIRECTION (Paul 2026-08-22): laps descend the octaves (top octave first) — "up the chord, down the octaves". Orthogonal to PATTERN (which orders WITHIN a lap).
     var arpRandomAnchor: Int? = 0  // RANDOM ANCHOR (Paul 2026-08-22): 0 OFF · 1 LOW-first · 2 HIGH-first — when PATTERN=RANDOM, each cycle (a full pool×oct traversal) OPENS on the lowest/highest note, the rest shuffle (seeded).

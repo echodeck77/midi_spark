@@ -1489,7 +1489,7 @@ final class Router {
             let transpose = colourTranspose(ci, colour)
                           + octaveShift(cell.resolvedReceiver)           // receiver strip: input OCT nudge
                           + holdShift(treatP, mode: mode)                // UTILITY: OCTAVE (±12·n) / TRANSPOSE (±semitones) shift the held (composed) set
-            let prob = (mode == .chance) ? effectiveProbability(treat) : 1
+            let prob = (mode == .chance) ? effectiveProbability(treat.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds (Paul 2026-08-22)
             let droneScale = mode == .drone ? max(0.05, min(1.0, treatP.gate)) : 1.0   // DRONE: GATE = the pad's velocity level (relative to the source)
             let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: pass)   // §9 item 1 EMITTER-ROTATE
             // §2 CONTINUITY: an identity chord-hold under LEGATO is a DRONE — it flows through column
@@ -3204,10 +3204,11 @@ final class Router {
             if pick.note >= 0 && pick.note <= 127 { dst.noteOn(UInt8(pick.note), velocity: max(1, pick.vel), channel: 0) }
         case .chance:
             let colStart = columnStart(m, S)
+            let chanceBase = effectiveProbability(p, step: Int((colStart / S).rounded()))   // CHANCE PATTERN: per-step odds
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
             for k in 0..<cCnt {
                 let n = src.srcAscending(k, filter: 0, cableMask: 0b1111)
-                if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: p.probability, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
+                if chancePassesPool(beat: colStart, note: Int(n), rank: k, count: cCnt, probability: chanceBase, tilt: p.chanceTilt, constantDensity: p.chanceDensity) { dst.noteOn(n, velocity: max(1, src.velocity(n)), channel: 0) }
             }
         case .tutti:                                           // [TUTTI→ARP]: reshape the source pool per step/slice
             let cCnt = src.srcCount(filter: 0, cableMask: 0b1111)
@@ -3787,7 +3788,7 @@ final class Router {
         let colStart = columnStart(mNow, S)
         let onSample = sampleOf(musical: colStart, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
         let offSample = sampleOf(musical: colStart + S, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
-        let prob = isChance ? effectiveProbability(colour) : 1
+        let prob = isChance ? effectiveProbability(colour.a, step: Int((colStart / S).rounded())) : 1   // CHANCE PATTERN: per-step odds
         let srcN = pool.srcCount(filter: filter)
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, filter: filter)
@@ -3897,7 +3898,7 @@ final class Router {
                                    out: MIDIEmitter?, diag: inout KernelDiag) {
         for i in 0..<128 { auditionDesired[i] = false }
         let type = effectiveType(colour)
-        let prob = (type == .chance) ? effectiveProbability(colour) : 1
+        let prob = (type == .chance) ? effectiveProbability(colour.a) : 1   // audition is phase-zeroed → step 0
         let srcN = pool.srcCount(for: cell)         // §7 source filter, forced source
         for k in 0..<srcN {
             let sn = pool.srcAscending(k, for: cell)

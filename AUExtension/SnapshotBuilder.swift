@@ -337,6 +337,9 @@ enum SnapshotBuilder {
         if let v = p.probability { out.probability = clamp(v, 0, 1) }
         if let v = p.chanceTilt { out.chanceTilt = clamp(v, -1, 1) }
         if let v = p.chanceDensity { out.chanceDensity = v }
+        if let v = p.chanceMode { out.chanceMode = v }
+        if let v = p.chanceSlices { out.chanceSlices = v.map { max(0, min(100, $0)) } }
+        if let v = p.chanceRotate { out.chanceRotate = ((v % 8) + 8) % 8 }
         if let v = p.tuttiMode { out.tuttiMode = v }
         if let v = p.tuttiBalance { out.tuttiBalance = clamp(v, 0, 1) }
         if let v = p.tuttiPick { out.tuttiPick = v }

@@ -159,6 +159,21 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ PROCESSOR EDITOR WIDTH pass 1 + CHANCE PATTERN (the odds SLIDER LANE) (2026-08-25, on `main`; iOS builds, macOS
+  green incl. fuzz; DEVICE eye/ear owed). Paul: "controls feel too wide." **WIDTH PASS 1** (`9e81978`, UI-only): `seg`
+  radios are now CONTENT-SIZED finger-min chips, LEFT-aligned (a 2-option toggle is ~140pt, not the ~500pt it stretched
+  to on the ~1000pt panel); the processor panel is a TIDY COLUMN (≤600pt) docked left, not stretched across the grid.
+  Fonts unchanged (Paul likes the size). Pass 2 (the two-column packing of short fields) is device-eye-owed next.
+  **CHANCE PATTERN** (§5, the first of the four ratified matrix/lane candidates): CHANCE gains a MODE — SINGLE (one
+  probability, today) | PATTERN (8 per-step ODDS 0…100%, the Elektron trig-condition drawn). Additive-Optional
+  (`chanceMode`/`chanceSlices`/`chanceRotate`, nil ⇒ SINGLE byte-identical). The single `effectiveProbability` hook is
+  now STEP-AWARE (takes SnapParams + a step = the column index; PATTERN returns the rotated 8-slice odds) — threaded to
+  all 4 chance sites (hold · composeChainSet · driver-fold · audition), so [ARP→CHANCE] etc. all honour the per-step
+  odds; TILT/DENSITY still compose on top. **This delivers the SLIDER LANE's SECOND consumer**: `modStepBars` generalised
+  to a shared `sliderLane(_ steps, count, max)` (§2's one-component-for-all-continuous-per-step-controls) — STEP MOD
+  (0…127) + CHANCE odds (0…100) now share it. UI: CHANCE editor MODE seg + the odds lane + ROTATE. +1 RouterTest
+  (0%→drops all · 100%→passes · alternating→half · replay-safe); fuzz hammers random per-step odds incl. 0/100 edges.
+  NEXT §5 candidates: TIMING LANE (per-step nudge, centred lane) · DEST MATRIX · MUTE MATRIX.**
 - **▶ TIER 2 — THE SPAN LADDER, stage 2b: RATCHET PATTERN + CASCADE get the RATE×ladder; MOD excluded (2026-08-24, on
   `main`; iOS builds, macOS green incl. fuzz; DEVICE ear owed). Rolls the proven (stage 2a) RATE×ladder to the other
   slice-walk/reveal rate procs. **RATCHET PATTERN** (`rtcSpanN`): RATE = slice width, SPAN N = the loop period (the

@@ -936,8 +936,19 @@ struct ProcessorBox: View {
             field("VOL TILT \(Int((p.velTilt ?? 0) * 100))") {
                 Slider(value: bind((p.velTilt ?? 0) / 2 + 0.5) { v in setParam { $0.velTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
         case .chance:
-            field("CHANCE \(Int((p.probability ?? 1) * 100))%") {
-                Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
+            // CHANCE PATTERN (Paul 2026-08-22 §5): SINGLE = one probability · PATTERN = the odds SLIDER LANE (per-step %).
+            let cmode = p.chanceMode ?? .single
+            field("MODE") { seg(ChanceMode.allCases.map(\.rawValue), sel: cmode.rawValue) { i in setParam { $0.chanceMode = ChanceMode.allCases[i] } } }
+            if cmode == .pattern {
+                let base: [Int] = [100, 40, 70, 40, 100, 40, 70, 40]
+                let shown = (0..<8).map { i -> Int in let s = p.chanceSlices ?? base; return i < s.count ? s[i] : 100 }
+                field("ODDS PER STEP  (drag to draw · %)") { sliderLane(shown, count: 8, max: 100) { i, v in
+                    setParam { var s = $0.chanceSlices ?? base; while s.count < 8 { s.append(100) }; s[i] = v; $0.chanceSlices = s } } }
+                field("ROTATE — walk the odds  (\(p.chanceRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.chanceRotate ?? 0)") { i in setParam { $0.chanceRotate = i } } }
+            } else {
+                field("CHANCE \(Int((p.probability ?? 1) * 100))%") {
+                    Slider(value: bind(p.probability ?? 1) { v in setParam { $0.probability = v } }, in: 0...1).tint(accent) }
+            }
             field("FAVOUR \(Int((p.chanceTilt ?? 0) * 100))  (−bottom · +top)") {
                 Slider(value: bind((p.chanceTilt ?? 0) / 2 + 0.5) { v in setParam { $0.chanceTilt = (v - 0.5) * 2 } }, in: 0...1).tint(accent) }
             field("KEEP") { seg(["FIXED %", "CONSTANT N"], sel: (p.chanceDensity ?? false) ? "CONSTANT N" : "FIXED %") { i in setParam { $0.chanceDensity = (i == 1) } } }
@@ -1036,7 +1047,7 @@ struct ProcessorBox: View {
                 let n = sspan.stepCount
                 let base = [0, 18, 36, 54, 72, 90, 108, 127]
                 let shown = (0..<n).map { i -> Int in let s = p.modSteps ?? base; return s[i % s.count] }   // pad the stored steps to N for drawing
-                field("STEPS  (drag to draw · \(n))") { modStepBars(shown, count: n) { i, v in
+                field("STEPS  (drag to draw · \(n))") { sliderLane(shown, count: n) { i, v in
                     setParam { var s = $0.modSteps ?? base; let orig = s; while s.count < n { s.append(orig[s.count % orig.count]) }; s[i] = v; $0.modSteps = s } } }
                 field("SPAN") { seg(ModStepSpan.allCases.map(\.rawValue), sel: sspan.rawValue) { i in setParam { $0.modStepSpan = ModStepSpan.allCases[i] } } }   // PERIOD (rate) · ROW · ROW×2 · ROW×4 (16/32 breakpoints)
                 if sspan == .period { field("CYCLE  (beats / cycle)") { seg(ModRate.allCases.map(\.rawValue), sel: (p.modRate ?? .r2).rawValue) { i in setParam { $0.modRate = ModRate.allCases[i] } } } }   // the rate period only drives PERIOD span
@@ -1325,18 +1336,21 @@ struct ProcessorBox: View {
     // CC-stage §1: a labelled CC number ("74 · CUTOFF" for the named dozen, else the bare number).
     private func ccLabelText(_ n: Int) -> String { ccName(n).map { "\(n) · \($0)" } ?? "\(n)" }
     // STEPS "drag to draw": `count` vertical bars (8/16/32 by SPAN); drag a column to set its 0…127 value.
-    private func modStepBars(_ steps: [Int], count: Int = 8, _ set: @escaping (Int, Int) -> Void) -> some View {
+    // THE SLIDER LANE (Paul 2026-08-22 §2): 8+ per-step bars — TAP sets to tap-height (first touch always responds), DRAG
+    // draws the lane. The ONE shared continuous-per-step component: STEP MOD (CC 0…127) · CHANCE PATTERN (odds 0…100) ·
+    // (future VELOCITY PATTERN · CHOP levels). `max` = the value ceiling; the bar height + the write both scale to it.
+    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, _ set: @escaping (Int, Int) -> Void) -> some View {
         HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
             ForEach(0..<count, id: \.self) { i in
                 let v = i < steps.count ? steps[i] : 0
                 GeometryReader { g in
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
-                        RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: max(2, g.size.height * CGFloat(v) / 127))
+                        RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, g.size.height * CGFloat(v) / CGFloat(maxV)))
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { val in
-                        set(i, Int((1 - min(1, max(0, val.location.y / max(1, g.size.height)))) * 127))
+                        set(i, Int((1 - min(1, Swift.max(0, val.location.y / Swift.max(1, g.size.height)))) * CGFloat(maxV)))
                     })
                 }
                 .frame(maxWidth: .infinity).frame(height: 84)

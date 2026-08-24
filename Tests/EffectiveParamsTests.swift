@@ -392,8 +392,8 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(effectiveRamp(snapColour { $0.ramp = -1 }), 0)
         XCTAssertEqual(effectiveSpread(snapColour { $0.spread = 5 }), 1)
         XCTAssertEqual(effectiveSpread(snapColour { $0.spread = -0.5 }), 0)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }), 1)
-        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }), 0)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = 3 }.a), 1)
+        XCTAssertEqual(effectiveProbability(snapColour { $0.probability = -2 }.a), 0)
         XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = 5 }), 1)
         XCTAssertEqual(effectiveHarmVelScale(snapColour { $0.harmVelScale = -1 }), 0.1, "the floor is 0.1, not 0")
     }

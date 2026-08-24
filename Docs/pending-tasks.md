@@ -35,8 +35,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
 4. **GRID SELECTOR §2/§3** (`SPEC-grid-selector`) — enhances the ALREADY-BUILT grid selector: QUANTIZE/EXCLUSIVE toggles,
    the PREGEN CORPUS (bulk background generation → preset mining), PART-BUTTONS-as-COMMIT, the right-column browse-context I/O.
-5. **DEFERRED (ratified, lower priority):** CHANCE PATTERN (odds lane) · TIMING LANE (per-step nudge) · DEST MATRIX (wire/step)
-   · MUTE MATRIX (part-muting) — all build from the two widget species. ARRANGEMENT MATRIX = NOT ratified (scenes-v3 birthstone).
+5. **THE MATRIX/LANE CANDIDATES (ratified §5):** **✅ CHANCE PATTERN — DONE (2026-08-25):** the odds SLIDER LANE (SINGLE|
+   PATTERN mode, 8 per-step odds, step-aware `effectiveProbability`); ALSO delivered the SLIDER LANE's 2nd consumer
+   (`modStepBars`→shared `sliderLane`). TODO: **TIMING LANE** (per-step nudge, centred lane — reuses `sliderLane`) ·
+   **DEST MATRIX** (wire×step radio, routing-class) · **MUTE MATRIX** (part-muting). ARRANGEMENT MATRIX = NOT ratified.
+6. **SLIDER LANE / WIDTH:** the `sliderLane` shared component now has 2 consumers (STEP MOD · CHANCE). Processor-editor
+   WIDTH PASS 1 landed (compact segs + ≤600pt panel); **PASS 2 = two-column packing** of short fields (device-eye owed).
 
 ## ★ DESIGN INBOX 2026-08-22/23 — FILED + QUEUED (4 ferries read + filed to `Docs/`; sequencing = Paul's word)
 - **⟳ ROW 8 — LARGELY BUILT 2026-08-24 (overnight autonomous; see CLAUDE.md status). DONE: the type MODEL + factory deck +

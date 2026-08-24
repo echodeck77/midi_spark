@@ -78,6 +78,7 @@ final class FuzzTests: XCTestCase {
             if c.type == .arp && r.chance(0.5) { c.paramsA.arpOctDown = r.chance(0.5); c.paramsA.arpRandomAnchor = r.int(3); c.paramsA.octaves = 1 + r.int(4) }   // OCT DIR + RANDOM ANCHOR (Paul 2026-08-22)
             if c.type == .euclid && r.chance(0.6) { c.paramsA.euclidPick = EuclidPick.allCases[r.int(EuclidPick.allCases.count)]; c.paramsA.euclidInvert = r.chance(0.4) }   // PICK + INVERT
             if c.type == .glide && r.chance(0.7) { c.paramsA.glideMode = [.bend, .synth, .step][r.int(3)]; c.paramsA.glideTime = [0.0, 0.1, 0.3, 0.6, 1.2][r.int(5)] }   // BEND|SYNTH|STEP — STEP is note-hungry, must never stuck
+            if c.type == .chance && r.chance(0.5) { c.paramsA.chanceMode = .pattern; c.paramsA.chanceSlices = (0..<8).map { _ in r.int(101) }; c.paramsA.chanceRotate = r.int(8) }   // CHANCE PATTERN §5 — per-step odds incl. 0/100 edges
             if c.type == .octave || c.type == .transpose || c.type == .channel || c.type == .nudge { applyRandomUtil(&c.paramsA, type: c.type, &r) }   // UTILITY pitch shift — exercise range-clamp/drops
             applyRandomSpan(&c.paramsA, type: c.type, &r)   // SPAN CELL|ROW (2026-08-19): hammer the ROW paths for no-stuck-notes
             return c
