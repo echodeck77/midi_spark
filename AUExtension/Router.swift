@@ -1767,7 +1767,7 @@ final class Router {
             // Match the DRY's gate width: a NON-DRIVER [ECHO→LENGTH] dry (emitLengthComposedRow) honors SPAN=ROW (the 8
             // slices span the whole bar); the driver-fold dry (emitDriverNote) is per-column. Use the same so the repeats
             // gate on the SAME pattern the dry does (else dry+echoes diverge for SPAN=ROW — the review's finding).
-            let lenColBeats = (chainDriverIndex(cell) < 0 && lp.lenSpan == .row) ? cycleBeats : S
+            let lenColBeats = (chainDriverIndex(cell) < 0) ? spanLadderBeats(lp.lenSpanN, S: S, row: cycleBeats) : S   // SPAN LADDER (Paul 2026-08-22)
             let sIdx = ((chopSlice(tau, columnBeats: lenColBeats) + lp.lenRotate) % 8 + 8) % 8
             let st = sIdx < lp.lenSlices.count ? lp.lenSlices[sIdx] : .pass
             switch lengthGateFor(st, onset: tau, shortFrac: lp.lenShort, longFrac: lp.lenLong, S: lenColBeats) {
@@ -2798,7 +2798,7 @@ final class Router {
             // SPAN: CELL fits N steps in one column (repeats each column); ROW stretches the SAME N steps across the
             // whole bar (a cross-column phrase). Only `sub` changes — the column gate below keeps each cell voicing
             // only the pulses that fall in its own column, so a euclid on a full row plays as one phrase. (Paul 2026-08-18)
-            let sub = (p.euclidSpan == .row ? cyc : S) / Double(n)
+            let sub = spanLadderBeats(p.euclidSpanN, S: S, row: cyc) / Double(n)   // SPAN LADDER: n steps across the span; odd N = polymeter (Paul 2026-08-22)
             // PICK (Paul 2026-08-22): ALL strikes the full chord; LOW/HIGH the pool extremes; CYCLE WALKS the chord
             // (the euclid-arp); RANDOM scatters — all keyed by the PULSE ORDINAL (count of hits, replay-exact).
             // INVERT (Paul 2026-08-22): strike the N−K RESTS instead — the anti-pattern.
@@ -2850,19 +2850,19 @@ final class Router {
                     }
                 }
             }
+            // SPAN LADDER (Paul 2026-08-22): the roll/pattern spans N columns (·16=×2 ·32=×4), anchored at the span origin;
+            // odd N = polymeter. CELL=1 (S) / ROW=8 (cyc) are byte-identical. The window gate keeps each cell to its column.
+            let bSpan = spanLadderBeats(p.burstSpanN, S: S, row: cyc)
             switch p.burstMode {
             case .once:
-                // SPAN: CELL fills each column with the roll; ROW unfolds the SAME roll across the whole BAR (anchored at
-                // the bar start). The window gate keeps each cell to the strikes that fall in its own column. (Paul 2026-08-19)
-                layBurst(anchor: (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart, width: (p.burstSpan == .row) ? cyc : S)
+                layBurst(anchor: columnStart(colStart, bSpan), width: bSpan)
             case .coin:
                 // seeded chance-of-burst per column-step — the roll fills THIS column when it fires (replay-exact)
                 if burstCoinFires(step: Int((colStart / S).rounded()), chance: p.burstChance) { layBurst(anchor: colStart, width: S) }
             case .pattern:
-                // 8 slices: CELL subdivides this column (S/8) · ROW maps to the row's 8 columns (cyc/8). At each BURST
-                // slice the roll STRETCHES over its carry-run (CARRY = span-stretch); CARRY/REST slices launch nothing.
-                let sliceW = ((p.burstSpan == .row) ? cyc : S) / 8
-                let patAnchor = (p.burstSpan == .row) ? columnStart(colStart, cyc) : colStart
+                // 8 slices across the span; at each BURST slice the roll STRETCHES over its carry-run; CARRY/REST launch nothing.
+                let sliceW = bSpan / 8
+                let patAnchor = columnStart(colStart, bSpan)
                 for i in 0..<8 {
                     let run = burstCarryRun(p.burstSlices, at: i, rotate: p.burstRotate)
                     if run > 0 { layBurst(anchor: patAnchor + Double(i) * sliceW, width: Double(run) * sliceW) }
@@ -3108,7 +3108,7 @@ final class Router {
         guard !srcNotes.isEmpty else { return }
         // SPAN: CELL fits the 8 slices in each column; ROW stretches them across the whole BAR (slice i = column i) → a
         // whole-bar trance-gate phrase. Only the span width changes; the window gate keeps each cell to its own slice.
-        let span = (p.lenSpan == .row) ? Double(Snap.cols) * S : S
+        let span = spanLadderBeats(p.lenSpanN, S: S, row: Double(Snap.cols) * S)   // SPAN LADDER (Paul 2026-08-22)
         var col = columnStart(mWinStart, span)
         while col < mWinEnd {
             let events = lengthColumnEvents(slices: p.lenSlices, rotate: p.lenRotate, shortFrac: p.lenShort, longFrac: p.lenLong, colStart: col, S: span)
@@ -3145,7 +3145,7 @@ final class Router {
         let mWinEnd = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
         let cellPool = effectivePool(for: cell, live: pool)   // receiver strip LATCH: frozen chord if armed
         let cycleBeats = Double(Snap.cols) * S
-        let span = (lp.lenSpan == .row) ? cycleBeats : S     // SPAN: the 8 slices span the bar (ROW) vs a column (CELL)
+        let span = spanLadderBeats(lp.lenSpanN, S: S, row: cycleBeats)   // SPAN LADDER (Paul 2026-08-22)
         var col = columnStart(mWinStart, span)
         while col < mWinEnd {
             composeChainSet(cell: cell, pool: cellPool, upto: lenIdx - 1, m: col, S: S, cycleBeats: cycleBeats)   // the upstream set at this span-unit start

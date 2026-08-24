@@ -349,6 +349,7 @@ enum SnapshotBuilder {
         if let v = p.lenLong { out.lenLong = clamp(v, 0, 1) }
         if let v = p.lenRotate { out.lenRotate = ((v % 8) + 8) % 8 }
         if let v = p.lenSpan { out.lenSpan = v }
+        out.lenSpanN = p.lenSpanN ?? (out.lenSpan == .row ? 8 : 1)   // SPAN LADDER: explicit N wins; else migrate CELL→1 / ROW→8
         if let v = p.weaveMode { out.weaveMode = v }
         if let v = p.weaveBaseStep { out.weaveBaseBeats = max(0.03125, v.beats) }
         if let v = p.weaveSpan { out.weaveSpan = clamp(v, 1, 8) }
@@ -396,9 +397,11 @@ enum SnapshotBuilder {
         if let v = p.euclidRot { out.euclidRot = clamp(v, 0, 15) }
         if let v = p.euclidPulsesFromPool { out.euclidPulsesFromPool = v }
         if let v = p.euclidSpan { out.euclidSpan = v }
+        out.euclidSpanN = p.euclidSpanN ?? (out.euclidSpan == .row ? 8 : 1)
         if let v = p.euclidPick { out.euclidPick = v }
         if let v = p.euclidInvert { out.euclidInvert = v }
         if let v = p.burstSpan { out.burstSpan = v }
+        out.burstSpanN = p.burstSpanN ?? (out.burstSpan == .row ? 8 : 1)
         if let v = p.burstMode { out.burstMode = v }
         if let v = p.burstSlices { var s = v; while s.count < 8 { s.append(.rest) }; out.burstSlices = Array(s.prefix(8)) }
         if let v = p.burstRate { out.burstRateBeats = max(0.03125, v.beats) }

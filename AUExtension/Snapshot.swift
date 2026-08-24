@@ -108,9 +108,11 @@ struct SnapParams {
     var euclidRot: Int = 0
     var euclidPulsesFromPool: Bool = false   // POOL mode: K = the held-note count
     var euclidSpan: PatternSpan = .cell      // CELL = per-column pattern (default) · ROW = the N steps span the whole bar
+    var euclidSpanN: Int = 1                  // SPAN LADDER (Paul 2026-08-22): span width in columns (1·2·3·4·6·8 · 16=×2 · 32=×4)
     var euclidPick: EuclidPick = .all        // what each hit strikes: ALL | CYCLE (walk) | LOW | HIGH | RANDOM (Paul 2026-08-22)
     var euclidInvert: Bool = false           // play the N−K rests instead (the anti-pattern) — Paul 2026-08-22
     var burstSpan: PatternSpan = .cell       // BURST: CELL = per-column roll · ROW = the roll unfolds across the bar (Paul 2026-08-19)
+    var burstSpanN: Int = 1                   // SPAN LADDER (Paul 2026-08-22): span width in columns
     var burstMode: BurstMode = .once         // BURST family: ONCE (today) · COIN · PATTERN (Paul 2026-08-19)
     var burstSlices: [BurstSlice] = [.burst, .carry, .carry, .rest, .burst, .rest, .rest, .rest]   // PATTERN: 8 slices (B/C/R)
     var burstRateBeats: Double = 0.5         // PATTERN: slice width in beats (from burstRate)
@@ -155,6 +157,7 @@ struct SnapParams {
     var lenLong: Double = 0.7            // LONG length 0…1 → 25% of a slice … the step end
     var lenRotate: Int = 0               // rotate the slice pattern (0…7)
     var lenSpan: PatternSpan = .cell     // CELL = per-column · ROW = the 8 slices span the whole bar (Paul 2026-08-19)
+    var lenSpanN: Int = 1                // SPAN LADDER (Paul 2026-08-22): span width in columns
     // WEAVE — the rank-clocked polyrhythm driver. GATE is the shared `gate` field above.
     var weaveMode: WeaveMode = .ladder
     var weaveBaseBeats: Double = 1.0     // the slowest/bass clock in beats (1/4 = 1 beat)

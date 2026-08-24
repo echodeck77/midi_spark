@@ -168,9 +168,11 @@ struct ColourParams: Codable, Equatable {
     var euclidRot: Int? = 0             // rotate the pattern (0…N−1)
     var euclidPulsesFromPool: Bool? = false   // PULSES mode (user 2026-08-09): POOL = K follows the held-note count
     var euclidSpan: PatternSpan? = nil        // CELL (per-column, default) | ROW (the N steps span the whole bar) — Paul 2026-08-18
+    var euclidSpanN: Int? = nil               // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from euclidSpan: cell→1, row→8)
     var euclidPick: EuclidPick? = nil         // PICK: ALL (today) | CYCLE | LOW | HIGH | RANDOM — what each hit strikes (Paul 2026-08-22)
     var euclidInvert: Bool? = false           // INVERT: play the N−K RESTS instead — the anti-pattern (Paul 2026-08-22)
     var burstSpan: PatternSpan? = nil         // BURST: CELL (the roll fills each column) | ROW (the roll unfolds across the bar) — Paul 2026-08-19
+    var burstSpanN: Int? = nil                // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from burstSpan)
     var burstMode: BurstMode? = nil           // BURST family: ONCE (default) | COIN | PATTERN — Paul 2026-08-19
     var burstSlices: [BurstSlice]? = nil      // PATTERN: 8 slices (B/C/R), pick-then-paint (nil ⇒ a default figure)
     var burstRate: ArpRate? = .r1_8           // PATTERN: slices per window (walks the span)
@@ -221,6 +223,7 @@ struct ColourParams: Codable, Equatable {
     var lenLong: Double? = 0.7          // LONG length 0…1 → 25% of a slice … the STEP end (rings across slices)
     var lenRotate: Int? = 0             // rotate the slice pattern (0…7)
     var lenSpan: PatternSpan? = nil     // CELL (per-column, default) | ROW (the 8 slices span the whole bar) — Paul 2026-08-19
+    var lenSpanN: Int? = nil            // SPAN LADDER (Paul 2026-08-22): 1·2·3·4·6·8 cols · 16=×2 · 32=×4 (nil ⇒ derive from lenSpan)
     // WEAVE (Paul 2026-08-07) — the rank-clocked polyrhythm driver. BASE = the slowest (bass) clock; MODE = the ratio
     // law; SPAN = how many ranks weave (extras join the top clock); GATE (reused) is shared. Append-only Optional.
     var weaveMode: WeaveMode? = .ladder

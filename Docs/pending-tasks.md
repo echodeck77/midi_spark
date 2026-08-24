@@ -20,11 +20,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
    - **SLIDER LANE (§2): the component ALREADY EXISTS** as `modStepBars` (tap-set + drag-draw, variable step count) at its
      origin STEP MOD. No new consumer to wire until VELOCITY/CHANCE/TIMING PATTERN land (Tier 3/5). Optional: rename it
      `sliderLane` + reuse when the first new consumer is built.
-   - **⚠ SPAN LADDER (§3) — BLOCKED ON A DESIGN RULING.** Clean (byte-identical CELL=1/ROW=8, `columnStart(beat, N·S)`
-     polymeter) for the 3 WIDTH-based procs (EUCLID · BURST · LENGTH). But TUTTI PATTERN · RATCHET PATTERN · MOD · CASCADE
-     have RATE-based CELL (`sub` = a rate param, not S) — the spec's column-width ladder doesn't reconcile with their RATE
-     chip. NEEDS PAUL: for a rate-based pattern, does the ladder (2·3·4·6) mean N columns (superseding the RATE chip in
-     span mode), or does the RATE chip stay and the ladder only scales bar-multiples? Once ruled, build all 7 consistently.
+   - **SPAN LADDER (§3) — Paul RULED: RATE × ladder (both)** (RATE = slice width · SPAN = loop period in columns). Staged:
+     - **✅ STAGE 1 — DONE (2026-08-24, next commit):** the 3 WIDTH procs (EUCLID · BURST · LENGTH) — dial 1·2·3·4·6·8·×2·×4,
+       `spanLadderBeats`, byte-identical CELL=1/ROW=8, polymeter for odd N. +1 test, fuzz-hammered. DEVICE ear owed.
+     - **STAGE 2 — TODO:** the 4 RATE procs (TUTTI PATTERN · RATCHET PATTERN · MOD · CASCADE). RATE stays the slice width;
+       the ladder N sets the loop period (re-anchor every N columns). Changes their CELL slice-width semantics — make it
+       OPT-IN via the new `*SpanN` field (nil ⇒ legacy CELL|ROW byte-identical) so old docs don't shift. Device-ear owed.
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).

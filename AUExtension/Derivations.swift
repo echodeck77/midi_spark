@@ -27,6 +27,23 @@ import Foundation
 /// The shared spelling of the `(beat / S).rounded(.down) * S` idiom the Router's emit paths repeat. Pure/testable.
 @inline(__always) func columnStart(_ beat: Double, _ S: Double) -> Double { (beat / S).rounded(.down) * S }
 
+// THE SPAN LADDER (Paul 2026-08-22 §3): CELL|ROW generalises to a dial — 1·2·3·4·6·8 columns, then ×2·×4 bars
+// (stored as 16/32). The pattern anchors at the row origin and repeats every N columns → polymeter at processor grain
+// (odd N against the 8-column row). CELL = 1, ROW = 8 are the byte-identical endpoints (S and the row/bar width).
+let spanLadderValues = [1, 2, 3, 4, 6, 8, 16, 32]
+func spanLadderLabel(_ n: Int) -> String { n == 16 ? "×2" : (n == 32 ? "×4" : "\(n)") }
+/// The span's WIDTH in beats: 1 = one column (S) · 8 = the whole row (`rowBeats`, byte-identical to the old ROW —
+/// honours a short loop) · ×2/×4 = 2/4 rows · 2·3·4·6 = N columns (the polymeter spans). Pure.
+@inline(__always) func spanLadderBeats(_ n: Int, S: Double, row rowBeats: Double) -> Double {
+    switch n {
+    case ...1: return S
+    case 8:    return rowBeats
+    case 16:   return 2 * rowBeats
+    case 32:   return 4 * rowBeats
+    default:   return Double(n) * S   // 2·3·4·6 columns
+    }
+}
+
 /// Piano-roll LANE for a MIDI note: C2…C6 (36…84) → 0…1, clamped. Shared by the perform-grid + BUILD-grid piano-roll
 /// faces so the pitch→lane mapping never drifts between them. (Paul 2026-08-19)
 @inline(__always) func rollLaneForPitch(_ note: Int) -> Double { clamp(Double(note - 36) / 48.0, 0, 1) }

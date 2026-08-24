@@ -984,8 +984,7 @@ struct ProcessorBox: View {
             }
             field("STEPS  \(steps)") { grid16(sel: steps) { v in setParam { $0.euclidSteps = max(2, v); if ($0.euclidPulses ?? 5) > max(2, v) { $0.euclidPulses = max(2, v) } } } }
             field("ROTATE  \(p.euclidRot ?? 0)") { stepper(p.euclidRot ?? 0, 0, 15) { v in setParam { $0.euclidRot = v } } }
-            let span = p.euclidSpan ?? .cell
-            field("SPAN") { seg(["CELL", "ROW"], sel: span == .row ? "ROW" : "CELL") { i in setParam { $0.euclidSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column · ROW = N steps span the bar (Paul 2026-08-18)
+            spanLadderField(p.euclidSpanN ?? ((p.euclidSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.euclidSpanN = v } }
             // PICK = what each hit strikes; INVERT = play the N−K rests (Paul 2026-08-22)
             field("PICK") { seg(EuclidPick.allCases.map(\.rawValue), sel: (p.euclidPick ?? .all).rawValue) { i in setParam { $0.euclidPick = EuclidPick.allCases[i] } } }
             field("INVERT") { seg(["OFF", "ON"], sel: (p.euclidInvert ?? false) ? "ON" : "OFF") { i in setParam { $0.euclidInvert = (i == 1) } } }
@@ -1009,8 +1008,7 @@ struct ProcessorBox: View {
                 }
                 field("ROTATE  (\(p.burstRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.burstRotate ?? 0)") { i in setParam { $0.burstRotate = i } } }
             }
-            let bspan = p.burstSpan ?? .cell
-            field("SPAN") { seg(["CELL", "ROW"], sel: bspan == .row ? "ROW" : "CELL") { i in setParam { $0.burstSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column roll (or 8 slices in the column) · ROW = across the bar (Paul 2026-08-19)
+            spanLadderField(p.burstSpanN ?? ((p.burstSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.burstSpanN = v } }
         case .cascade:  // GENERATOR — incremental chord reveal
             field("SPEED") { seg(ArpRate.allCases.map(\.rawValue), sel: (p.rate ?? .r1_8).rawValue) { i in setParam { $0.rate = ArpRate.allCases[i] } } }
             field("ORDER") { seg(["UP", "DOWN"], sel: (p.strumDir ?? .up) == .down ? "DOWN" : "UP") { i in setParam { $0.strumDir = (i == 0 ? .up : .down) } } }
@@ -1137,8 +1135,7 @@ struct ProcessorBox: View {
                 Slider(value: bind(p.lenLong ?? 0.7) { v in setParam { $0.lenLong = v } }, in: 0...1).tint(accent) }
             field("ROTATE — shift the phrasing  (\(p.lenRotate ?? 0))") { seg((0..<8).map { "\($0)" }, sel: "\(p.lenRotate ?? 0)") { i in
                 setParam { $0.lenRotate = i } } }
-            let lspan = p.lenSpan ?? .cell
-            field("SPAN") { seg(["CELL", "ROW"], sel: lspan == .row ? "ROW" : "CELL") { i in setParam { $0.lenSpan = (i == 1) ? .row : .cell } } }   // CELL = per-column gate · ROW = the 8 slices span the bar (Paul 2026-08-19)
+            spanLadderField(p.lenSpanN ?? ((p.lenSpan ?? .cell) == .row ? 8 : 1)) { v in setParam { $0.lenSpanN = v } }
         case .weave:   // rank-clocked polyrhythm driver — each held note on its own clock
             let wmode = p.weaveMode ?? .ladder   // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             Text(weaveModeBlurb(wmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
@@ -1351,6 +1348,13 @@ struct ProcessorBox: View {
     private func typeShort(_ t: ProcessorType) -> String { t == .passgate ? "PASSES" : t.rawValue }   // FULL name (user 2026-07-30 — no abbreviations); PASSGATE panel display name → PASSES (friendly labels, enum rawValue untouched)
     private func bind(_ v: Double, _ set: @escaping (Double) -> Void) -> Binding<Double> {
         Binding(get: { v }, set: set)
+    }
+    /// THE SPAN LADDER dial (Paul 2026-08-22 §3): 1·2·3·4·6·8·×2·×4 — the pattern's loop period in columns (odd N =
+    /// polymeter against the 8-column row). Replaces the CELL|ROW toggle; 1 = CELL, 8 = ROW (byte-identical endpoints).
+    @ViewBuilder private func spanLadderField(_ current: Int, _ set: @escaping (Int) -> Void) -> some View {
+        field("SPAN — the pattern's loop, in columns  (odd = polymeter)") {
+            seg(spanLadderValues.map { spanLadderLabel($0) }, sel: spanLadderLabel(current)) { i in set(spanLadderValues[i]) }
+        }
     }
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 5) {

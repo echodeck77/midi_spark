@@ -173,15 +173,17 @@ final class FuzzTests: XCTestCase {
     // SPAN CELL|ROW (Paul 2026-08-19): ~half the time flip a span-capable processor to ROW, so the fuzz hammers the
     // whole-bar-timeline paths for the no-stuck-notes / quiescence invariants across every transport + snapshot edge.
     private func applyRandomSpan(_ p: inout ColourParams, type: ProcessorType, _ r: inout FuzzRNG) {
-        guard r.chance(0.5) else { return }
+        // SPAN LADDER (Paul 2026-08-22): hammer the odd/×-column spans on the width procs for no-stuck-notes (the
+        // polymeter anchors + shorter cycles are the new edge). The rate procs still take the legacy CELL|ROW here.
+        let ladder = [1, 2, 3, 4, 6, 8, 16, 32]
         switch type {
-        case .euclid:  p.euclidSpan = .row
-        case .burst:   p.burstSpan = .row
-        case .cascade: p.cascadeSpan = .row
-        case .length:  p.lenSpan = .row
-        case .mod:     p.modSpan = .row
-        case .tutti:   p.tuttiSpan = .row
-        case .ratchet: p.rtcSpan = .row
+        case .euclid:  if r.chance(0.6) { p.euclidSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.euclidSpan = .row }
+        case .burst:   if r.chance(0.6) { p.burstSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.burstSpan = .row }
+        case .length:  if r.chance(0.6) { p.lenSpanN = ladder[r.int(ladder.count)] } else if r.chance(0.5) { p.lenSpan = .row }
+        case .cascade: if r.chance(0.5) { p.cascadeSpan = .row }
+        case .mod:     if r.chance(0.5) { p.modSpan = .row }
+        case .tutti:   if r.chance(0.5) { p.tuttiSpan = .row }
+        case .ratchet: if r.chance(0.5) { p.rtcSpan = .row }
         default:       break
         }
     }

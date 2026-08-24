@@ -133,6 +133,24 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 12, "the column-1 downbeat must not be dropped (was 9 = K−1 per cycle)")
         assertNothingLeftSounding(e)
     }
+    // SPAN LADDER (Paul 2026-08-22): SPAN sets how many columns the euclid pattern spans — so how much of it lands in
+    // one column. A 4-of-8 euclid = hits at steps 0,2,4,6. In column 0's [0,S) window: SPAN 1 fits all 8 steps (4 hits ×
+    // 3 = 12); SPAN 2 fits 4 steps (2 hits × 3 = 6); SPAN 8 (ROW) fits 1 step (1 hit × 3 = 3). Also proves the legacy
+    // euclidSpan migrates byte-identically (nil→SPAN 1, .row→SPAN 8).
+    func testEuclidSpanLadderControlsPatternDensityPerColumn() {
+        func ons(spanN: Int? = nil, legacy: PatternSpan? = nil) -> Int {
+            let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)
+                c.paramsA.euclidPulses = 4; c.paramsA.euclidSteps = 8; c.paramsA.euclidSpanN = spanN; c.paramsA.euclidSpan = legacy; return c }) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
+            let e = RecordingEmitter(); run(b, chord([60, 64, 67]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(ons(spanN: 1), 12, "SPAN 1 (CELL): the whole 8-step euclid fits in the column")
+        XCTAssertEqual(ons(spanN: 2), 6, "SPAN 2: half the pattern per column")
+        XCTAssertEqual(ons(spanN: 8), 3, "SPAN 8 (ROW): one step per column")
+        XCTAssertEqual(ons(legacy: .row), 3, "legacy euclidSpan=.row migrates to SPAN 8 (byte-identical)")
+        XCTAssertEqual(ons(), 12, "no span set = CELL (SPAN 1, byte-identical)")
+    }
     // EUCLID PICK (Paul 2026-08-22): LOW strikes only the pool's lowest note on every hit.
     func testEuclidPickLowStrikesOnlyTheLowestNote() {
         let b = box(colours: colourIDs.map { var c = Colour(colourID: $0, type: .euclid)

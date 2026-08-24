@@ -159,6 +159,19 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIER 2 — THE SPAN LADDER, stage 1: the WIDTH procs (EUCLID · BURST · LENGTH) (2026-08-24, on `main`; iOS builds,
+  macOS green incl. fuzz; DEVICE ear owed). INSTRUCTIONS-state-matrix §3. Paul RULED the rate-proc semantics =
+  **RATE × ladder (both)** (RATE = slice width · SPAN = loop period in columns) — so the ladder is now a staged rollout
+  of one agreed model. STAGE 1 = the 3 WIDTH-based procs, where RATE isn't involved: SPAN CELL|ROW → a dial
+  **1·2·3·4·6·8·×2·×4** (columns, then ×2/×4 bars, stored 16/32). Pure `spanLadderBeats(n, S, row)` (Derivations) — the
+  pattern anchors at the span origin (`columnStart(beat, spanBeats)`) and repeats every N columns → POLYMETER at
+  processor grain (odd N against the 8-column row). CELL=1 (S) / ROW=8 (the row/bar width) are BYTE-IDENTICAL endpoints;
+  additive-Optional `*SpanN: Int?` (nil ⇒ migrate legacy CELL→1 / ROW→8). Threaded through EUCLID (`sub =
+  spanLadderBeats/n`), BURST (once + pattern anchor/width), LENGTH (all 3 sites: standalone, composed, echo-tail). UI =
+  a shared `spanLadderField` dial replacing the CELL|ROW seg on the 3 editors. +1 RouterTest (density 12/6/3 per column
+  for SPAN 1/2/8 + legacy-migration byte-identity); fuzz hammers the odd/×-column spans for no-stuck-notes. **STAGE 2
+  (next): the RATE×ladder for TUTTI/RATCHET/MOD/CASCADE** — RATE stays the slice width, the ladder sets the loop period;
+  changes their CELL slice-width semantics (opt-in via the new field so old docs stay byte-identical), device-ear owed.**
 - **▶ TIER 2 (start) — THE STATE MATRIX: pick-then-paint RETIRED on the exclusive-state editors (2026-08-24, on `main`;
   iOS builds; UI-only — macOS suite unaffected, DEVICE eye owed). First slice of Tier 2 (INSTRUCTIONS-state-matrix §1).
   A new reusable `stateMatrixRadio` widget in GridUI: rows = the option states · columns = the 8 steps · RADIO-PER-COLUMN
