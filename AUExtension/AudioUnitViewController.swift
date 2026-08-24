@@ -144,7 +144,6 @@ struct DiagView: View {
     // parts/colours/master are shared). v1: not persisted, instant switch.
     @State var buildScenes: [BuildSceneSnapshot] = []
     @State var buildActiveScene: Int = 0
-    @State var buildScenesDirty: Bool = true   // SCENES: only deep-copy + push the arrangements to the save-state when something CHANGED (not every 4Hz tick — CPU, device 2026-08-24)
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildMidiConfigTab: Int = 0         // MIDI INPUTS: which door (A–D) tab is shown (Paul 2026-08-23)

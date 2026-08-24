@@ -1855,7 +1855,6 @@ extension DiagView {
         au?.setBuildStagingScene(BuildSceneLogic.composeScene(input))
         // (The reference-chord fallback was REMOVED 2026-08-23, Paul: PLAY THIS MIDI CHAIN now sounds ONLY real input —
         // a synthetic C-major triad must never reach the user. With nothing held the audition is simply silent.)
-        buildScenesDirty = true                                  // SCENES: the arrangement may have changed → re-capture it for the save-state on the next persist tick (not every tick)
     }
     // The staging row currently being EDITED = the row holding the selected colour (nil ⇒ nothing on a row). (Paul 2026-08-18)
     private var buildSelectedRow: Int? {
@@ -2271,9 +2270,7 @@ extension DiagView {
         if let u = au?.consumeBuildUnassigned() { buildRestoreUnassigned(u) }   // a host load happened while on BUILD
         if let sc = au?.consumeBuildScenes() { buildRestoreScenes(sc.scenes, active: sc.active) }   // SCENES V2: restore the saved play-grid arrangements
         au?.setBuildUnassigned(buildCaptureUnassigned())                         // keep fullState's copy fresh
-        // SCENES: only re-capture + push when the arrangement CHANGED (CPU — a per-tick deep copy of [[[ProcessorSlot]]]
-        // pegged the render/UI, device 2026-08-24). Idle ticks skip it entirely.
-        if buildScenesDirty { au?.setBuildScenes(buildCaptureScenes(), active: buildActiveScene); buildScenesDirty = false }
+        au?.setBuildScenes(buildCaptureScenes(), active: buildActiveScene)       // …and the scenes — cheap (COW refcount bumps, not a deep copy), so no dirty-gate needed
     }
     // THE DEFAULT PALETTE (Paul 2026-08-14): eight starter colours, one per processor type (arp/ratchet/euclid/echo
     // named + strum/chance/harmonize/drone — NEVER passgate). They open the palette as 2 rows of 4 and are present in
