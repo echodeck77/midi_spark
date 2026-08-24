@@ -246,10 +246,14 @@ enum SnapshotBuilder {
         // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).
         let row8 = doc.row8Resolved, row8On = scene.row8OnResolved
         var freezeActive = false, clockScale = 1.0
+        var busRemap: [UInt8] = [0, 1, 2, 3]   // REDIRECT/SWAP: the per-bus output remap
+        func wire(_ v: Int?) -> Int { max(0, min(3, v ?? 0)) }
         for i in 0..<min(8, row8.count) where row8On[i] {
             switch row8[i].type {
             case .freeze:   freezeActive = true
             case .halftime: clockScale = [2.0, 1.0, 0.5][max(0, min(2, row8[i].halftimeMode ?? 1))]   // 0 ÷2 · 1 ×1 · 2 ×2
+            case .redirect: let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t)          // A→B
+            case .swap:     let f = wire(row8[i].wireFrom), t = wire(row8[i].wireTo); busRemap[f] = UInt8(t); busRemap[t] = UInt8(f)   // A↔B
             default: break
             }
         }
@@ -303,7 +307,7 @@ enum SnapshotBuilder {
                            receiverFile: receiverFile,
                            macroValues: macroVals,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
-                           freezeActive: freezeActive, clockScale: clockScale)
+                           freezeActive: freezeActive, clockScale: clockScale, busRemap: busRemap)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.

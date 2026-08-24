@@ -253,6 +253,7 @@ final class SnapshotBox {
     // clockScale = the play-grid clock multiplier from a lit HALFTIME cell (÷2 ⇒ 2.0 = steps twice as long · ×2 ⇒ 0.5 · ×1/none ⇒ 1.0).
     let freezeActive: Bool
     let clockScale: Double
+    let busRemap: [UInt8]            // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (default [0,1,2,3] = no redirect). A lit REDIRECT A→B sets [A]=B; a lit SWAP A↔B sets [A]=B,[B]=A. Applied at the emission stamp (cable+channel).
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -279,9 +280,10 @@ final class SnapshotBox {
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
          macroValues: [Double] = Array(repeating: 0, count: 24),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = [],
-         freezeActive: Bool = false, clockScale: Double = 1.0) {
+         freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3]) {
         self.freezeActive = freezeActive
         self.clockScale = clockScale
+        self.busRemap = busRemap
         self.rowLaneMask = rowLaneMask
         self.generation = generation
         self.stepBeats = stepBeats

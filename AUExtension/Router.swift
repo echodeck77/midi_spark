@@ -66,6 +66,7 @@ final class Router {
     private var distinctSounding = 0   // number of (cable,ch,note) with refcount > 0 (diag; kept incrementally)
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
+    private var busRemap: [UInt8] = [0, 1, 2, 3]      // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (identity = no redirect), refreshed each process
     private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
@@ -1204,7 +1205,12 @@ final class Router {
             markVel[bus * 8 + markCount[bus]] = v; markCol[bus * 8 + markCount[bus]] = Int8(clamping: currentColourIndex)
             markCount[bus] += 1
         }
-        let ch = (chanOverride >= 0 && !previewMode) ? UInt8(chanOverride) : (busChannels[bus] &- 1) & 15   // UTILITY CHANNEL override (previewMode bypasses, like NUDGE), else the bus stamp (1–16 → 0–15 wire)
+        // ROW 8 REDIRECT / SWAP (Paul 2026-08-22): while active, this emitter's OUTPUT stream is re-stamped onto another
+        // wire — the note comes out on `outWire`'s cable + channel (previewMode bypasses). The origin `bus` is kept for the
+        // enable/claim/meter gates + the voice's adoption key, and the ACTUAL (cable, chan) is stored in the voice, so a
+        // note in flight when the redirect is RELEASED still closes on the wire it opened (no stuck note — the handoff). 1:1 default ⇒ byte-identical.
+        let outWire = previewMode ? Int(bus) : Int(busRemap[Int(bus)])
+        let ch = (chanOverride >= 0 && !previewMode) ? UInt8(chanOverride) : (busChannels[outWire] &- 1) & 15   // UTILITY CHANNEL override (previewMode bypasses, like NUDGE), else the (remapped) bus stamp (1–16 → 0–15 wire)
         // THE RACK POCKET (per-emitter) + UTILITY NUDGE (per-cell): shift this note's on/off by the timing offset
         // (samples). Both shift equally so the duration is preserved; the on is clamped into [renderStart, windowEnd]
         // (can't play in the past or beyond the window), and a held note (offSample .max) keeps its immortal off. previewMode bypasses.
@@ -1215,7 +1221,7 @@ final class Router {
             onS = max(renderStart, min(windowEnd, target))
             if offSample != .max { offS = max(onS + 1, offSample + (onS - onSample)) }
         }
-        let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
+        let own = openVoice(note: note, chan: ch, cable: UInt8(outWire + 1), bus: UInt8(bus),   // REDIRECT/SWAP: own cable follows the remapped wire
                             onSample: onS, offSample: offS, velocity: v, out: out)
         if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
@@ -1904,6 +1910,7 @@ final class Router {
         self.receiverBypassMask = box.receiverBypassMask; self.receiverBypassDest = box.receiverBypassDest; self.passEmitterMask = box.passEmitterMask
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
+        busRemap = box.busRemap                      // ROW 8 REDIRECT/SWAP: per-bus output remap, this render
         curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);

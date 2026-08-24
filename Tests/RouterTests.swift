@@ -1010,6 +1010,29 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(half, normal, "HALFTIME ÷2 crosses half the column boundaries → fewer re-strikes")
     }
 
+    // ROW 8 REDIRECT (A→B) / SWAP (A↔B): while active, an emitter's OUTPUT stream is re-stamped onto another wire
+    // (cable + channel). The note stores its actual stamp, so nothing is stranded.
+    func testRow8RedirectAndSwapRestampTheWire() {
+        func rowBox(_ cell: Row8Cell, cellBus: Bus) -> SnapshotBox {
+            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [cellBus])
+            s.row8On = [true, false, false, false, false, false, false, false]
+            var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            st.row8 = [cell]
+            return SnapshotBuilder.build(from: st)
+        }
+        // REDIRECT A→B: emitter A's note comes out on B's cable (2), not A's (1)
+        var redir = Row8Cell.make(.redirect); redir.wireFrom = 0; redir.wireTo = 1
+        let e1 = RecordingEmitter(); run(rowBox(redir, cellBus: .a), chord([60]), beats: 4, into: e1)
+        XCTAssertTrue(e1.ons.contains { $0.note == 60 && $0.cable == 2 }, "A's note redirected onto B's cable")
+        XCTAssertFalse(e1.ons.contains { $0.note == 60 && $0.cable == 1 }, "…and NOT on A's own cable")
+        assertNothingLeftSounding(e1)
+        // SWAP A↔B: an A-cell note lands on B's cable (and a B-cell note would land on A's)
+        var sw = Row8Cell.make(.swap); sw.wireFrom = 0; sw.wireTo = 1
+        let e2 = RecordingEmitter(); run(rowBox(sw, cellBus: .a), chord([60]), beats: 4, into: e2)
+        XCTAssertTrue(e2.ons.contains { $0.note == 60 && $0.cable == 2 }, "SWAP sends A's stream to B's cable")
+        assertNothingLeftSounding(e2)
+    }
+
     func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
         let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()

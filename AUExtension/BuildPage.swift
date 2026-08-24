@@ -1073,11 +1073,22 @@ extension DiagView {
         case .empty:
             buildRow8EditSlot = i; buildRow8EditOpen = true          // an empty cell invites authoring
         case .setup:
-            au?.setRow8OnRadioSetup(i); refreshFromDocument()        // SETUP cells are a radio
+            au?.setRow8OnRadioSetup(i)                               // SETUP cells are a radio (lit state)
+            au?.setRackConfig(max(0, min(3, c.setupN ?? 0)))         // …and activate that rack config (§5: the only rack link)
+            refreshFromDocument()
+        case .macro:
+            let now = !(i < buildRow8On.count && buildRow8On[i])
+            if i < buildRow8On.count { buildRow8On[i] = now }
+            au?.setRow8On(i, now)
+            au?.setMacroValue(max(0, min(7, c.macroN ?? 0)), now ? 1.0 : 0.0)   // fire/hold macro n
+        case .kill:
+            au?.masterPanic()                                        // one-shot: all-notes-off (hard = panic)
+            let on = i < buildRow8On.count && buildRow8On[i]
+            if on, i < buildRow8On.count { buildRow8On[i] = false; au?.setRow8On(i, false) }   // KILL never latches
         default:
             let now = !(i < buildRow8On.count && buildRow8On[i])
             if i < buildRow8On.count { buildRow8On[i] = now }         // optimistic
-            au?.setRow8On(i, now)                                    // v1: TAP = toggle the lit state (FREEZE/HALFTIME act; held/one-shot engines land next)
+            au?.setRow8On(i, now)                                    // v1: TAP = toggle the lit state (FREEZE/HALFTIME act; the routing-class + held/one-shot engines land next)
         }
     }
 
