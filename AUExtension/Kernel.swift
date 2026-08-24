@@ -405,13 +405,22 @@ final class Kernel {
     // persistently shared, so the render thread's per-element write triggered copy-on-write + a refcount race →
     // EXC_BAD_ACCESS in _swift_release_dealloc on the poll's next @State assignment. The mask can't corrupt a buffer.)
     private var recvLiveHeldMask: UInt8 = 0
+    // ⚠ COPY ELEMENT-BY-ELEMENT, NEVER `Array(recvHeldVel[range])` (device SIGTRAP 2026-08-24). A slice/`Array(slice)` HOLDS
+    // a strong reference to the render buffer for the whole copy → the buffer becomes SHARED → the render thread's next
+    // `recvHeldVel[i]=…` write triggers copy-on-write, which frees the buffer the main thread is still copying from →
+    // swift_unknownObjectRelease use-after-free. A per-element subscript READ never retains the buffer, so no COW is
+    // triggered; a torn byte is benign (a stale meter value).
     func pollReceiverSounding() -> [[UInt8]] {
-        var out = [[UInt8]](); for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); out.append(Array(recvHeldVel[i*12 ..< i*12 + c])) }
+        var out = [[UInt8]]()
+        for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); var a = [UInt8](repeating: 0, count: c)
+            for k in 0..<c { a[k] = recvHeldVel[i*12 + k] }; out.append(a) }
         return out
     }
     /// The PITCHES currently held per door (a fresh copy — race-safe like pollReceiverSounding). Drives the REPLAY roll.
     func pollReceiverSoundingNotes() -> [[UInt8]] {
-        var out = [[UInt8]](); for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); out.append(Array(recvHeldNote[i*12 ..< i*12 + c])) }
+        var out = [[UInt8]]()
+        for i in 0..<4 { let c = min(12, max(0, recvHeldCount[i])); var a = [UInt8](repeating: 0, count: c)
+            for k in 0..<c { a[k] = recvHeldNote[i*12 + k] }; out.append(a) }
         return out
     }
     func pollReceiverLiveHeld() -> UInt8 { recvLiveHeldMask }
