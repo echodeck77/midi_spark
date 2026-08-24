@@ -1365,6 +1365,8 @@ struct ProcessorBox: View {
     // MODE ROW (device round 2): an enum field is an ALWAYS-VISIBLE RADIO ROW — every option shown, the selected
     // one filled. No dropdown; nothing hidden. Wraps to a second line when the options don't fit one row.
     private func seg(_ options: [String], sel: String, _ onPick: @escaping (Int) -> Void) -> some View {
+        // Chips size to their LABEL (finger-min 52pt), LEFT-aligned — so a 2-option toggle is ~140pt, not the full panel
+        // width (Paul 2026-08-25: "controls feel too wide"). Font unchanged; the trailing Spacer stops the row stretching.
         let rows = radioRows(options.count)
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, span in
@@ -1372,11 +1374,12 @@ struct ProcessorBox: View {
                     ForEach(span, id: \.self) { i in
                         let on = options[i] == sel
                         Text(options[i]).font(.system(size: 15, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : accent).lineLimit(1).minimumScaleFactor(0.55)
-                            .frame(maxWidth: .infinity).frame(height: 42)
+                            .foregroundColor(on ? .black : accent).lineLimit(1)
+                            .padding(.horizontal, 15).frame(minWidth: 52, minHeight: 42)
                             .background(RoundedRectangle(cornerRadius: 7).fill(on ? accent : Color.white.opacity(0.09)))
                             .contentShape(Rectangle()).onTapGesture { onPick(i) }
                     }
+                    Spacer(minLength: 0)
                 }
             }
         }

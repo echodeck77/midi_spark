@@ -4069,9 +4069,13 @@ extension DiagView {
                 Color.clear.frame(height: topReserve).allowsHitTesting(false)   // pass taps through to the play-button row
                 HStack(spacing: 0) {
                     Color.clear.frame(width: leftReserve).allowsHitTesting(false)   // pass taps through to the LEFT column
-                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: contentW)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.trailing, 10).padding(.bottom, 12)
+                    // Pass 1 (Paul 2026-08-25, "controls feel too wide"): the panel is a TIDY COLUMN (≤ 600pt), docked to
+                    // the left of its region — not stretched across the whole grid. Controls stop sprawling to full width.
+                    let panelW = min(600, contentW)
+                    buildProcessorPanel(slot: slot, proc: chain[slot], cid: cid, contentW: panelW)
+                        .frame(width: panelW).frame(maxHeight: .infinity)
+                        .padding(.bottom, 12)
+                    Spacer(minLength: 10)
                 }
             }
             .onAppear { buildEditorSnapshot = selectedColourChain(); buildEditorSnapCid = ddSelectedColourID }   // capture the OPEN snapshot (for CANCEL / overwrite-revert)
