@@ -61,6 +61,29 @@ enum AppTab: String, CaseIterable {
 /// One scrolling mark in the MIDI CONFIG REPLAY input roll: a note that ONSET at `born`, drifting right→left. (Paul 2026-08-20)
 struct InputMark: Equatable { let note: UInt8; let born: Date; let beat: Double }   // beat = the onset beat → the roll is BEAT-driven (freezes when stopped, stays pass-synced); born = the memory-prune stamp
 
+/// CPU (device 2026-08-24): the FAST-changing telemetry — the emitter/receiver meter peaks (updated at 30 Hz) — used to
+/// live as `@State` on the giant `DiagView`, so every peak update re-ran the WHOLE BuildPage body 30×/sec (80% CPU, the
+/// watchdog kill). It now lives in this plain class held by `DiagView` via `@State` — `@State` tracks the class REFERENCE
+/// (which never changes), NOT the object's mutations, so mutating it does NOT re-run the body. The meter timer writes it;
+/// the meter TimelineViews (which already re-evaluate at 30 fps) read it LIVE through the shared reference. No SwiftUI
+/// observation, no view extraction — the body only recomputes on real structural changes now.
+final class LiveTelemetry {
+    var emitPeak = [Double](repeating: 0, count: 4)
+    var emitPeakAt = [Date](repeating: .distantPast, count: 4)
+    var receiverPeak = [Double](repeating: 0, count: 4)
+    var receiverPeakAt = [Date](repeating: .distantPast, count: 4)
+    // The BEAT anchor (4 Hz): the playheads + the scene-chip sweep EXTRAPOLATE the beat from (anchor, anchorAt) at 30 fps,
+    // so it only needs re-anchoring periodically. Holding it here (not @State) means the 4 Hz re-anchor doesn't re-run the
+    // body either. `beat` is the raw polled beat (the InputMark roll reads it); `tempo` feeds the extrapolation.
+    var beatAnchor = 0.0
+    var beatAnchorAt = Date()
+    var beat = 0.0
+    var tempo = 120.0
+    func emitter(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; emitPeak[i] = peak; emitPeakAt[i] = Date() }
+    func receiver(_ i: Int, peak: Double) { guard i >= 0, i < 4 else { return }; receiverPeak[i] = peak; receiverPeakAt[i] = Date() }
+    func anchorBeat(_ b: Double, tempo t: Double, at when: Date) { beat = b; beatAnchor = b; beatAnchorAt = when; tempo = t }
+}
+
 struct DiagView: View {
     weak var au: MidiSparkAudioUnit?
     @State var d = KernelDiag()      // polled for the grid's effColumn / playing
@@ -188,8 +211,7 @@ struct DiagView: View {
     @State var buildGridSelPriorReceiver = 0
     @State var ddStickyReceiver: Int = 0      // DRAG&DROP: the LAST receiver chosen on the page → the default input for a fresh cell (R1 = 0)
     @State var ddStickyBuses: Set<Bus> = [.a] // DRAG&DROP: the LAST emitters chosen on the page → the default output for a fresh cell (Emitter A)
-    @State var ddBeatAnchor: Double = 0       // DRAG&DROP playhead: last polled beat + when — extrapolated for a phase-locked palette wipe
-    @State var ddBeatAnchorAt: Date = Date()
+    // (the playhead beat anchor moved into `meters` — a @State-held class — so its 4 Hz re-anchor doesn't re-run the body)
     @State var ddSolo = false                  // DRAG&DROP PLAY: THIS CELL — isolate + freeze on the selected cell's column
     @State var showManual = false             // the "?" → the in-app manual overlay (scrolled to the last-touched control)
     @StateObject var helpTracker = HelpTracker()   // records the last-touched control's manual anchor (silent — no @Published)
@@ -292,12 +314,11 @@ struct DiagView: View {
     // from the strike/note feed (same as the perform grid's face), read by buildNoteSweep→buildPianoRoll.
     @State var buildCellRoll: [[BuildRollNote]] = Array(repeating: [], count: 64)
     @State var buildRollPrevSeq = [Int](repeating: 0, count: 64)
-    @State var emitPeak: [Double] = [0, 0, 0, 0]               // §6a meter: latched peak (0–1) per emitter
-    @State var emitPeakAt: [Date] = Array(repeating: .distantPast, count: 4)   // when each peak latched (for decay)
+    // §6a meter peaks (emitter + receiver) live in `meters` — a @State-held class so the 30 Hz updates DON'T re-run the
+    // body (CPU, device 2026-08-24). The meter TimelineViews read `meters.emitPeak`/`emitPeakAt` etc. live through the reference.
+    @State var meters = LiveTelemetry()
     @State var emitDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD emitter fader: the live drag velocity override per emitter (nil = not dragging)
     @State var recvDragVel: [Int?] = [nil, nil, nil, nil]     // BUILD receiver fader: the live drag input-velocity override per door (nil = not dragging)
-    @State var receiverPeak: [Double] = [0, 0, 0, 0]           // §9 item 11 input meter: latched peak per receiver
-    @State var receiverPeakAt: [Date] = Array(repeating: .distantPast, count: 4)
     @State var recvHeld: [[Double]] = [[], [], [], []]        // duration: currently-held input velocities per receiver (0–1) — the MIDI-IN length bar reads this
     @State var recvHeldNotes: [[UInt8]] = [[], [], [], []]    // per-door held input PITCHES (config-sheets REPLAY roll, Paul 2026-08-20)
     @State var recvInputRoll: [[InputMark]] = [[], [], [], []]   // per-door scrolling input marks (onset-born), for the MIDI CONFIG REPLAY roll
@@ -730,9 +751,9 @@ struct DiagView: View {
         .onReceive(meterTimer) { _ in
             guard uiAppeared, let au else { return }   // ~30fps peak metering → the velocity indicators track live (not the 4Hz poll)
             let act = au.pollEmitterActivity()
-            for i in 0..<4 where i < act.events.count && act.events[i] > 0 { emitPeak[i] = Double(act.peak[i]) / 127.0; emitPeakAt[i] = Date() }
+            for i in 0..<4 where i < act.events.count && act.events[i] > 0 { meters.emitter(i, peak: Double(act.peak[i]) / 127.0) }   // → the @State-held class; DOES NOT re-run the body
             let rin = au.pollReceiverActivity()
-            for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 { receiverPeak[i] = Double(rin.peak[i]) / 127.0; receiverPeakAt[i] = Date() }
+            for i in 0..<4 where i < rin.events.count && rin.events[i] > 0 { meters.receiver(i, peak: Double(rin.peak[i]) / 127.0) }
         }
         .onReceive(timer) { _ in
             guard uiAppeared, let au else { return }   // CR-17: don't drain the render→main feeds while the view is hidden/backgrounded (perf + narrows CR-1's race window). buildPersistTick resumes on re-appear — a load restores then.
@@ -744,6 +765,7 @@ struct DiagView: View {
             // whole grid every 0.25s (which used to tear down in-progress press-holds). When STOPPED
             // nothing here changes, so the grid is quiescent; while PLAYING only the playhead fields move.
             let nd = au.kernelDiagnostics()
+            meters.anchorBeat(nd.beat, tempo: nd.tempo, at: Date())       // BEAT clock (4 Hz) → the @State-held telemetry; the playheads extrapolate from it at 30 fps, so no body re-run for the beat
             if d.playing && !nd.playing {                                 // §5c/§9: transport stop = the drop
                 if holdLatch { setHold(false) }
                 // LOOP PERSISTS across a transport stop (user 2026-08-06): keep the selected columns (their LOOP
@@ -756,8 +778,11 @@ struct DiagView: View {
                 if buildCellRoll.contains(where: { !$0.isEmpty }) { buildCellRoll = Array(repeating: [], count: 64) }   // BUILD piano-roll: clear on stop so idle faces pause
             }
             let lm = au.uiLadderMode(); if lm != ladderMode { ladderMode = lm }   // LADDER: sync the mode (preset load / external change)
+            // `d` drives the BODY (effColumn highlight, pass, etc.). DON'T update it on `beat` alone — that fired every
+            // tick while playing (→ a full BuildPage recompute at 4 Hz just to move a beat the playheads extrapolate).
+            // The beat now lives in `meters`; `d` updates only at STEP boundaries (effColumn/absoluteStep) + transport/tempo/pass.
             if nd.playing != d.playing || nd.tempo != d.tempo || nd.pass != d.pass
-                || (nd.playing && (nd.beat != d.beat || nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
+                || (nd.playing && (nd.effColumn != d.effColumn || nd.absoluteStep != d.absoluteStep)) { d = nd }
             let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
             let be = au.uiBusEnabled();    if be != busEnabled { busEnabled = be }
             let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // THE REEL-TO-REEL glyph state
@@ -887,7 +912,6 @@ struct DiagView: View {
             if activeTab == .build { buildSeedCastIfNeeded() }
         }
         .onDisappear { uiAppeared = false }
-        .onChange(of: d.beat) { b in ddBeatAnchor = b; ddBeatAnchorAt = Date() }   // keep the playhead anchor fresh on EVERY tab (BUILD sweep, not just DRAG&DROP)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
     }
@@ -958,7 +982,7 @@ struct DiagView: View {
                    monoMask: monoMask, monoPriority: monoPriority,
                    pocketMask: pocketMask, pocketMs: pocketMs,
                    convLead: convLead, convStance: convStance,
-                   emitPeak: emitPeak,
+                   emitPeak: meters.emitPeak,
                    onClaim: setClaim, onClaimLeak: setClaimLeak,
                    onToggleDuck: toggleFlatten, onDuckAmount: setFlatAmount,
                    onToggleAlt: toggleAlt, onAltCount: setAltCnt, onSetTurnsPerNote: setTurnsPerNoteMode,

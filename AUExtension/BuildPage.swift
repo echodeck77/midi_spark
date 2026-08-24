@@ -203,7 +203,7 @@ extension DiagView {
         HStack(spacing: 14) {
             Text(letter).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(buildCyan).frame(width: 34, alignment: .leading)
             TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: animationsPaused)) { tl in   // live OUT dot — lights on emit, fades
-                let age = i < emitPeakAt.count ? tl.date.timeIntervalSince(emitPeakAt[i]) : 999
+                let age = i < meters.emitPeakAt.count ? tl.date.timeIntervalSince(meters.emitPeakAt[i]) : 999
                 Circle().fill(Color(red: 0.36, green: 0.92, blue: 0.52).opacity(age < 0.4 ? 1.0 - age / 0.4 * 0.75 : 0.18)).frame(width: 10, height: 10)
             }
             Text("EMITTER \(letter)").font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(.white.opacity(0.55))
@@ -541,7 +541,7 @@ extension DiagView {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused || !d.playing)) { tl in
                     Canvas { ctx, sz in
                         // ONE CLOCK: the current beat, extrapolated from the last poll while playing; FROZEN when stopped.
-                        let cb = d.playing ? ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0 : ddBeatAnchor
+                        let cb = d.playing ? meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0 : meters.beatAnchor
                         func xOf(_ beat: Double) -> CGFloat { sz.width * (1 - CGFloat((cb - beat) / windowBeats)) }
                         func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (sz.height - 6) + 3 }
                         let passStart = (cb / passBeats).rounded(.down) * passBeats   // start of the CURRENT (incomplete) pass
@@ -3350,7 +3350,7 @@ extension DiagView {
             let cols = lenC ?? Snap.cols
             let width = cell * 8 + BuildGeom.cellGap * 7               // the cells span: 8 cells + the 7 gaps between them
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0   // extrapolate the polled beat
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0   // extrapolate the polled beat
                 let musical = musicalOf(live, stepBeats: sb, a: max(1.0, Double(swing) / 50.0))       // column progress in MUSICAL (swung) time
                 let colF = sb > 0 ? musical / sb : 0                  // continuous column index since transport start
                 let wrapped = colF.truncatingRemainder(dividingBy: Double(cols))
@@ -3372,7 +3372,7 @@ extension DiagView {
             let width = cell * 8 + BuildGeom.cellGap * 7
             let pitch = cell + BuildGeom.cellGap
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
-                let live = ddBeatAnchor + tl.date.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0
+                let live = meters.beatAnchor + tl.date.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
                 ZStack(alignment: .topLeading) {
                     ForEach(0..<8, id: \.self) { r in
                         let part = buildPerformPart[r]
@@ -3752,8 +3752,8 @@ extension DiagView {
                     // ATTACK FLASH (Paul 2026-08-23): an event-driven, decaying flash on every note-on (30 Hz peak feed),
                     // so QUICK TAPS register even though the ~4 Hz held-velocity poll misses a note pressed+released
                     // between two polls. Mirrors buildReceiverMeter. max(held, flash) → sustained holds still show full.
-                    let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
-                    let flash = (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.3)
+                    let age = tl.date.timeIntervalSince(i < meters.receiverPeakAt.count ? meters.receiverPeakAt[i] : .distantPast)
+                    let flash = (i < meters.receiverPeak.count ? meters.receiverPeak[i] : 0) * max(0, 1 - age / 0.3)
                     let level = override != nil ? Double(override!) / 127.0 : max(0, min(1, max(held, flash)))
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.5))
@@ -3791,8 +3791,8 @@ extension DiagView {
             Text(letter).font(.system(size: 10, weight: .black, design: .monospaced)).foregroundColor(buildDim)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: animationsPaused)) { tl in
                 let held = i < recvHeld.count ? (recvHeld[i].max() ?? 0) : 0     // SUSTAINED while notes are held → the bar shows note LENGTH
-                let age = tl.date.timeIntervalSince(i < receiverPeakAt.count ? receiverPeakAt[i] : .distantPast)
-                let flash = (i < receiverPeak.count ? receiverPeak[i] : 0) * max(0, 1 - age / 0.3)   // a brief attack flash on note-on
+                let age = tl.date.timeIntervalSince(i < meters.receiverPeakAt.count ? meters.receiverPeakAt[i] : .distantPast)
+                let flash = (i < meters.receiverPeak.count ? meters.receiverPeak[i] : 0) * max(0, 1 - age / 0.3)   // a brief attack flash on note-on
                 let level = max(0, min(1, max(held, flash)))
                 GeometryReader { g in
                     ZStack(alignment: .bottom) {
@@ -3888,8 +3888,8 @@ extension DiagView {
                     // emitPeakAt → the bar jumps back up, so new notes take priority over the fall reaching the bottom.
                     let level: Double = {
                         if let o = override { return Double(o) / 127.0 }
-                        let age = tl.date.timeIntervalSince(i < emitPeakAt.count ? emitPeakAt[i] : .distantPast)
-                        return max(0, min(1, (i < emitPeak.count ? emitPeak[i] : 0) * (1 - age / 0.9)))
+                        let age = tl.date.timeIntervalSince(i < meters.emitPeakAt.count ? meters.emitPeakAt[i] : .distantPast)
+                        return max(0, min(1, (i < meters.emitPeak.count ? meters.emitPeak[i] : 0) * (1 - age / 0.9)))
                     }()
                     let hue = override != nil ? buildPink : (buildPlayingColourHue ?? buildCyan)   // the colour currently playing the cell
                     ZStack(alignment: .bottom) {
@@ -3976,7 +3976,7 @@ extension DiagView {
     // The header playhead's fill fraction (0…1) — phase-locked to the transport, warped by SWING (as the grid playhead).
     // .cell fills over ONE step; .grid fills over the whole 8-column loop.
     private func buildHeaderFill(_ fill: BuildFill, _ now: Date) -> CGFloat {
-        let live = ddBeatAnchor + now.timeIntervalSince(ddBeatAnchorAt) * d.tempo / 60.0
+        let live = meters.beatAnchor + now.timeIntervalSince(meters.beatAnchorAt) * meters.tempo / 60.0
         let musical = musicalOf(live, stepBeats: stepBeats, a: max(1.0, Double(swing) / 50.0))
         let period = fill == .cell ? stepBeats : stepBeats * Double(Snap.cols)
         let raw = period > 0 ? (musical / period).truncatingRemainder(dividingBy: 1) : 0
