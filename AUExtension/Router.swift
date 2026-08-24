@@ -296,6 +296,7 @@ final class Router {
     // (side rail, §7 READ-AT-SOURCE); a MOD stage in EXTERN mode reads + transforms it. -1 = never seen.
     private var controllerIn = [Int16](repeating: -1, count: 128)
     private var prevPreviewActive = false
+    private var prevFreezeActive = false      // ROW 8 FREEZE: the freeze→unfreeze edge (release the sustained notes + resume clean)
     private var previewPrevColumn = -1        // the virtual cell's column-transition edge (strum reset / chord-hold re-emit)
     // Chord-hold audition (v2) scratch: the note-set the held source should be sounding through the
     // treatment, vs. what is sounding now — reconciled each window so the sustained preview follows the
@@ -591,6 +592,7 @@ final class Router {
         for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0b1111
+        prevFreezeActive = false   // ROW 8 FREEZE: a reset clears the sustain edge
         for i in 0..<4 { meterPeakVel[i] = 0; meterEvents[i] = 0; markCount[i] = 0; withheldCount[i] = 0; soundCount[i] = 0 }
         prevAudition = -1; auditionLastTick = -1
         for i in 0..<4 { noteOnsThisBeat[i] = 0 }; lastGovBeat = Int.min   // FLOOD GOVERNOR: fresh budget on transport reset (floodDropped is a session total)
@@ -1959,11 +1961,23 @@ final class Router {
         var S = box.stepBeats
         let srIdx = Int(over(0, -1).rounded())
         if srIdx >= 0 && srIdx < Snap.stepRateBeats.count { S = Snap.stepRateBeats[srIdx] }
+        // ROW 8 HALFTIME (Paul 2026-08-22): a lit HALFTIME cell scales the whole play-grid COLUMN clock (÷2 ⇒ 2.0 = steps
+        // twice as long · ×2 ⇒ 0.5). Applied to S here + the per-row steps below (uniformClock compares like-scaled).
+        // v1: a raw scale — the column phase re-references at the toggle (the transition machinery re-strikes cleanly, no
+        // stuck notes); a phase-anchored boundary-deferred "never-lurch" drop is a flagged follow-up. 1.0 ⇒ byte-identical.
+        let clockScale = box.clockScale
+        S *= clockScale
         diag.effSwing = swing
+
+        // ROW 8 FREEZE (Paul 2026-08-22): while a lit FREEZE cell holds, sounding notes SUSTAIN (offs held) and derivation
+        // PAUSES (no new notes). So while frozen we skip drainDue (the scheduled note-offs stay pending) + the whole
+        // emission + the bypass monitor — but the transport/panic/scene/latch flush edges STILL run below (a stop or panic
+        // must always release, never strand a note). The freeze→unfreeze EDGE releases the held notes + resets the phases.
+        let frozen = box.freezeActive
 
         // ---- drain scheduled gate-offs that have come due (survive across renders → no stuck note
         //      when a voice's off falls beyond its opening window). Runs regardless of transport. ----
-        drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out)
+        if !frozen { drainDue(windowStart: windowStart, windowEnd: windowEnd, out: out) }
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
         diag.floodDropped = floodDropped              // FLOOD GOVERNOR: surface the session drop total to HEALTH
@@ -2009,6 +2023,25 @@ final class Router {
         pool.rebuildSorted()
         diag.poolCount = pool.count
         chanOverride = -1; nudgeSamples = 0   // UTILITY: clean slate each render — preview/audition/bypass + the echo dry must NOT inherit a stale per-cell override from the previous render/cell; the tick/hold loops set them per-cell (review 2026-08-23)
+
+        // ROW 8 FREEZE edge + gate. The freeze→UNFREEZE edge releases the sustained notes (incl. the bypass wire) and
+        // resets the column/tick phases so derivation resumes clean at the boundary. While FROZEN, return here — the
+        // sounding notes sustain (drainDue was skipped above) and NOTHING new emits (bypass + the whole grid are paused).
+        if frozen != prevFreezeActive {
+            if !frozen {                                  // unfreeze: release + resume
+                allNotesOff(atSample: renderSampleImmediate, out: out, includeBypass: true)
+                prevEffColumn = -1
+                for r in lastTick.indices { lastTick[r] = -1; strumProgress[r] = 0; lastGenStep[r] = Int64.min }
+                for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 }
+                clearEchoTails()
+                flushMod(box: box, atSample: renderSampleImmediate, out: out); flushGlide()
+            }
+            prevFreezeActive = frozen
+        }
+        if frozen {
+            diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
+            return   // sustain (offs held) + emit nothing (derivation paused)
+        }
 
         // BYPASS (§1/§2): the live direct-injection monitor — runs BEFORE the stopped/playing split so a bypassed
         // door sounds whether or not the transport rolls. (allNotesOff above skips bypass voices, so the edges don't
@@ -2100,7 +2133,7 @@ final class Router {
         // PER-PART CLOCK (Paul 2026-08-19): uniform ⇒ every row runs the scene-default step and a full 8-wide loop
         // (today's sound, byte-identical FAST PATH). Non-uniform ⇒ each row has its own step rate/loop length, so its
         // column edge + hold reconcile + ticks all derive on that row's OWN clock (the multi-clock path below).
-        let uniformClock = box.rowStep.allSatisfy { $0 == S } && box.rowLength.allSatisfy { $0 == Snap.cols }
+        let uniformClock = box.rowStep.allSatisfy { $0 * clockScale == S } && box.rowLength.allSatisfy { $0 == Snap.cols }   // HALFTIME scales S + each rowStep alike, so a uniform doc stays on the fast path
         let uniformFast = uniformClock && !perRowLap   // a per-row lap (BUILD's two grids) forces the per-row path too
 
         // ---- column transition (§7): active column changed → truncate all voices at the boundary
@@ -2117,7 +2150,7 @@ final class Router {
             let globalPass = diag.pass
             if prevEffColumn == -1 || prevUniformFast { for i in prevEffColumnRow.indices { prevEffColumnRow[i] = -1 } }   // a flush edge, OR a live uniform→multi switch (CR-11), re-seeds the per-row trackers so each row reconciles this window
             for r in 0..<Snap.rows {
-                let Sr = box.rowStep[r]
+                let Sr = box.rowStep[r] * clockScale   // ROW 8 HALFTIME scales every row's clock too
                 let Lr = box.rowLength[r]
                 let mNr = musicalOf(beatPos, stepBeats: Sr, a: a)
                 let cycR = Double(Lr) * Sr

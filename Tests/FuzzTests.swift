@@ -412,11 +412,13 @@ final class FuzzTests: XCTestCase {
     private func swapRouting(_ doc: PluginState, _ r: inout FuzzRNG) -> PluginState {
         var d = doc
         var scene = d.scenes.first ?? SceneState.empty()
-        switch r.int(4) {
+        switch r.int(5) {
         case 0: d.busChannels = (0..<4).map { _ in r.range(1, 16) }                                 // restamp exit channels
         case 1: d.busEnabled = (0..<4).map { _ in r.chance(0.7) }                                    // toggle emitter enables (close-on-disable)
         case 2: let col = r.int(8), row = r.int(8)                                                   // reroute an occupied cell's buses
                 if var c = scene.cells[col][row] { c.buses = randomBuses(&r); scene.cells[col][row] = c }
+        case 3: d.row8 = [Row8Cell.make(.freeze), Row8Cell.make(.halftime)]                          // ROW 8: FREEZE + HALFTIME edges UNDER sounding notes (sustain / clock-scale — the no-stuck-notes stress)
+                scene.row8On = [r.chance(0.5), r.chance(0.5), false, false, false, false, false, false]
         default: scene.masterKey = r.range(-12, 12)                                                  // transpose the held chord
         }
         d.scenes = [scene]

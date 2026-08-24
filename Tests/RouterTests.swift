@@ -959,6 +959,57 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(diag.floodDropped, router.floodDropped, "the drop total is surfaced to HEALTH")
         assertNothingLeftSounding(e)
     }
+    // ROW 8 FREEZE (Paul 2026-08-22): a lit FREEZE cell SUSTAINS sounding notes + PAUSES derivation (no new notes);
+    // unfreezing RELEASES the held notes and resumes. No stuck notes across the whole cycle.
+    func testRow8FreezeSustainsPausesThenReleases() {
+        func freezeBox(_ on: Bool) -> SnapshotBox {
+            var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])
+            s.row8On = on ? [true, false, false, false, false, false, false, false] : nil
+            var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            st.row8 = [Row8Cell.make(.freeze)]
+            return SnapshotBuilder.build(from: st)
+        }
+        let live = freezeBox(false), frozen = freezeBox(true)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0, wb = Double(2048) * 120.0 / 60.0 / 48_000.0
+        var beat = 0.0, ts = 0.0
+        func step(_ b: SnapshotBox, _ pool: NotePool) {
+            router.process(box: b, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr,
+                           timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            beat += wb; ts += Double(frames)
+        }
+        for _ in 0..<8 { step(live, chord([60, 64, 67])) }            // the arp emits
+        let onsAtFreeze = e.ons.count, offsAtFreeze = e.offs.count
+        XCTAssertGreaterThan(onsAtFreeze, 0, "the arp is emitting before freeze")
+        for _ in 0..<8 { step(frozen, chord([60, 64, 67])) }          // FREEZE — sustain + pause
+        XCTAssertEqual(e.ons.count, onsAtFreeze, "FREEZE: no NEW notes while frozen (derivation paused)")
+        XCTAssertEqual(e.offs.count, offsAtFreeze, "FREEZE: sounding notes SUSTAIN (no offs while frozen)")
+        step(live, chord([60, 64, 67]))                              // UNFREEZE
+        XCTAssertGreaterThan(e.offs.count, offsAtFreeze, "UNFREEZE: the sustained notes release")
+        router.process(box: live, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
+                       timestampSample: ts, frameCount: frames, out: e, diag: &diag)   // stop
+        assertNothingLeftSounding(e)
+    }
+
+    // ROW 8 HALFTIME (÷2): the play-grid COLUMN clock runs at half speed → over a fixed beat span, half the column
+    // boundaries are crossed → half the (distinct-colour) drone re-strikes. ×1/none is byte-identical.
+    func testRow8HalftimeSlowsTheColumnClock() {
+        func onsOver8Beats(halftime: Bool) -> Int {
+            var cs: [Colour] = []
+            for (c, id) in colourIDs.enumerated() { var col = Colour(colourID: id, type: .drone); col.transpose = c; cs.append(col) }
+            var s = SceneState.empty()
+            for c in 0..<8 { s.cells[c][0] = Cell(colourID: colourIDs[c], buses: [.a]) }   // a distinct-note drone per column
+            if halftime { s.row8On = [true, false, false, false, false, false, false, false] }
+            var st = PluginState(colours: cs, scenes: [s]); st.busChannels = [1, 2, 3, 4]
+            if halftime { st.row8 = [Row8Cell.make(.halftime)] }     // ÷2 ⇒ clockScale 2.0
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 8, into: e)
+            return e.ons.count
+        }
+        let normal = onsOver8Beats(halftime: false), half = onsOver8Beats(halftime: true)
+        XCTAssertGreaterThan(normal, 1)
+        XCTAssertLessThan(half, normal, "HALFTIME ÷2 crosses half the column boundaries → fewer re-strikes")
+    }
+
     func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
         let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()

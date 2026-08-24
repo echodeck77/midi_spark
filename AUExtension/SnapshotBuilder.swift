@@ -242,6 +242,18 @@ enum SnapshotBuilder {
         // else empty ⇒ the render uses the ephemeral global lap for every row (GRID tab, byte-identical).
         let rowLaneResolved: [UInt8] = (scene.rowLane?.count == Snap.rows) ? scene.rowLane! : []
 
+        // ROW 8 (Paul 2026-08-22): the toggle cells that flow through the box. A cell counts as ACTIVE when its scene
+        // toggle (row8On) is lit. FREEZE ⇒ sustain + pause; HALFTIME ⇒ scale the play-grid clock (÷2 = 2.0 = slower).
+        let row8 = doc.row8Resolved, row8On = scene.row8OnResolved
+        var freezeActive = false, clockScale = 1.0
+        for i in 0..<min(8, row8.count) where row8On[i] {
+            switch row8[i].type {
+            case .freeze:   freezeActive = true
+            case .halftime: clockScale = [2.0, 1.0, 0.5][max(0, min(2, row8[i].halftimeMode ?? 1))]   // 0 ÷2 · 1 ×1 · 2 ×2
+            default: break
+            }
+        }
+
         return SnapshotBox(generation: generation,
                            stepBeats: scene.stepRate.beats,
                            swing: Double(max(50, min(75, scene.swing))),
@@ -290,7 +302,8 @@ enum SnapshotBuilder {
                            receiverReplayPasses: receiverReplayPasses,
                            receiverFile: receiverFile,
                            macroValues: macroVals,
-                           rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved)
+                           rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
+                           freezeActive: freezeActive, clockScale: clockScale)
     }
 
     // Map document params → flat indices. `fallback` = A-state for sparse-B inheritance.
