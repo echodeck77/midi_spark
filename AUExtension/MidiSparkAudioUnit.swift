@@ -387,6 +387,7 @@ public class MidiSparkAudioUnit: AUAudioUnit {
                 var scene = sc                                                 // … but the staging scene is composed at defaults, so honour the LIVE
                 scene.stepRate = temp.scenes[si].stepRate                      // rate + swing (the header clock) — else the audition ignores the rate control
                 scene.swing = temp.scenes[si].swing
+                scene.row8On = temp.scenes[si].row8On                          // ROW 8 (Paul 2026-08-24): preserve the lit action toggles (FREEZE/HALFTIME/REDIRECT/SWAP) — else the composed scene drops them + the engine never freezes/halftimes/redirects
                 temp.scenes[si] = scene
             }
             if let p = previewSolo { temp.scenes[si].setCell(p.col, p.row, p.cell) }

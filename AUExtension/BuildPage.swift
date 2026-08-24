@@ -96,6 +96,7 @@ extension DiagView {
                           allowedContentTypes: [UTType.midi, UTType(filenameExtension: "mid") ?? .data], allowsMultipleSelection: false) { result in
                 buildHandleFileImport(result)                                                             // FILE import → decode + load onto the picking door
             }
+            .onChange(of: activeSceneIdx) { _ in buildSyncSceneSwitch(activeSceneIdx) }                    // SCENES V2: the EXISTING scene chips switched → swap the BUILD play-grid arrangement
         } else {
             Color.clear
         }
@@ -679,6 +680,7 @@ extension DiagView {
                 buildConfigButton("MIDI IN")  { buildMidiConfigOpen = true }    // the MIDI-IN doors sheet
                 buildConfigButton("MIDI OUT") { buildMidiOutConfigOpen = true } // the emitter stamp-channels sheet
                 buildConfigButton("RACK")     { buildRackConfigOpen = true }    // the rack / OUTPUT CHAIN sheet (config-sheets §6)
+                buildConfigButton("ROW 8")    { buildRow8EditSlot = max(0, buildRow8EditSlot); buildRow8EditOpen = true }   // the ROW 8 action-cell authoring page (Paul 2026-08-24: edit lives in the header, after RACK)
             }
             buildReelButton()                                   // RECORD — top-right (Paul 2026-08-23); handles the pass-browser hide + share anchor
         }
@@ -1092,31 +1094,29 @@ extension DiagView {
         }
     }
 
-    @ViewBuilder private func buildRow8Strip(cell: CGFloat) -> some View {
-        HStack(spacing: 6) {
-            ForEach(0..<8, id: \.self) { i in
-                let c = i < buildRow8Cells.count ? buildRow8Cells[i] : Row8Cell()
-                let on = i < buildRow8On.count && buildRow8On[i] && c.type != .empty
-                let live = row8Live(c.type)
-                VStack(spacing: 2) {
-                    Image(systemName: row8Glyph(c.type))
-                        .font(.system(size: 15, weight: .black))
-                        .foregroundColor(c.type == .empty ? buildDim : (on ? .black : (live ? .white : .white.opacity(0.7))))
-                    Text(row8Caption(c)).font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-                        .foregroundColor(c.type == .empty ? buildDim : (on ? .black : buildDim))
-                        .lineLimit(1).minimumScaleFactor(0.5)
-                }
-                .frame(maxWidth: .infinity).frame(height: 40)
-                .background(RoundedRectangle(cornerRadius: 6).fill(on ? buildCyan : (c.type == .empty ? Color.clear : buildCell)))
-                .overlay(RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(c.type == .empty ? buildEdge : (on ? buildCyan : buildEdge),
-                                  style: StrokeStyle(lineWidth: 1, dash: c.type == .empty ? [3, 3] : [])))
-                .opacity(c.type != .empty && !live && !on ? 0.82 : 1)   // non-live authored cells recede a touch (their engine is pending)
-                .contentShape(Rectangle())
-                .onTapGesture { buildRow8Perform(i) }
-                .onLongPressGesture(minimumDuration: 0.35) { buildRow8EditSlot = i; buildRow8EditOpen = true }
+    // ROW 8 lives in the PLAY GRID's BOTTOM row (row index 7) as POPULATED-looking cells (Paul 2026-08-24) — not a
+    // separate strip. Same footprint + corner as a part cell; a lit toggle fills cyan; an empty cell is the [+] recess.
+    // TAP performs; authoring lives on the ROW 8 EDIT PAGE (opened from the top header, after RACK — no long-press here).
+    @ViewBuilder private func buildRow8GridCell(_ i: Int, cell: CGFloat) -> some View {
+        let c = i < buildRow8Cells.count ? buildRow8Cells[i] : Row8Cell()
+        let on = i < buildRow8On.count && buildRow8On[i] && c.type != .empty
+        let empty = c.type == .empty
+        RoundedRectangle(cornerRadius: 7)
+            .fill(empty ? Color.black.opacity(0.35) : (on ? buildCyan : buildCell))
+            .frame(width: cell, height: cell)
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(
+                empty ? Color.white.opacity(0.09) : (on ? buildCyan : Color.white.opacity(0.14)),
+                style: StrokeStyle(lineWidth: empty ? 1 : 1.2, dash: empty ? [3, 3] : [])))
+            .overlay {
+                VStack(spacing: 1) {
+                    Image(systemName: row8Glyph(c.type)).font(.system(size: min(15, cell * 0.34), weight: .black))
+                        .foregroundColor(empty ? buildDim : (on ? .black : .white))
+                    if cell > 30 { Text(row8Caption(c)).font(.system(size: min(6.5, cell * 0.15), weight: .heavy, design: .monospaced))
+                        .foregroundColor(empty ? buildDim : (on ? .black : buildDim)).lineLimit(1).minimumScaleFactor(0.5) }
+                }.padding(1)
             }
-        }
+            .contentShape(Rectangle())
+            .onTapGesture { buildRow8Perform(i) }
     }
 
     // THE ROW 8 EDIT PAGE (§4): a spacious authoring surface. The 8 cells across the top; tap one to select; below, the
@@ -1765,40 +1765,16 @@ extension DiagView {
         buildRow8On = s.row8On
         buildPublishScene()                                     // reflect the new arrangement live (instant switch, v1)
     }
-    /// Switch to scene `target`: SAVE the current arrangement into the active slot, then RESTORE the target. Grows the
-    /// list lazily (slot 0 = the arrangement the app booted with). v1 is an INSTANT switch (pass-quantized arm = follow-up).
-    func buildSwitchScene(_ target: Int) {
-        guard target >= 0 else { return }
-        while buildScenes.count <= max(target, buildActiveScene) { buildScenes.append(buildCaptureCurrentScene()) }
-        buildScenes[buildActiveScene] = buildCaptureCurrentScene()   // save where we are
-        if target == buildActiveScene { return }
-        buildActiveScene = target
-        buildRestoreScene(buildScenes[target])
-    }
-    /// Add a new scene = a COPY of the current arrangement (scenes are precious — never overwrite; drag/edit later).
-    func buildAddScene() {
-        if buildScenes.isEmpty { buildScenes.append(buildCaptureCurrentScene()) }        // slot 0 = the boot arrangement
-        if buildActiveScene >= 0, buildActiveScene < buildScenes.count { buildScenes[buildActiveScene] = buildCaptureCurrentScene() }
-        buildScenes.append(buildCaptureCurrentScene())          // the new scene = a COPY of the current
-        buildActiveScene = buildScenes.count - 1                 // land on the fresh copy (edits diverge it)
-    }
-    @ViewBuilder func buildSceneStrip() -> some View {
-        let count = max(1, buildScenes.count)
-        HStack(spacing: 5) {
-            Text("SCENES").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.4).foregroundColor(buildDim)
-            ForEach(0..<count, id: \.self) { i in
-                let on = i == buildActiveScene
-                Text("\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white)
-                    .frame(width: 26, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : buildCell))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? buildCyan : buildEdge, lineWidth: 1))
-                    .contentShape(Rectangle()).onTapGesture { buildSwitchScene(i) }
-            }
-            Text("+").font(.system(size: 14, weight: .black)).foregroundColor(buildCyan)
-                .frame(width: 26, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(buildCell))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-                .contentShape(Rectangle()).onTapGesture { buildAddScene() }
-            Spacer(minLength: 0)
-        }
+    /// SCENES V2 (Paul 2026-08-24): USE THE EXISTING scene strip (ArrangementBar, below the main header). It drives the
+    /// document's `activeScene`; the VC polls it into `activeSceneIdx`. When it changes, BUILD SAVES the arrangement it was
+    /// showing into the old slot and RESTORES the target slot's — so the existing chips switch play-grid arrangements. The
+    /// parts/colours/master stay shared (a scene arranges the same band). v1: in-memory, instant (pass-quant + persist = follow-ups).
+    func buildSyncSceneSwitch(_ newIdx: Int) {
+        guard newIdx >= 0, newIdx != buildActiveScene else { return }
+        while buildScenes.count <= max(newIdx, buildActiveScene) { buildScenes.append(buildCaptureCurrentScene()) }   // grow lazily (a fresh slot = a copy of the current)
+        buildScenes[buildActiveScene] = buildCaptureCurrentScene()   // save where we were
+        buildActiveScene = newIdx
+        buildRestoreScene(buildScenes[newIdx])                        // load the target arrangement
     }
 
     private func buildPublishScene() {
@@ -3165,7 +3141,6 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
-            AnyView(buildSceneStrip())                           // SCENES V2: the play-grid arrangement chips (Paul 2026-08-12)
             AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, enabled: buildPerformPopulated, action: { buildTogglePerformVoice() })).padding(.bottom, 6)   // disabled until the play grid has REAL cells (preview doesn't count)
             // PLAY/EDIT radio dropped (Paul 2026-08-17); the eye moved to the grid's corner
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
@@ -3178,8 +3153,7 @@ extension DiagView {
                     AnyView(buildPlayBands(cell: cell))          // AnyView — keeps the deep bands type out of this body
                 }
                 AnyView(buildPerformRowButtons(cell: cell))       // RIGHT: the row-master chevrons (replaces the FLATTEN-gated right valve)
-            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 8)   // the eye in the play grid's top-left corner cell
-            AnyView(buildRow8Strip(cell: cell))                  // ROW 8: the perform action strip (Paul 2026-08-22)
+            }.overlay(alignment: .topLeading) { buildGridCornerEye(cell: cell, popup: 1) }).padding(.bottom, 12)   // the eye in the play grid's top-left corner cell (ROW 8 now lives IN the grid's bottom row)
             AnyView(buildRackButtons())                          // four RACK placeholders below the play grid (Paul 2026-08-18)
             // the emitters box moved into the combined I/O box spanning both grid columns (buildIOBox, Paul 2026-08-18)
             Spacer(minLength: 0)
@@ -3299,6 +3273,8 @@ extension DiagView {
                         let r = base + ri
                         HStack(spacing: BuildGeom.cellGap) {
                             ForEach(0..<8, id: \.self) { c in
+                                if r == 7 { buildRow8GridCell(c, cell: cell)   // ROW 8 = the play grid's BOTTOM row, as populated cells (Paul 2026-08-24)
+                                } else {
                                 let id = buildPerformCells[c][r]
                                 let ghost = id == nil ? preview[c][r] : nil   // preview only where no cell is deployed
                                 let muted = buildPerformMute.contains(c * 8 + r)
@@ -3324,6 +3300,7 @@ extension DiagView {
                                         if mutable { buildTogglePerformMute(c, r) }               // single-rung → mute
                                         else if id != nil && multiRung { buildTogglePerformRung(c, r) }   // multi-rung → pick the active rung
                                     }
+                                }
                             }
                         }
                     }
