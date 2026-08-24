@@ -37,3 +37,20 @@ struct BuildUnassignedData: Codable, Equatable {
     var hues: [String: UInt32] = [:]    // ephemeral colour hues, id → packed RGB (colourHueOverride is session-only)
     var idCounter: Int = 0              // the ephemeral "b<n>" counter high-water mark, so restored ids don't collide
 }
+
+// SCENES V2 (Paul 2026-08-12, Docs/scenes-v2-multigrids.md) — a SCENE = one PLAY-GRID ARRANGEMENT: which part sits in
+// each band, the flatten/copy content, the rung/mute/lane state, and the ROW 8 lit toggles. The PARTS, colours, casts,
+// doors + the master are SHARED across scenes (a scene arranges the same band; it never owns the musicians). v1 is an
+// IN-MEMORY switcher (not yet persisted with the document); switching is INSTANT (pass-quantized arm/blink = a follow-up).
+struct BuildSceneSnapshot: Equatable {
+    var performCells: [[String?]]
+    var performChain: [[[ProcessorSlot]]]
+    var performRecv: [Int]
+    var performEmit: [Set<Bus>]
+    var performPart: [Int]
+    var performMute: Set<Int>
+    var performStagingRow: [Int]
+    var performLane: UInt8
+    var row8On: [Bool]                 // the scene's lit ROW 8 toggles (FREEZE/HALFTIME/… state)
+    var name: String = ""
+}

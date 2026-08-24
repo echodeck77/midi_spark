@@ -139,6 +139,11 @@ struct DiagView: View {
     @State var buildRow8On: [Bool] = Array(repeating: false, count: 8)   // ROW 8: the active scene's lit TOGGLE state
     @State var buildRow8EditOpen: Bool = false   // ROW 8: the EDIT PAGE (authoring) overlay
     @State var buildRow8EditSlot: Int = -1       // ROW 8 EDIT: which cell the page is authoring (−1 = the cell grid)
+    // SCENES V2 (Paul 2026-08-12): in-memory play-grid arrangements. buildScenes holds the SAVED arrangements; index 0 is
+    // the live one until the user captures more. Switching saves the current then restores the target (arrangement only —
+    // parts/colours/master are shared). v1: not persisted, instant switch.
+    @State var buildScenes: [BuildSceneSnapshot] = []
+    @State var buildActiveScene: Int = 0
     @State var buildFlowOpen: Bool = false      // BUILD footer eye → the signal-flow diagram pop-up
     @State var buildMidiConfigOpen: Bool = false   // BUILD [MIDI CONFIG] → the MIDI INPUTS sheet (config-sheets stage 5, Paul 2026-08-20)
     @State var buildMidiConfigTab: Int = 0         // MIDI INPUTS: which door (A–D) tab is shown (Paul 2026-08-23)

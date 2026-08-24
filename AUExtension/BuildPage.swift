@@ -1750,6 +1750,57 @@ extension DiagView {
     // the MIDI CHAIN now ALSO rides this scene (a 1-row grid, every column active → raw, no part-grid column rules), so it
     // sounds ALONGSIDE the play grid instead of owning the render via a solo.
     // The SHELL: gather @State into a pure input, let BuildSceneLogic.composeScene do the work (testable), publish it.
+    // SCENES V2 (Paul 2026-08-12): capture the current play-grid ARRANGEMENT (not the shared parts/colours) into a snapshot.
+    private func buildCaptureCurrentScene() -> BuildSceneSnapshot {
+        BuildSceneSnapshot(performCells: buildPerformCells, performChain: buildPerformChain, performRecv: buildPerformRecv,
+                           performEmit: buildPerformEmit, performPart: buildPerformPart, performMute: buildPerformMute,
+                           performStagingRow: buildPerformStagingRow, performLane: buildPerformLane, row8On: buildRow8On)
+    }
+    private func buildRestoreScene(_ s: BuildSceneSnapshot) {
+        buildPerformCells = s.performCells; buildPerformChain = s.performChain; buildPerformRecv = s.performRecv
+        buildPerformEmit = s.performEmit; buildPerformPart = s.performPart; buildPerformMute = s.performMute
+        buildPerformStagingRow = s.performStagingRow; buildPerformLane = s.performLane
+        buildPerformPlaying = buildPerformPart.contains { $0 >= 0 }
+        for i in 0..<min(8, s.row8On.count) { au?.setRow8On(i, s.row8On[i]) }   // restore the scene's ROW 8 lit toggles
+        buildRow8On = s.row8On
+        buildPublishScene()                                     // reflect the new arrangement live (instant switch, v1)
+    }
+    /// Switch to scene `target`: SAVE the current arrangement into the active slot, then RESTORE the target. Grows the
+    /// list lazily (slot 0 = the arrangement the app booted with). v1 is an INSTANT switch (pass-quantized arm = follow-up).
+    func buildSwitchScene(_ target: Int) {
+        guard target >= 0 else { return }
+        while buildScenes.count <= max(target, buildActiveScene) { buildScenes.append(buildCaptureCurrentScene()) }
+        buildScenes[buildActiveScene] = buildCaptureCurrentScene()   // save where we are
+        if target == buildActiveScene { return }
+        buildActiveScene = target
+        buildRestoreScene(buildScenes[target])
+    }
+    /// Add a new scene = a COPY of the current arrangement (scenes are precious — never overwrite; drag/edit later).
+    func buildAddScene() {
+        if buildScenes.isEmpty { buildScenes.append(buildCaptureCurrentScene()) }        // slot 0 = the boot arrangement
+        if buildActiveScene >= 0, buildActiveScene < buildScenes.count { buildScenes[buildActiveScene] = buildCaptureCurrentScene() }
+        buildScenes.append(buildCaptureCurrentScene())          // the new scene = a COPY of the current
+        buildActiveScene = buildScenes.count - 1                 // land on the fresh copy (edits diverge it)
+    }
+    @ViewBuilder func buildSceneStrip() -> some View {
+        let count = max(1, buildScenes.count)
+        HStack(spacing: 5) {
+            Text("SCENES").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.4).foregroundColor(buildDim)
+            ForEach(0..<count, id: \.self) { i in
+                let on = i == buildActiveScene
+                Text("\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(on ? .black : .white)
+                    .frame(width: 26, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(on ? buildCyan : buildCell))
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? buildCyan : buildEdge, lineWidth: 1))
+                    .contentShape(Rectangle()).onTapGesture { buildSwitchScene(i) }
+            }
+            Text("+").font(.system(size: 14, weight: .black)).foregroundColor(buildCyan)
+                .frame(width: 26, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(buildCell))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(buildEdge, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                .contentShape(Rectangle()).onTapGesture { buildAddScene() }
+            Spacer(minLength: 0)
+        }
+    }
+
     private func buildPublishScene() {
         au?.clearColourSolo()                                    // BUILD never uses the AU solo now — drop any left by the vestigial ddCreateColour path, so the scene sweeps freely
         // (the loop keys now DRIVE the lap — same `laneMask` as the GRID tab; a held column-set laps the workshop. Paul 2026-08-19)
@@ -3114,6 +3165,7 @@ extension DiagView {
     // ── RIGHT COLUMN: the PLAY grid — five fixed bands + glyph rail; the target decides the verb ───────────────────
     @ViewBuilder private func buildPlayColumn(cell: CGFloat) -> some View {
         VStack(alignment: .center, spacing: 8) {
+            AnyView(buildSceneStrip())                           // SCENES V2: the play-grid arrangement chips (Paul 2026-08-12)
             AnyView(buildColumnButton("START/STOP THE PLAY GRID", active: buildPerformPlaying, fill: .grid, enabled: buildPerformPopulated, action: { buildTogglePerformVoice() })).padding(.bottom, 6)   // disabled until the play grid has REAL cells (preview doesn't count)
             // PLAY/EDIT radio dropped (Paul 2026-08-17); the eye moved to the grid's corner
             // LEFT: merged PART BUTTONS 1–4 (part 5/row 8 removed). RIGHT: per-row buttons for parts 1 & 2 only (1,1,1,2,2)
