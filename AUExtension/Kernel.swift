@@ -550,7 +550,6 @@ final class Kernel {
     private var reelExitFlush = false
     private var reelLastPass = Int.min
     private var reelTempoStored = 120.0
-    private var reelCycleStored = 4.0
     // ROW 8 CC-PUNCH / PC-SEND (Paul 2026-08-24): a UI-queued control message, emitted on the EMITTER WIRES (the app's
     // outputs — how notes route out) each render. SPSC ring: main writes `ctrlTail`, render reads `ctrlHead`; each slot is
     // a UInt32-packed (type<<16)|(d1<<8)|d2 (type 0 = CC, 1 = PC). Aligned UInt32 element reads/writes are atomic on arm64
@@ -599,17 +598,18 @@ final class Kernel {
     func reelSelectedPassNo() -> Int { reel.selectedPassNo }
     func reelSelectPass(_ p: Int) { reelSelectRequest = p }
     func reelStopReplay() { reelStopRequest = true }
-    func reelCycleValue() -> Double { reel.cycleBeats }             // the pass length in beats (piano-roll x-axis)
+    func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
     func reelExport() -> [(name: String, data: Data)] {
         guard reel.hasLoop else { return [] }
         let ppq = 480
+        let loopBeats = reel.loopCycle                              // the SELECTED pass's OWN length (the rate may have changed since it was recorded)
         var files: [(name: String, data: Data)] = []
         let sum = reel.exportEvents(cables: [1, 2, 3, 4])
-        if !sum.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: sum, bpm: reelTempoStored, ppq: ppq, loopBeats: reelCycleStored))) }
+        if !sum.isEmpty { files.append((name: "MidiSpark-All.mid", data: MidiFile.encode(events: sum, bpm: reelTempoStored, ppq: ppq, loopBeats: loopBeats))) }
         for (i, letter) in ["A", "B", "C", "D"].enumerated() {
             let ev = reel.exportEvents(cables: [UInt8(i + 1)])
-            if !ev.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: ev, bpm: reelTempoStored, ppq: ppq, loopBeats: reelCycleStored))) }
+            if !ev.isEmpty { files.append((name: "MidiSpark-\(letter).mid", data: MidiFile.encode(events: ev, bpm: reelTempoStored, ppq: ppq, loopBeats: loopBeats))) }
         }
         return files
     }
@@ -783,7 +783,10 @@ final class Kernel {
             diag.replayLoopN += doorRings[i].loopN; diag.replayPoolN += latchedPools[i].count
         }
         // ---- THE REEL-TO-REEL: record/replay the emitter output (Paul 2026-08-18) ----
-        let reelCycleBeats = Double(Snap.cols) * box.stepBeats
+        // The pass length = 8 columns at the EFFECTIVE clock. ROW 8 HALFTIME scales the column clock (box.clockScale:
+        // ÷2 ⇒ 2.0, so a bar is twice as long), so the reel must scale too — else it chops passes (+ exports the loop)
+        // at the WRONG length under half/double speed and the MIDI comes out garbled (Paul 2026-08-24).
+        let reelCycleBeats = Double(Snap.cols) * box.stepBeats * box.clockScale
         let reelBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
         let reelWinStart = Int64(timestamp.pointee.mSampleTime)
         if reelToggle {                                            // a touch: off→armed · armed→off · replaying→off(+flush)
@@ -804,7 +807,7 @@ final class Kernel {
             if reel.state == .replaying { reel.state = .off; reelExitFlush = true }
             reel.clearSelection()
         }
-        reelTempoStored = tempo; reelCycleStored = reelCycleBeats   // remembered for EXPORT (step 2)
+        reelTempoStored = tempo                                     // remembered for EXPORT (the loop length is now per-pass: reel.loopCycle)
         reel.cycleBeats = reelCycleBeats                            // the pass browser closes open notes in the roll at this length
         // THE HISTORY FREEZES while you're IN reel-to-reel (Paul 2026-08-19): the browser open OR a pass replaying → the
         // tape stops writing, so the pass list stays a stable snapshot. Recording resumes on the NEXT full pass on exit.
@@ -822,7 +825,7 @@ final class Kernel {
         reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
 
         if reel.state == .replaying, reel.hasLoop {               // REPLACE the live output with the recorded loop
-            reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reelCycleBeats,
+            reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
         } else {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----

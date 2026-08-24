@@ -40,6 +40,24 @@ final class ReelDeckTests: XCTestCase {
         XCTAssertEqual(rec.events[0].sample, Int64((4.5 - 4.3) / 0.001))   // occ 4.5 → sample (4.5−4.3)/bps
     }
 
+    // RATE CHANGE (Paul 2026-08-24): each pass keeps the length it was FILED at — the rate (HALFTIME / step rate) can
+    // change afterwards, so a pinned/exported pass must use ITS OWN cycle, not the live one. Else the loop is the wrong
+    // length and the exported MIDI comes out garbled.
+    func testEachPassKeepsItsOwnCycleAcrossRateChanges() {
+        let deck = ReelDeck()
+        deck.cycleBeats = 4.0                                     // rate A: a 4-beat bar
+        deck.record(beat: 0.0, cable: 1, 0x90, 60, 100); deck.record(beat: 1.0, cable: 1, 0x80, 60, 0)
+        deck.promote()                                           // pass 0 filed at cycle 4 → the auto loop
+        XCTAssertEqual(deck.loopCycle, 4.0)
+        deck.cycleBeats = 8.0                                     // rate HALVED: the bar is now 8 beats
+        deck.startPass()
+        deck.record(beat: 0.0, cable: 1, 0x90, 62, 100); deck.record(beat: 2.0, cable: 1, 0x80, 62, 0)
+        deck.promote()                                          // pass 1 filed at cycle 8 → the auto loop
+        XCTAssertEqual(deck.loopCycle, 8.0, "the latest pass's own length")
+        XCTAssertTrue(deck.selectPass(0))                       // pin the FIRST pass (recorded at cycle 4)
+        XCTAssertEqual(deck.loopCycle, 4.0, "the pinned pass keeps ITS cycle, not the live 8")
+    }
+
     func testEmptyLoopReplaysNothing() {
         let deck = ReelDeck()
         let rec = ReelRec()

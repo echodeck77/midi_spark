@@ -39,7 +39,12 @@ final class ReelDeck {
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
     private(set) var loop = [Ev](repeating: Ev(), count: cap); private(set) var loopN = 0
     var hasLoop: Bool { loopN > 0 }
-    var cycleBeats = 4.0                                           // the current pass length in beats (set by the Kernel; used to close open notes in the roll)
+    var cycleBeats = 4.0                                           // the LIVE pass length in beats (set by the Kernel each render). Changes with the rate/HALFTIME.
+    // A pass's length is fixed when it's FILED — the rate can change afterwards, so each stored pass carries its own
+    // cycle, and `loop`/export/roll read `loopCycle` (the SELECTED or latest pass's length), NOT the live `cycleBeats`.
+    // Else a pass recorded at one rate, exported after a rate change, gets the wrong loop length (Paul 2026-08-24).
+    private(set) var loopCycle = 4.0
+    private var histCycle = [Double](repeating: 4.0, count: histCount)
 
     // THE PASS-HISTORY RING (Paul 2026-08-19) — the pop-up pass browser keeps the last `histCount` completed passes.
     // A single flat buffer (one allocation, off the render thread) sliced `histCap` events per pass; pass p lives in
@@ -61,9 +66,9 @@ final class ReelDeck {
         let slot = passCounter % ReelDeck.histCount
         let n = min(curN, ReelDeck.histCap)
         for i in 0..<n { hist[slot * ReelDeck.histCap + i] = cur[i] }
-        histLen[slot] = n; histPassNo[slot] = passCounter
+        histLen[slot] = n; histPassNo[slot] = passCounter; histCycle[slot] = cycleBeats   // remember the rate this pass was filed at
         passCounter += 1
-        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] }; closeOpenLoopNotes() }   // auto: latest → loop
+        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] }; loopCycle = cycleBeats; closeOpenLoopNotes() }   // auto: latest → loop
     }
 
     // CR-5[review]: a pass's note-OFF can be missing from `loop` — truncated at `histCap` when re-selected from the browser,
@@ -83,14 +88,14 @@ final class ReelDeck {
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
             if isOn { openStatus[k] = e.b0 } else if isOff { openStatus[k] = 0xFF }
         }
-        let off = max(0.0, cycleBeats)
+        let off = max(0.0, loopCycle)                                  // close at the SELECTED pass's own length (not the live rate)
         for k in openStatus.indices where openStatus[k] != 0xFF && loopN < ReelDeck.cap {
             let cable = UInt8(k / 128 + 1), note = UInt8(k % 128), status = 0x80 | (openStatus[k] & 0x0F)
             loop[loopN] = Ev(beat: off, cable: cable, b0: status, b1: note, b2: 0); loopN += 1
         }
     }
-    func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1
-        for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1 } }
+    func clear() { curN = 0; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1; loopCycle = cycleBeats
+        for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1; histCycle[i] = cycleBeats } }
 
     /// The 32 ring slots as pass numbers, OLDEST→NEWEST (index 31 = the most recent completed pass; −1 = empty).
     /// The pop-up lays these out in reading order so the newest lands bottom-right of the top 4×8 block.
@@ -111,6 +116,7 @@ final class ReelDeck {
         guard histPassNo[slot] == passNo, histLen[slot] > 0 else { return false }
         loopN = min(histLen[slot], ReelDeck.cap)
         for i in 0..<loopN { loop[i] = hist[slot * ReelDeck.histCap + i] }
+        loopCycle = histCycle[slot]   // the pinned pass's OWN length (the rate may have changed since)
         closeOpenLoopNotes()          // CR-5[review]: a truncated / boundary-held pass must not strand a note-OFF
         selectedPassNo = passNo
         return true
