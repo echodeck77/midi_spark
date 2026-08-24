@@ -223,6 +223,7 @@ enum SnapshotBuilder {
         let receiverControllerMask = doc.receiversResolved.map { $0.controllerMaskResolved }   // CONTROLLER ROUTING: per-door emitter forward mask
         let receiverPianoMask = packMask(doc.receiversResolved.map { $0.latchPianoResolved })   // PIANO LATCH: doors whose latch reads the keyboard
         let receiverPianoNotes = doc.receiversResolved.map { $0.pianoNotesResolved.map { UInt8(max(0, min(127, $0))) } }
+        let receiverExcludeDoor = doc.receiversResolved.enumerated().map { (i, r) -> Int8 in let d = r.excludeDoorResolved; return d == i ? -1 : Int8(d) }   // never exclude self
         let receiverReplayMask = packMask(doc.receiversResolved.map { $0.doorModeResolved == .replay })   // REPLAY doors
         let receiverFile: [SnapFileClip] = doc.receiversResolved.map { r in   // FILE clips — only for a door in FILE mode with a loaded clip
             guard r.doorModeResolved == .file, let clip = r.fileClip, !clip.isEmpty, let lb = r.fileLoopBeats, lb > 0 else { return SnapFileClip() }
@@ -303,6 +304,7 @@ enum SnapshotBuilder {
                            receiverControllerMask: receiverControllerMask,
                            receiverPianoMask: receiverPianoMask,
                            receiverPianoNotes: receiverPianoNotes,
+                           receiverExcludeDoor: receiverExcludeDoor,
                            receiverReplayMask: receiverReplayMask,
                            receiverReplayPasses: receiverReplayPasses,
                            receiverFile: receiverFile,
@@ -432,6 +434,7 @@ enum SnapshotBuilder {
         if let v = p.glideRange { out.glideRange = clamp(v, 1, 48) }
         if let v = p.glidePriority { out.glidePriority = v }
         if let v = p.glideReanchor { out.glideReanchor = v }
+        if let v = p.glideMode { out.glideMode = v }
         return out
     }
 }

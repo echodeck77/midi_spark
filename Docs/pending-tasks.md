@@ -9,9 +9,10 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-08-2
 Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euclid-variations.md`, `SPEC-exclude-complement.md`,
 `SPEC-glide-modes.md`, `SPEC-grid-selector.md`, `SPEC-motif-processor.md`, `SPEC-riff-processor.md` (all in `Docs/`). Reply in
 `_dear_claude/REPLY-2026-08-24-eight-specs-filed.md`. **Recommended build order (mine — Paul picks):**
-1. **QUICK ENGINE WINS (independent, small):** ARP OCT-DIRECTION + RANDOM-ANCHOR (`SPEC-arp-additions`) · EUCLID PICK +
-   INVERT (`SPEC-euclid-variations §1/§2`) · GLIDE SYNTH + STEP modes + on-screen text (`SPEC-glide-modes`) · KEYS EXCLUDE
-   complement door (`SPEC-exclude-complement`). Each is an additive param + a chip; no shared-widget dependency.
+1. **✅ QUICK ENGINE WINS — DONE (2026-08-24, `3b096dd` + next):** ARP OCT-DIRECTION + RANDOM-ANCHOR · EUCLID PICK +
+   INVERT · GLIDE SYNTH + STEP modes + on-screen text · KEYS EXCLUDE complement door. All additive-Optional chips,
+   +10 tests, macOS green incl. fuzz, iOS builds. DEVICE ear/eye owed. v1 flags: GLIDE driven-path stays BEND (mono-
+   driver commission); STEP run-window = glideTime (rate chip later); KEYS EXCLUDE Kernel subtraction device-owed.
 2. **THE FOUNDATION (big cross-cutting UI):** STATE MATRIX + SLIDER LANE + SPAN LADDER (`INSTRUCTIONS-state-matrix §1-3`) —
    two reusable widget species that RETIRE pick-then-paint (convert RATCHET/TUTTI/LENGTH; SPAN CELL|ROW → a 1·2·3·4·6·8·×2·×4
    polymeter dial). Unblocks everything visual below. The SPAN-ladder engine = `rowStep % N` per line (replay-safe).

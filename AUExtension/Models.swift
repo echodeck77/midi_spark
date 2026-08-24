@@ -50,6 +50,9 @@ enum ModTarget: String, Codable, CaseIterable { case cc = "CC", chain = "CHAIN" 
 enum ModFollow: String, Codable, CaseIterable { case density = "DENSITY", register = "REGISTER", count = "COUNT", vel = "VEL" }
 // GLIDE — which held note the mono voice tracks when several sound at once. §12 append-only.
 enum GlidePriority: String, Codable, CaseIterable { case last = "LAST", low = "LOW", high = "HIGH" }
+// GLIDE MODE (Paul 2026-08-22): how the slide happens. BEND = pitch-bend one voice (today) · SYNTH = drive the
+// synth's own portamento (CC65 on + CC5 time, notes legato) · STEP = a fast chromatic run source→target. (MPE = v2.)
+enum GlideMode: String, Codable, CaseIterable { case bend = "BEND", synth = "SYNTH", step = "STEP" }
 enum ArpPattern: String, Codable, CaseIterable { case up = "UP", down = "DOWN", upDown = "UP-DN", random = "RANDOM", asPlayed = "AS PLAYED" }
 enum ArpPhase: String, Codable, CaseIterable { case retrig = "RETRIG", legato = "LEGATO", free = "FREE" }   // §3.5
 // SPAN — the timeline a pattern-based processor runs on (Paul 2026-08-18): CELL restarts the pattern each column
@@ -199,7 +202,8 @@ struct ColourParams: Codable, Equatable {
     var glideTime: Double? = 0.25       // slide duration per transition, beats (0 = instant pitch-jump)
     var glideRange: Int? = 2            // ± bend range in semitones (1…48) — must match the synth
     var glidePriority: GlidePriority? = .last   // which held note the mono voice tracks
-    var glideReanchor: Bool? = true     // out-of-range target → RE-ANCHOR (fresh note-on) · false = CLAMP to the range
+    var glideReanchor: Bool? = true     // out-of-range target → RE-ANCHOR (fresh note-on) · false = CLAMP to the range (BEND only)
+    var glideMode: GlideMode? = .bend   // BEND (today) | SYNTH (synth portamento) | STEP (chromatic zipper) — Paul 2026-08-22
     // TUTTI (working name; Paul 2026-08-13) — set-level chance. ONE processor, a MODE radio. COIN: per step a seeded
     // roll (BALANCE = P(TUTTI)) → SOLO (one PICK-chosen note) or TUTTI (the whole set). PATTERN (phase 2): 8 authored
     // slice states render the held set as a shape per slice. Append-only Optional (old docs decode nil → defaults).
@@ -602,6 +606,11 @@ struct Receiver: Codable, Equatable {
         if (latchPiano ?? false) { return .keys }
         return (latchAdd ?? true) ? .latch : .hold
     }
+    // KEYS EXCLUDE — the COMPLEMENT DOOR (Paul 2026-08-22): in KEYS mode, this door's pool = the typed set MINUS the
+    // excluded door's current notes, by PITCH CLASS, live. nil/-1 ⇒ OFF; 0–3 ⇒ subtract that door (never self). Type a
+    // palette here, exclude the chord door → this door plays everything the chord isn't (the flourish door).
+    var excludeDoor: Int? = nil
+    var excludeDoorResolved: Int { let d = excludeDoor ?? -1; return (d >= 0 && d <= 3) ? d : -1 }
 }
 
 // MARK: - Scene & document — §9

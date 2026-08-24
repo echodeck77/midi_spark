@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIER 1 QUICK ENGINE WINS #2 — GLIDE MODES (BEND·SYNTH·STEP) · KEYS EXCLUDE (the complement door) (2026-08-24,
+  on `main`; iOS builds, macOS green incl. fuzz; DEVICE ear/eye owed). Completes Tier 1 (Docs/SPEC-glide-modes.md,
+  SPEC-exclude-complement.md — both ratified). **GLIDE MODES** (`glideMode: GlideMode?`, default .bend ⇒ byte-identical):
+  the single-slot GLIDE voice now slides three ways — **BEND** (today's pitch-bend, unchanged) · **SYNTH** (drive the
+  synth's own portamento: CC65 ON + CC5 time at anchor, then LEGATO note transitions — open the new note BEFORE closing
+  the old so the synth glides; no bend, no range — poly where the synth allows) · **STEP** (a fast chromatic zipper —
+  one short note per semitone source→target scheduled across windows via a pending-run in GlideVoice, target held; note-
+  hungry, the flood governor applies). Mode-branched `emitColumnGlide`; `glideSynthCCTime` pure helper (beats→CC5). The
+  editor gains a MODE seg + teach-in-place one-liner per mode (the §7 law); BEND RANGE / TOO FAR show only for BEND.
+  v1 SCOPE (flagged): the [driver→GLIDE] path (`emitGlideDriven`) stays BEND-only — mode-awareness there is the mono-
+  driver commission (future); STEP uses glideTime as the run window (a dedicated rate chip is a later refinement); SYNTH
+  sends CC65/CC5 at anchor only. +3 Router tests (BEND regression, SYNTH legato+CCs+no-bend, STEP chromatic run). **KEYS
+  EXCLUDE** (`Receiver.excludeDoor: Int?` → `box.receiverExcludeDoor[4]`): a KEYS-mode door gains EXCLUDE OFF|A|C|D —
+  its typed pool = the picked notes MINUS the excluded door's live notes, BY PITCH CLASS, re-derived each render (the
+  Kernel's PIANO branch subtracts via the pure `NotePool.pitchClassMask`). Type a palette in B, exclude A → B plays
+  everything the chord isn't (the flourish door), following every change, WITHOUT key inference. Builder drops self-
+  exclusion; UI = an EXCLUDE chip row on the KEYS door sheet (the three non-self doors + OFF). +2 tests (pitchClassMask
+  under channel/range filters; excludeDoor flows to the box + self→OFF); the Kernel subtraction is device-owed (like
+  PIANO LATCH itself). **TIER 1 COMPLETE.** NEXT: Tier 2 — THE STATE MATRIX + SLIDER LANE + SPAN LADDER (the UI refactor).**
 - **▶ TIER 1 QUICK ENGINE WINS #1 — ARP OCT-DIRECTION + RANDOM-ANCHOR · EUCLID PICK + INVERT (2026-08-24, on `main`;
   iOS builds, macOS 546 RouterTests + 299 DerivationsTests green; DEVICE ear owed). First two of the four ratified
   Tier-1 chip additions (Docs/SPEC-arp-additions.md, SPEC-euclid-variations.md §11). All additive-Optional (nil ⇒

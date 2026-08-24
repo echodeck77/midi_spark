@@ -2577,6 +2577,47 @@ final class RouterTests: XCTestCase {
         render(NotePool(), playing: false)   // stop → flush
         assertNothingLeftSounding(e)
     }
+    // GLIDE SYNTH mode (Paul 2026-08-22): drive the synth's own portamento — CC65 on + CC5 time, then legato note
+    // transitions (new note opens before old closes), NO pitch-bend.
+    func testGlideSynthModeSendsPortamentoCCsAndTransitionsLegato() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .synth; g.params.glidePriority = .last; g.params.glideTime = 0.5
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool, playing: Bool = true) { router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))    // ANCHOR: CC65 on + CC5 time + note-on 60
+        render(chord([64]))    // legato transition to 64 (the synth glides)
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 65 && $0.vel == 127 }, "CC65 portamento ON")
+        XCTAssertTrue(e.events.contains { $0.status == 0xB0 && $0.note == 5 }, "CC5 portamento time")
+        XCTAssertFalse(e.events.contains { $0.status == 0xE0 }, "SYNTH mode emits NO pitch-bend")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }, [60, 64], "each target is its own legato note-on")
+        let onIdx = e.events.firstIndex { $0.status == 0x90 && $0.note == 64 }!
+        let offIdx = e.events.firstIndex { $0.status == 0x80 && $0.note == 60 }!
+        XCTAssertLessThan(onIdx, offIdx, "the new note opens before the old closes (legato → the synth portamentos)")
+        render(NotePool(), playing: false)
+        assertNothingLeftSounding(e)
+    }
+    // GLIDE STEP mode (Paul 2026-08-22): a fast chromatic run source→target — one short note per semitone, target held.
+    func testGlideStepModeRunsChromaticallyToTheTarget() {
+        let cs = arpColours()
+        var g = ProcessorSlot(type: .glide); g.params.glideMode = .step; g.params.glidePriority = .last; g.params.glideTime = 0.4
+        let b = box(colours: cs) { $0.cells[0][0] = { var c = Cell(colourID: "gold", buses: [.a]); c.processors = [g]; return c }() }
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let frames: UInt32 = 2048, sr = 48_000.0, tempo = 120.0
+        let wb = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        func render(_ pool: NotePool, playing: Bool = true) { router.process(box: b, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag); beat += wb; ts += Double(frames) }
+        render(chord([60]))                     // ANCHOR 60 held
+        for _ in 0..<6 { render(chord([64])) }  // NEW TARGET 64 → chromatic run 61,62,63 → target 64, over glideTime
+        let notes = Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        XCTAssertTrue(notes.isSuperset(of: [60, 61, 62, 63, 64]), "the zipper steps chromatically through 61,62,63 to the target 64 (got \(notes.sorted()))")
+        XCTAssertFalse(e.events.contains { $0.status == 0xE0 }, "STEP mode emits NO pitch-bend")
+        render(NotePool(), playing: false)
+        assertNothingLeftSounding(e)
+    }
     /// Sweeping the TARGET CC# past a control (VOLUME/CC7) must REVERT it to its standard (127), not leave it knocked
     /// down — the abandoned-target guard (user 2026-08-10).
     func testModTargetChangeRevertsAbandonedCC() {

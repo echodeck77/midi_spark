@@ -1945,4 +1945,17 @@ final class DerivationsTests: XCTestCase {
         }
         XCTAssertEqual(arpPick(phaseIndex: 0, octaves: octaves, pattern: 3, pool: p, randomAnchor: 2).note, 79, "HIGH anchor = top note of the top octave (67+12)")
     }
+
+    // KEYS EXCLUDE (Paul 2026-08-22): the complement door subtracts these pitch classes from its typed set.
+    func testPitchClassMaskCollectsHeldPitchClassesUnderFilters() {
+        let p = NotePool()
+        p.noteOn(60, velocity: 100, channel: 0)  // C
+        p.noteOn(64, velocity: 100, channel: 0)  // E
+        p.noteOn(79, velocity: 100, channel: 0)  // G, an octave up — folds to the same class as 67
+        p.rebuildSorted()
+        XCTAssertEqual(p.pitchClassMask(chanMask: 0xFFFF, cableMask: 0b1111, noteLo: 0, noteHi: 127),
+                       (1 << 0) | (1 << 4) | (1 << 7), "C, E, G pitch classes set (79 folds to G)")
+        XCTAssertEqual(p.pitchClassMask(chanMask: 1 << 1, cableMask: 0b1111, noteLo: 0, noteHi: 127), 0, "channel 2 hears nothing (all notes on channel 1)")
+        XCTAssertEqual(p.pitchClassMask(chanMask: 0xFFFF, cableMask: 0b1111, noteLo: 62, noteHi: 66), (1 << 4), "only E is in the 62–66 window")
+    }
 }

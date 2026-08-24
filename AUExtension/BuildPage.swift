@@ -627,6 +627,19 @@ extension DiagView {
                     .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.08)))
                     .contentShape(Rectangle()).onTapGesture { au?.clearReceiverPianoNotes(i); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
             }.frame(width: 380)
+            // KEYS EXCLUDE (Paul 2026-08-22): the complement door — this door plays the typed set MINUS another door's chord.
+            let exSel = au?.uiExcludeDoor(i) ?? -1
+            HStack(spacing: 6) {
+                Text("EXCLUDE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(buildDim)
+                ForEach([-1, 0, 1, 2, 3].filter { $0 != i }, id: \.self) { d in
+                    Text(d < 0 ? "OFF" : ["A", "B", "C", "D"][d]).font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .foregroundColor(exSel == d ? .black : .white.opacity(0.7))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(exSel == d ? buildCyan : Color.white.opacity(0.08)))
+                        .contentShape(Rectangle()).onTapGesture { au?.setExcludeDoor(i, d); receivers = au?.uiReceivers() ?? receivers; refreshFromDocument() }
+                }
+            }.frame(width: 380, alignment: .leading)
+            Text("Plays the picked notes MINUS the excluded door's chord — the flourish door.").font(.system(size: 9, design: .monospaced)).foregroundColor(buildDim).frame(width: 380, alignment: .leading)
         }
     }
     // A BRAND-NEW multi-octave piano (C2…B4, 3 octaves): white keys in a row, black keys overlaid; tap = pick/unpick a

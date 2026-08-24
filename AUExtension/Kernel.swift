@@ -281,7 +281,18 @@ final class Kernel {
                 // reading this door still admits the notes (matches captureFiltered's channel-preserving behaviour).
                 let stampCh: UInt8 = (receiverChannels[i] >= 1 && receiverChannels[i] <= 16) ? receiverChannels[i] - 1 : 0
                 latchedPools[i].reset()
-                for n in (i < pianoNotes.count ? pianoNotes[i] : []) { latchedPools[i].noteOn(n, velocity: 100, channel: stampCh) }
+                // KEYS EXCLUDE (Paul 2026-08-22): the COMPLEMENT DOOR — subtract the excluded door's live pitch classes
+                // from the typed set (live, re-derived each render). B = the palette minus the chord = the flourish door.
+                var exMask: UInt16 = 0
+                let ex = Int(receiverExcludeDoor[i])
+                if ex >= 0 && ex < 4 {
+                    exMask = pool.pitchClassMask(chanMask: receiverChanMask[ex], cableMask: Int(receiverCables[ex]),
+                                                 noteLo: receiverRangeLo[ex], noteHi: receiverRangeHi[ex])
+                }
+                for n in (i < pianoNotes.count ? pianoNotes[i] : []) {
+                    if exMask != 0 && (exMask >> UInt16(Int(n) % 12)) & 1 != 0 { continue }   // drop the excluded door's pitch classes
+                    latchedPools[i].noteOn(n, velocity: 100, channel: stampCh)
+                }
                 mergeLiveIntoLatched(i)   // KEYS: play ALONG live — the door's enabled channels feed the grid on top of the keyboard pick (Paul 2026-08-23)
                 continue
             }
@@ -369,6 +380,7 @@ final class Kernel {
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-emitter stamp channels (for the re-stamp forward)
     private var pianoMask: UInt8 = 0                                          // PIANO LATCH: doors whose frozen pool is the on-screen keyboard
     private var pianoNotes: [[UInt8]] = [[], [], [], []]                      // PIANO LATCH: per-door chosen notes
+    private var receiverExcludeDoor: [Int8] = [-1, -1, -1, -1]                // KEYS EXCLUDE: per door, the door whose live pitch classes are subtracted from its KEYS pool (-1 = OFF)
     private var thruReceiver: Int = 0        // receiver strip: which receiver the passthrough gate follows (the THRU pip)
     private var inputPeak = [UInt8](repeating: 0, count: 4)
     private var inputEvents = [UInt32](repeating: 0, count: 4)
@@ -650,6 +662,7 @@ final class Kernel {
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         pianoMask = box.receiverPianoMask               // PIANO LATCH: which doors read the keyboard
         pianoNotes = box.receiverPianoNotes
+        receiverExcludeDoor = box.receiverExcludeDoor   // KEYS EXCLUDE: the complement door
         replayMask = box.receiverReplayMask             // REPLAY: which doors loop their input ring
         replayPasses = box.receiverReplayPasses
         drainControl(box: box)                          // ROW 8 CC-PUNCH / PC-SEND: flush any UI-queued control messages onto the emitter wires

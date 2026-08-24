@@ -1109,13 +1109,20 @@ struct ProcessorBox: View {
             field("MAX  \(hi)\(lo > hi ? "   (inverted)" : "")") {
                 Slider(value: bind(Double(hi)) { v in setParam { $0.modMax = Int(v.rounded()) } }, in: 0...127).tint(accent) }
             field("ON EXIT") { seg(["RESET", "LEAVE"], sel: (p.modReset ?? true) ? "RESET" : "LEAVE") { i in setParam { $0.modReset = (i == 0) } } }
-        case .glide:    // notes→pitch-bend — one mono sliding voice
-            field("TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
+        case .glide:    // one mono sliding voice — small steps bend, big leaps jump (Paul 2026-08-22)
+            let gmode = p.glideMode ?? .bend
+            field("MODE") { seg(GlideMode.allCases.map(\.rawValue), sel: gmode.rawValue) { i in setParam { $0.glideMode = GlideMode.allCases[i] } } }
+            Text(glideModeBlurb(gmode)).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6)).frame(maxWidth: .infinity, alignment: .leading)
+            field(gmode == .step ? "RUN TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats" : "TIME  \(String(format: "%.2f", p.glideTime ?? 0.25)) beats") {
                 Slider(value: bind(p.glideTime ?? 0.25) { v in setParam { $0.glideTime = v } }, in: 0...2).tint(accent) }
-            field("BEND RANGE  ±\(p.glideRange ?? 2) st  (match the synth)") {
-                Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) }
+            if gmode == .bend {
+                field("BEND RANGE  ±\(p.glideRange ?? 2) st  (match the synth)") {
+                    Slider(value: bind(Double(p.glideRange ?? 2)) { v in setParam { $0.glideRange = Int(v.rounded()) } }, in: 1...48).tint(accent) }
+            }
             field("FOLLOW") { seg(GlidePriority.allCases.map(\.rawValue), sel: (p.glidePriority ?? .last).rawValue) { i in setParam { $0.glidePriority = GlidePriority.allCases[i] } } }
-            field("TOO FAR") { seg(["RE-ANCHOR", "CLAMP"], sel: (p.glideReanchor ?? true) ? "RE-ANCHOR" : "CLAMP") { i in setParam { $0.glideReanchor = (i == 0) } } }
+            if gmode == .bend {
+                field("TOO FAR") { seg(["RE-ANCHOR", "CLAMP"], sel: (p.glideReanchor ?? true) ? "RE-ANCHOR" : "CLAMP") { i in setParam { $0.glideReanchor = (i == 0) } } }
+            }
         case .tutti:    // SET-level chance — one MODE radio; COIN now, PATTERN in phase 2
             // mode set by the storefront card — no in-editor radio (Paul 2026-08-22)
             if (p.tuttiMode ?? .coin) == .coin {
@@ -1250,6 +1257,14 @@ struct ProcessorBox: View {
         }
     }
 
+    // GLIDE mode teach-in-place one-liners (Paul 2026-08-22 — the §7 teach-in-place law).
+    private func glideModeBlurb(_ m: GlideMode) -> String {
+        switch m {
+        case .bend:  return "BEND — slides by pitch-bend. BEND RANGE must match your synth's setting."
+        case .synth: return "SYNTH — your synth glides (CC65 on + CC5 time, notes legato). Polyphonic if the synth allows."
+        case .step:  return "STEP — a fast chromatic run between notes. Works on any synth; sounds stepped."
+        }
+    }
     private func weaveModeBlurb(_ m: WeaveMode) -> String {
         switch m {
         case .ladder:   return "LADDER — each rank up plays twice as fast (÷2 per rank)"

@@ -134,6 +134,16 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(box.receiverPianoNotes[1], [60, 64, 67], "the picked notes reach the box (out-of-range dropped)")
         XCTAssertEqual(box.receiverPianoMask & 1, 0, "R1 (default) is not PIANO")
     }
+    func testExcludeDoorFlowsToSnapshotAndDropsSelf() {
+        var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])
+        st.synthesizeReceiversIfNeeded()
+        st.receivers![1].excludeDoor = 0   // door B (KEYS) excludes door A
+        st.receivers![2].excludeDoor = 2   // self-exclusion is illegal → dropped to OFF
+        let box = SnapshotBuilder.build(from: st)
+        XCTAssertEqual(box.receiverExcludeDoor[1], 0, "door B subtracts door A")
+        XCTAssertEqual(box.receiverExcludeDoor[2], -1, "self-exclusion resolves to OFF")
+        XCTAssertEqual(box.receiverExcludeDoor[0], -1, "default is OFF")
+    }
     func testThruReceiverFlowsToSnapshot() {
         func thru(_ v: Int?) -> Int8 {
             var st = PluginState(colours: colours(customizing: 0) { _ in }, scenes: [SceneState.empty()])

@@ -455,6 +455,10 @@ public class MidiSparkAudioUnit: AUAudioUnit {
     func setReceiverEnabled(_ i: Int, _ on: Bool) { editReceiver(i) { $0.inputEnabled = on } }   // config-sheets: the channel NONE option blocks the door (Paul 2026-08-20)
     func setReceiverLatchAdd(_ i: Int, _ add: Bool) { editReceiver(i) { $0.latchAdd = add } }   // KEYS|CHORD (true = KEYS)
     func setReceiverLatchPiano(_ i: Int, _ on: Bool) { editReceiver(i) { $0.latchPiano = on } }   // PIANO latch mode
+    // KEYS EXCLUDE (Paul 2026-08-22): the complement door — subtract door `d`'s live notes (by pitch class) from this
+    // door's typed KEYS pool. -1 = OFF; never self. UI offers the three doors that aren't this one.
+    func uiExcludeDoor(_ i: Int) -> Int { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].excludeDoorResolved : -1 }
+    func setExcludeDoor(_ i: Int, _ d: Int) { editReceiver(i) { $0.excludeDoor = (d >= 0 && d <= 3 && d != i) ? d : -1 } }
     // THE CONFIG SHEETS (Paul 2026-08-20): the door's MODE radio. Sets doorMode + syncs the legacy latch fields for the 3
     // existing modes (lossless downgrade). REPLAY/FILE store the mode only (their behaviour lands in stages 3/4).
     func uiDoorMode(_ i: Int) -> DoorMode { i >= 0 && i < document.receiversResolved.count ? document.receiversResolved[i].doorModeResolved : .latch }

@@ -154,6 +154,10 @@ func glideBend14(semitones: Double, range: Int) -> Int {
 @inline(__always)
 func glideNeedsReanchor(target: Int, anchor: Int, range: Int) -> Bool { abs(target - anchor) > range }
 
+/// GLIDE SYNTH mode (Paul 2026-08-22): map the glide TIME (beats) to a CC5 portamento-time value (0…127). Synth-
+/// specific in reality, so this is a reasonable first-pass linear scaling (0.25 beat → ~6, ≥5.3 beats → 127). Pure.
+func glideSynthCCTime(_ beats: Double) -> Int { max(0, min(127, Int((beats * 24.0).rounded()))) }
+
 /// The "standard" resting value of a CC — what a MOD target reverts to when ABANDONED (the CC# swept past it). Volume
 /// / expression / cutoff → full · pan / balance → centre · everything else → off. Pure. (So sweeping the target knob
 /// past CC7 doesn't leave the synth's volume knocked down — user 2026-08-10.)
@@ -320,6 +324,18 @@ final class NotePool {
 
     /// BYPASS: the held velocity of a note (0 = not held). Public read for the Router's direct-injection pass.
     func heldVelocity(_ note: UInt8) -> UInt8 { vel[Int(note)] }
+
+    /// KEYS EXCLUDE (Paul 2026-08-22): the 12-bit PITCH-CLASS mask of the notes currently held on a door's filter —
+    /// the complement door subtracts these from its typed set. Pure. Requires rebuildSorted() first (like srcCount).
+    func pitchClassMask(chanMask: UInt16, cableMask: Int, noteLo: UInt8, noteHi: UInt8) -> UInt16 {
+        var m: UInt16 = 0
+        let c = srcCount(chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
+        for k in 0..<c {
+            let n = srcAscending(k, chanMask: chanMask, cableMask: cableMask, velLo: 0, velHi: 127, noteLo: noteLo, noteHi: noteHi)
+            if n <= 127 { m |= UInt16(1) << UInt16(Int(n) % 12) }
+        }
+        return m
+    }
     /// Count of held notes passing the filter.
     func srcCount(filter: UInt8, cableMask: Int = 0b1111) -> Int {
         if filter == 0 && cableMask == 0b1111 { return count }
