@@ -173,9 +173,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   — this ALSO persists the deployed play grid (the long-open gap). `buildCaptureScenes`/`buildRestoreScenes` wired into
   `buildPersistTick`; +1 round-trip test. **MORE ENGINES (`750f516`):** BROADCAST (emitOneBus mirrors every note to all 4
   wires; voice-stored cable → release-handoff, no stuck notes) + INPUT (door mode-act via a shared `buildEngageDoor`).
-  Fuzz now flips FREEZE/HALFTIME/REDIRECT/SWAP/BROADCAST under sounding notes. OPEN (deferred): CC-PUNCH/PC-SEND (render-
-  safe on-demand emit + a routing spec), PART (scene-independent playback subsystem), the HUB (retire the 2 config
-  buttons), broadcast-all-channels, the held-mover spring gesture; SCENES pass-quant + drag-swap↔snapshot pairing.**
+  Fuzz now flips FREEZE/HALFTIME/REDIRECT/SWAP/BROADCAST under sounding notes. **CC-PUNCH + PC-SEND (`c225222`):** a
+  render-safe SPSC control ring in the Kernel emits the CC/PC on the enabled emitter wires at their stamp channels + ALL
+  (PC as a 2-byte message); the strip's CC-PUNCH toggles (on→value, off→0), PC-SEND is a one-shot. **ROW 8 ENGINES NOW ALL
+  LIVE except PART** (FREEZE·HALFTIME·REDIRECT·SWAP·BROADCAST·SETUP·MACRO·KILL·INPUT·CC-PUNCH·PC-SEND). OPEN (deferred):
+  PART (scene-independent playback — Paul deferred; doesn't need its own clock), the HUB (retire the 2 config buttons +
+  SETUP "edit setups →" jump), broadcast-all-16-channels, the held-mover spring gesture (CC-PUNCH v1 = toggle); SCENES
+  pass-quant switch + drag-swap↔snapshot pairing. Whole batch DEVICE-owed (blind).**
 - **▶ OVERNIGHT AUTONOMOUS BATCH — CODE REVIEW (17/18) + ROW 8 (model+FREEZE/HALFTIME+REDIRECT/SWAP+strip+edit page) +
   SCENES V2 v1 (2026-08-24, on `main`; iOS builds, macOS 855 green incl. fuzz; DEVICE eye/ear owed on all the UI + the
   ROW 8/scenes engines). Paul: "fix the code review, implement row 8, implement scenes — attempt all 3 unattended." **CODE
