@@ -1304,7 +1304,7 @@ final class Router {
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             currentCellIndex = effColumn * Snap.rows + r  // SEAL comet: this cell's grid index (the sounding column)
-            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
+            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: effColumn)   // UTILITY CHANNEL/NUDGE emit overrides for this cell
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             if !onSceneAudible(colour.on, pass: diag.pass) { return }   // §9 item 1 ON SCENE: not entered / exited
@@ -1466,7 +1466,7 @@ final class Router {
             currentInputRecv = cell.resolvedReceiver   // receiver strip: this cell's receiver, for the input-vel override
             currentColourIndex = cell.colourIndex      // item 4 marks: this cell's Colour, for the source tint
             currentCellIndex = column * Snap.rows + r  // SEAL comet: this cell's grid index
-            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
+            chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // UTILITY CHANNEL/NUDGE emit overrides for this hold cell
             let ci = Int(cell.colourIndex)
             let colour = box.colours[ci]
             // Cells that chord-hold their MIDI-IN source: identity (incl. open passgate), CHANCE
@@ -1629,7 +1629,7 @@ final class Router {
         let transpose = colourTranspose(ci, colour) + octaveShift(cell.resolvedReceiver)
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
         currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex; currentCellIndex = column * Snap.rows + r
-        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // the tails inherit THIS cell's CHANNEL/NUDGE (captured by pushEchoTail)
+        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the tails inherit THIS cell's CHANNEL/NUDGE (captured by pushEchoTail)
         let cellPool = effectivePool(for: cell, live: pool)
         composeChainSet(cell: cell, pool: cellPool, upto: chainRoute ? ei - 1 : last, m: colStart, S: S, cycleBeats: Double(Snap.cols) * S)   // CHAIN = ECHO's INPUT · DIRECT = the composed set (LENGTH is passthrough in composeChainSet)
         let chopped = chopMask(cell, m: colStart, S: S, base: bm)
@@ -1659,7 +1659,7 @@ final class Router {
         let bm = arriveBusMask(base: cell.busMask, on: colour.on, arrivals: 0)
         currentInputRecv = cell.resolvedReceiver; currentColourIndex = cell.colourIndex
         currentCellIndex = column * Snap.rows + r
-        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
+        chanOverride = cellChanOverride(cell); nudgeSamples = cellNudgeSamples(cell, beatsPerSample: beatsPerSample, step: column)   // the echo DRY uses THIS cell's UTILITY CHANNEL/NUDGE (not a stale neighbour's); tails reset to wire before drain (review 2026-08-23)
         // SOURCE: a hold-upstream chain echoes its upstream stages' composed set ([PASSGATE→ECHO] the gated chord,
         // [HARMONIZE→ECHO] the harmonised set); a single [ECHO] echoes the cell's source directly.
         let cellPool = effectivePool(for: cell, live: pool)
@@ -2981,10 +2981,17 @@ final class Router {
     }
     /// UTILITY NUDGE: the per-cell timing offset in SAMPLES — the sum of non-bypassed NUDGE stages (sixteenths of a
     /// beat), at the live block's beatsPerSample. Applied like the RACK POCKET (shift on/off equally, clamped — no stuck notes).
-    private func cellNudgeSamples(_ cell: SnapCell, beatsPerSample: Double) -> Int64 {
+    private func cellNudgeSamples(_ cell: SnapCell, beatsPerSample: Double, step: Int = 0) -> Int64 {
         guard beatsPerSample > 0 else { return 0 }
+        // TIMING LANE (Paul 2026-08-22 §5): a LANE-mode NUDGE reads the offset for THIS step (the cell's column) — the
+        // pocket drawn per column; FIXED reads the single offset (byte-identical).
         var ticks = 0
-        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .nudge { ticks += cell.procs[j].utilNudge }
+        let s = ((step % 8) + 8) % 8
+        for j in 0..<cell.procs.count where !cell.slotBypass[j] && cell.procs[j].type == .nudge {
+            let p = cell.procs[j]
+            if p.utilNudgeMode == .lane { ticks += s < p.utilNudgeLane.count ? p.utilNudgeLane[s] : 0 }
+            else { ticks += p.utilNudge }
+        }
         guard ticks != 0 else { return 0 }
         return Int64(((Double(ticks) / 16.0) / beatsPerSample).rounded())
     }

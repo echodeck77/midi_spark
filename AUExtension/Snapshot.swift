@@ -187,6 +187,8 @@ struct SnapParams {
     var utilTranspose: Int = 0                        // TRANSPOSE: ±24 semitone shift
     var utilChannel: Int = 0                          // CHANNEL: 0 = WIRE (bus stamp) · 1–16 = output-channel override
     var utilNudge: Int = 0                            // NUDGE: time offset in sixteenths (−8…+8)
+    var utilNudgeMode: NudgeMode = .fixed            // TIMING LANE (Paul 2026-08-22 §5): FIXED = one offset · LANE = a per-column pocket
+    var utilNudgeLane: [Int] = [0, 0, 0, 0, 0, 0, 0, 0]   // LANE: 8 per-step offsets (−8…+8), the cell's COLUMN picks the slot
 }
 
 struct SnapColour {

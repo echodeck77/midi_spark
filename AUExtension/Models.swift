@@ -257,7 +257,11 @@ struct ColourParams: Codable, Equatable {
     var utilTranspose: Int? = 0                 // TRANSPOSE: shift ±24 semitones
     var utilChannel: Int? = 0                   // CHANNEL: output channel — 0 = WIRE (the bus stamp) · 1–16 = override
     var utilNudge: Int? = 0                     // NUDGE: time offset in sixteenths of a beat (−8…+8)
+    var utilNudgeMode: NudgeMode? = nil         // TIMING LANE (Paul 2026-08-22 §5): FIXED (one offset, default) | LANE (8 per-column offsets — the pocket drawn). nil ⇒ FIXED
+    var utilNudgeLane: [Int]? = nil             // LANE: 8 per-step time offsets (−8…+8 sixteenths); the cell's COLUMN picks the slot
 }
+// TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
+enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets
 /// them spill past the bar (the tail era's default); CUT kills the pending ones (the sounding note finishes its
 /// gate); HAND is the deferred BIRTHSTONE (handed repeats fire into the pool below). Enum three-valued from day one.

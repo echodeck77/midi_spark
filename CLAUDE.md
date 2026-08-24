@@ -159,6 +159,18 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ TIMING LANE — NUDGE gains a per-column POCKET (ratified §5) (2026-08-25, on `main`; iOS builds, macOS green incl.
+  fuzz; DEVICE ear owed). The second §5 lane, the sibling to CHANCE PATTERN. NUDGE gains a MODE — FIXED (one offset,
+  today) | LANE (8 per-step time offsets ±8/16, the groove HAND-DRAWN). Additive-Optional (`utilNudgeMode`/
+  `utilNudgeLane`, nil ⇒ FIXED byte-identical). v1 SEMANTICS: the step = the cell's COLUMN (mod 8) — so a NUDGE-LANE
+  colour placed across a ROW realises the drawn pocket (each column its own push/pull), mirroring the ROW-span pattern
+  procs; `cellNudgeSamples` gained a `step` param, threaded at all 4 sites (tick · hold · echo tails · echo dry). The
+  SLIDER LANE gained a **CENTRE (bipolar) mode** — 0 = on-grid mid-line, + above / − below — so `sliderLane` now serves
+  unipolar (STEP MOD, CHANCE odds) AND bipolar (TIMING pocket) per-step controls (§2's one component, 3 consumers). UI:
+  NUDGE editor MODE seg + the centred lane. +1 RouterTest (LANE-zero == FIXED-zero byte-identical; a +4/16 column offset
+  delays the onset); fuzz hammers random ±8 per-column offsets (clamped to the window → no stuck notes). v1 LIMIT: the
+  step is the cell's column, not per-note-within-column (a driver's notes in one column share that column's offset). NEXT
+  §5: the DEST MATRIX (wire×step) · MUTE MATRIX — both use the STATE MATRIX; a good point for Paul's device pass first.**
 - **▶ PROCESSOR EDITOR WIDTH pass 1 + CHANCE PATTERN (the odds SLIDER LANE) (2026-08-25, on `main`; iOS builds, macOS
   green incl. fuzz; DEVICE eye/ear owed). Paul: "controls feel too wide." **WIDTH PASS 1** (`9e81978`, UI-only): `seg`
   radios are now CONTENT-SIZED finger-min chips, LEFT-aligned (a 2-option toggle is ~140pt, not the ~500pt it stretched

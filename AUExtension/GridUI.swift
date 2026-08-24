@@ -1202,9 +1202,18 @@ struct ProcessorBox: View {
         case .channel:   // UTILITY — output channel override (WIRE = the bus stamp)
             let ch = p.utilChannel ?? 0
             field("CHANNEL  \(ch == 0 ? "WIRE" : "\(ch)")") { seg(["WIRE"] + (1...16).map { "\($0)" }, sel: ch == 0 ? "WIRE" : "\(ch)") { i in setParam { $0.utilChannel = i } } }
-        case .nudge:   // UTILITY — time offset in sixteenths
-            let nu = p.utilNudge ?? 0
-            field("NUDGE  \(nu > 0 ? "+" : "")\(nu)/16 beat") { stepper(nu, -8, 8) { v in setParam { $0.utilNudge = v } } }
+        case .nudge:   // UTILITY — time offset in sixteenths; FIXED (one) | LANE (the pocket, drawn per column)
+            let nmode = p.utilNudgeMode ?? .fixed
+            field("MODE") { seg(NudgeMode.allCases.map(\.rawValue), sel: nmode.rawValue) { i in setParam { $0.utilNudgeMode = NudgeMode.allCases[i] } } }
+            if nmode == .lane {
+                let base = [Int](repeating: 0, count: 8)
+                let shown = (0..<8).map { i -> Int in let s = p.utilNudgeLane ?? base; return i < s.count ? s[i] : 0 }
+                field("POCKET PER STEP  (drag · ±8/16 · centre = on-grid)") { sliderLane(shown, count: 8, max: 8, center: true) { i, v in
+                    setParam { var s = $0.utilNudgeLane ?? base; while s.count < 8 { s.append(0) }; s[i] = v; $0.utilNudgeLane = s } } }
+            } else {
+                let nu = p.utilNudge ?? 0
+                field("NUDGE  \(nu > 0 ? "+" : "")\(nu)/16 beat") { stepper(nu, -8, 8) { v in setParam { $0.utilNudge = v } } }
+            }
         }
     }
 
@@ -1339,18 +1348,26 @@ struct ProcessorBox: View {
     // THE SLIDER LANE (Paul 2026-08-22 §2): 8+ per-step bars — TAP sets to tap-height (first touch always responds), DRAG
     // draws the lane. The ONE shared continuous-per-step component: STEP MOD (CC 0…127) · CHANCE PATTERN (odds 0…100) ·
     // (future VELOCITY PATTERN · CHOP levels). `max` = the value ceiling; the bar height + the write both scale to it.
-    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, _ set: @escaping (Int, Int) -> Void) -> some View {
+    private func sliderLane(_ steps: [Int], count: Int = 8, max maxV: Int = 127, center: Bool = false, _ set: @escaping (Int, Int) -> Void) -> some View {
         HStack(spacing: count > 16 ? 1 : (count > 8 ? 2 : 4)) {
             ForEach(0..<count, id: \.self) { i in
                 let v = i < steps.count ? steps[i] : 0
                 GeometryReader { g in
-                    ZStack(alignment: .bottom) {
+                    let h = g.size.height
+                    ZStack(alignment: center ? .center : .bottom) {   // CENTRE = a bipolar lane (0 = mid, + above, − below) — the TIMING pocket
                         RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
-                        RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, g.size.height * CGFloat(v) / CGFloat(maxV)))
+                        if center {
+                            let frac = CGFloat(v) / CGFloat(maxV)   // −1…1
+                            let barH = Swift.max(2, abs(frac) * h / 2)
+                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: barH).offset(y: frac >= 0 ? -barH / 2 : barH / 2)
+                        } else {
+                            RoundedRectangle(cornerRadius: 3).fill(accent).frame(height: Swift.max(2, h * CGFloat(v) / CGFloat(maxV)))
+                        }
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { val in
-                        set(i, Int((1 - min(1, Swift.max(0, val.location.y / Swift.max(1, g.size.height)))) * CGFloat(maxV)))
+                        let y = min(1, Swift.max(0, val.location.y / Swift.max(1, h)))   // 0 top … 1 bottom
+                        set(i, center ? Int(((0.5 - y) * 2 * CGFloat(maxV)).rounded()) : Int((1 - y) * CGFloat(maxV)))
                     })
                 }
                 .frame(maxWidth: .infinity).frame(height: 84)

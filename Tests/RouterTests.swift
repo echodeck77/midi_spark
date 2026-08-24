@@ -151,6 +151,24 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(ons(legacy: .row), 3, "legacy euclidSpan=.row migrates to SPAN 8 (byte-identical)")
         XCTAssertEqual(ons(), 12, "no span set = CELL (SPAN 1, byte-identical)")
     }
+    // TIMING LANE (Paul 2026-08-22 §5): NUDGE's LANE mode — the cell's COLUMN picks a per-step time offset (the pocket).
+    func testTimingLaneNudgesTheOnsetByColumn() {
+        func firstOn(lane: [Int]?) -> Int64 {
+            var c = Colour(colourID: "gold", type: .nudge)
+            if let l = lane { c.paramsA.utilNudgeMode = .lane; c.paramsA.utilNudgeLane = l }
+            let cs = colourIDs.map { $0 == "gold" ? c : Colour(colourID: $0, type: .arp) }
+            let b = box(colours: cs) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }   // a NUDGE cell in column 0
+            let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e)
+            assertNothingLeftSounding(e)
+            return e.ons.filter { $0.cable == 1 }.first?.sample ?? -1
+        }
+        let baseline = firstOn(lane: nil)                        // FIXED, nudge 0
+        let laneZero = firstOn(lane: [0, 0, 0, 0, 0, 0, 0, 0])
+        let laneShift = firstOn(lane: [4, 0, 0, 0, 0, 0, 0, 0])  // column 0 = +4/16 beat later
+        XCTAssertGreaterThan(baseline, -1, "the NUDGE cell holds + sounds the chord")
+        XCTAssertEqual(laneZero, baseline, "LANE all-zero == FIXED-zero (byte-identical)")
+        XCTAssertGreaterThan(laneShift, baseline, "column 0's +4/16 lane offset delays the onset")
+    }
     // CHANCE PATTERN (Paul 2026-08-22 §5): per-step odds — 0% drops every note in that step, 100% passes; deterministic.
     func testChancePatternGatesByStepOdds() {
         func ons(_ slices: [Int]) -> Int {
