@@ -67,6 +67,7 @@ final class Router {
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-bus stamp channels, refreshed each process
     private var busRemap: [UInt8] = [0, 1, 2, 3]      // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (identity = no redirect), refreshed each process
+    private var broadcastActive = false               // ROW 8 BROADCAST: mirror every emitted note to all 4 wires, refreshed each process
     private var heldColumns: UInt8 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
                                          // ephemeral (PERFORM only), refreshed each process. 0 = no lap.
     private var busEnabledMask: UInt8 = 0b1111   // delta §6a: enabled emitters, refreshed each process
@@ -1221,9 +1222,21 @@ final class Router {
             onS = max(renderStart, min(windowEnd, target))
             if offSample != .max { offS = max(onS + 1, offSample + (onS - onSample)) }
         }
-        let own = openVoice(note: note, chan: ch, cable: UInt8(outWire + 1), bus: UInt8(bus),   // REDIRECT/SWAP: own cable follows the remapped wire
-                            onSample: onS, offSample: offS, velocity: v, out: out)
-        if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
+        if broadcastActive && !previewMode {
+            // ROW 8 BROADCAST (Paul 2026-08-24): the WALL — mirror this note to ALL 4 emitter wires, each on its own stamp
+            // channel (chanOverride still wins). Each voice stores its cable, so a note in flight when broadcast is
+            // released closes on the wire it opened (no stuck notes). v1: fans to the 4 WIRES (not all 16 channels).
+            for w in 0..<4 {
+                let wch = (chanOverride >= 0) ? UInt8(chanOverride) : (busChannels[w] &- 1) & 15
+                let bv = openVoice(note: note, chan: wch, cable: UInt8(w + 1), bus: UInt8(bus),
+                                   onSample: onS, offSample: offS, velocity: v, out: out)
+                if bv >= 0 && offS <= windowEnd { closeVoice(bv, atSample: offS, out: out) }
+            }
+        } else {
+            let own = openVoice(note: note, chan: ch, cable: UInt8(outWire + 1), bus: UInt8(bus),   // REDIRECT/SWAP: own cable follows the remapped wire
+                                onSample: onS, offSample: offS, velocity: v, out: out)
+            if own >= 0 && offS <= windowEnd { closeVoice(own, atSample: offS, out: out) }
+        }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
                             onSample: onS, offSample: offS, velocity: v, out: out)
         if all >= 0 && offS <= windowEnd { closeVoice(all, atSample: offS, out: out) }
@@ -1911,6 +1924,7 @@ final class Router {
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
         busRemap = box.busRemap                      // ROW 8 REDIRECT/SWAP: per-bus output remap, this render
+        broadcastActive = box.broadcastActive        // ROW 8 BROADCAST: mirror to all wires, this render
         curBox = box                                // for the reel's colour-by-cell note tag (openVoice reads the sounding colour's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);

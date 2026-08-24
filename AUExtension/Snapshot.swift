@@ -254,6 +254,7 @@ final class SnapshotBox {
     let freezeActive: Bool
     let clockScale: Double
     let busRemap: [UInt8]            // ROW 8 REDIRECT/SWAP: per-bus output-wire remap (default [0,1,2,3] = no redirect). A lit REDIRECT A→B sets [A]=B; a lit SWAP A↔B sets [A]=B,[B]=A. Applied at the emission stamp (cable+channel).
+    let broadcastActive: Bool        // ROW 8 BROADCAST: while lit, every emitted note MIRRORS to ALL 4 emitter wires (the wall) — a per-note fan-out at the emission boundary.
 
     init(generation: UInt64, stepBeats: Double, swing: Double, morphMaster: Double,
          colours: [SnapColour], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
@@ -280,10 +281,12 @@ final class SnapshotBox {
          receiverFile: [SnapFileClip] = [SnapFileClip(), SnapFileClip(), SnapFileClip(), SnapFileClip()],
          macroValues: [Double] = Array(repeating: 0, count: 24),
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt8] = [],
-         freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3]) {
+         freezeActive: Bool = false, clockScale: Double = 1.0, busRemap: [UInt8] = [0, 1, 2, 3],
+         broadcastActive: Bool = false) {
         self.freezeActive = freezeActive
         self.clockScale = clockScale
         self.busRemap = busRemap
+        self.broadcastActive = broadcastActive
         self.rowLaneMask = rowLaneMask
         self.generation = generation
         self.stepBeats = stepBeats

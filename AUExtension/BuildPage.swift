@@ -1087,6 +1087,8 @@ extension DiagView {
             au?.masterPanic()                                        // one-shot: all-notes-off (hard = panic)
             let on = i < buildRow8On.count && buildRow8On[i]
             if on, i < buildRow8On.count { buildRow8On[i] = false; au?.setRow8On(i, false) }   // KILL never latches
+        case .input:
+            buildEngageDoor(c.doorRef ?? 0)                          // the door's mode-act (LATCH/HOLD/KEYS arm · REPLAY re-catch), shared with the strip's LATCH button
         default:
             let now = !(i < buildRow8On.count && buildRow8On[i])
             if i < buildRow8On.count { buildRow8On[i] = now }         // optimistic
@@ -3699,14 +3701,22 @@ extension DiagView {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if showsSet { buildMidiConfigTab = i; buildMidiConfigOpen = true }   // SET / THRU → open this door's tab
-                    else {
-                        if replayOn { au?.toggleReplayCatch(i) }          // stop a running loop regardless of the current mode
-                        else if latchOn { toggleReceiverLatch(i) }        // or a live latch
-                        else if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }   // else arm per the chosen mode
-                        receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
-                    }
+                    else { buildEngageDoor(i) }                                          // else the door's mode-act (shared with ROW 8 INPUT)
                 }
         }
+    }
+    // The door's MODE-ACT — engage/clear per its mode (shared by the strip's LATCH button + ROW 8's INPUT cell, Paul 2026-08-24).
+    // A running arm (REPLAY loop or latch) always stops regardless of the current mode; else arm per the chosen mode.
+    func buildEngageDoor(_ i: Int) {
+        guard i >= 0, i < 4 else { return }
+        let bit = UInt8(1 << i)
+        let replayOn = (replayEngagedMask & bit) != 0
+        let latchOn  = (latchMask & bit) != 0
+        let mode = i < receivers.count ? receivers[i].doorModeResolved : .latch
+        if replayOn { au?.toggleReplayCatch(i) }
+        else if latchOn { toggleReceiverLatch(i) }
+        else if mode == .replay { au?.toggleReplayCatch(i) } else { toggleReceiverLatch(i) }
+        receivers = au?.uiReceivers() ?? receivers; refreshFromDocument()
     }
     // A shared OCTAVE nudge row: −  OCT ±n  + (±3 octaves). Used by both the receiver and emitter controls. (Paul 2026-08-18)
     @ViewBuilder private func buildOctRow(oct: Int, onDown: @escaping () -> Void, onUp: @escaping () -> Void) -> some View {

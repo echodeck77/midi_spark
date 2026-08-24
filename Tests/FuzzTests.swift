@@ -421,8 +421,8 @@ final class FuzzTests: XCTestCase {
                 // wire re-stamp release-handoff — the no-stuck-notes stress)
                 var rd = Row8Cell.make(.redirect); rd.wireFrom = r.int(4); rd.wireTo = r.int(4)
                 var sw = Row8Cell.make(.swap); sw.wireFrom = r.int(4); sw.wireTo = r.int(4)
-                d.row8 = [Row8Cell.make(.freeze), Row8Cell.make(.halftime), rd, sw]
-                scene.row8On = [r.chance(0.4), r.chance(0.4), r.chance(0.4), r.chance(0.4), false, false, false, false]
+                d.row8 = [Row8Cell.make(.freeze), Row8Cell.make(.halftime), rd, sw, Row8Cell.make(.broadcast)]
+                scene.row8On = [r.chance(0.4), r.chance(0.4), r.chance(0.4), r.chance(0.4), r.chance(0.4), false, false, false]
         default: scene.masterKey = r.range(-12, 12)                                                  // transpose the held chord
         }
         d.scenes = [scene]

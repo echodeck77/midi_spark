@@ -1033,6 +1033,20 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e2)
     }
 
+    // ROW 8 BROADCAST: the WALL — a lit BROADCAST cell mirrors every emitted note to all 4 emitter wires. No stuck notes.
+    func testRow8BroadcastMirrorsToAllWires() {
+        var s = SceneState.empty(); s.cells[0][0] = Cell(colourID: "gold", buses: [.a])   // the cell emits on A only
+        s.row8On = [true, false, false, false, false, false, false, false]
+        var st = PluginState(colours: arpColours(), scenes: [s]); st.busChannels = [1, 2, 3, 4]
+        st.row8 = [Row8Cell.make(.broadcast)]
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e)
+        for cable: UInt8 in 1...4 {
+            XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == cable }, "BROADCAST mirrors the note to wire \(cable)")
+        }
+        XCTAssertTrue(e.ons.contains { $0.note == 60 && $0.cable == 0 }, "…and the ALL cable")
+        assertNothingLeftSounding(e)
+    }
+
     func testPanicBlastsAllNotesOffAndAllSoundOffOnEveryChannel() {
         let b = box(colours: arpColours()) { $0.cells[0][0] = Cell(colourID: "gold", buses: [.a]) }
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
