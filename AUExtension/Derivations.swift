@@ -1500,7 +1500,7 @@ func emblemSymbol(_ t: ProcessorType) -> String {
     case .dest:      return "arrow.triangle.branch"        // ROUTING — per-step emitter (the hocket)
     case .muteMatrix: return "speaker.slash"               // ROUTING — per-step part-muting (the gate grid)
     case .riff:      return "music.note.list"              // DRIVER — the stored rank stencil (the chord-following line)
-    case .tap:       return "arrow.triangle.branch"        // ROUTING — the mid-chain send (the stream forks to a wire)
+    case .tap:       return "arrow.turn.up.right"          // ROUTING — the mid-chain send (the stream turns off to a parallel wire)
     }
 }
 
