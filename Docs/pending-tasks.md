@@ -71,9 +71,11 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     (b) LONG-PRESS EXPLANATIONS (10) — DEFERRED by Paul (2026-08-25, "ignore for now"). ✅ **§1 TRUTH STRIPS v1
     (`98bec19`)** — IN silhouette (held @ door) + empty-state teach + OUT mini-roll on the processor editor. ✅ **§4 STAGE
     EYE v1 (`ff8a350`)** — tap a strip → a full-page 3-lane input·mechanism·output view (DRIFT model; EUCLID draws its
-    pulses, others an 8-step position lane). Device-eye owed on both. NEXT on this track: **idea 24 touch→OUT diff** +
-    the §4 v2 refinements (column-aligned sweep · bespoke per-type mechanism art · embed the real hero widget read-only).
-    (d) MACRO-BIND (26) — HELD by Paul (downstream-processor version instead);
+    pulses, others an 8-step position lane). ✅ **IDEA 24 TOUCH-TO-DIFF (`535cae5`)** — while editing, the OUT strip + eye
+    output lane show a live before/after: NEW notes (born after the gesture, stamped at the `buildApplyChain` choke point)
+    bright + ringed, the BEFORE dim, box glows. **The truth-strips track (§1 · §4 · 24) is now FEATURE-COMPLETE** — all
+    device-eye owed. LEFT (v2, deferred): §4 column-aligned SWEEP (needs the engine to tag output notes by emitting step) ·
+    bespoke per-type mechanism art · embed the real hero widget read-only. (d) MACRO-BIND (26) — HELD by Paul (downstream);
     (e) LAYOUT — sticky-hero (27) · section-anchor chips (28) · conditional-animate-in (25) · hero-glyph thumbnails (32);
     (f) LANE gestures — pinch-scale (19) · header-mute (20) · result-ghosting (17);
     (g) hold-to-accelerate (14, low value now — scrub+overlay cover it).

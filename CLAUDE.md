@@ -184,7 +184,13 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   cause→machine→effect on one pitch axis + a NOW line. v1 = the DRIFT model (rolls scroll, now = right edge); layered
   ABOVE the editor so buildEditSlot stays set + the OUT feed flows; closes on CLOSE/backdrop/editor-close. DEFERRED to
   v2: the column-aligned SWEEP (output tagged by emitting step) · bespoke per-type mechanism art · embedding the real
-  hero read-only. Still open: **idea 24 touch→OUT diff**. No engine/param/test change in the whole batch (render-only).**
+  hero read-only. **IDEA 24 TOUCH-TO-DIFF (`535cae5`):** while a control is edited, the OUT strip + eye output lane
+  show a live before/after — the edit clock is stamped at the single `buildApplyChain` choke point (gesture start +
+  last-change, cleared ~0.6s after quiet), so notes born at/after the gesture start (the NEW behaviour) draw bright +
+  white-ringed, the BEFORE dims to a ghost, the box glows (shared `buildRollCanvas`; OUTPUT-only). **THE TRUTH-STRIPS
+  TRACK (§1 · §4 · 24) IS FEATURE-COMPLETE** — all device-eye owed; LEFT as v2: §4 column-aligned sweep (needs the engine
+  to tag output notes by emitting step) · bespoke per-type mechanism art · embed the real hero read-only. No engine/param/
+  test change in the whole batch (render-only).**
 - **▶ PROCESSOR-EDITOR PRESENTATION REDESIGN A–C (2026-08-25, on `main`; iOS builds; UI-only — macOS suite unaffected,
   DEVICE eye owed). Implements `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules) — ALL render-only, engine +
   every param untouched. **A (`0bf0fdd`) THE NUDGE PAIR** (rule 3): a new shared `NumPair` widget ◀ value ▶ (tap = ±1,

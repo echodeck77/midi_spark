@@ -1,3 +1,9 @@
+# ✅ IDEA 24 TOUCH-TO-DIFF — LANDED 2026-08-25 (`535cae5`; iOS builds, UI-only; DEVICE eye owed). While a control is
+# edited, the OUT strip + Stage Eye output lane show a live before/after: the edit clock is stamped at the single
+# `buildApplyChain` choke point (gesture start + last change, cleared ~0.6s after quiet); notes born at/after the gesture
+# start (the NEW behaviour) draw bright + white-ringed, earlier ones dim to a ghost, the box glows the hue. Only the
+# OUTPUT diffs. Shared `buildRollCanvas`. TRUTH-STRIPS TRACK (§1 · §4 · 24) IS NOW FEATURE-COMPLETE (all device-eye owed).
+#
 # ✅ §4 STAGE EYE — v1 LANDED 2026-08-25 (`ff8a350`; iOS builds, UI-only; DEVICE eye owed). Tapping a truth strip opens a
 # full-page 3-lane overlay (`buildStageEyeView`): INPUT roll (new `buildEyeInRoll`, onset-diffed off the door's held set)
 # · MECHANISM (the machine live + a position light on the live column — EUCLID draws its pulse pattern via `euclidPattern`,
