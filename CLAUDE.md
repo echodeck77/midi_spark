@@ -159,6 +159,25 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
 - **This section is the BACKWARD log (what landed, with commit refs). `Docs/pending-tasks.md` is the FORWARD
   checklist (what's open). Keep both current as work lands — tick pending-tasks + add a commit line here — and
   keep them from overlapping.**
+- **▶ THE 4-FEATURE SEQUENCE — E-BRUSH · EUCLID LINES · TAP · ROTATE RETIRE (2026-08-25, on `main`; iOS builds, macOS
+  green incl. fuzz; DEVICE eye/ear owed). Paul's order "e-brush, euclid lines, ten tap, then retired rotate." **E-BRUSH
+  (`a17efe0`, UI-only):** `EBrushButton` (an "ε" button + K/rotate popover, `apply(euclidPattern)`) wired into the SHARED
+  widgets so euclidean fills land on EVERY grid — `sliderLane` (CHANCE odds · STEP MOD · TIMING pocket, hit=max/rest=0),
+  `stateMatrixRadio` (RATCHET·BURST·TUTTI·LENGTH, per-row ε: hit=the option/rest=options[0]), + the MUTE matrix (per-emitter
+  euclid mute). **EUCLID LINES (`85d715a`):** `EuclidLine`{target·K(pulses)·N(steps)·rotate·invert} + `euclidLines:
+  [EuclidLine]?` (nil ⇒ the single-euclid path verbatim, byte-identical); engine refactored into a `runEuclidLine` per-line
+  loop (each line its OWN N = polyrhythm from one chord; note-target via `strikeChord(onlyIndex:)` — ALL or the k-th pool
+  note); UI = a LINES STACK (per-line numPair TARGET/K/N/↻ROTATE + HITS|REST + × remove) with "+ ADD LINE", or the single-
+  euclid controls when empty. +1 RouterTest, fuzz. `SPEC-euclid-variations §10/§5`. **TAP (`2621dd3`):** the mid-chain SEND —
+  `ProcessorType.tap` (note-transparent, cellMode `.identity`); a fold-loop special case in `emitDriverNote` MIRRORS each
+  passing note to a chosen wire (LEVEL scale · TO THIS/A/B/C/D · MUTE the dry) via emitArtic, then passes `cur` through
+  unchanged — so `[ARP→TAP→…]` sends a parallel copy without breaking the chain. +1 test, fuzz (`AcceptanceCriteria-tap-
+  processor`). **ROTATE RETIRE (`061f9cb`, UI-only):** part 1 (the ◀ n ▶ nudge pair replacing numbered chips) already
+  shipped in the presentation pass; part 2 = `RotateOnDrag` — a horizontal DRAG on a pattern matrix rotates by direct
+  manipulation (~26px/step, wraps; simultaneousGesture so taps still set), wired to RATCHET/BURST/TUTTI/LENGTH. The ◀▶ pair
+  stays as the hint + precise control. FLAGGED: sliderLane cases keep the ◀▶ pair only (drag conflicts with the lane's
+  vertical draw); DEST matrix has no rest/rotate. **OPEN follow-ups (flagged, NOT started):** per-line PICK + a per-line die
+  for EUCLID LINES (v1b); TAP hold-path; RIFF stages 2–4; grid-selector §2/§3 interaction UI — all device-owed.**
 - **▶ RIFF — the chord-following 303, STAGE 1 (2026-08-26, on `main`, `3dfae82`; iOS builds, macOS green incl. fuzz;
   DEVICE ear/eye owed). Paul ordered it (spec `Docs/SPEC-riff-processor.md`, ratified). A new DRIVER `ProcessorType.riff`
   (append-only "RIFF"): a stored STENCIL of RANK choices that DERIVES against the held chord — ZERO pitches stored, so
