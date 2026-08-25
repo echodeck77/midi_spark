@@ -1579,6 +1579,8 @@ private struct NumPair: View {
     let accent: Color
     let set: (Int) -> Void
     @State private var dragBase: Int? = nil
+    @State private var showPicker = false      // ideas 12/31: tap the value → a grid/keypad overlay for exact entry
+    @State private var padEntry = ""
     private func clampWrap(_ raw: Int) -> Int {
         if wrap { let n = max(1, range.count); return range.lowerBound + (((raw - range.lowerBound) % n) + n) % n }
         return min(range.upperBound, max(range.lowerBound, raw))
@@ -1596,12 +1598,57 @@ private struct NumPair: View {
                 .lineLimit(1).padding(.horizontal, 10).frame(minWidth: 56, minHeight: 42)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 4).onChanged { g in
+                .onTapGesture { padEntry = ""; showPicker = true }            // tap = the value overlay (ideas 12/31)
+                .gesture(DragGesture(minimumDistance: 4).onChanged { g in     // drag = scrub (idea 2)
                     let base = dragBase ?? value; if dragBase == nil { dragBase = value }
-                    apply(base + Int((g.translation.width / 14).rounded()))   // drag-scrub: ~14pt per step
+                    apply(base + Int((g.translation.width / 14).rounded()))   // ~14pt per step
                 }.onEnded { _ in dragBase = nil })
+                .popover(isPresented: $showPicker, arrowEdge: .bottom) { picker }
             arrow("▶") { apply(value + 1) }
         }   // content-sized; the parent field (VStack .leading) left-aligns it
+    }
+    // THE VALUE OVERLAY (§presentation ideas 12 + 31): tap the number → pick it exactly. A GRID for small ranges (grid16
+    // reborn as an on-demand overlay) · a KEYPAD for big ranges (CC 0–127) — the raw path, exact numeric entry.
+    @ViewBuilder private var picker: some View {
+        if range.count <= 24 {
+            let vals = Array(range); let cols = min(8, max(1, vals.count))
+            VStack(spacing: 6) {
+                ForEach(0..<((vals.count + cols - 1) / cols), id: \.self) { r in
+                    HStack(spacing: 6) {
+                        ForEach(0..<cols, id: \.self) { c in
+                            let idx = r * cols + c
+                            if idx < vals.count {
+                                let vv = vals[idx]
+                                Text(format(vv)).font(.system(size: 13, weight: .heavy, design: .monospaced)).lineLimit(1)
+                                    .foregroundColor(vv == value ? .black : .white).padding(.horizontal, 6)
+                                    .frame(minWidth: 34, minHeight: 36).background(RoundedRectangle(cornerRadius: 6).fill(vv == value ? accent : Color.white.opacity(0.12)))
+                                    .contentShape(Rectangle()).onTapGesture { apply(vv); showPicker = false }
+                            }
+                        }
+                    }
+                }
+            }.padding(14).background(Color.black)
+        } else {
+            VStack(spacing: 8) {
+                Text(padEntry.isEmpty ? "\(value)" : padEntry).font(.system(size: 24, weight: .heavy, design: .monospaced)).foregroundColor(accent).frame(minHeight: 32)
+                ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["⌫", "0", "✓"]], id: \.self) { keys in
+                    HStack(spacing: 8) {
+                        ForEach(keys, id: \.self) { key in
+                            Text(key).font(.system(size: 20, weight: .heavy, design: .monospaced)).foregroundColor(key == "✓" ? .black : .white)
+                                .frame(width: 56, height: 46).background(RoundedRectangle(cornerRadius: 8).fill(key == "✓" ? accent : Color.white.opacity(0.1)))
+                                .contentShape(Rectangle()).onTapGesture { padKey(key) }
+                        }
+                    }
+                }
+            }.padding(16).background(Color.black)
+        }
+    }
+    private func padKey(_ k: String) {
+        switch k {
+        case "⌫": if !padEntry.isEmpty { padEntry.removeLast() }
+        case "✓": if let n = Int(padEntry) { apply(n) }; padEntry = ""; showPicker = false
+        default:  if padEntry.count < 4 { padEntry += k }
+        }
     }
 }
 
