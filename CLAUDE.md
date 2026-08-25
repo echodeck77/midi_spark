@@ -169,9 +169,14 @@ Claude (my OUTBOX). Trigger is **MANUAL** — run this when the user asks (e.g. 
   LAW** (rules 1/2/5): `heroField` (the ★★★ hero wears a 2pt accent bar + breathing room — "important controls look
   important") on every card's hero; `optionsCluster` gathers the ★ toggles (FIT 1 BEAT · RAKE · CONSTANT-N · DRY · CUT
   SPILL · INVERT) into ONE compact foot row of lit/unlit chips; heroes reordered first. **C (`49366c3`) SECTION THE LONG
-  CARDS** (rule 4): `sectionLabel` — ECHO → TIMING·TONE·TAIL, MOD → a TARGET section. NEXT (Paul's word): the D wave
-  (21 defaults-recede · 23 hold-bypass A/B · 16 span-bracket · 15 playhead-sweeps-matrix · 8 self-drawing chips) → E
-  two-column (= width Pass 2) → F the à-la-carte 27. Plan: `Docs/PLAN-presentation-redesign.md`.**
+  CARDS** (rule 4): `sectionLabel` — ECHO → TIMING·TONE·TAIL, MOD → a TARGET section. **D WAVE (partial):** ✅ **8
+  SELF-DRAWING CHIPS** (`d45e409`) — `iconSeg`: MOD WAVE draws the waveform (Canvas), ARP PATTERN shows arrows; ✅ **15
+  PLAYHEAD SWEEPS THE MATRIX/LANE** (`d45e409`) — the live grid column lights in the STATE MATRIX + SLIDER LANE (from
+  `d.effColumn`; exact for ROW/N-span, indicative for CELL); ✅ **23 HOLD-BYPASS A/B** (`321e885`) — the BYPASS button:
+  tap = toggle, HOLD = momentary flip + restore (v1 uses the undoable edit, so a placed colour may gain an undo step —
+  ephemeral-bypass is the follow-up). **DEFERRED: 16 SPAN BRACKET** (the ladder's ×2/×4 don't fit an 8-column bracket —
+  design wrinkle) · **21 DEFAULTS-RECEDE** (per-control is-default plumbing across ~50 controls — a big mechanical pass).
+  NEXT: E two-column (= width Pass 2) → F the à-la-carte 27; then 16/21 with their fixes. Plan: `Docs/PLAN-presentation-redesign.md`.**
 - **▶ DEST MATRIX — the per-step emitter hocket (ratified §5, routing-class) (2026-08-25, on `main`; iOS builds, macOS
   green incl. fuzz; DEVICE ear owed). The first STATE-MATRIX §5 candidate + the first NEW routing-class processor. A new
   note-transparent `ProcessorType.dest` (append-only ID): an 8-slice matrix (`destSlices: [Int]?`, 0=A…3=D) picks WHICH

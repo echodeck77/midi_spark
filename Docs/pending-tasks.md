@@ -44,9 +44,12 @@ Read + filed: `INSTRUCTIONS-state-matrix.md`, `SPEC-arp-additions.md`, `SPEC-euc
     design side returned `Docs/SPEC-presentation-pass-ratified.md` (6 hierarchy rules + per-card remap) +
     `Docs/FERRY-presentation-ideas-ratified.md` (32 ideas; Paul's high-value wave 21·23·16·15·8). My implementation plan =
     **`Docs/PLAN-presentation-redesign.md`** — ALL render-only (engine + params untouched; device-eye is the judge).
-    Sequence: **✅ A** the `numPair` ◀value▶ keystone + numeric remap (`0bf0fdd`) → **✅ B** hero law + options cluster
-    (`1f46a94`) → **✅ C** section the long cards (`49366c3`) → **D** the 21·23·16·15·8 wave (TODO) → **E** two-column
-    (= width-Pass-2, TODO) → **F** the à-la-carte 27 (TODO). A–C DONE (2026-08-25, UI-only, iOS builds, DEVICE eye owed).
+    Sequence: **✅ A** `numPair` keystone (`0bf0fdd`) → **✅ B** hero law + options cluster (`1f46a94`) → **✅ C** section
+    long cards (`49366c3`) → **D wave (partial):** ✅ 8 self-drawing chips + ✅ 15 playhead-sweeps-matrix (`d45e409`) · ✅ 23
+    hold-bypass A/B (`321e885`). **DEFERRED (each has a wrinkle):** **16 SPAN BRACKET** — the ladder's ×2/×4 values don't
+    fit an 8-column bracket cleanly (needs a design for the multi-bar case). **21 DEFAULTS-RECEDE** — needs per-control
+    "is-at-default" plumbing across ~50 controls (a large mechanical pass; the options-chips already show deviation).
+    → **E** two-column (= width-Pass-2, TODO) → **F** the à-la-carte 27 (TODO). All UI-only, iOS builds, DEVICE eye owed.
 3. **NEW FEATURES ON THE SUBSTRATE:** EUCLID LINES MODEL + the app-wide E-BRUSH (`SPEC-euclid-variations §10/§5`) · RIFF —
    the chord-following 303: rank matrix + x0x lanes + CAPTURE + FOLLOWING frame + GLIDE-SYNTH slide interlock
    (`SPEC-riff-processor`) · then MOTIF (plays the riff library — `SPEC-motif-processor`, depends on RIFF).
